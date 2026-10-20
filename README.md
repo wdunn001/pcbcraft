@@ -160,6 +160,12 @@ performance, e.g. `CARGO_TARGET_DIR=$HOME/.cache/pcbcraft-target`.
 Architecture: [docs/architecture.md](docs/architecture.md). Agent instructions:
 [AGENTS.md](AGENTS.md). Provenance: [ATTRIBUTION.md](ATTRIBUTION.md).
 
+## Disclaimer
+
+The files in this repository are provided as is, without warranty, liability or indemnity, and
+Tangency Labs and the contributors accept no responsibility for any harmful or unlawful use of
+them: read [DISCLAIMER.md](DISCLAIMER.md).
+
 ## License
 
 PCBCraft is licensed under GNU GPL version 3 or later; see [LICENSE](LICENSE).
