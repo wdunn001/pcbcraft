@@ -146,6 +146,16 @@ pub struct Wire {
     pub from: PinRef,
     pub to: PinRef,
 }
+/// Free-form schematic wire drawn by the user with explicit vertices, as in KiCad.
+/// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DrawnWire {
+    pub id: Id,
+    /// Logical net carried by this wire, or none until it is assigned.
+    pub net: Option<Id>,
+    /// Vertices in draw order, in millimetres.
+    pub points: Vec<Point>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pad {
     pub number: String,
@@ -333,6 +343,8 @@ pub struct Project {
     pub components: Vec<Component>,
     pub nets: Vec<Net>,
     pub wires: Vec<Wire>,
+    #[serde(default)]
+    pub drawn_wires: Vec<DrawnWire>,
     pub board: Board,
     #[serde(default)]
     pub library: ProjectLibrary,
@@ -380,6 +392,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             wires: vec![],
+            drawn_wires: vec![],
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -511,6 +524,7 @@ impl Project {
             .map(|x| x.id)
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.wires.iter().map(|x| x.id))
+            .chain(self.drawn_wires.iter().map(|x| x.id))
             .chain(self.board.footprints.iter().map(|x| x.id))
             .chain(self.board.tracks.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
@@ -661,6 +675,20 @@ impl Project {
                 || self.pin(&w.to).is_none_or(|p| p.net != Some(w.net))
             {
                 return Err("wire has inconsistent pin/net references".into());
+            }
+        }
+        for w in &self.drawn_wires {
+            if w.net.is_some_and(|net| !nets.contains(&net)) {
+                return Err("drawn wire references an unknown net".into());
+            }
+            if w.points.len() < 2 || w.points.len() > 256 {
+                return Err("drawn wire needs 2–256 vertices".into());
+            }
+            if !w.points.iter().all(|p| p.valid()) {
+                return Err("drawn wire has an out-of-range vertex".into());
+            }
+            if w.points.windows(2).any(|p| p[0] == p[1]) {
+                return Err("drawn wire repeats a vertex".into());
             }
         }
         let b = &self.board;

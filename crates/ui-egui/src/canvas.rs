@@ -619,6 +619,15 @@ impl App {
                 );
             }
         }
+        for w in &p.drawn_wires {
+            painter.add(egui::Shape::line(
+                w.points
+                    .iter()
+                    .map(|point| camera.screen(*point, rect))
+                    .collect(),
+                Stroke::new(1.8, self.accent()),
+            ));
+        }
         for c in p.components.iter().flat_map(|c| c.schematic_views()) {
             self.symbol(
                 painter,

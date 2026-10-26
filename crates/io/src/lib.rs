@@ -320,6 +320,15 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 s.push_str(&format!("<polyline points=\"{points}\" fill=\"none\" stroke=\"#5ae0bc\" stroke-width=\"0.2\"/>"));
             }
         }
+        for w in &p.drawn_wires {
+            let points = w
+                .points
+                .iter()
+                .map(|p| format!("{},{}", p.x, p.y))
+                .collect::<Vec<_>>()
+                .join(" ");
+            s.push_str(&format!("<polyline points=\"{points}\" fill=\"none\" stroke=\"#5ae0bc\" stroke-width=\"0.2\"/>"));
+        }
         for c in p.components.iter().flat_map(|c| c.schematic_views()) {
             s.push_str(&format!(
                 "<g transform=\"translate({} {}) rotate({})\">",
@@ -449,6 +458,13 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                     if let (Some(a), Some(b)) = (pair.first(), pair.get(1)) {
                         line(&mut image, to_pixel(*a), to_pixel(*b), 1.0, [90, 224, 188]);
                     }
+                }
+            }
+        }
+        for w in &p.drawn_wires {
+            for pair in w.points.windows(2) {
+                if let (Some(a), Some(b)) = (pair.first(), pair.get(1)) {
+                    line(&mut image, to_pixel(*a), to_pixel(*b), 1.0, [90, 224, 188]);
                 }
             }
         }
@@ -903,6 +919,26 @@ mod tests {
         assert_eq!(exported.name, "pcbcraft_Edited0805");
         assert!(!board.contains("project:Edited0805"));
         assert_eq!(exported.pads.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn drawn_wires_render_in_the_schematic_preview_without_components() -> Result<(), String> {
+        let mut project = Project::default();
+        project.drawn_wires.push(pcbcraft_doc::DrawnWire {
+            id: 1,
+            net: None,
+            points: vec![
+                Point::new(10.0, 10.0),
+                Point::new(20.0, 10.0),
+                Point::new(20.0, 20.0),
+            ],
+        });
+        project.validate()?;
+        let schematic = svg(&project, "schematic")?;
+        assert!(
+            schematic.contains("points=\"10,10 20,10 20,20\""),
+            "drawn wire vertices must render in order"
+        );
         Ok(())
     }
     #[test]
