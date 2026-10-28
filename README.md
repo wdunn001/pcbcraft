@@ -368,6 +368,7 @@ performance, e.g. `CARGO_TARGET_DIR=$HOME/.cache/pcbcraft-target`.
 
 Architecture: [docs/architecture.md](docs/architecture.md). Agent instructions:
 [AGENTS.md](AGENTS.md). Provenance: [ATTRIBUTION.md](ATTRIBUTION.md).
+How work flows through the tracker, from issue to merge: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

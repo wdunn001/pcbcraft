@@ -3,6 +3,7 @@
 A complete EDA application being built in Rust, GPL-3.0-or-later, MCP-first.
 
 Read README.md, ROADMAP.md and docs/architecture.md at the start of work.
+CONTRIBUTING.md explains the issue pipeline, claiming, tags, testing and the merge flow.
 
 - One main window. Document/workspace tabs and docked panes. Never spawn separate
   schematic, board, library, checks or 3D windows. Keep project and selection shared.
