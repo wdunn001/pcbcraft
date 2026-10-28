@@ -43,10 +43,26 @@ Copper connectivity joins touching same-net tracks and pads, separated by layer.
 Plated through-hole pads bridge only their own physical pad across front/back
 copper; a trace entirely within a circular/oval drilled opening is not copper
 contact. Drill containment is checked against the actual rounded pad shape.
-Initial clearance checks use capsule tracks and actual convex SMD/PTH pad outlines
+Initial clearance checks use capsule tracks and actual SMD/PTH pad outlines
 with bounded chord error. Connectivity uses conservative inscribed pad bounds.
-Library queries run off the GUI thread without locking the project. Arbitrary pad
-shapes, vias, zone fills, hierarchy and comprehensive electrical rules remain future work.
+Library queries run off the GUI thread without locking the project. Vias, zone
+fills, hierarchy and comprehensive electrical rules remain future work.
+
+## Pad shapes
+
+`FootprintPad.shape` is one of circle, rect, oval, roundrect, chamfered or custom;
+`shape_kind()` gives the typed view. A chamfered pad cuts its selected corners by
+a ratio in (0, 0.5] of the shorter side. A custom pad is one simple polygon of 3 to
+256 pad-local vertices that must contain the rectangular anchor given by `size`;
+that anchor's inscribed disc is the conservative connectivity contact. Clearance,
+board edge, cutout and drill containment checks use the exact chamfer or polygon
+outline. KiCad import maps rect/roundrect pads with zero rounding plus chamfer
+corners to chamfered, and custom pads whose primitives are one filled zero-width
+polygon containing the anchor to custom; other custom primitives, chamfered rounded
+rectangles and trapezoids are reported unsupported. The initial Gerber writer emits
+one copper layer (pad flashes and tracks): circles use C, axis-aligned rect/oval
+use R/O, and every other pad is an aperture macro with one outline primitive.
+Mask, paste, silkscreen, drill and outline Gerbers are future work.
 The initial KiCad writer targets a small documented subset and must be checked with
 KiCad CLI; there is no general KiCad importer yet.
 

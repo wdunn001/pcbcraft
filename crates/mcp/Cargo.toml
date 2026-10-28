@@ -16,3 +16,4 @@ base64.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+pcbcraft-library.workspace = true

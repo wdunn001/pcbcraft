@@ -39,12 +39,14 @@ This checklist records implementation, not an estimated parity percentage.
 
 ## M2 — Serious board layout
 
-- [ ] Custom/chamfered pad shapes, vias and multilayer stackups
+- [x] Chamfered and custom polygon pad shapes with exact clearance outlines
+- [ ] Vias and multilayer stackups
 - [ ] Interactive 45° routing, obstacle avoidance, shove and track dragging
 - [ ] Differential pairs, length tuning, impedance-aware constraints
 - [ ] Copper zones, thermal reliefs, islands, keepouts, robust polygon operations
 - [ ] Comprehensive clearance and manufacturing checks
-- [ ] Gerber, Excellon, placement files, BOM and fabrication packages
+- [x] Initial Gerber copper layer writer (pad flashes and tracks)
+- [ ] Complete Gerber set, Excellon, placement files, BOM and fabrication packages
 
 ## M3 — Sketch-driven board geometry and mechanical coordination
 

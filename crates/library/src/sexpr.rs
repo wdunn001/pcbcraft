@@ -3,11 +3,11 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("KiCad syntax at byte {offset}: {message}")]
+    #[error("unexpected syntax at byte {offset}: {message}")]
     Syntax { offset: usize, message: String },
-    #[error("KiCad input exceeds {0}")]
+    #[error("library file exceeds {0}")]
     Limit(&'static str),
-    #[error("Invalid KiCad library: {0}")]
+    #[error("invalid library file: {0}")]
     Invalid(String),
 }
 #[derive(Clone, Copy, Debug)]

@@ -50,7 +50,7 @@ are reported; metadata such as properties and
 Inherited geometry is resolved in the DTO; a derived symbol's raw source is only
 its own original node, so reconstituting an entire source library requires
 retaining the parent definitions too. This is a read/import foundation, not a
-lossless library-format writer or a complete symbol/footprint editor.
+lossless library-format writer or a complete symbol/footprint editor. Separate text writers emit a project-library footprint or symbol as a library text file that reads back with identical pads, pins and artwork; property and raw-source preservation stay outside those writers.
 
 ## Bounds and validation
 

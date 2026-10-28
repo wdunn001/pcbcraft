@@ -1,0 +1,28 @@
+{
+  "commands": [
+    {"command":"project.rename","params":{"name":"Shaped pads"}},
+    {"command":"library.symbol.upsert","params":{"definition":{
+      "name":"Polarized2","reference":"D","value":"Polarized","description":"Two-pin polarized part","keywords":"",
+      "footprint":"","extends":null,"raw_source":"","unsupported":[],"graphics":[],
+      "pins":[
+        {"number":"1","name":"K","position":{"x":-5.08,"y":0},"angle":0,"length":2.54,"electrical_type":"passive","unit":1,"body_style":1},
+        {"number":"2","name":"A","position":{"x":5.08,"y":0},"angle":180,"length":2.54,"electrical_type":"passive","unit":1,"body_style":1}
+      ]}}},
+    {"command":"library.footprint.upsert","params":{"definition":{
+      "name":"ShapedPads","description":"Chamfered polarity pad and a notched custom pad","keywords":"",
+      "graphics":[],"raw_source":"","unsupported":[],
+      "pads":[
+        {"number":"1","pad_type":"smd","shape":"chamfered","position":{"x":-2.5,"y":0},"rotation":0,
+         "size":{"x":2.0,"y":2.4},"layers":["F.Cu","F.Paste","F.Mask"],"drill":null,"roundrect_ratio":null,
+         "chamfer":{"ratio":0.3,"corners":{"top_left":true,"top_right":false,"bottom_left":true,"bottom_right":false}},
+         "raw_source":""},
+        {"number":"2","pad_type":"smd","shape":"custom","position":{"x":2.5,"y":0},"rotation":0,
+         "size":{"x":0.8,"y":0.8},"layers":["F.Cu","F.Paste","F.Mask"],"drill":null,"roundrect_ratio":null,
+         "polygon":[{"x":-1.0,"y":-1.2},{"x":1.0,"y":-1.2},{"x":1.0,"y":1.2},{"x":0.0,"y":0.6},{"x":-1.0,"y":1.2}],
+         "raw_source":""}
+      ]}}},
+    {"command":"component.place_custom","params":{"name":"Polarized2","position":{"x":20,"y":20},"reference":"D1"}},
+    {"command":"footprint.assign_custom","params":{"id":1,"name":"ShapedPads"}},
+    {"command":"board.sync","params":{}}
+  ]
+}

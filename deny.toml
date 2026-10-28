@@ -1,0 +1,50 @@
+# cargo-deny configuration. Run with `cargo xtask deny`. See docs/ci.md.
+[graph]
+all-features = true
+
+[advisories]
+# Unmaintained crates are reported for direct and transitive dependencies,
+# yanked versions fail.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# PCBCraft is GPL-3.0-or-later. Every dependency license must be compatible
+# with distributing the combined work under GPL-3.0.
+confidence-threshold = 0.93
+allow = [
+    "GPL-3.0-or-later",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+# egui ships the Ubuntu and Hack fonts as embedded data. Both are free font
+# licenses; the exception is limited to the one crate that carries them.
+exceptions = [
+    { allow = ["OFL-1.1", "Ubuntu-font-1.0"], crate = "epaint_default_fonts" },
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+# Workspace crates depend on each other by path without a version.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# craft-ui is pinned to a revision in Cargo.toml.
+allow-git = ["https://github.com/storytold/craft-libs"]

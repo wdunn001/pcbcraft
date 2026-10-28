@@ -1,0 +1,122 @@
+# Release builds for every platform. Called by nightly.yml and release.yml so
+# nightly runs exercise the exact packaging that a tagged release uses.
+# No build cache here: release artifacts are built from a clean state.
+name: Build distributables
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version string used in archive names, for example v0.1.0 or nightly-20261028
+        required: true
+        type: string
+      ref:
+        description: Commit, branch or tag to build
+        required: true
+        type: string
+      retention-days:
+        required: false
+        type: number
+        default: 14
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+
+jobs:
+  native:
+    name: Package (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            os: ubuntu-24.04
+            targets: x86_64-unknown-linux-gnu
+          - platform: linux-aarch64
+            os: ubuntu-24.04-arm
+            targets: aarch64-unknown-linux-gnu
+          - platform: windows-x86_64
+            os: windows-2025
+            targets: x86_64-pc-windows-msvc
+          - platform: macos-universal
+            os: macos-15
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - name: Install window-system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev \
+            libx11-dev libxi-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.targets }}
+      - name: Build release binaries
+        shell: bash
+        env:
+          TARGETS: ${{ matrix.targets }}
+        run: |
+          for target in ${TARGETS//,/ }; do
+            cargo build --locked --release -p pcbcraft -p pcbcraft-cli --target "$target"
+          done
+      - name: Package
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          VERSION: ${{ inputs.version }}
+        run: bash .github/scripts/package.sh "$PLATFORM" "$VERSION" dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  web:
+    name: Package (web)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: trunk
+      - name: Build the browser bundle
+        working-directory: apps/pcbcraft-web
+        run: trunk build --release --public-url ./
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          name="pcbcraft-$VERSION-web"
+          mkdir -p dist "stage/$name"
+          cp -r apps/pcbcraft-web/dist/. "stage/$name/"
+          cp LICENSE NOTICE ATTRIBUTION.md "stage/$name/"
+          (cd stage && zip -qr "../dist/$name.zip" "$name")
+          ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-web
+          path: dist/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}

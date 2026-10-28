@@ -195,6 +195,7 @@ fn resolve(
             description: String::new(),
             keywords: String::new(),
             footprint: String::new(),
+            set: String::new(),
             pins: Vec::new(),
             graphics: Vec::new(),
             extends: None,
@@ -363,6 +364,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
         pads: Vec::new(),
         graphics: Vec::new(),
         model: None,
+        rules: None,
         raw_source: source[node.span.clone()].to_owned(),
         unsupported: Vec::new(),
     };
@@ -399,30 +401,57 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 .skip(1)
                 .filter_map(|x| x.atom.clone())
                 .collect();
-            let shape = child.value(3).to_owned();
-            if !matches!(shape.as_str(), "circle" | "rect" | "oval" | "roundrect") {
+            let mut shape = child.value(3).to_owned();
+            let number = child.value(1).to_owned();
+            let size = point(child, "size", false)?;
+            let mut roundrect_ratio = child
+                .child("roundrect_rratio")
+                .map(|r| num(r.value(1)))
+                .transpose()?;
+            let chamfer = pad_chamfer(child, &number, &mut s.unsupported)?;
+            if let Some(c) = chamfer {
+                if shape == "rect"
+                    || (shape == "roundrect" && roundrect_ratio.unwrap_or(0.0) <= 0.0)
+                {
+                    shape = "chamfered".into();
+                    roundrect_ratio = None;
+                } else {
+                    s.unsupported.push(format!(
+                        "pad {number} chamfer on {shape} geometry (ratio {})",
+                        c.ratio
+                    ));
+                }
+            }
+            let chamfer = chamfer.filter(|_| shape == "chamfered");
+            let polygon = if shape == "custom" {
+                custom_pad_polygon(child, size, &number, &mut s.unsupported)?
+            } else {
+                if child.child("primitives").is_some() {
+                    s.unsupported
+                        .push(format!("pad {number} primitives on a {shape} pad"));
+                }
+                Vec::new()
+            };
+            if !matches!(
+                shape.as_str(),
+                "circle" | "rect" | "oval" | "roundrect" | "chamfered" | "custom"
+            ) {
                 s.unsupported.push(format!(
-                    "pad {} shape {shape} requires unsupported geometry",
-                    child.value(1)
+                    "pad {number} shape {shape} requires unsupported geometry"
                 ));
             }
-            if child.child("primitives").is_some() || child.child("chamfer").is_some() {
-                s.unsupported
-                    .push(format!("pad {} custom/chamfer geometry", child.value(1)));
-            }
             s.pads.push(FootprintPad {
-                number: child.value(1).to_owned(),
+                number,
                 pad_type: child.value(2).to_owned(),
                 shape,
                 position: point(child, "at", false)?,
                 rotation: angle(child)?,
-                size: point(child, "size", false)?,
+                size,
                 layers,
                 drill,
-                roundrect_ratio: child
-                    .child("roundrect_rratio")
-                    .map(|r| num(r.value(1)))
-                    .transpose()?,
+                roundrect_ratio,
+                chamfer,
+                polygon,
                 raw_source: source[child.span.clone()].to_owned(),
             });
         } else if child.name() == "model" {
@@ -464,6 +493,22 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     raw_source: source[child.span.clone()].to_owned(),
                 });
             }
+        } else if matches!(
+            child.name(),
+            "clearance" | "solder_mask_margin" | "solder_paste_margin"
+        ) {
+            let value = num(child.value(1))?;
+            let rules = s.rules.get_or_insert_default();
+            let (slot, label) = match child.name() {
+                "clearance" => (&mut rules.clearance, "local clearance"),
+                "solder_mask_margin" => (&mut rules.mask_margin, "solder mask margin"),
+                _ => (&mut rules.paste_margin, "solder paste margin"),
+            };
+            if slot.is_some() {
+                s.unsupported.push(format!("duplicate {label} override"));
+            } else {
+                *slot = Some(value);
+            }
         } else if let Some(g) = graphic(child, false)? {
             s.graphics.push(g);
         } else if child.atom.is_none()
@@ -487,4 +532,147 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
     }
     s.validate()?;
     Ok(s)
+}
+
+/// Read the net map of a Specctra design session: every named net with its
+/// pins split from the `REF-PIN` entries. Nets without pins are skipped.
+pub fn read_specctra_session(source: &str) -> Result<Vec<SessionNet>, Error> {
+    let node = sexpr::parse(source)?;
+    if node.name() != "session" {
+        return Err(invalid("expected a design session"));
+    }
+    let map = node
+        .child("net_map_out")
+        .ok_or_else(|| invalid("session has no net map"))?;
+    let mut nets = Vec::new();
+    for net in map.children.iter().filter(|c| c.name() == "net") {
+        let name = net
+            .child("name")
+            .map(|n| n.value(1).to_owned())
+            .unwrap_or_default();
+        if name.is_empty() || name.len() > 128 {
+            return Err(invalid("session net name must be 1 to 128 bytes"));
+        }
+        let Some(pins) = net.child("pins") else {
+            continue;
+        };
+        let mut list = Vec::new();
+        for pin in pins.children.iter().filter(|c| c.name() == "pin") {
+            let token = pin.value(1);
+            let Some((reference, number)) = token.rsplit_once('-') else {
+                return Err(invalid("session pin entries need the REF-PIN form"));
+            };
+            if reference.is_empty()
+                || reference.len() > 64
+                || number.is_empty()
+                || number.len() > 64
+            {
+                return Err(invalid("session pin entry is out of bounds"));
+            }
+            list.push((reference.to_owned(), number.to_owned()));
+        }
+        if list.len() > 128 {
+            return Err(invalid("a session net lists at most 128 pins"));
+        }
+        nets.push(SessionNet { name, pins: list });
+        if nets.len() > 256 {
+            return Err(invalid("a session holds at most 256 nets"));
+        }
+    }
+    let total: usize = nets.iter().map(|n| n.pins.len()).sum();
+    if total > 4096 {
+        return Err(invalid("a session lists at most 4096 pins"));
+    }
+    Ok(nets)
+}
+
+/// KiCad expresses chamfers as `(chamfer_ratio r) (chamfer corner...)` on a
+/// rect or roundrect pad. Returns `None` when no corner is cut.
+fn pad_chamfer(
+    pad: &Node,
+    number: &str,
+    unsupported: &mut Vec<String>,
+) -> Result<Option<PadChamfer>, Error> {
+    let Some(names) = pad.child("chamfer") else {
+        return Ok(None);
+    };
+    let mut corners = ChamferCorners::default();
+    for name in names
+        .children
+        .iter()
+        .skip(1)
+        .filter_map(|x| x.atom.as_deref())
+    {
+        match name {
+            "top_left" => corners.top_left = true,
+            "top_right" => corners.top_right = true,
+            "bottom_left" => corners.bottom_left = true,
+            "bottom_right" => corners.bottom_right = true,
+            other => {
+                unsupported.push(format!("pad {number} chamfer corner {other}"));
+                return Ok(None);
+            }
+        }
+    }
+    let ratio = pad
+        .child("chamfer_ratio")
+        .map(|r| num(r.value(1)))
+        .transpose()?
+        .unwrap_or(0.0);
+    if !corners.any() || ratio <= 0.0 {
+        return Ok(None);
+    }
+    if ratio > 0.5 {
+        unsupported.push(format!("pad {number} chamfer ratio {ratio} exceeds 0.5"));
+        return Ok(None);
+    }
+    Ok(Some(PadChamfer { ratio, corners }))
+}
+
+/// A custom pad is supported when its primitives are exactly one filled,
+/// zero-width polygon that contains the pad's anchor. Its copper is then that
+/// polygon alone. Anything else is recorded as unsupported.
+fn custom_pad_polygon(
+    pad: &Node,
+    anchor: Point,
+    number: &str,
+    unsupported: &mut Vec<String>,
+) -> Result<Vec<Point>, Error> {
+    let primitives: Vec<&Node> = pad
+        .child("primitives")
+        .map(|p| p.children.iter().filter(|x| x.atom.is_none()).collect())
+        .unwrap_or_default();
+    let [poly] = primitives[..] else {
+        unsupported.push(format!(
+            "pad {number} custom geometry needs exactly one polygon primitive"
+        ));
+        return Ok(Vec::new());
+    };
+    let width = poly.child("width").map(|w| num(w.value(1))).transpose()?;
+    let filled = poly
+        .child("fill")
+        .is_none_or(|f| matches!(f.value(1), "yes" | "solid"));
+    if poly.name() != "gr_poly" || width.unwrap_or(0.0) != 0.0 || !filled {
+        unsupported.push(format!(
+            "pad {number} custom primitive {} is not a filled zero-width polygon",
+            poly.name()
+        ));
+        return Ok(Vec::new());
+    }
+    let Some(pts) = poly.child("pts") else {
+        unsupported.push(format!("pad {number}: custom pad polygon has no points"));
+        return Ok(Vec::new());
+    };
+    let points = pts
+        .children
+        .iter()
+        .filter(|x| x.name() == "xy")
+        .take(crate::MAX_PAD_POLYGON_VERTICES + 1)
+        .map(|xy| Ok(Point::new(num(xy.value(1))?, num(xy.value(2))?)))
+        .collect::<Result<Vec<_>, Error>>()?;
+    if let Some(problem) = crate::custom_polygon_error(anchor, &points) {
+        unsupported.push(format!("pad {number}: {problem}"));
+        return Ok(Vec::new());
+    }
+    Ok(points)
 }

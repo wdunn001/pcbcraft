@@ -60,3 +60,17 @@ selected from a real component manufacturer's footprint specification.
 The initial routing tool has no obstacle avoidance/shove; initial checks are not
 comprehensive ERC/DRC. Full KiCad import, production libraries, arbitrary pad
 shapes, zones, vias, simulation and 3D are tracked in ROADMAP.md.
+
+## Parity suite
+
+`crates/engine/tests/parity.rs` runs the reference projects (LED indicator built
+from the example command scripts, dual amplifier, KiCad-library RC) and compares
+project JSON, command results, normalised check findings, the KiCad export, SVG
+views and PNG checksums with goldens in `crates/engine/tests/parity/`. It also
+asserts writer determinism and the native save/load round trip.
+
+After an intentional output change, review the diff and re-bless with
+`cargo xtask bless-parity` (or `PCBCRAFT_BLESS=1 cargo test -p pcbcraft-engine
+--test parity`). Never bless in CI; blessing is ignored when `CI` is set.
+
+Gerber and drill output have no goldens yet: the writer is being fixed in #351.

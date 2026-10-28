@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor:
+        update-types: [minor, patch]
+    ignore:
+      # egui, eframe and craft-ui move together; bump them by hand.
+      - dependency-name: egui
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      - dependency-name: eframe
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      - dependency-name: craft-ui

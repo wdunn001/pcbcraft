@@ -1,5 +1,6 @@
 //! Canonical project data. No UI or protocol dependencies.
 use pcbcraft_geom::{Point, positive};
+use pcbcraft_library::PadShape;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -64,6 +65,21 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// The schematic sheet this component belongs to. Sheet 0 is the implicit
+    /// root page that every design starts with.
+    #[serde(default, skip_serializing_if = "is_root_sheet")]
+    pub sheet: Id,
+}
+fn is_root_sheet(id: &Id) -> bool {
+    *id == 0
+}
+/// A named schematic page. Every component belongs to exactly one sheet;
+/// sheet 0 is the implicit root page and is not listed here.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Sheet {
+    pub id: Id,
+    pub name: String,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -164,6 +180,25 @@ pub struct Net {
     #[serde(default)]
     pub length_tolerance: Option<f64>,
 }
+/// A check the designer wrote themselves: one plain measurement with one
+/// limit, re-run with the built-in checks after every edit. The measure is
+/// one of a fixed list (a wire thinner than, a wire longer than, more parts,
+/// more vias, or more wires on one net than the limit), so a check stays
+/// readable without any query language.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CustomCheck {
+    pub id: Id,
+    /// Plain words for what this check means, shown wherever it reports.
+    pub name: String,
+    /// One of: "track width below", "track length above", "part count above",
+    /// "via count above", "net track count above".
+    pub measure: String,
+    /// The number the measure is compared against: millimetres for wire
+    /// measures, a plain count otherwise.
+    pub limit: f64,
+    /// "error" or "warning", how loudly a breach is reported.
+    pub severity: String,
+}
 /// A named group of nets sharing one clearance requirement and one default
 /// track width. A net belongs to at most one class; nets in no class follow
 /// the board default.
@@ -216,6 +251,39 @@ impl NetPairRule {
             && self.clearance <= 100.0
     }
 }
+/// A differential pair: two named nets that carry one signal, routed side by
+/// side with a fixed coupling gap and, optionally, matched total lengths.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct DiffPair {
+    pub id: Id,
+    /// Pair name, for example "USB_D".
+    pub name: String,
+    /// The positive-side net.
+    pub net_p: Id,
+    /// The negative-side net; must differ from the positive side.
+    pub net_n: Id,
+    /// Distance the two sides should keep from each other, in millimetres.
+    /// Copper closer than this reports a coupling finding.
+    pub gap: f64,
+    /// How far the two routed lengths may differ, in millimetres; absent
+    /// means length matching is not checked for this pair.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length_tolerance: Option<f64>,
+}
+impl DiffPair {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && self.net_p != self.net_n
+            && self.net_p != 0
+            && self.net_n != 0
+            && self.gap.is_finite()
+            && (0.02..=10.0).contains(&self.gap)
+            && self
+                .length_tolerance
+                .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+    }
+}
 /// A rectangular board area that demands a stricter minimum copper
 /// separation: copper lying wholly inside the rectangle, on the matching
 /// layer and net when those filters are set, must clear by at least the
@@ -237,6 +305,11 @@ pub struct RuleArea {
     pub layer: Option<Layer>,
     /// Minimum copper separation demanded inside the area, in millimetres.
     pub clearance: f64,
+    /// When set, components inside the area may not stand taller than this,
+    /// in millimetres: a height restriction for boards that must fit under a
+    /// cover or past another board.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_height: Option<f64>,
     /// The rectangle itself.
     pub region: RuleRegion,
 }
@@ -260,6 +333,7 @@ impl RuleArea {
             && self.region.y >= -1000.0
             && self.region.x + self.region.width <= 1000.0
             && self.region.y + self.region.height <= 1000.0
+            && self.max_height.is_none_or(|h| (0.1..=100.0).contains(&h))
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -288,9 +362,20 @@ pub struct Label {
     pub position: Point,
     /// Text rotation in degrees, ignored for junctions.
     pub rotation: f64,
+    /// Bus notation carried by a bus label, like DB*8; empty for every other
+    /// kind. A bus label names a group of nets, so it carries no single net.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
 }
 impl Label {
-    pub const KINDS: [&'static str; 5] = ["label", "global", "hierarchical", "power", "junction"];
+    pub const KINDS: [&'static str; 6] = [
+        "label",
+        "global",
+        "hierarchical",
+        "power",
+        "junction",
+        "bus",
+    ];
 }
 /// A flag marking a pin intentionally unconnected, that
 /// suppresses its unconnected-pin violation.
@@ -298,6 +383,19 @@ impl Label {
 pub struct NoConnectFlag {
     pub id: Id,
     pub pin: PinRef,
+}
+/// A named hierarchy port placed on a schematic page, declaring that a net
+/// enters or leaves that page here. Ports sharing a name on different pages
+/// carry the same net; the engine enforces that when placing them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Port {
+    pub id: Id,
+    pub name: String,
+    pub net: Id,
+    /// The page the port sits on; 0 is the root page.
+    pub sheet: Id,
+    pub position: Point,
 }
 /// Free-form schematic wire drawn by the user with explicit vertices.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
@@ -467,6 +565,8 @@ impl Pad {
         hole.size = drill.size;
         hole.shape = "oval".into();
         hole.roundrect_ratio = None;
+        hole.chamfer = None;
+        hole.polygon.clear();
         hole.position = self.offset.offset(drill.offset.rotate(-g.rotation));
         Pad {
             number: String::new(),
@@ -492,71 +592,157 @@ impl Pad {
             })
             .unwrap_or(0.0)
     }
-    /// Closed convex copper outline in footprint-local coordinates.
+    /// Closed copper outline in footprint-local coordinates. Every shape except
+    /// `custom` is convex; custom outlines are simple polygons.
     pub fn outline_points(&self) -> Vec<Point> {
-        let (size, rotation, shape, ratio) = self
-            .geometry
-            .as_ref()
-            .map(|p| {
-                (
-                    p.size,
-                    p.rotation,
-                    p.shape.as_str(),
-                    p.roundrect_ratio.unwrap_or(0.0),
-                )
-            })
-            .unwrap_or((Point::new(self.diameter, self.diameter), 0.0, "circle", 0.0));
-        let hx = size.x / 2.0;
-        let hy = size.y / 2.0;
-        let radius = match shape {
-            "circle" | "oval" => hx.min(hy),
-            "roundrect" => size.x.min(size.y) * ratio,
-            _ => 0.0,
+        let Some(g) = &self.geometry else {
+            return self.finish_outline(rounded_rect(
+                Point::new(self.diameter, self.diameter),
+                self.diameter / 2.0,
+            ));
         };
-        let mut points = vec![];
-        if radius <= 1e-9 {
-            points.extend([
-                Point::new(-hx, -hy),
-                Point::new(hx, -hy),
-                Point::new(hx, hy),
-                Point::new(-hx, hy),
-            ]);
-        } else {
-            for (x, y, start) in [
-                (hx - radius, hy - radius, 0.0),
-                (-hx + radius, hy - radius, 90.0),
-                (-hx + radius, -hy + radius, 180.0),
-                (hx - radius, -hy + radius, 270.0),
-            ] {
-                for i in 0..=16 {
-                    let angle = (start + i as f64 * 90.0 / 16.0).to_radians();
-                    points.push(Point::new(
-                        x + radius * angle.cos(),
-                        y + radius * angle.sin(),
-                    ));
-                }
-            }
+        let points = match g.shape_kind() {
+            PadShape::Circle | PadShape::Oval => rounded_rect(g.size, g.size.x.min(g.size.y) / 2.0),
+            PadShape::RoundRect { ratio } => rounded_rect(g.size, g.size.x.min(g.size.y) * ratio),
+            PadShape::Rect | PadShape::Unsupported => rounded_rect(g.size, 0.0),
+            PadShape::Chamfered(chamfer) => chamfered_rect(g.size, chamfer),
+            PadShape::Custom { polygon } => polygon.to_vec(),
+        };
+        let mut points = self.finish_outline(points);
+        for p in &mut points {
+            *p = self.offset.offset(p.rotate(-g.rotation));
         }
+        points
+    }
+    fn finish_outline(&self, mut points: Vec<Point>) -> Vec<Point> {
         if let Some(first) = points.first().copied() {
             points.push(first);
         }
+        if self.geometry.is_none() {
+            for p in &mut points {
+                *p = self.offset.offset(*p);
+            }
+        }
         points
-            .into_iter()
-            .map(|p| self.offset.offset(p.rotate(-rotation)))
-            .collect()
+    }
+    /// True when the outline can be filled as one convex polygon.
+    pub fn outline_is_convex(&self) -> bool {
+        !self
+            .geometry
+            .as_ref()
+            .is_some_and(|g| matches!(g.shape_kind(), PadShape::Custom { .. }))
+    }
+    /// Radius of a disc about the pad origin that is certainly copper; used for
+    /// conservative connectivity.
+    pub fn contact_radius(&self) -> f64 {
+        let Some(g) = &self.geometry else {
+            return self.diameter / 2.0;
+        };
+        match g.shape_kind() {
+            PadShape::Chamfered(chamfer) => {
+                let (hx, hy) = (g.size.x / 2.0, g.size.y / 2.0);
+                let cut = g.size.x.min(g.size.y) * chamfer.ratio;
+                hx.min(hy)
+                    .min((hx + hy - cut) / std::f64::consts::SQRT_2)
+                    .max(0.0)
+            }
+            _ => self.diameter / 2.0,
+        }
     }
     pub fn bounding_radius(&self) -> f64 {
         self.geometry
             .as_ref()
-            .map(|p| {
-                if p.shape == "circle" {
-                    p.size.x / 2.0
-                } else {
-                    p.size.x.hypot(p.size.y) / 2.0
-                }
+            .map(|p| match p.shape_kind() {
+                PadShape::Circle => p.size.x / 2.0,
+                PadShape::Custom { polygon } => polygon
+                    .iter()
+                    .map(|v| v.x.hypot(v.y))
+                    .fold(p.size.x.hypot(p.size.y) / 2.0, f64::max),
+                _ => p.size.x.hypot(p.size.y) / 2.0,
             })
             .unwrap_or(self.diameter / 2.0)
     }
+}
+/// Open vertex ring of a rectangle with circular corners of the given radius.
+fn rounded_rect(size: Point, radius: f64) -> Vec<Point> {
+    let hx = size.x / 2.0;
+    let hy = size.y / 2.0;
+    if radius <= 1e-9 {
+        return vec![
+            Point::new(-hx, -hy),
+            Point::new(hx, -hy),
+            Point::new(hx, hy),
+            Point::new(-hx, hy),
+        ];
+    }
+    let mut points = Vec::with_capacity(68);
+    for (x, y, start) in [
+        (hx - radius, hy - radius, 0.0),
+        (-hx + radius, hy - radius, 90.0),
+        (-hx + radius, -hy + radius, 180.0),
+        (hx - radius, -hy + radius, 270.0),
+    ] {
+        for i in 0..=16 {
+            let angle = (start + i as f64 * 90.0 / 16.0_f64).to_radians();
+            points.push(Point::new(
+                x + radius * angle.cos(),
+                y + radius * angle.sin(),
+            ));
+        }
+    }
+    points
+}
+/// Open vertex ring of a rectangle with straight cuts at the selected corners.
+/// Corner names are pad-local with y pointing down.
+pub fn chamfered_rect(size: Point, chamfer: pcbcraft_library::PadChamfer) -> Vec<Point> {
+    let hx = size.x / 2.0;
+    let hy = size.y / 2.0;
+    let cut = size.x.min(size.y) * chamfer.ratio;
+    let c = chamfer.corners;
+    let mut points = Vec::with_capacity(8);
+    let mut corner = |cut_it: bool, square: Point, before: Point, after: Point| {
+        if cut_it {
+            points.extend([before, after]);
+        } else {
+            points.push(square);
+        }
+    };
+    corner(
+        c.bottom_right,
+        Point::new(hx, hy),
+        Point::new(hx, hy - cut),
+        Point::new(hx - cut, hy),
+    );
+    corner(
+        c.bottom_left,
+        Point::new(-hx, hy),
+        Point::new(-hx + cut, hy),
+        Point::new(-hx, hy - cut),
+    );
+    corner(
+        c.top_left,
+        Point::new(-hx, -hy),
+        Point::new(-hx, -hy + cut),
+        Point::new(-hx + cut, -hy),
+    );
+    corner(
+        c.top_right,
+        Point::new(hx, -hy),
+        Point::new(hx - cut, -hy),
+        Point::new(hx, -hy + cut),
+    );
+    // A 0.5 ratio on a square side makes neighbouring cuts meet; drop the
+    // repeated meeting vertices so the ring stays simple.
+    points.dedup_by(|a, b| a.distance(*b) < 1e-12);
+    if points.len() > 1
+        && points
+            .first()
+            .zip(points.last())
+            .is_some_and(|(a, b)| a.distance(*b) < 1e-12)
+    {
+        points.pop();
+    }
+    points
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Footprint {
@@ -604,6 +790,14 @@ impl Layer {
         match self {
             Self::Front => "F.Cu",
             Self::Back => "B.Cu",
+        }
+    }
+    /// Plain-English layer name for people who have never seen copper-layer
+    /// shorthand; file formats keep using [`Self::name`].
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Front => "Top",
+            Self::Back => "Bottom",
         }
     }
 }
@@ -664,6 +858,11 @@ pub struct CopperZone {
     /// inside it nor demands clearance from it until it is filled again.
     #[serde(default = "poured")]
     pub filled: bool,
+    /// Optional tag naming the tool that generated this copper, such as
+    /// "teardrop", so the pass can find and redo its own shapes. Absent for
+    /// hand-drawn zones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
@@ -696,6 +895,117 @@ pub struct BoardText {
     /// Text rotation in degrees about the anchor.
     #[serde(default)]
     pub rotation: f64,
+    /// The component whose reference, value, footprint name and field keys
+    /// resolve `${...}` tokens in this text at draw and export time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<Id>,
+}
+/// A named fabrication output recipe: the export kinds a job writes when it
+/// runs.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct OutputJob {
+    pub name: String,
+    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf,
+    /// cmp, idf, vrml, step, pdf, svg.
+    pub kinds: Vec<String>,
+}
+impl OutputJob {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && !self.kinds.is_empty()
+            && self.kinds.len() <= 24
+            && self.kinds.iter().all(|k| {
+                matches!(
+                    k.as_str(),
+                    "gerbers"
+                        | "netlist"
+                        | "bom"
+                        | "placement"
+                        | "dxf"
+                        | "cmp"
+                        | "idf"
+                        | "vrml"
+                        | "step"
+                        | "pdf"
+                        | "svg"
+                        | "ipc2581"
+                        | "dsn"
+                        | "ipc356"
+                        | "gencad"
+                        | "hyperlynx"
+                        | "plot"
+                        | "report"
+                        | "ps"
+                        | "odb"
+                        | "hpgl"
+                        | "stackup"
+                        | "drill_chart"
+                        | "stats"
+                )
+            })
+    }
+}
+/// An unplated through hole: a drill that passes through the board without
+/// plating or a net.
+/// A net tie: two touching round pads that bridge exactly two nets at one
+/// point, used to split a plane while keeping a single controlled crossing.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct NetTie {
+    pub id: Id,
+    /// The two nets this tie bridges; they must differ.
+    pub net_a: Id,
+    pub net_b: Id,
+    /// Centre of the bridge, midway between the two pads, in millimetres.
+    pub position: Point,
+    /// Angle of the pad-to-pad axis in degrees from the x axis.
+    #[serde(default)]
+    pub rotation: f64,
+    /// Diameter of each of the two round pads, in millimetres.
+    pub diameter: f64,
+}
+impl NetTie {
+    fn valid(&self) -> bool {
+        self.position.valid()
+            && (0.3..=20.0).contains(&self.diameter)
+            && self.rotation.is_finite()
+            && self.net_a != self.net_b
+    }
+}
+/// An optical assembly mark: a bare copper circle, usually 1 mm, that the
+/// pick-and-place camera uses to locate and orient the board.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Fiducial {
+    pub id: Id,
+    /// Centre of the mark, in millimetres.
+    pub position: Point,
+    /// Diameter of the copper disc, in millimetres.
+    pub diameter: f64,
+    /// Copper layer the mark sits on.
+    #[serde(default = "front_layer")]
+    pub layer: Layer,
+}
+impl Fiducial {
+    fn valid(&self) -> bool {
+        self.position.valid() && (0.2..=10.0).contains(&self.diameter)
+    }
+}
+fn front_layer() -> Layer {
+    Layer::Front
+}
+/// An unplated through hole: a drill that passes through the board without
+/// plating or a net.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Hole {
+    pub id: Id,
+    pub position: Point,
+    /// Drill diameter in millimetres.
+    pub diameter: f64,
+}
+impl Hole {
+    fn valid(&self) -> bool {
+        self.position.valid() && (0.05..=25.0).contains(&self.diameter)
+    }
 }
 /// One named board layer record, kept for fabrication notes: a layer's role
 /// and thickness as stated by the stackup the design was built against.
@@ -719,6 +1029,141 @@ impl LayerRecord {
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
     }
+}
+/// What a drawn layer tells a machine to do: a cutter follows cut and
+/// perforation layers, a UV printer prints silk and mask layers, and "other"
+/// layers are reference or documentation art.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ArtKind {
+    #[serde(rename = "cut")]
+    Cut,
+    #[serde(rename = "perforation")]
+    Perforation,
+    #[serde(rename = "silk")]
+    Silk,
+    #[serde(rename = "mask")]
+    Mask,
+    #[serde(rename = "other")]
+    Other,
+}
+impl ArtKind {
+    /// Plain-English name of the job this layer gives a machine.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Cut => "cut line",
+            Self::Perforation => "perforation",
+            Self::Silk => "silk screen",
+            Self::Mask => "solder mask",
+            Self::Other => "drawing",
+        }
+    }
+}
+/// One figure drawn on a user layer, in board millimetres.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum ArtShape {
+    /// A straight stroke between two points.
+    Line { start: Point, end: Point },
+    /// A rectangle outline, optionally rotated about its centre.
+    Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        /// Turn in degrees about the rectangle centre.
+        #[serde(default)]
+        rotate: f64,
+    },
+    /// A circle outline.
+    Circle { center: Point, radius: f64 },
+    /// A closed outline through these points.
+    Poly { points: Vec<Point> },
+    /// Text drawn with the machine's pen.
+    Text {
+        at: Point,
+        text: String,
+        /// Cap height in millimetres.
+        #[serde(default = "art_text_size")]
+        size: f64,
+        /// Turn in degrees about the anchor point.
+        #[serde(default)]
+        rotate: f64,
+    },
+}
+impl ArtShape {
+    fn valid(&self) -> bool {
+        match self {
+            Self::Line { start, end } => start.valid() && end.valid(),
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                rotate,
+            } => {
+                x.is_finite()
+                    && y.is_finite()
+                    && (0.001..=1000.0).contains(width)
+                    && (0.001..=1000.0).contains(height)
+                    && rotate.is_finite()
+                    && *x >= -1000.0
+                    && *y >= -1000.0
+                    && *x + *width <= 2000.0
+                    && *y + *height <= 2000.0
+            }
+            Self::Circle { center, radius } => center.valid() && (0.001..=500.0).contains(radius),
+            Self::Poly { points } => {
+                (2..=64).contains(&points.len()) && points.iter().all(|pt| pt.valid())
+            }
+            Self::Text {
+                at,
+                text,
+                size,
+                rotate,
+            } => {
+                at.valid()
+                    && !text.trim().is_empty()
+                    && text.len() <= 128
+                    && (0.2..=50.0).contains(size)
+                    && rotate.is_finite()
+            }
+        }
+    }
+}
+/// A layer the designer draws: card outlines to cut, perforations to snap
+/// along, custom silk screens, masks or reference art. Copper stays where it
+/// is; these layers sit beside it and are plotted for laser, mill and
+/// printer output.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ArtLayer {
+    pub id: Id,
+    /// Display name, unique per board, for example "Card Outline".
+    pub name: String,
+    /// What this layer tells a machine to do.
+    pub kind: ArtKind,
+    /// True draws the layer as evenly spaced dots: a perforation the board
+    /// snaps along, or a light print guide.
+    #[serde(default)]
+    pub dotted: bool,
+    /// False hides the layer everywhere on screen.
+    #[serde(default = "art_visible")]
+    pub visible: bool,
+    /// The figures on this layer, in draw order.
+    #[serde(default)]
+    pub shapes: Vec<ArtShape>,
+}
+impl ArtLayer {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && self.shapes.len() <= 512
+            && self.shapes.iter().all(ArtShape::valid)
+    }
+}
+fn art_visible() -> bool {
+    true
+}
+fn art_text_size() -> f64 {
+    1.0
 }
 fn board_finish() -> String {
     "HASL".into()
@@ -776,6 +1221,10 @@ pub struct Board {
     /// Clearance rules between specific pairs of nets, ordered by net ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rules: Vec<NetPairRule>,
+    /// Differential pairs: named net couples that route together with a
+    /// coupling gap and, when set, matched lengths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diff_pairs: Vec<DiffPair>,
     /// Rectangular board areas that demand a stricter minimum copper
     /// separation for copper whose midpoints lie inside them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -789,6 +1238,22 @@ pub struct Board {
     /// Plated through-hole vias joining front and back copper.
     #[serde(default)]
     pub vias: Vec<Via>,
+    /// Optical assembly marks: bare copper circles the pick-and-place camera
+    /// finds the board by.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fiducials: Vec<Fiducial>,
+    /// Net-tie pads: two touching round pads bridging exactly two nets,
+    /// ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub netties: Vec<NetTie>,
+    /// Unplated through holes drilled for mounting or clearance; they carry
+    /// no copper and belong to no net.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Hole>,
+    /// Layers the designer draws for machines: cuts, perforations, custom
+    /// silk and mask art, plotted alongside the copper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub user_layers: Vec<ArtLayer>,
     /// Poured copper zones, one polygon per zone on a single layer.
     #[serde(default)]
     pub zones: Vec<CopperZone>,
@@ -877,16 +1342,57 @@ pub struct FootprintOverride {
     pub component: Id,
     pub footprint: String,
 }
+fn default_project_unit() -> String {
+    "mm".into()
+}
+/// One row of the project library table: a nickname mapped to the folder
+/// that holds library files, so library commands can address
+/// `nickname/file.kicad_mod` without a machine-specific folder.
+/// One named, reusable pad cross-section: the shape, size and optional drill
+/// a footprint pad takes on when the stack is applied to it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Padstack {
+    /// Name used by commands to pick this stack.
+    pub name: String,
+    /// Copper shape: "circle", "rect", "oval" or "roundrect".
+    pub shape: String,
+    /// Copper extent in millimetres, x by y.
+    pub size: Point,
+    /// Drill diameter in millimetres; absent means an un-drilled surface pad.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drill: Option<f64>,
+    /// Corner rounding ratio for roundrect copper, 0 to 0.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roundrect_ratio: Option<f64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LibraryLink {
+    /// Nickname used as the first path segment by library commands.
+    pub name: String,
+    /// Folder that holds the library files for this nickname.
+    pub path: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
     pub version: u32,
     pub name: String,
+    /// The unit this design is read in: "mm", "mil" or "inch". Stored
+    /// coordinates stay millimetres; inch fabrication output is converted,
+    /// while mil is a reading and reporting convention.
+    #[serde(default = "default_project_unit")]
+    pub unit: String,
     pub components: Vec<Component>,
     pub nets: Vec<Net>,
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sheets: Vec<Sheet>,
+    /// Named hierarchy ports, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<Port>,
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
@@ -899,6 +1405,13 @@ pub struct Project {
     /// Groups of drawn graphics that translate together, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub graphic_groups: Vec<GraphicGroup>,
+    /// Named fabrication output recipes, ordered by name, re-runnable after
+    /// any edit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_jobs: Vec<OutputJob>,
+    /// Checks the designer wrote themselves, in the order they were made.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_checks: Vec<CustomCheck>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -915,6 +1428,16 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Named library folders that library commands resolve through: a path
+    /// whose first segment matches a nickname is rewritten to the mapped
+    /// folder, so the design opens on another machine without retyping it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub library_table: Vec<LibraryLink>,
+    /// Named reusable pad shapes that footprint pads can adopt, so one
+    /// fabrication decision (a part's copper and drill) is defined once and
+    /// applied to many pads instead of retyped per footprint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub padstacks: Vec<Padstack>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -1002,14 +1525,21 @@ pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
 impl Default for Project {
     fn default() -> Self {
         Self {
+            library_table: Vec::new(),
+            padstacks: Vec::new(),
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
             name: "Untitled circuit".into(),
+            unit: "mm".into(),
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            sheets: vec![],
+            ports: vec![],
             bom_fields: vec![],
+            output_jobs: vec![],
+            custom_checks: vec![],
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
@@ -1033,11 +1563,16 @@ impl Default for Project {
                 layer_records: vec![],
                 machining: None,
                 pair_rules: vec![],
+                diff_pairs: vec![],
                 rule_areas: vec![],
+                user_layers: vec![],
                 outline: None,
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
+                holes: vec![],
+                fiducials: vec![],
+                netties: vec![],
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
@@ -1103,6 +1638,7 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sheet: 0,
         pins: names
             .iter()
             .enumerate()
@@ -1119,6 +1655,8 @@ pub fn component_template(
     })
 }
 impl Project {
+    pub const UNITS: [&'static str; 3] = ["mm", "mil", "inch"];
+
     pub fn component(&self, id: Id) -> Option<&Component> {
         self.components.iter().find(|c| c.id == id)
     }
@@ -1295,10 +1833,16 @@ impl Project {
         }
         best
     }
+    /// The drawn layer with this id, if any.
+    pub fn user_layer(&self, id: Id) -> Option<&ArtLayer> {
+        self.board.user_layers.iter().find(|l| l.id == id)
+    }
     pub fn ids(&self) -> impl Iterator<Item = Id> + '_ {
         self.components
             .iter()
             .map(|x| x.id)
+            .chain(self.sheets.iter().map(|x| x.id))
+            .chain(self.ports.iter().map(|x| x.id))
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.net_classes.iter().map(|x| x.id))
             .chain(self.wires.iter().map(|x| x.id))
@@ -1311,7 +1855,12 @@ impl Project {
             .chain(self.board.vias.iter().map(|x| x.id))
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
+            .chain(self.board.holes.iter().map(|x| x.id))
+            .chain(self.board.fiducials.iter().map(|x| x.id))
+            .chain(self.board.netties.iter().map(|x| x.id))
+            .chain(self.board.diff_pairs.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
+            .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
@@ -1325,11 +1874,96 @@ impl Project {
         {
             return Err("schematic unit limit reached (2048)".into());
         }
+        if self.padstacks.len() > 256 {
+            return Err("the design defines at most 256 padstacks".into());
+        }
+        for stack in &self.padstacks {
+            if stack.name.is_empty()
+                || stack.name.len() > 64
+                || !["circle", "rect", "oval", "roundrect"].contains(&stack.shape.as_str())
+                || !positive(stack.size.x)
+                || !positive(stack.size.y)
+                || stack.size.x > 100.0
+                || stack.size.y > 100.0
+                || (stack.shape == "circle" && (stack.size.x - stack.size.y).abs() > 1e-6)
+                || stack
+                    .drill
+                    .is_some_and(|d| !positive(d) || d >= stack.size.x.min(stack.size.y))
+                || (stack.shape == "roundrect"
+                    && !stack.roundrect_ratio.is_some_and(|r| r > 0.0 && r <= 0.5))
+                || (stack.shape != "roundrect" && stack.roundrect_ratio.is_some_and(|r| r > 0.0))
+                || self
+                    .padstacks
+                    .iter()
+                    .filter(|s| s.name == stack.name)
+                    .count()
+                    > 1
+            {
+                return Err(
+                    "padstacks need a unique name, a supported shape, a positive size and a drill smaller than the copper"
+                        .into(),
+                );
+            }
+        }
+        if self.library_table.len() > 64 {
+            return Err("the library table holds at most 64 entries".into());
+        }
+        for link in &self.library_table {
+            if link.name.is_empty()
+                || link.name.len() > 64
+                || link.name.contains(['/', '\\'])
+                || link.path.is_empty()
+                || link.path.len() > 1024
+            {
+                return Err(
+                    "library nicknames are 1 to 64 path-safe characters with a folder".into(),
+                );
+            }
+            if self
+                .library_table
+                .iter()
+                .filter(|l| l.name == link.name)
+                .count()
+                > 1
+            {
+                return Err("library table nicknames must be unique".into());
+            }
+        }
         if self.format != "pcbcraft" || self.version != 1 {
             return Err("unsupported project format/version".into());
         }
+        if !Self::UNITS.contains(&self.unit.as_str()) {
+            return Err("project unit must be mm, mil or inch".into());
+        }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
+        }
+        if self.sheets.len() > 128 {
+            return Err("a schematic supports at most 128 sheets".into());
+        }
+        if self.ports.len() > 256 {
+            return Err("a schematic supports at most 256 ports".into());
+        }
+        let mut port_names = BTreeSet::new();
+        for port in &self.ports {
+            if port.name.is_empty() || port.name.len() > 63 {
+                return Err("port name must be 1 to 63 bytes".into());
+            }
+            if !port_names.insert((port.sheet, &port.name)) {
+                return Err("duplicate port name on one page".into());
+            }
+            if !port.position.valid() {
+                return Err("port position is out of range".into());
+            }
+        }
+        let mut sheet_names = BTreeSet::new();
+        for s in &self.sheets {
+            if s.name.is_empty() || s.name.len() > 128 {
+                return Err("sheet name must be 1–128 bytes".into());
+            }
+            if !sheet_names.insert(&s.name) {
+                return Err("duplicate sheet name".into());
+            }
         }
         if self.ids().count() > MAX_ITEMS {
             return Err("project object limit reached (2048)".into());
@@ -1409,9 +2043,58 @@ impl Project {
         if self.board.rule_areas.len() > 64 {
             return Err("a board carries at most 64 rule areas".into());
         }
+        if self.board.holes.len() > 512 {
+            return Err("a board carries at most 512 unplated holes".into());
+        }
+        for h in &self.board.holes {
+            if !h.valid() {
+                return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+            }
+        }
+        if self.board.fiducials.len() > 128 {
+            return Err("a board carries at most 128 fiducial marks".into());
+        }
+        for f in &self.board.fiducials {
+            if !f.valid() {
+                return Err("fiducial marks need a sane position and a 0.2 to 10 mm disc".into());
+            }
+        }
+        if self.board.netties.len() > 128 {
+            return Err("a board carries at most 128 net ties".into());
+        }
+        for t in &self.board.netties {
+            if !t.valid() || !nets.contains(&t.net_a) || !nets.contains(&t.net_b) {
+                return Err("net ties bridge two known nets with sane 0.3 to 20 mm pads".into());
+            }
+        }
+        if self.board.diff_pairs.len() > 64 {
+            return Err("a board carries at most 64 differential pairs".into());
+        }
+        let mut pair_names: BTreeSet<&str> = BTreeSet::new();
+        for d in &self.board.diff_pairs {
+            if !d.valid()
+                || !nets.contains(&d.net_p)
+                || !nets.contains(&d.net_n)
+                || !pair_names.insert(d.name.as_str())
+            {
+                return Err(
+                    "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
+                        .into(),
+                );
+            }
+        }
         for r in &self.board.rule_areas {
             if !r.valid() || r.net.is_some_and(|n| !nets.contains(&n)) {
                 return Err("rule areas need a valid rectangle, a sane gap and a known net".into());
+            }
+        }
+        if self.board.user_layers.len() > 32 {
+            return Err("a board carries at most 32 drawn layers".into());
+        }
+        let mut art_names: BTreeSet<&str> = BTreeSet::new();
+        for l in &self.board.user_layers {
+            if !l.valid() || !art_names.insert(l.name.as_str()) {
+                return Err("drawn layers need a unique name and sane figures".into());
             }
         }
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
@@ -1421,6 +2104,15 @@ impl Project {
                 return Err(
                     "net pair clearance rules need known distinct nets, one rule per pair".into(),
                 );
+            }
+        }
+        if self.output_jobs.len() > 16 {
+            return Err("a project carries at most 16 output jobs".into());
+        }
+        let mut job_names = BTreeSet::new();
+        for j in &self.output_jobs {
+            if !j.valid() || !job_names.insert(&j.name) {
+                return Err("output jobs need a unique name and known export kinds".into());
             }
         }
         if self.bom_fields.len() > 16 {
@@ -1714,7 +2406,11 @@ impl Project {
             if !Label::KINDS.iter().any(|k| *k == l.kind) {
                 return Err("unknown label kind".into());
             }
-            if !self.nets.iter().any(|n| n.id == l.net) {
+            if l.kind == "bus" {
+                if l.net != 0 || l.text.is_empty() || l.text.len() > 128 {
+                    return Err("bus label carries its notation text and no single net".into());
+                }
+            } else if !self.nets.iter().any(|n| n.id == l.net) {
                 return Err("label references an unknown net".into());
             }
             if !l.position.valid() {
@@ -1889,6 +2585,11 @@ impl Project {
             for cut in &z.cutouts {
                 validate_closed_outline(cut)?;
             }
+            if let Some(kind) = &z.kind
+                && (kind.is_empty() || kind.len() > 32)
+            {
+                return Err("zone kind must be 1 to 32 characters".into());
+            }
         }
         for c in &b.cutouts {
             if !c.center.valid()
@@ -1915,6 +2616,11 @@ impl Project {
                 || t.rotation.abs() > 360_000.0
             {
                 return Err("board text must be 1 to 128 bytes with a finite position and a size between 0.1 and 50 mm".into());
+            }
+            if let Some(bound) = t.component
+                && self.component(bound).is_none()
+            {
+                return Err("board text is bound to an unknown component".into());
             }
         }
         Ok(())
@@ -2011,6 +2717,7 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
             unit: 1,
@@ -2064,14 +2771,14 @@ pub fn validate_footprint_support(
             p.drill.is_none()
         };
         if !["smd", "thru_hole"].contains(&p.pad_type.as_str())
-            || !["circle", "rect", "roundrect", "oval"].contains(&p.shape.as_str())
+            || matches!(p.shape_kind(), PadShape::Unsupported)
             || (p.shape == "circle" && (p.size.x - p.size.y).abs() > 1e-6)
             || !copper_ok
             || !drill_ok
             || p.number.is_empty()
             || !numbers.insert(&p.number)
         {
-            return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval pads with a drill strictly inside the pad; custom pads, unnumbered mechanical holes and back SMD placement are planned".into());
+            return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
         }
     }
     if definition.pads.is_empty() || definition.pads.len() > 64 {
@@ -2089,24 +2796,35 @@ fn drill_inside_pad(p: &pcbcraft_library::FootprintPad) -> bool {
         (drill.size.x / 2.0 - radius).max(0.0),
         (drill.size.y / 2.0 - radius).max(0.0),
     );
-    let corner = match p.shape.as_str() {
-        "circle" | "oval" => p.size.x.min(p.size.y) / 2.0,
-        "roundrect" => p.size.x.min(p.size.y) * p.roundrect_ratio.unwrap_or(0.0),
-        "rect" => 0.0,
-        _ => return false,
+    let ends = [
+        drill.offset.offset(half_axis),
+        drill.offset.offset(Point::new(-half_axis.x, -half_axis.y)),
+    ];
+    let corner = match p.shape_kind() {
+        PadShape::Circle | PadShape::Oval => p.size.x.min(p.size.y) / 2.0,
+        PadShape::RoundRect { ratio } => p.size.x.min(p.size.y) * ratio,
+        PadShape::Rect => 0.0,
+        PadShape::Chamfered(chamfer) => {
+            return capsule_inside_polygon(ends, radius, &chamfered_rect(p.size, chamfer));
+        }
+        PadShape::Custom { polygon } => return capsule_inside_polygon(ends, radius, polygon),
+        PadShape::Unsupported => return false,
     };
     let clearance = |point: Point| {
         let dx = point.x.abs() - (p.size.x / 2.0 - corner);
         let dy = point.y.abs() - (p.size.y / 2.0 - corner);
         -(dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - corner)
     };
+    radius > 0.0 && ends.into_iter().all(|end| clearance(end) > radius + 1e-6)
+}
+/// Exact for any simple polygon: the capsule axis starts inside and stays more
+/// than `radius` from every edge.
+fn capsule_inside_polygon(ends: [Point; 2], radius: f64, polygon: &[Point]) -> bool {
+    let [a, b] = ends;
     radius > 0.0
-        && [
-            drill.offset.offset(half_axis),
-            drill.offset.offset(Point::new(-half_axis.x, -half_axis.y)),
-        ]
-        .into_iter()
-        .all(|end| clearance(end) > radius + 1e-6)
+        && pcbcraft_geom::point_in_polygon(a, polygon)
+        && pcbcraft_geom::polygon_edges(polygon)
+            .all(|(c, d)| pcbcraft_geom::segment_distance(a, b, c, d) > radius + 1e-6)
 }
 
 fn orthogonal_path(a: Point, b: Point, da: Point, db: Point) -> Vec<Point> {
@@ -2403,5 +3121,141 @@ mod drill_tests {
         });
         validate_footprint_support(&definition)?;
         Ok(())
+    }
+
+    #[test]
+    fn checks_written_by_the_designer_survive_a_save_and_reload() -> Result<(), String> {
+        let mut p = Project::default();
+        p.custom_checks.push(CustomCheck {
+            id: 7,
+            name: "keep it small".into(),
+            measure: "part count above".into(),
+            limit: 5.0,
+            severity: "warning".into(),
+        });
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.custom_checks, p.custom_checks, "the check travels");
+        let plain = serde_json::to_string(&Project::default()).map_err(|e| e.to_string())?;
+        let old: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert!(
+            old.custom_checks.is_empty(),
+            "designs saved before this feature load with none"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_set_name_on_a_library_part_survives_a_save() -> Result<(), String> {
+        let def = pcbcraft_library::SymbolDefinition {
+            name: "SetR".into(),
+            reference: "R".into(),
+            value: "10k".into(),
+            description: "thin film".into(),
+            keywords: "resistor".into(),
+            footprint: String::new(),
+            set: "Power bits".into(),
+            pins: vec![],
+            graphics: vec![],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let text = serde_json::to_string(&def).map_err(|e| e.to_string())?;
+        assert!(text.contains("Power bits"), "the set travels in the file");
+        let back: pcbcraft_library::SymbolDefinition =
+            serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.set, "Power bits", "and reads back intact");
+        let plain = text.replace("\"set\":\"Power bits\",", "");
+        let old: pcbcraft_library::SymbolDefinition =
+            serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert_eq!(
+            old.set, "",
+            "parts saved before sets existed load with no set"
+        );
+        Ok(())
+    }
+    #[test]
+    fn chamfered_and_custom_through_hole_pads_keep_their_drill_inside_real_copper()
+    -> Result<(), String> {
+        let mut definition = dip()?;
+        let p = &mut definition.pads[0];
+        p.shape = "chamfered".into();
+        p.size = Point::new(2.0, 2.0);
+        p.roundrect_ratio = None;
+        p.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.5,
+            corners: pcbcraft_library::ChamferCorners::ALL,
+        });
+        p.drill = Some(pcbcraft_library::Drill {
+            size: Point::new(0.8, 0.8),
+            offset: Point::default(),
+        });
+        validate_footprint_support(&definition)?;
+        // Inside the square, but beyond the bottom-right cut.
+        if let Some(d) = definition.pads[0].drill.as_mut() {
+            d.size = Point::new(0.3, 0.3);
+            d.offset = Point::new(0.6, 0.6);
+        }
+        assert!(validate_footprint_support(&definition).is_err());
+        let p = &mut definition.pads[0];
+        p.shape = "custom".into();
+        p.chamfer = None;
+        p.size = Point::new(0.4, 0.4);
+        p.polygon = vec![
+            Point::new(-1.0, -1.0),
+            Point::new(0.3, -1.0),
+            Point::new(0.3, -0.3),
+            Point::new(1.0, -0.3),
+            Point::new(1.0, 1.0),
+            Point::new(-1.0, 1.0),
+        ];
+        // A notched pad: a hole centred in its notch has no copper around it.
+        p.drill = Some(pcbcraft_library::Drill {
+            size: Point::new(0.3, 0.3),
+            offset: Point::new(0.65, -0.65),
+        });
+        assert!(validate_footprint_support(&definition).is_err());
+        if let Some(d) = definition.pads[0].drill.as_mut() {
+            d.offset = Point::new(-0.5, 0.5);
+        }
+        validate_footprint_support(&definition)?;
+        let pad = Pad {
+            number: "1".into(),
+            offset: Point::default(),
+            diameter: 0.4,
+            net: None,
+            geometry: Some(definition.pads[0].clone()),
+            castellated: None,
+        };
+        assert!(!pad.outline_is_convex());
+        assert_eq!(pad.outline_points().len(), 7);
+        assert!((pad.bounding_radius() - 2.0_f64.sqrt()).abs() < 1e-12);
+        Ok(())
+    }
+    #[test]
+    fn chamfer_outline_cuts_each_selected_corner_and_merges_meeting_cuts() {
+        let all = chamfered_rect(
+            Point::new(2.0, 2.0),
+            pcbcraft_library::PadChamfer {
+                ratio: 0.5,
+                corners: pcbcraft_library::ChamferCorners::ALL,
+            },
+        );
+        assert_eq!(all.len(), 4, "a fully cut square is a diamond");
+        assert!((pcbcraft_geom::polygon_area(&all).abs() - 2.0).abs() < 1e-12);
+        let one = chamfered_rect(
+            Point::new(2.0, 1.0),
+            pcbcraft_library::PadChamfer {
+                ratio: 0.2,
+                corners: pcbcraft_library::ChamferCorners {
+                    top_left: true,
+                    ..Default::default()
+                },
+            },
+        );
+        assert_eq!(one.len(), 5);
+        assert!((pcbcraft_geom::polygon_area(&one).abs() - (2.0 - 0.02)).abs() < 1e-12);
+        assert!(pcbcraft_geom::polygon_is_simple(&one));
     }
 }

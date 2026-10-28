@@ -1,0 +1,69 @@
+# Nightly: platform packages from main as workflow artifacts, plus an advisory
+# scan that catches new security advisories without a code change.
+name: Nightly
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  stamp:
+    name: Version stamp
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.stamp.outputs.version }}
+      sha: ${{ steps.stamp.outputs.sha }}
+      changed: ${{ steps.stamp.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: stamp
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=nightly-$(date -u +%Y%m%d)-$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+          # Scheduled runs skip packaging when main has not moved for a day.
+          age=$(( $(date +%s) - $(git log -1 --format=%ct) ))
+          if [ "$EVENT" = workflow_dispatch ] || [ "$age" -lt 90000 ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  dist:
+    name: Distributables
+    needs: stamp
+    if: needs.stamp.outputs.changed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-dist.yml
+    with:
+      version: ${{ needs.stamp.outputs.version }}
+      ref: ${{ needs.stamp.outputs.sha }}
+      retention-days: 14
+
+  advisories:
+    name: Security advisories
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-deny
+      - run: cargo deny --workspace --all-features check advisories

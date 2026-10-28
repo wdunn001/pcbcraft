@@ -13,6 +13,7 @@ pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-doc.workspace = true
 pcbcraft-engine.workspace = true
+pcbcraft-io.workspace = true
 pcbcraft-rules.workspace = true
 pcbcraft-mcp.workspace = true
 egui.workspace = true

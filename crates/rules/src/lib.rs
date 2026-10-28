@@ -32,6 +32,9 @@ struct Copper {
     outline_error: f64,
     layer: Layer,
     pad: bool,
+    /// Clearance demanded by the owning footprint's own design-rule
+    /// overrides, if it carries one.
+    clearance: Option<f64>,
     bridge: Option<(Id, String)>,
     hole: Option<Hole>,
     /// Closed outlines removed from this item's copper (zone cutouts).
@@ -47,6 +50,11 @@ struct Hole {
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
+        let local = project
+            .component(f.component)
+            .and_then(|c| c.library_footprint.as_ref())
+            .and_then(|l| l.definition.rules.as_ref())
+            .and_then(|r| r.clearance);
         for pad in &f.pads {
             if let Some(position) = f.pad_position(&pad.number) {
                 let plated = pad
@@ -80,7 +88,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     start: position,
                     end: position,
                     radius: pad.bounding_radius(),
-                    contact_radius: pad.diameter / 2.0,
+                    contact_radius: pad.contact_radius(),
                     conservative: pad.geometry.as_ref().is_some_and(|p| p.shape != "circle"),
                     outline: pad
                         .geometry
@@ -95,6 +103,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     outline_error: pad.outline_error(),
                     layer: Layer::Front,
                     pad: true,
+                    clearance: local,
                     bridge: if plated {
                         Some((f.id, pad.number.clone()))
                     } else {
@@ -112,6 +121,30 @@ fn copper(project: &Project) -> Vec<Copper> {
             }
         }
     }
+    for t in &project.board.netties {
+        let half = t.diameter / 2.0;
+        let axis = Point::new(half, 0.0).rotate(t.rotation);
+        for (net, sign) in [(t.net_a, 1.0), (t.net_b, -1.0)] {
+            let centre = t.position.offset(Point::new(axis.x * sign, axis.y * sign));
+            result.push(Copper {
+                id: t.id,
+                net,
+                start: centre,
+                end: centre,
+                radius: half,
+                contact_radius: half,
+                conservative: false,
+                outline: None,
+                outline_error: 0.0,
+                layer: Layer::Front,
+                pad: true,
+                clearance: None,
+                bridge: Some((t.id, "net tie".into())),
+                hole: None,
+                cutouts: vec![],
+            });
+        }
+    }
     for t in &project.board.tracks {
         let straight = |a: Point, b: Point, radius: f64| Copper {
             id: t.id,
@@ -125,6 +158,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             outline_error: 0.0,
             layer: t.layer,
             pad: false,
+            clearance: None,
             bridge: None,
             hole: None,
             cutouts: vec![],
@@ -163,8 +197,34 @@ fn copper(project: &Project) -> Vec<Copper> {
             outline_error: 0.0,
             layer: Layer::Front,
             pad: true,
+            clearance: None,
             bridge: Some((v.id, "via".into())),
             hole,
+            cutouts: vec![],
+        };
+        let mut back = item.clone();
+        back.layer = Layer::Back;
+        result.push(back);
+        result.push(item);
+    }
+    for h in &project.board.holes {
+        // An unplated drill is a keep-out circle on every layer: copper may
+        // not enter the drilled annulus and the hole must clear the edge.
+        let item = Copper {
+            id: h.id,
+            net: 0,
+            start: h.position,
+            end: h.position,
+            radius: h.diameter / 2.0,
+            contact_radius: h.diameter / 2.0,
+            conservative: false,
+            outline: None,
+            outline_error: 0.0,
+            layer: Layer::Front,
+            pad: false,
+            clearance: None,
+            bridge: None,
+            hole: None,
             cutouts: vec![],
         };
         let mut back = item.clone();
@@ -191,6 +251,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             outline_error: 0.0,
             layer: z.layer,
             pad: false,
+            clearance: None,
             bridge: None,
             hole: None,
             cutouts: z.cutouts.clone(),
@@ -475,12 +536,19 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     let board = &project.board;
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
+            if a.bridge.is_some() && a.bridge == b.bridge {
+                // A declared net tie's own pads touch on purpose; the pair is
+                // the bridge, never a short.
+                continue;
+            }
             if (a.net != b.net || a.net == 0) && a.layer == b.layer {
                 let mid = |c: &Copper| {
                     Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0)
                 };
-                let required =
-                    project.required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer);
+                let required = project
+                    .required_clearance_at(a.net, b.net, mid(a), mid(b), a.layer, b.layer)
+                    .max(a.clearance.unwrap_or(0.0))
+                    .max(b.clearance.unwrap_or(0.0));
                 if segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius > required
                 {
                     continue;
@@ -602,6 +670,65 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     let mut lengths: BTreeMap<Id, f64> = BTreeMap::new();
     for track in &board.tracks {
         *lengths.entry(track.net).or_insert(0.0) += track.length();
+    }
+    for pair in &board.diff_pairs {
+        for a in board
+            .tracks
+            .iter()
+            .filter(|t| t.net == pair.net_p && t.layer == Layer::Front)
+        {
+            for b in board
+                .tracks
+                .iter()
+                .filter(|t| t.net == pair.net_n && t.layer == Layer::Front)
+            {
+                let separation = segment_distance(a.start, a.end, b.start, b.end)
+                    - a.width / 2.0
+                    - b.width / 2.0;
+                let required = project
+                    .required_clearance_at(pair.net_p, pair.net_n, a.end, b.end, a.layer, b.layer);
+                if separation + 1e-6 >= pair.gap.max(required) {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "diffpair_gap",
+                    severity: project.rule_severity("diffpair_gap", "error"),
+                    message: format!(
+                        "{} / {}: {} couples at {:.3} mm, {:.3} mm gap wanted",
+                        project.net_name(pair.net_p),
+                        project.net_name(pair.net_n),
+                        pair.name,
+                        separation,
+                        pair.gap
+                    ),
+                    objects: vec![a.id, b.id],
+                });
+            }
+        }
+        let Some(tolerance) = pair.length_tolerance else {
+            continue;
+        };
+        if !lengths.contains_key(&pair.net_p) && !lengths.contains_key(&pair.net_n) {
+            continue;
+        }
+        let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
+            - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
+        .abs();
+        if skew <= tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "diffpair_skew",
+            severity: project.rule_severity("diffpair_skew", "error"),
+            message: format!(
+                "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                pair.name,
+                project.net_name(pair.net_p),
+                skew,
+                tolerance
+            ),
+            objects: vec![pair.net_p, pair.net_n],
+        });
     }
     let classified: BTreeSet<Id> = project
         .net_classes
@@ -727,6 +854,7 @@ mod tests {
             outline_error: 0.0,
             layer,
             pad,
+            clearance: None,
             bridge: None,
             hole: None,
             cutouts: vec![],
@@ -850,6 +978,8 @@ mod tests {
             outline: square,
             cutouts: vec![],
             filled: true,
+
+            kind: None,
         });
         p.board.tracks.push(Track {
             id: 5,
@@ -1102,6 +1232,8 @@ mod tests {
                 offset: Point::default(),
             }),
             roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
             raw_source: String::new(),
         };
         p.board.footprints.push(Footprint {
@@ -1298,5 +1430,121 @@ mod tests {
             arc: None,
         });
         assert!(drc(&p).iter().any(|f| f.code == "copper_short"));
+    }
+
+    fn shaped_pad_beside_foreign_track(
+        geometry: pcbcraft_library::FootprintPad,
+        track: (Point, Point),
+        clearance: f64,
+    ) -> Vec<Finding> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            target_length: None,
+            length_tolerance: None,
+        });
+        p.board.clearance = clearance;
+        if let Some(pad) = p
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.diameter = geometry.size.x.min(geometry.size.y);
+            pad.geometry = Some(geometry);
+        }
+        p.board.tracks.push(Track {
+            id: 30,
+            net: 4,
+            start: track.0,
+            end: track.1,
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&30) && f.code != "unrouted")
+            .collect()
+    }
+    fn square_pad(shape: &str) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: shape.into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(2.0, 2.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+    #[test]
+    fn clearance_to_a_chamfered_pad_is_measured_from_the_chamfer_edge() {
+        // The pad is a 2 mm square at (10, 10) with its bottom-right corner cut
+        // 0.5 mm along each side. A track leaves diagonally from just outside
+        // that corner: 0.112 mm from the square's corner, 0.466 mm from the cut.
+        let mut chamfered = square_pad("chamfered");
+        chamfered.chamfer = Some(pcbcraft_library::PadChamfer {
+            ratio: 0.25,
+            corners: pcbcraft_library::ChamferCorners {
+                bottom_right: true,
+                ..Default::default()
+            },
+        });
+        let track = (Point::new(11.15, 11.15), Point::new(12.15, 12.15));
+        assert!(
+            shaped_pad_beside_foreign_track(chamfered.clone(), track, 0.2).is_empty(),
+            "the cut corner leaves room the bounding square would not"
+        );
+        let squared = shaped_pad_beside_foreign_track(square_pad("rect"), track, 0.2);
+        assert!(
+            squared.iter().any(|f| f.message.contains("0.112 mm")),
+            "the uncut square really is too close: {squared:?}"
+        );
+        let tight = shaped_pad_beside_foreign_track(chamfered, track, 0.5);
+        assert!(
+            tight.iter().any(|f| f.message.contains("0.466 mm")),
+            "the reported separation is the distance to the chamfer: {tight:?}"
+        );
+    }
+    #[test]
+    fn custom_polygon_pad_clearance_follows_its_notch() {
+        // A 2 mm square pad at (10, 10) with a 0.7 mm notch cut from its
+        // upper-right corner.
+        let mut l = square_pad("custom");
+        l.size = Point::new(0.4, 0.4);
+        l.polygon = vec![
+            Point::new(-1.0, -1.0),
+            Point::new(0.3, -1.0),
+            Point::new(0.3, -0.3),
+            Point::new(1.0, -0.3),
+            Point::new(1.0, 1.0),
+            Point::new(-1.0, 1.0),
+        ];
+        // Track in the notch, 0.4 mm from both inner edges, so 0.3 mm of copper gap.
+        let track = (Point::new(10.7, 9.3), Point::new(10.7, 9.0));
+        assert!(shaped_pad_beside_foreign_track(l.clone(), track, 0.2).is_empty());
+        let tight = shaped_pad_beside_foreign_track(l.clone(), track, 0.35);
+        assert!(
+            tight.iter().any(|f| f.message.contains("0.300 mm")),
+            "{tight:?}"
+        );
+        let mut p = fixture();
+        if let Some(pad) = p
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.diameter = 0.4;
+            pad.geometry = Some(l);
+            assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
+        }
     }
 }

@@ -32,7 +32,9 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   the move. Reference designators and net names can be renamed at any time,
   validated unique against the rest of the design, and a netlist table can be
   imported in one step to assign pins to named nets by reference, or read back
-  as a net-by-net pin table that also lists every unconnected pin. Components
+  as a net-by-net pin table that also lists every unconnected pin. A router
+  design session file on disk brings in the same assignments in one step,
+  splitting its named nets into component-pin references. Components
   carry named properties (datasheet, manufacturer, custom notes) that are set,
   replaced or cleared one at a time and travel with a duplicate, and a bill of
   materials groups the design by value, kind and footprint with any requested
@@ -98,6 +100,11 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   project-library footprint; the reference travels into board exports. Placed
   instances keep their embedded copy until reassigned, and nothing renders the
   model yet.
+- Per-footprint design rule overrides: footprints read their local copper
+  clearance and solder mask/paste margin overrides from library files, and one
+  command each sets or clears them on a project-library footprint. The local
+  clearance tightens clearance checks for that footprint's pads; the margins
+  are recorded and exported without being checked.
 - Schematic-to-PCB sync retains existing placements and reconciles pad nets.
   A pad table report lists every board pad by component reference with its net,
   position, shape, size and drill, for the whole board or one component. A
@@ -234,11 +241,13 @@ board export. The complete EDA roadmap is in [ROADMAP.md](ROADMAP.md).
   on a classified net start at that class's width unless a width is given. A
   class can be retuned later or deleted outright, which returns its nets to the
   board default rules.
-- 148 engine commands, discoverable schemas, atomic batches, stable IDs,
+- 272 engine commands, discoverable schemas, atomic batches, stable IDs,
   revision guards, 32-step undo/redo and validated atomic project saves.
-- 173 MCP tools: every engine command plus library discovery/search/inspection,
+- 324 MCP tools: every engine command plus library discovery/search/inspection,
+  source management for adding library folders from anywhere, recent designs,
   design inspection, checks, persistence,
-  export and PNG previews. Headless or bridged into the actual running desktop.
+  export, PNG raster previews saved to disk or returned inline, SVG vector
+  previews, and plot report CSVs. Headless or bridged into the actual running desktop.
 - Rust browser entry point; the shared UI and engine compile to WebAssembly.
   Browser host-file open/save/export are not implemented yet.
 
