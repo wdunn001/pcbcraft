@@ -646,7 +646,7 @@ impl Builder<'_> {
 
 // --------------------------------------------------------------- transforms
 
-fn to_board(fp: &Footprint, local: Point) -> Point {
+pub(crate) fn to_board(fp: &Footprint, local: Point) -> Point {
     fp.position.offset(local.rotate(-fp.rotation))
 }
 pub(crate) fn map_ring(fp: &Footprint, local: &[Point]) -> Vec<Point> {
