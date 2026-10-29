@@ -4,10 +4,14 @@ pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
 };
+mod fab;
+pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
@@ -232,6 +236,18 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Default outer via pad diameter for member nets, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_diameter: Option<f64>,
+    /// Default drilled hole for member vias, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_drill: Option<f64>,
+    /// Default track width for differential pairs on member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_width: Option<f64>,
+    /// Default coupling gap for differential pairs on member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_gap: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -802,27 +818,110 @@ impl Footprint {
         self.position.offset(pad.offset.rotate(-self.rotation))
     }
 }
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Layer {
-    #[serde(rename = "F.Cu")]
-    Front,
-    #[serde(rename = "B.Cu")]
-    Back,
-}
+/// Index of a copper layer: 0 is top, the highest index is bottom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Layer(u8);
+
+/// Maximum copper layers the document model supports.
+pub const MAX_COPPER_LAYERS: u8 = 32;
+
 impl Layer {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Front => "F.Cu",
-            Self::Back => "B.Cu",
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
+    pub const Front: Layer = Layer(0);
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
+    pub const Back: Layer = Layer(1);
+
+    pub fn from_index(index: u8) -> Result<Self, String> {
+        if index >= MAX_COPPER_LAYERS {
+            Err(format!(
+                "copper layer index must be below {MAX_COPPER_LAYERS}"
+            ))
+        } else {
+            Ok(Layer(index))
         }
     }
-    /// Plain-English layer name for people who have never seen copper-layer
-    /// shorthand; file formats keep using [`Self::name`].
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Front => "Top",
-            Self::Back => "Bottom",
+
+    pub fn index(self) -> u8 {
+        self.0
+    }
+
+    /// Legacy two-layer shorthand; prefer [`Project::layer_name`] when the
+    /// stackup may carry inner copper.
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            0 => "F.Cu",
+            1 => "B.Cu",
+            _ => "F.Cu",
         }
+    }
+
+    /// Plain-English layer name for people who have never seen copper-layer
+    /// shorthand; file formats keep using stackup-aware names from the project.
+    pub fn label(self) -> &'static str {
+        match self.0 {
+            0 => "Top",
+            1 => "Bottom",
+            _ => "Inner",
+        }
+    }
+
+    fn from_file_str(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("copper layer name is empty".into());
+        }
+        if s == "F.Cu" {
+            return Ok(Layer::Front);
+        }
+        if s == "B.Cu" {
+            return Ok(Layer::Back);
+        }
+        if let Some(rest) = s.strip_prefix('L')
+            && let Ok(n) = rest.parse::<u32>()
+            && (1..=MAX_COPPER_LAYERS as u32).contains(&n)
+        {
+            return Layer::from_index((n - 1) as u8);
+        }
+        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
+            && let Ok(n) = rest.parse::<u8>()
+            && n > 0
+            && n < MAX_COPPER_LAYERS
+        {
+            return Layer::from_index(n);
+        }
+        Err(format!("unknown copper layer {s:?}"))
+    }
+
+    fn to_file_str(self) -> String {
+        if self.0 == 0 {
+            "F.Cu".into()
+        } else if self.0 == 1 {
+            "B.Cu".into()
+        } else {
+            format!("In{}.Cu", self.0)
+        }
+    }
+}
+
+impl Serialize for Layer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_file_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Layer {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct LayerVisitor;
+        impl Visitor<'_> for LayerVisitor {
+            type Value = Layer;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a copper layer name such as F.Cu, B.Cu, In1.Cu or L1")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Layer, E> {
+                Layer::from_file_str(v).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(LayerVisitor)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -927,7 +1026,7 @@ pub struct BoardText {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 26] = [
+pub const OUTPUT_KINDS: [&str; 27] = [
     "gerbers",
     "netlist",
     "bom",
@@ -954,6 +1053,7 @@ pub const OUTPUT_KINDS: [&str; 26] = [
     "stats",
     "layer_plots",
     "panel",
+    "raster",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
@@ -1092,6 +1192,9 @@ pub struct LayerRecord {
     pub kind: String,
     /// Layer thickness in millimetres.
     pub thickness: f64,
+    /// Copper plane style for fabrication output: signal, plane, mixed or hatched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copper_role: Option<String>,
 }
 impl LayerRecord {
     fn valid(&self) -> bool {
@@ -1103,6 +1206,10 @@ impl LayerRecord {
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
+            && self
+                .copper_role
+                .as_ref()
+                .is_none_or(|r| matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched"))
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
@@ -1174,11 +1281,24 @@ impl ArtShape {
         }
     }
 
-    /// The straight-line paths this figure draws, in board millimetres, using
-    /// the same conventions as the canvas: a rectangle turns its corners by
-    /// its own rotation about its centre, a polygon is always closed, and a
-    /// circle is sampled into a ring. Text returns no path because drawing
-    /// glyphs needs a stroke font; callers report text as skipped instead.
+    /// A point that represents the figure for navigation and region tests.
+    pub fn anchor(&self) -> Point {
+        match self {
+            Self::Line { start, .. } => *start,
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => Point::new(x + width / 2.0, y + height / 2.0),
+            Self::Circle { center, .. } => *center,
+            Self::Poly { points } => points.first().copied().unwrap_or_default(),
+            Self::Text { at, .. } => *at,
+        }
+    }
+
+    /// The straight-line paths this figure draws, in board millimetres.
     pub fn paths(&self) -> Vec<ArtPath> {
         match self {
             Self::Line { start, end } => vec![ArtPath {
@@ -1415,6 +1535,9 @@ pub struct Board {
     pub height: f64,
     pub thickness: f64,
     pub clearance: f64,
+    /// Recorded fabrication minimums and preset metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<FabRules>,
     /// Surface finish applied to exposed copper, for example HASL or ENIG.
     #[serde(default = "board_finish")]
     pub finish: String,
@@ -1424,7 +1547,7 @@ pub struct Board {
     /// Origin that drill file coordinates are measured from, in millimetres.
     #[serde(default = "board_origin")]
     pub drill_origin: Point,
-    /// Recorded per-layer fabrication notes, ordered by layer name.
+    /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
     /// Machining notes for fabrication, absent when none were recorded.
@@ -1663,6 +1786,89 @@ pub const PANEL_SCORE_COMPONENT_MIN_MM: f64 = 1.0;
 pub const PANEL_TAB_CHANNEL_MIN_MM: f64 = 1.6;
 /// Panel fiducial count expected in the rails.
 pub const PANEL_FIDUCIAL_COUNT: usize = 3;
+/// Most named numeric parameters one project may carry.
+pub const MAX_PARAMETERS: usize = 128;
+/// Largest absolute parameter value a project records, in millimetres.
+pub const MAX_PARAMETER_VALUE: f64 = 10_000.0;
+/// Longest parameter note a project records, in bytes.
+pub const MAX_PARAMETER_NOTE: usize = 256;
+/// Most object fields one project may bind to a parameter.
+pub const MAX_BINDINGS: usize = 1024;
+/// A named numeric value that commands reference by name instead of
+/// retyping a number, so one edit moves everything that depends on it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Parameter {
+    /// The number every reference to this name resolves to, in millimetres.
+    pub value: f64,
+    /// Free-form reminder of what the number means, carried with the design.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+/// One numeric field of one object recorded as following a named parameter:
+/// setting the parameter writes this field again and re-runs its range checks.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Binding {
+    /// The object whose field follows the parameter.
+    pub object: Id,
+    /// The field that follows it; a closed set, one variant per numeric
+    /// field a command accepts a parameter name for.
+    pub field: Field,
+    /// The parameter the field follows.
+    pub parameter: String,
+}
+/// The closed set of numeric object fields a named parameter can drive.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Field {
+    /// Drill diameter, or slot width, of an unplated hole.
+    HoleDiameter,
+    /// X coordinate of an unplated hole's near centre.
+    HoleX,
+    /// Y coordinate of an unplated hole's near centre.
+    HoleY,
+    /// Outer copper pad diameter of a plated via.
+    ViaDiameter,
+    /// Drilled diameter of a plated via.
+    ViaDrill,
+    /// X coordinate of a plated via's centre.
+    ViaX,
+    /// Y coordinate of a plated via's centre.
+    ViaY,
+}
+impl Field {
+    /// True when this field belongs to an unplated hole.
+    pub fn is_hole(&self) -> bool {
+        matches!(self, Field::HoleDiameter | Field::HoleX | Field::HoleY)
+    }
+    /// True when this field belongs to a plated via.
+    pub fn is_via(&self) -> bool {
+        matches!(
+            self,
+            Field::ViaDiameter | Field::ViaDrill | Field::ViaX | Field::ViaY
+        )
+    }
+}
+/// True when `name` is a usable parameter name: one to 32 bytes starting with
+/// a letter or underscore, then letters, digits or underscores.
+pub fn valid_parameter_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+/// True when `note` fits the parameter note limit.
+pub fn valid_parameter_note(note: &str) -> bool {
+    note.len() <= MAX_PARAMETER_NOTE
+}
+/// True when `value` is a finite number a parameter may hold.
+pub fn valid_parameter_value(value: f64) -> bool {
+    value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1678,6 +1884,9 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Clearance overrides between net classes, stricter than either class alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_pairs: Vec<ClassPairRule>,
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
@@ -1710,6 +1919,14 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Named numeric values commands may reference by name instead of
+    /// retyping a number, keyed by name and carried with the saved design.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, Parameter>,
+    /// Object fields that follow a named parameter, so changing the parameter
+    /// moves everything that depends on it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<Binding>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1835,6 +2052,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            class_pairs: vec![],
             sheets: vec![],
             ports: vec![],
             bom_fields: vec![],
@@ -1845,6 +2063,8 @@ impl Default for Project {
             variants: vec![],
             graphic_groups: vec![],
             meta: Default::default(),
+            parameters: Default::default(),
+            bindings: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1858,6 +2078,7 @@ impl Default for Project {
                 height: 40.0,
                 thickness: 1.6,
                 clearance: 0.2,
+                rules: None,
                 finish: board_finish(),
                 er: board_er(),
                 drill_origin: board_origin(),
@@ -1958,6 +2179,92 @@ pub fn component_template(
 impl Project {
     pub const UNITS: [&'static str; 3] = ["mm", "mil", "inch"];
 
+    /// The named parameter recorded under `name`, if the design has one.
+    pub fn parameter(&self, name: &str) -> Option<&Parameter> {
+        self.parameters.get(name)
+    }
+    /// The bindings that follow the parameter `name`, in the order made.
+    pub fn parameter_bindings<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl Iterator<Item = &'a Binding> + 'a {
+        self.bindings.iter().filter(move |b| b.parameter == name)
+    }
+    /// The live value of one object field, or None when no object carries it.
+    pub fn field_value(&self, object: Id, field: Field) -> Option<f64> {
+        let hole = self.board.holes.iter().find(|h| h.id == object);
+        let via = self.board.vias.iter().find(|v| v.id == object);
+        match field {
+            Field::HoleDiameter => Some(hole?.diameter),
+            Field::HoleX => Some(hole?.position.x),
+            Field::HoleY => Some(hole?.position.y),
+            Field::ViaDiameter => Some(via?.diameter),
+            Field::ViaDrill => Some(via?.drill),
+            Field::ViaX => Some(via?.position.x),
+            Field::ViaY => Some(via?.position.y),
+        }
+    }
+    /// True when `object` exists and can carry `field`.
+    pub fn carries_field(&self, object: Id, field: Field) -> bool {
+        if field.is_hole() {
+            self.board.holes.iter().any(|h| h.id == object)
+        } else {
+            self.board.vias.iter().any(|v| v.id == object)
+        }
+    }
+    /// Drop bindings whose object no longer exists, so deleting a bound hole
+    /// or via never leaves a dangling reference behind.
+    pub fn prune_bindings(&mut self) {
+        let board = &self.board;
+        self.bindings.retain(|b| {
+            if b.field.is_hole() {
+                board.holes.iter().any(|h| h.id == b.object)
+            } else {
+                board.vias.iter().any(|v| v.id == b.object)
+            }
+        });
+    }
+    /// Check the parameter table and its bindings: bounded names, values and
+    /// notes, at most one binding per field, and every binding naming a
+    /// parameter and an object that can carry that field.
+    pub fn validate_parameters(&self) -> Result<(), String> {
+        if self.parameters.len() > MAX_PARAMETERS {
+            return Err("a project records at most 128 named parameters".into());
+        }
+        for (name, parameter) in &self.parameters {
+            if !valid_parameter_name(name) {
+                return Err(
+                    "parameter names are 1 to 32 letters, digits or underscores and start with a letter or underscore"
+                        .into(),
+                );
+            }
+            if !valid_parameter_value(parameter.value) {
+                return Err(
+                    "parameter values are finite numbers within plus or minus 10000 mm".into(),
+                );
+            }
+            if !valid_parameter_note(&parameter.note) {
+                return Err("a parameter note fits 256 bytes".into());
+            }
+        }
+        if self.bindings.len() > MAX_BINDINGS {
+            return Err("a project binds at most 1024 object fields".into());
+        }
+        let mut bound = BTreeSet::new();
+        for binding in &self.bindings {
+            if !self.parameters.contains_key(&binding.parameter) {
+                return Err("a binding names a parameter the project does not record".into());
+            }
+            if !self.carries_field(binding.object, binding.field) {
+                return Err("a binding names an object that cannot carry that field".into());
+            }
+            if !bound.insert((binding.object, binding.field)) {
+                return Err("one object field follows at most one parameter".into());
+            }
+        }
+        Ok(())
+    }
+
     pub fn component(&self, id: Id) -> Option<&Component> {
         self.components.iter().find(|c| c.id == id)
     }
@@ -1998,9 +2305,163 @@ impl Project {
             .map(|n| n.name.as_str())
             .unwrap_or("unassigned")
     }
+    /// Copper layer rows from the stackup table, in top-to-bottom order.
+    pub fn copper_layer_records(&self) -> impl Iterator<Item = &LayerRecord> {
+        self.board
+            .layer_records
+            .iter()
+            .filter(|r| r.kind == "copper")
+    }
+    /// How many routable copper layers exist. With no copper rows recorded,
+    /// a board is treated as two layers (top and bottom).
+    pub fn copper_layer_count(&self) -> u8 {
+        let n = self.copper_layer_records().count();
+        if n == 0 {
+            2
+        } else if n > MAX_COPPER_LAYERS as usize {
+            MAX_COPPER_LAYERS
+        } else {
+            n as u8
+        }
+    }
+    /// Ordered copper layer indices from top (0) to bottom.
+    pub fn copper_layers(&self) -> Vec<Layer> {
+        (0..self.copper_layer_count())
+            .filter_map(|i| Layer::from_index(i).ok())
+            .collect()
+    }
+    /// Gerber-style copper name for a layer index on this board.
+    pub fn layer_name(&self, layer: Layer) -> String {
+        let idx = layer.index();
+        let copper: Vec<_> = self.copper_layer_records().collect();
+        if !copper.is_empty() {
+            if let Some(rec) = copper.get(idx as usize) {
+                return rec.name.clone();
+            }
+        } else if idx == 0 {
+            return "F.Cu".into();
+        } else if idx == 1 {
+            return "B.Cu".into();
+        }
+        if idx == 0 {
+            "F.Cu".into()
+        } else if idx + 1 == self.copper_layer_count() {
+            "B.Cu".into()
+        } else {
+            format!("In{}.Cu", idx)
+        }
+    }
+    /// Map a copper layer string from a command or file to a layer index.
+    pub fn resolve_copper_layer(&self, s: &str) -> Result<Layer, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("copper layer name is empty".into());
+        }
+        let count = self.copper_layer_count();
+        if s == "F.Cu" {
+            return Ok(Layer::Front);
+        }
+        if s == "B.Cu" {
+            if count <= 2 {
+                return Ok(Layer::Back);
+            }
+            return Layer::from_index(count - 1);
+        }
+        if let Some(rest) = s.strip_prefix('L')
+            && let Ok(n) = rest.parse::<u32>()
+            && n >= 1
+            && n <= count as u32
+        {
+            return Layer::from_index((n - 1) as u8);
+        }
+        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
+            && let Ok(n) = rest.parse::<u8>()
+            && n < count
+        {
+            return Layer::from_index(n);
+        }
+        for (i, rec) in self.copper_layer_records().enumerate() {
+            if rec.name == s {
+                return Layer::from_index(i as u8);
+            }
+        }
+        Err(format!("unknown copper layer {s:?}"))
+    }
+    fn copper_layer_valid(&self, layer: Layer) -> bool {
+        layer.index() < self.copper_layer_count()
+    }
+    /// Highest copper index referenced by board objects, if any.
+    pub fn max_copper_layer_index_used(&self) -> Option<u8> {
+        let mut max: Option<u8> = None;
+        let mut bump = |layer: Layer| {
+            max = Some(max.map_or(layer.index(), |m| m.max(layer.index())));
+        };
+        for t in &self.board.tracks {
+            bump(t.layer);
+        }
+        for z in &self.board.zones {
+            bump(z.layer);
+        }
+        for t in &self.board.texts {
+            bump(t.layer);
+        }
+        for f in &self.board.fiducials {
+            bump(f.layer);
+        }
+        for a in &self.board.rule_areas {
+            if let Some(l) = a.layer {
+                bump(l);
+            }
+        }
+        max
+    }
+    /// Plain reason when shrinking the stack would orphan board objects.
+    pub fn stack_shrink_blocked_reason(&self, new_copper_count: u8) -> Option<String> {
+        let max = self.max_copper_layer_index_used()?;
+        if new_copper_count == 0 || max >= new_copper_count {
+            let mut kinds = Vec::new();
+            let limit = new_copper_count;
+            if self.board.tracks.iter().any(|t| t.layer.index() >= limit) {
+                kinds.push("track");
+            }
+            if self.board.zones.iter().any(|z| z.layer.index() >= limit) {
+                kinds.push("zone");
+            }
+            if self.board.texts.iter().any(|t| t.layer.index() >= limit) {
+                kinds.push("text");
+            }
+            if self
+                .board
+                .fiducials
+                .iter()
+                .any(|f| f.layer.index() >= limit)
+            {
+                kinds.push("fiducial");
+            }
+            if self
+                .board
+                .rule_areas
+                .iter()
+                .any(|a| a.layer.is_some_and(|l| l.index() >= limit))
+            {
+                kinds.push("rule area");
+            }
+            Some(format!(
+                "copper stack shrink blocked by {} on layer index {}",
+                kinds.join(", "),
+                max
+            ))
+        } else {
+            None
+        }
+    }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
+    }
+    /// The id of the net class a net belongs to, if any.
+    pub fn net_class_id(&self, net: Id) -> Option<Id> {
+        self.net_class(net).map(|c| c.id)
     }
     /// Severity a check code should report at: the project override when it
     /// names one of the two real levels, otherwise the check's own default.
@@ -2064,6 +2525,9 @@ impl Project {
         if let Some(c) = b.cutouts.iter().find(|c| c.id == id) {
             return Some(c.center);
         }
+        if let Some(l) = b.user_layers.iter().find(|l| l.id == id) {
+            return l.shapes.first().map(ArtShape::anchor);
+        }
         if let Some(f) = b.footprints.iter().find(|f| f.id == id) {
             return Some(f.position);
         }
@@ -2087,6 +2551,15 @@ impl Project {
             })
             .max_by(f64::total_cmp)
             .unwrap_or(self.board.clearance);
+        if let (Some(ca), Some(cb)) = (self.net_class_id(a), self.net_class_id(b)) {
+            for rule in &self.class_pairs {
+                if (rule.class_a == ca && rule.class_b == cb)
+                    || (rule.class_a == cb && rule.class_b == ca)
+                {
+                    best = best.max(rule.clearance);
+                }
+            }
+        }
         if let Some(rule) = self
             .board
             .pair_rules
@@ -2166,6 +2639,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.validate_parameters()?;
         if self
             .components
             .iter()
@@ -2333,6 +2807,17 @@ impl Project {
                     .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || !profile_tag_valid(&c.profile)
+                || c.via_diameter
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_drill
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_diameter
+                    .zip(c.via_drill)
+                    .is_some_and(|(d, drill)| drill >= d)
+                || c.pair_width
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.pair_gap
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
             {
                 return Err("invalid net class".into());
             }
@@ -2341,6 +2826,25 @@ impl Project {
                     return Err("net class membership is invalid".into());
                 }
             }
+        }
+        if self.class_pairs.len() > 64 {
+            return Err("a project carries at most 64 class pair clearance rules".into());
+        }
+        let class_ids: BTreeSet<Id> = self.net_classes.iter().map(|c| c.id).collect();
+        let mut class_paired: BTreeSet<(Id, Id)> = BTreeSet::new();
+        for r in &self.class_pairs {
+            if !r.valid()
+                || !class_ids.contains(&r.class_a)
+                || !class_ids.contains(&r.class_b)
+                || !class_paired.insert(r.key())
+            {
+                return Err(
+                    "class pair rules need known distinct classes, one rule per pair".into(),
+                );
+            }
+        }
+        if self.board.rules.as_ref().is_some_and(|r| !r.valid()) {
+            return Err("fabrication rules carry invalid minimums".into());
         }
         if self.board.pair_rules.len() > 64 {
             return Err("a board carries at most 64 net pair clearance rules".into());
@@ -2789,6 +3293,71 @@ impl Project {
             || b.machining.as_ref().is_some_and(|m| !m.valid())
         {
             return Err("invalid board dimensions/rules".into());
+        }
+        let copper_rows: Vec<_> = self.copper_layer_records().collect();
+        if copper_rows.len() > MAX_COPPER_LAYERS as usize {
+            return Err(format!(
+                "a board defines at most {MAX_COPPER_LAYERS} copper layers"
+            ));
+        }
+        let mut copper_names = BTreeSet::new();
+        for rec in &copper_rows {
+            if !copper_names.insert(rec.name.as_str()) {
+                return Err("copper layer names must be unique".into());
+            }
+        }
+        let copper_count = self.copper_layer_count();
+        if copper_count == 0 || copper_count > MAX_COPPER_LAYERS {
+            return Err(format!(
+                "copper layer count must be 1 to {MAX_COPPER_LAYERS}"
+            ));
+        }
+        for t in &b.tracks {
+            if !self.copper_layer_valid(t.layer) {
+                return Err(format!(
+                    "track {} sits on copper index {} but the board has {copper_count} copper layers",
+                    t.id,
+                    t.layer.index()
+                ));
+            }
+        }
+        for z in &b.zones {
+            if !self.copper_layer_valid(z.layer) {
+                return Err(format!(
+                    "zone {} sits on copper index {} but the board has {copper_count} copper layers",
+                    z.id,
+                    z.layer.index()
+                ));
+            }
+        }
+        for t in &b.texts {
+            if !self.copper_layer_valid(t.layer) {
+                return Err(format!(
+                    "board text {} sits on copper index {} but the board has {copper_count} copper layers",
+                    t.id,
+                    t.layer.index()
+                ));
+            }
+        }
+        for f in &b.fiducials {
+            if !self.copper_layer_valid(f.layer) {
+                return Err(format!(
+                    "fiducial {} sits on copper index {} but the board has {copper_count} copper layers",
+                    f.id,
+                    f.layer.index()
+                ));
+            }
+        }
+        for a in &b.rule_areas {
+            if let Some(l) = a.layer
+                && !self.copper_layer_valid(l)
+            {
+                return Err(format!(
+                    "rule area {} filters copper index {} but the board has {copper_count} copper layers",
+                    a.id,
+                    l.index()
+                ));
+            }
         }
         if let Some(points) = &b.outline {
             let distinct: BTreeSet<(u64, u64)> = points
@@ -3652,6 +4221,96 @@ mod drill_tests {
         assert!(!pad.outline_is_convex());
         assert_eq!(pad.outline_points().len(), 7);
         assert!((pad.bounding_radius() - 2.0_f64.sqrt()).abs() < 1e-12);
+        Ok(())
+    }
+    #[test]
+    fn two_layer_default_stackup_maps_legacy_names() -> Result<(), String> {
+        let p = Project::default();
+        assert_eq!(p.copper_layer_count(), 2);
+        assert_eq!(p.resolve_copper_layer("F.Cu")?, Layer::Front);
+        assert_eq!(p.resolve_copper_layer("B.Cu")?, Layer::Back);
+        let track = Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        };
+        let json = serde_json::to_string(&track.layer).map_err(|e| e.to_string())?;
+        assert_eq!(json, "\"F.Cu\"");
+        let back: Layer = serde_json::from_str("\"B.Cu\"").map_err(|e| e.to_string())?;
+        assert_eq!(back, Layer::Back);
+        Ok(())
+    }
+    #[test]
+    fn four_layer_stackup_accepts_inner_track_index() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.layer_records = vec![
+            LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+            LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: Some("plane".into()),
+            },
+            LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+            },
+            LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+        ];
+        assert_eq!(p.copper_layer_count(), 4);
+        p.board.tracks.push(Track {
+            id: 100,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::from_index(1)?,
+            arc: None,
+        });
+        p.validate()?;
+        Ok(())
+    }
+    #[test]
+    fn track_on_inner_layer_refused_on_two_layer_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 100,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::Back,
+            arc: None,
+        });
+        p.validate()?;
+        p.board.tracks[0].layer = Layer::from_index(2)?;
+        assert!(p.validate().is_err());
         Ok(())
     }
     #[test]
