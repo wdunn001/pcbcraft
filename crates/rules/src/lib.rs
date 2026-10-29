@@ -784,30 +784,6 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 });
             }
         }
-        let Some(tolerance) = pair.length_tolerance else {
-            continue;
-        };
-        if !lengths.contains_key(&pair.net_p) && !lengths.contains_key(&pair.net_n) {
-            continue;
-        }
-        let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
-            - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
-        .abs();
-        if skew <= tolerance + 1e-9 {
-            continue;
-        }
-        result.push(Finding {
-            code: "diffpair_skew",
-            severity: project.rule_severity("diffpair_skew", "error"),
-            message: format!(
-                "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
-                pair.name,
-                project.net_name(pair.net_p),
-                skew,
-                tolerance
-            ),
-            objects: vec![pair.net_p, pair.net_n],
-        });
         if pair.equal_vias {
             let count_p = vias_per_net.get(&pair.net_p).map_or(0, |v| v.len());
             let count_n = vias_per_net.get(&pair.net_n).map_or(0, |v| v.len());
@@ -833,6 +809,30 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 });
             }
         }
+        let Some(tolerance) = pair.length_tolerance else {
+            continue;
+        };
+        if !lengths.contains_key(&pair.net_p) && !lengths.contains_key(&pair.net_n) {
+            continue;
+        }
+        let skew = (lengths.get(&pair.net_p).copied().unwrap_or(0.0)
+            - lengths.get(&pair.net_n).copied().unwrap_or(0.0))
+        .abs();
+        if skew <= tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "diffpair_skew",
+            severity: project.rule_severity("diffpair_skew", "error"),
+            message: format!(
+                "{}: {} sides differ by {:.3} mm, at most {:.3} mm allowed",
+                pair.name,
+                project.net_name(pair.net_p),
+                skew,
+                tolerance
+            ),
+            objects: vec![pair.net_p, pair.net_n],
+        });
     }
     let classified: BTreeSet<Id> = project
         .net_classes
