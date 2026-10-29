@@ -29,7 +29,7 @@ fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
         );
     }
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
-    scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
+    scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
@@ -63,7 +63,7 @@ fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "Pour copper", 700.0)?,
         "the board geometry section should offer a copper pour: {}",
         app.message
     );
@@ -167,7 +167,7 @@ fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 700.0)?,
         "the make files should include a drill map: {}",
         app.message
     );
@@ -212,7 +212,7 @@ fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
     }
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 700.0)?,
         "the factory folder section should also offer a 3D look: {}",
         app.message
     );
@@ -264,7 +264,7 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
     }
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 700.0)?,
         "the factory folder section should also plan panels: {}",
         app.message
     );

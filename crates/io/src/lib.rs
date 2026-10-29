@@ -6,24 +6,36 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod bitmap_trace;
 mod board_mesh;
 mod drawn;
 mod fab_export;
 mod gerber;
 mod gerber_job;
+mod laser;
 mod layers;
 mod library_render;
 mod package;
 mod panel_export;
 mod plot_read;
 mod raster;
+pub use bitmap_trace::{
+    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
+    decode_embedded_png, decode_png, embedded_bytes,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
-pub use gerber::gerber_copper;
+pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};
+pub use image::RgbaImage;
+pub use laser::{
+    LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
+};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
@@ -6642,6 +6654,7 @@ mod tests {
         project.files.push(pcbcraft_doc::EmbeddedFile {
             name: "notes.txt".into(),
             data: "hello from the archive".into(),
+            encoding: String::new(),
         });
         let zip = archive_zip(&project)?;
         assert!(
@@ -9490,6 +9503,7 @@ mod tests {
             ],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -9498,6 +9512,7 @@ mod tests {
             points: vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -9625,6 +9640,7 @@ mod tests {
             points: vec![Point::new(1.0, 2.0), Point::new(9.0, 2.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -10645,6 +10661,7 @@ mod tests {
             points: vec![Point::new(10.0, 10.0), Point::new(20.0, 15.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -10653,6 +10670,7 @@ mod tests {
             points: vec![Point::new(12.0, 12.0)],
             width: 1.5,
             text: "REV B".into(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -10661,6 +10679,7 @@ mod tests {
             points: vec![Point::new(30.0, 20.0)],
             width: 4.0,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
