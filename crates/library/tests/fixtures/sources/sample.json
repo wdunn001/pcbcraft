@@ -1,0 +1,41 @@
+{
+  "name": "Sample parts",
+  "note": "Made-up sample data for trying the part search without an account. Not a real catalogue.",
+  "parts": [
+    {
+      "source": "Sample parts",
+      "mpn": "SAMPLE-R-10K",
+      "manufacturer": "Example Components",
+      "description": "10 kOhm resistor, 0603, 1 percent",
+      "kind": "resistor",
+      "distributor": "Sample Shop",
+      "sku": "SS-10K-0603",
+      "stock": 12500,
+      "price_breaks": [
+        {"quantity": 1, "unit_price": 0.10, "currency": "USD"},
+        {"quantity": 100, "unit_price": 0.02, "currency": "USD"}
+      ],
+      "lifecycle": "Active",
+      "datasheet_url": "https://example.invalid/datasheets/sample-r-10k.pdf",
+      "product_url": "https://example.invalid/parts/sample-r-10k",
+      "retrieved_at": 1790000000
+    },
+    {
+      "source": "Sample parts",
+      "mpn": "SAMPLE-C-100N",
+      "manufacturer": "Example Components",
+      "description": "100 nF ceramic capacitor, 0603, 16 V",
+      "kind": "capacitor",
+      "distributor": "Sample Shop",
+      "sku": "SS-100N-0603",
+      "stock": 0,
+      "price_breaks": [
+        {"quantity": 1, "unit_price": 0.08, "currency": "USD"}
+      ],
+      "lifecycle": "Not recommended for new designs",
+      "datasheet_url": "https://example.invalid/datasheets/sample-c-100n.pdf",
+      "product_url": "https://example.invalid/parts/sample-c-100n",
+      "retrieved_at": 1790000000
+    }
+  ]
+}

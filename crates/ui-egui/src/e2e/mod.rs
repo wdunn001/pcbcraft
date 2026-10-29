@@ -15,3 +15,4 @@ mod rules;
 mod settings;
 mod shell;
 mod via_covering;
+mod workbench;

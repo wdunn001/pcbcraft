@@ -4,6 +4,7 @@ pub mod meander;
 use serde::{Deserialize, Serialize};
 
 pub mod hull;
+pub mod poly;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -297,6 +298,106 @@ pub fn triangulate(points: &[Point]) -> Vec<[usize; 3]> {
         triangles.push([a, b, c]);
     }
     triangles
+}
+
+/// Parallel hatch segments filling a simple closed polygon. Caps output at 8192
+/// segments.
+pub fn hatch_fill_polygon(
+    points: &[Point],
+    line_interval_mm: f64,
+    hatch_angle_deg: f64,
+    angle_increment_deg: f64,
+) -> Vec<(Point, Point)> {
+    if !polygon_is_simple(points)
+        || !line_interval_mm.is_finite()
+        || line_interval_mm <= 0.0
+        || !hatch_angle_deg.is_finite()
+        || !angle_increment_deg.is_finite()
+    {
+        return vec![];
+    }
+    let mut segments = Vec::new();
+    let mut angle = hatch_angle_deg;
+    for _ in 0..8 {
+        segments.extend(hatch_at_angle(points, line_interval_mm, angle));
+        if segments.len() >= 8192 {
+            return segments.into_iter().take(8192).collect();
+        }
+        angle += angle_increment_deg;
+    }
+    segments.into_iter().take(8192).collect()
+}
+
+fn hatch_at_angle(points: &[Point], spacing: f64, angle_deg: f64) -> Vec<(Point, Point)> {
+    let (sin, cos) = angle_deg.to_radians().sin_cos();
+    let (mut min_s, mut max_s) = (f64::INFINITY, f64::NEG_INFINITY);
+    let mut min_t = f64::INFINITY;
+    let mut max_t = f64::NEG_INFINITY;
+    for p in points {
+        let s = p.x * cos + p.y * sin;
+        let t = -p.x * sin + p.y * cos;
+        min_s = min_s.min(s);
+        max_s = max_s.max(s);
+        min_t = min_t.min(t);
+        max_t = max_t.max(t);
+    }
+    if !min_s.is_finite() || max_s - min_s < 1e-9 {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    let mut offset = min_s;
+    while offset <= max_s + 1e-9 {
+        let line = clip_hatch_line(points, offset, cos, sin, min_t, max_t);
+        if let Some((a, b)) = line {
+            out.push((a, b));
+        }
+        offset += spacing;
+        if out.len() >= 8192 {
+            break;
+        }
+    }
+    out
+}
+
+fn clip_hatch_line(
+    points: &[Point],
+    offset: f64,
+    cos: f64,
+    sin: f64,
+    min_t: f64,
+    max_t: f64,
+) -> Option<(Point, Point)> {
+    let mut hits = Vec::new();
+    for (a, b) in polygon_edges(points) {
+        let sa = a.x * cos + a.y * sin - offset;
+        let sb = b.x * cos + b.y * sin - offset;
+        if sa.abs() < 1e-12 {
+            hits.push(-a.x * sin + a.y * cos);
+        }
+        if sb.abs() < 1e-12 {
+            hits.push(-b.x * sin + b.y * cos);
+        }
+        if sa * sb < 0.0 {
+            let t = sa / (sa - sb);
+            let px = a.x + (b.x - a.x) * t;
+            let py = a.y + (b.y - a.y) * t;
+            hits.push(-px * sin + py * cos);
+        }
+    }
+    hits.sort_by(|x, y| x.total_cmp(y));
+    hits.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    if hits.len() < 2 {
+        return None;
+    }
+    let t0 = hits.first()?.clamp(min_t, max_t);
+    let t1 = hits.last()?.clamp(min_t, max_t);
+    let p0 = Point::new(offset * cos - t0 * sin, offset * sin + t0 * cos);
+    let p1 = Point::new(offset * cos - t1 * sin, offset * sin + t1 * cos);
+    if p0.distance(p1) < 1e-9 {
+        None
+    } else {
+        Some((p0, p1))
+    }
 }
 
 #[cfg(test)]
