@@ -1,5 +1,19 @@
 # MCP and live control
 
+## Getting started
+
+Build the CLI, start MCP on stdio, and call `inspect_design` before any edit.
+For the same project the desktop shows, run the app with `--control` and connect
+with `pcbcraft-cli mcp --connect`. Tool and command counts on fork `main` are in
+[getting-started.md](getting-started.md).
+
+```sh
+cargo build -p pcbcraft-cli
+cargo run -p pcbcraft-cli -- mcp
+```
+
+## Details
+
 The executable `pcbcraft-cli mcp` implements a stdio MCP server. It negotiates
 2025-11-25, 2025-06-18 or 2024-11-05 protocol versions, advertises tools, and returns
 tool failures as `isError` responses. Messages are capped at 1 MiB.
@@ -83,6 +97,10 @@ independent schematic unit placement. All package pins still use the same
 component ID and physical pin number. `track.route` accepts `layer` (`F.Cu` default
 or `B.Cu`) and requires copper on that layer at both endpoints. Plated through-hole
 pads connect their own front/back copper; two different pads are never bridged.
+`track.route_pair` takes four pad refs (`from_p`, `from_n`, `to_p`, `to_n`) for a
+declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
+routes both nets with coupled orthogonal L geometry and refuses when the pair gap
+cannot be kept.
 
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
@@ -110,3 +128,29 @@ removed; edits do not silently rewrite existing circuits.
 pcbcraft-cli tool library.catalog
 pcbcraft-cli tool library.search --args '{"path":"/usr/share/kicad/symbols/Device.kicad_sym","kind":"symbol","query":"resistor","limit":20}'
 ```
+
+## Fabrication and output jobs
+
+`gerber.export` writes front and back copper, outline and Excellon drill into a
+directory without editing the project. `output_job.add` records a named recipe
+(listing export kinds such as `gerbers`, `netlist`, `bom`, `placement`, `dxf`,
+`panel`, `layer_plots` and `raster`). `output_job.run` writes every file in that
+recipe into one folder after layout changes. Drawn silk, mask and machine layers
+in `layer_plots` become their own Gerber, DXF, SVG and HP-GL files as positive
+ink, not negative soldermask from pads. The `raster` kind writes six high-DPI
+PNGs (top and bottom copper, mask and legend). `panel.export` duplicates
+fabrication outputs for every copy when a panel grid is enabled.
+
+## Limits
+
+MCP messages are capped at 1 MiB. The live bridge is loopback-only trusted
+automation with no remote authentication. Initial checks exposed through `checks`
+are not full ERC/DRC. Preview `export` supports PNG and SVG for schematic/PCB
+views; it does not write fabrication BMP rasters (those PNGs come from output
+jobs).
+
+## See also
+
+- [architecture.md](architecture.md) for the mutation boundary and crate layers
+- [kicad-libraries.md](kicad-libraries.md) for library DTO fields used in authoring
+- README **CLI and MCP** for copy-paste sample commands

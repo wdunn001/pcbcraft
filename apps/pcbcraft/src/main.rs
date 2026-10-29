@@ -8,7 +8,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--tab schematic|pcb|libraries|project-library|symbol-editor|footprint-editor|checks\n--light\n--capture /absolute/path.png"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--tab schematic|pcb|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png"
         );
         return Ok(());
     }
@@ -31,9 +31,22 @@ fn main() -> eframe::Result {
             std::process::exit(1);
         }
     }
-    let shared = pcbcraft_mcp::shared(session);
+    let hub = match pcbcraft_mcp::DocumentHub::new(session, option("--project")) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("documents: {e}");
+            std::process::exit(1);
+        }
+    };
+    let shared = match hub.active_session() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("documents: {e}");
+            std::process::exit(1);
+        }
+    };
     if let Some(address) = option("--control")
-        && let Err(e) = pcbcraft_mcp::start_bridge(shared.clone(), &address)
+        && let Err(e) = pcbcraft_mcp::start_bridge(hub.clone(), &address)
     {
         eprintln!("control bridge: {e}");
         std::process::exit(1);
