@@ -17,7 +17,7 @@ pub fn via_mask_opening(v: &Via) -> bool {
 }
 
 #[derive(Clone, Copy)]
-struct DrillHit {
+pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
@@ -50,16 +50,32 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
         }
     }
     for h in &p.board.holes {
+        let d_um = (h.diameter * 1_000.0).round() as u64;
+        let span_um = if h.is_slot() {
+            (h.start().distance(h.finish()) * 1_000.0).round() as u64
+        } else {
+            0
+        };
+        let (x, y, ux, uy) = if h.is_slot() {
+            let center = h.center();
+            let half = Point::new(
+                (h.finish().x - h.start().x) / 2.0,
+                (h.finish().y - h.start().y) / 2.0,
+            );
+            (center.x, center.y, half.x, half.y)
+        } else {
+            (h.position.x, h.position.y, 0.0, 0.0)
+        };
         push(
             &mut hits,
             DrillHit {
-                d_um: (h.diameter * 1_000.0).round() as u64,
-                span_um: 0,
+                d_um,
+                span_um,
                 plated: false,
-                x: h.position.x,
-                y: h.position.y,
-                ux: 0.0,
-                uy: 0.0,
+                x,
+                y,
+                ux,
+                uy,
             },
         );
     }
@@ -132,6 +148,16 @@ enum Ap {
     Rect(u64, u64),
     Obround(u64, u64),
     Round(u64, u64, u64),
+}
+
+struct ArcSegment {
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+    cx: f64,
+    cy: f64,
+    clockwise: bool,
 }
 
 struct LayerAttrs<'a> {
@@ -252,17 +278,7 @@ impl GerberLayer {
         Ok(())
     }
 
-    fn arc_segment(
-        &mut self,
-        code: u32,
-        sx: f64,
-        sy: f64,
-        ex: f64,
-        ey: f64,
-        cx: f64,
-        cy: f64,
-        clockwise: bool,
-    ) -> Result<(), String> {
+    fn arc_segment(&mut self, code: u32, arc: ArcSegment) -> Result<(), String> {
         self.ops += 1;
         if self.ops > MAX_OPS {
             return Err("gerber export exceeds the object limit".into());
@@ -271,13 +287,13 @@ impl GerberLayer {
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
             "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-            sx * self.scale,
-            sy * self.scale,
-            ex * self.scale,
-            ey * self.scale,
-            (cx - sx) * self.scale,
-            (cy - sy) * self.scale,
-            if clockwise { 2 } else { 3 }
+            arc.sx * self.scale,
+            arc.sy * self.scale,
+            arc.ex * self.scale,
+            arc.ey * self.scale,
+            (arc.cx - arc.sx) * self.scale,
+            (arc.cy - arc.sy) * self.scale,
+            if arc.clockwise { 2 } else { 3 }
         ));
         Ok(())
     }
@@ -334,18 +350,18 @@ impl GerberLayer {
     }
 }
 
-fn net_name<'a>(p: &'a Project, id: u64) -> Option<&'a str> {
+fn net_name(p: &Project, id: u64) -> Option<&str> {
     p.nets.iter().find(|n| n.id == id).map(|n| n.name.as_str())
 }
 
-fn component_reference<'a>(p: &'a Project, component_id: u64) -> Option<&'a str> {
+fn component_reference(p: &Project, component_id: u64) -> Option<&str> {
     p.components
         .iter()
         .find(|c| c.id == component_id)
         .map(|c| c.reference.as_str())
 }
 
-fn footprint_rules<'a>(p: &'a Project, component_id: u64) -> Option<&'a FootprintRules> {
+fn footprint_rules(p: &Project, component_id: u64) -> Option<&FootprintRules> {
     p.components
         .iter()
         .find(|c| c.id == component_id)
@@ -706,7 +722,18 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             } else {
                 arc.sweep < 0.0
             };
-            file.arc_segment(code, sx, sy, ex, ey, cx, cy, clockwise)?;
+            file.arc_segment(
+                code,
+                ArcSegment {
+                    sx,
+                    sy,
+                    ex,
+                    ey,
+                    cx,
+                    cy,
+                    clockwise,
+                },
+            )?;
         } else {
             file.stroke(
                 code,

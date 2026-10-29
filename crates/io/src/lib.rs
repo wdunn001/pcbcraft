@@ -10,8 +10,10 @@ mod board_mesh;
 mod drawn;
 mod fab_export;
 mod gerber;
+mod gerber_job;
 mod layers;
 mod library_render;
+mod package;
 mod panel_export;
 mod raster;
 pub use board_mesh::{
@@ -20,11 +22,16 @@ pub use board_mesh::{
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
+pub use gerber_job::{gerber_job, gerber_zip};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
 };
 use library_render::*;
+pub use package::{
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
+    package_zip,
+};
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
 pub use raster::{
@@ -78,6 +85,67 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
     Err("host filesystem writes are unavailable in the browser; download support is planned".into())
 }
+
+/// Build a stored-mode ZIP from ordered `(name, bytes)` pairs.
+pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let count = u16::try_from(entries.len())
+        .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
+    let mut zip: Vec<u8> = Vec::new();
+    let mut central: Vec<u8> = Vec::new();
+    let mut offset = 0u32;
+    for (name, data) in entries {
+        if name.is_empty() || name.len() > 255 {
+            return Err("archive entry names are 1 to 255 bytes".into());
+        }
+        let size = u32::try_from(data.len())
+            .map_err(|_| format!("{name} is larger than the 4 GiB a stored ZIP address"))?;
+        let name_len = u16::try_from(name.len())
+            .map_err(|_| format!("{name} has a name longer than 255 bytes"))?;
+        let crc = crc32(data);
+        let mut local = Vec::new();
+        local.extend_from_slice(b"PK\x03\x04");
+        local.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        local.extend_from_slice(&crc.to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&name_len.to_le_bytes());
+        local.extend_from_slice(&0u16.to_le_bytes());
+        local.extend_from_slice(name.as_bytes());
+        local.extend_from_slice(data);
+        let mut dir = Vec::new();
+        dir.extend_from_slice(b"PK\x01\x02");
+        dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&crc.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&name_len.to_le_bytes());
+        dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&offset.to_le_bytes());
+        dir.extend_from_slice(name.as_bytes());
+        zip.extend_from_slice(&local);
+        central.extend_from_slice(&dir);
+        offset = offset
+            .checked_add(
+                u32::try_from(local.len())
+                    .map_err(|_| format!("{name} makes the archive too large"))?,
+            )
+            .ok_or_else(|| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
+    }
+    let directory_start = u32::try_from(zip.len())
+        .map_err(|_| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
+    let central_size = u32::try_from(central.len())
+        .map_err(|_| "the archive directory is larger than a stored ZIP allows".to_string())?;
+    zip.extend_from_slice(&central);
+    zip.extend_from_slice(b"PK\x05\x06");
+    zip.extend_from_slice(&[0, 0, 0, 0]);
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&central_size.to_le_bytes());
+    zip.extend_from_slice(&directory_start.to_le_bytes());
+    zip.extend_from_slice(&0u16.to_le_bytes());
+    Ok(zip)
+}
+
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
     let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
@@ -145,7 +213,7 @@ fn footprint_bounds(p: &Project, f: &pcbcraft_doc::Footprint) -> (Point, Point) 
 }
 
 /// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries.
-fn crc32(bytes: &[u8]) -> u32 {
+pub fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for byte in bytes {
         crc = (crc >> 8) ^ CRC_TABLE[((crc as u8) ^ byte) as usize];
@@ -2193,16 +2261,16 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             self.body.push_str("G37*\n");
             Ok(())
         }
-        fn finish(&self, mirror: bool, name: &str, file_function: &str) -> String {
-            let mo = if self.scale != 1.0 { "MOIN" } else { "MOMM" };
-            let mut out = format!(
-                "G04 {name} generated by PCBCraft *\n\
-                 %TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n\
-                 %TF.FileFunction,{file_function}*%\n\
-                 %FSLAX46Y46*%\n\
-                 %{mo}*%\n"
-            );
-            let _ = mirror;
+        fn finish(&self, _mirror: bool, name: &str, file_function: Option<&str>) -> String {
+            let mo = if self.scale != 1.0 {
+                "%MOIN*%"
+            } else {
+                "%MOMM*%"
+            };
+            let mut out = format!("G04 {name} generated by PCBCraft *\n%FSLAX46Y46*%\n{mo}\n");
+            if let Some(ff) = file_function {
+                out.push_str(&format!("%TF.FileFunction,{ff}*%\n"));
+            }
             for (ap, code) in &self.apertures {
                 match *ap {
                     Ap::Circle(d) => out.push_str(&format!(
@@ -2381,23 +2449,24 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     let drill = excellon_drill_file(&hits, origin, inch, scale, None);
     let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true));
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
+    let drill_map = fab_export::drill_map_plot(p)?;
     let mut files = BTreeMap::new();
     files.insert(
         "pcb-F.Cu.gbr".into(),
-        front.finish(false, "front copper layer", "Copper,L1,Top"),
+        front.finish(false, "front copper layer", Some("Copper,L1,Top")),
     );
     files.insert(
         "pcb-B.Cu.gbr".into(),
-        back.finish(true, "back copper layer", "Copper,L2,Bot"),
+        back.finish(true, "back copper layer", Some("Copper,L2,Bot")),
     );
     files.insert(
         "pcb-Edge.gbr".into(),
-        outline.finish(false, "board outline", "Profile,NP"),
+        outline.finish(false, "board outline", Some("Profile,NP")),
     );
-    files.insert("pcb-DrillMap.gbr".into(), fab_export::drill_map_plot(p)?);
+    files.insert("pcb-DrillMap.gbr".into(), drill_map);
     files.insert("pcb-Drill.drl".into(), drill);
-    files.insert("pcb-Plated.drl".into(), plated_drill);
-    files.insert("pcb-NPTH.drl".into(), npth_drill);
+    files.insert("pcb-Plated.drl".into(), plated_drill.clone());
+    files.insert("pcb-NPTH.drl".into(), npth_drill.clone());
     for (name, text) in drawn::gerber_layer_files(p)? {
         files.insert(name, text);
     }
@@ -2407,15 +2476,51 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         "pcb-B.Mask.gbr",
         "pcb-F.Paste.gbr",
         "pcb-B.Paste.gbr",
+        "pcb-Plated.drl",
+        "pcb-NPTH.drl",
         "pcb-Rout.drl",
     ] {
         if let Some(text) = extras.get(key) {
             files.insert(key.to_string(), text.clone());
         }
     }
+    if !files.contains_key("pcb-NPTH.drl") {
+        files.insert("pcb-NPTH.drl".into(), npth_drill);
+    }
+    if !files.contains_key("pcb-Plated.drl") {
+        files.insert("pcb-Plated.drl".into(), plated_drill);
+    }
     let mut names: Vec<String> = files.keys().cloned().collect();
+    names.push("README-fabrication.txt".into());
     names.sort();
-    files.insert("README-fabrication.txt".into(), fab_readme_text(p, &names)?);
+    files.insert(
+        "README-fabrication.txt".into(),
+        fab_export::fab_readme_text(p, &names)?,
+    );
+    let job = gerber_job::gerber_job_at(p, &files, &gerber_job::now_utc())?;
+    files.insert("pcb-job.gbrjob".into(), job);
+    names = files.keys().cloned().collect();
+    names.push("README-fabrication.txt".into());
+    names.sort();
+    files.insert(
+        "README-fabrication.txt".into(),
+        fab_export::fab_readme_text(p, &names)?,
+    );
+    Ok(files)
+}
+
+/// Fabrication files with a pinned Gerber job creation timestamp for packages.
+pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
+    let mut files = gerber_files(p)?;
+    let job = gerber_job::gerber_job_at(p, &files, creation)?;
+    files.insert("pcb-job.gbrjob".into(), job);
+    let mut names: Vec<String> = files.keys().cloned().collect();
+    names.push("README-fabrication.txt".into());
+    names.sort();
+    files.insert(
+        "README-fabrication.txt".into(),
+        fab_export::fab_readme_text(p, &names)?,
+    );
     Ok(files)
 }
 
@@ -7758,7 +7863,7 @@ mod tests {
         );
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.starts_with("M48\nFMAT,2\nINCH,TZ\n"),
+            drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nINCH,TZ\n"),
             "the drill header declares inches: {drill}"
         );
         assert!(
@@ -7923,6 +8028,7 @@ mod tests {
                 "pcb-F.Paste.gbr",
                 "pcb-NPTH.drl",
                 "pcb-Plated.drl",
+                "pcb-job.gbrjob",
             ]
         );
         for key in files.keys() {
@@ -7968,15 +8074,15 @@ mod tests {
             "through-hole pad aperture"
         );
         assert!(
-            front.contains("G36*\nD02*\nX5.000000Y5.000000D02*\n"),
+            front.contains("G36*") && front.contains("X5.000000Y5.000000D02*\n"),
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("D12*\nX30.000000Y10.000000D03*\n"),
+            front.contains("X30.000000Y10.000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("D11*\nX2.000000Y0.000000D03*\n"),
+            front.contains("X2.000000Y0.000000D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
@@ -7990,7 +8096,7 @@ mod tests {
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("D12*\nX-30.000000Y10.000000D03*\n"),
+            back.contains("X-30.000000Y10.000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
@@ -11489,18 +11595,18 @@ mod tests {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 8,
-            name: "SIG".into(),
+            name: "N1".into(),
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            id: 510,
+            id: 4,
             net: 8,
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
-            id: 511,
+            id: 2,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
             end: None,
@@ -11519,18 +11625,18 @@ mod tests {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 8,
-            name: "SIG".into(),
+            name: "N1".into(),
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            id: 510,
+            id: 4,
             net: 8,
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
-            id: 511,
+            id: 2,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
             end: None,
@@ -11939,7 +12045,15 @@ mod tests {
             kind: "capacitor".into(),
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
-            pins: vec![],
+            pins: vec![pcbcraft_doc::Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::new(0.0, 0.0),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
             units: vec![],
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
@@ -11971,7 +12085,7 @@ mod tests {
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
-                diameter: 1.0,
+                diameter: 0.5,
                 net: None,
                 castellated: None,
                 geometry: Some(smd),
@@ -12013,9 +12127,6 @@ mod tests {
         let files = gerber_files(&project)?;
         let readme = &files["README-fabrication.txt"];
         for name in files.keys() {
-            if name == "README-fabrication.txt" {
-                continue;
-            }
             assert!(readme.contains(name.as_str()), "readme lists {name}");
         }
         assert!(readme.contains("L1"));

@@ -649,7 +649,7 @@ impl Builder<'_> {
 fn to_board(fp: &Footprint, local: Point) -> Point {
     fp.position.offset(local.rotate(-fp.rotation))
 }
-fn map_ring(fp: &Footprint, local: &[Point]) -> Vec<Point> {
+pub(crate) fn map_ring(fp: &Footprint, local: &[Point]) -> Vec<Point> {
     local.iter().map(|p| to_board(fp, *p)).collect()
 }
 fn circle_segments(radius: f64) -> usize {
@@ -661,7 +661,7 @@ fn circle_segments(radius: f64) -> usize {
         36
     }
 }
-fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
+pub(crate) fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
     let n = circle_segments(radius);
     (0..n)
         .map(|i| {
@@ -698,7 +698,7 @@ fn capsule_ring(a: Point, b: Point, radius: f64) -> Vec<Point> {
     }
     clean_ring(&points).unwrap_or_default()
 }
-fn grow(ring: &[Point], margin: f64) -> Vec<Point> {
+pub(crate) fn grow(ring: &[Point], margin: f64) -> Vec<Point> {
     let (lo, hi) = ring_bounds(ring);
     let (hx, hy) = ((hi.x - lo.x) / 2.0, (hi.y - lo.y) / 2.0);
     let (cx, cy) = ((hi.x + lo.x) / 2.0, (hi.y + lo.y) / 2.0);
@@ -860,7 +860,7 @@ fn pad_box(pad: &Pad) -> Option<PadBox> {
         round: geometry.is_none_or(|g| g.shape == "circle"),
     })
 }
-fn rect_ring(cx: f64, cy: f64, w: f64, h: f64) -> Vec<Point> {
+pub(crate) fn rect_ring(cx: f64, cy: f64, w: f64, h: f64) -> Vec<Point> {
     vec![
         Point::new(cx - w / 2.0, cy - h / 2.0),
         Point::new(cx + w / 2.0, cy - h / 2.0),
@@ -1561,7 +1561,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
 }
 
 /// Which copper sides a pad touches, and whether it has copper at all.
-fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
+pub(crate) fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
     match &pad.geometry {
         None => (true, false, true),
         Some(g) => {
@@ -1584,7 +1584,7 @@ fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
         }
     }
 }
-fn graphic_layer(g: &pcbcraft_library::Graphic) -> Option<(&str, f64)> {
+pub(crate) fn graphic_layer(g: &pcbcraft_library::Graphic) -> Option<(&str, f64)> {
     use pcbcraft_library::Graphic as G;
     match g {
         G::Line { width, layer, .. }
@@ -1595,7 +1595,7 @@ fn graphic_layer(g: &pcbcraft_library::Graphic) -> Option<(&str, f64)> {
         G::Text { .. } => None,
     }
 }
-fn thin_polyline(points: &[Point], max_segments: usize) -> Vec<Point> {
+pub(crate) fn thin_polyline(points: &[Point], max_segments: usize) -> Vec<Point> {
     if points.len() <= max_segments + 1 {
         return points.to_vec();
     }
