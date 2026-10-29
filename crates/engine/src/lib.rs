@@ -4571,21 +4571,25 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
     Ok((position, net))
 }
 
-fn component_for_instance_prototype(
-    p: &Project,
+fn component_for_instance_prototype<'a>(
+    p: &'a Project,
     instance: Id,
     prototype: Id,
-) -> Option<&Component> {
+) -> Option<&'a Component> {
     p.components
         .iter()
         .find(|c| c.instance == Some(instance) && c.prototype == Some(prototype))
 }
 
-fn footprint_for_component(p: &Project, component: Id) -> Option<&Footprint> {
+fn footprint_for_component<'a>(p: &'a Project, component: Id) -> Option<&'a Footprint> {
     p.board.footprints.iter().find(|f| f.component == component)
 }
 
-fn template_component_by_reference(p: &Project, sheet: Id, reference: &str) -> Option<&Component> {
+fn template_component_by_reference<'a>(
+    p: &'a Project,
+    sheet: Id,
+    reference: &str,
+) -> Option<&'a Component> {
     p.components
         .iter()
         .find(|c| c.sheet == sheet && c.instance.is_none() && c.reference == reference)
@@ -4713,7 +4717,7 @@ fn merge_design_block_template(
             id: *id_map.get(&wire.id).ok_or_else(missing)?,
             net: wire
                 .net
-                .map(|n| *id_map.get(&n).ok_or_else(missing))
+                .map(|n| id_map.get(&n).copied().ok_or_else(missing))
                 .transpose()?,
             points: wire.points.clone(),
         });
@@ -21813,7 +21817,7 @@ mod tests {
             }),
             None,
         )?;
-        let refs: BTreeSet<String> = s
+        let refs: std::collections::BTreeSet<String> = s
             .project
             .components
             .iter()
