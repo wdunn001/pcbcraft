@@ -152,7 +152,9 @@
               "length": 2.54,
               "electrical_type": "output",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "2",
@@ -165,7 +167,9 @@
               "length": 2.54,
               "electrical_type": "input",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "3",
@@ -178,7 +182,9 @@
               "length": 2.54,
               "electrical_type": "input",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "5",
@@ -191,7 +197,9 @@
               "length": 2.54,
               "electrical_type": "input",
               "unit": 2,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "6",
@@ -204,7 +212,9 @@
               "length": 2.54,
               "electrical_type": "input",
               "unit": 2,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "7",
@@ -217,7 +227,9 @@
               "length": 2.54,
               "electrical_type": "output",
               "unit": 2,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "4",
@@ -230,7 +242,9 @@
               "length": 3.81,
               "electrical_type": "power_in",
               "unit": 3,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "8",
@@ -243,7 +257,9 @@
               "length": 3.81,
               "electrical_type": "power_in",
               "unit": 3,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             }
           ],
           "graphics": [
@@ -905,6 +921,16 @@
     }
   ],
   "net_classes": [],
+  "panel": {
+    "enabled": false,
+    "columns": 1,
+    "rows": 1,
+    "pitch_x": 0.0,
+    "pitch_y": 0.0,
+    "rail": 5.0,
+    "separation": "tab",
+    "tab_channel": 1.8
+  },
   "wires": [
     {
       "id": 55,
@@ -1769,7 +1795,9 @@
             "length": 2.54,
             "electrical_type": "output",
             "unit": 1,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "2",
@@ -1782,7 +1810,9 @@
             "length": 2.54,
             "electrical_type": "input",
             "unit": 1,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "3",
@@ -1795,7 +1825,9 @@
             "length": 2.54,
             "electrical_type": "input",
             "unit": 1,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "5",
@@ -1808,7 +1840,9 @@
             "length": 2.54,
             "electrical_type": "input",
             "unit": 2,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "6",
@@ -1821,7 +1855,9 @@
             "length": 2.54,
             "electrical_type": "input",
             "unit": 2,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "7",
@@ -1834,7 +1870,9 @@
             "length": 2.54,
             "electrical_type": "output",
             "unit": 2,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "4",
@@ -1847,7 +1885,9 @@
             "length": 3.81,
             "electrical_type": "power_in",
             "unit": 3,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           },
           {
             "number": "8",
@@ -1860,7 +1900,9 @@
             "length": 3.81,
             "electrical_type": "power_in",
             "unit": 3,
-            "body_style": 1
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
           }
         ],
         "graphics": [
