@@ -238,9 +238,14 @@ fn diff_component_fields(
         .iter()
         .map(|f| (f.key.clone(), f.value.clone()))
         .collect();
-    for key in old_fields.keys().chain(new_fields.keys()).collect::<BTreeSet<_>>() {
-        let ob = old_fields.remove(key.as_str());
-        let nb = new_fields.remove(key.as_str());
+    let field_keys: BTreeSet<String> = old_fields
+        .keys()
+        .chain(new_fields.keys())
+        .cloned()
+        .collect();
+    for key in field_keys {
+        let ob = old_fields.remove(&key);
+        let nb = new_fields.remove(&key);
         if ob != nb {
             push_change(
                 changes,
@@ -673,7 +678,7 @@ pub fn project_diff(old: &Project, new: &Project) -> DesignDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Component, Footprint, Pad, Pin, Project};
+    use pcbcraft_doc::{Component, Footprint, Net, Pad, Pin, Project};
 
     fn minimal_project() -> Project {
         let mut p = Project::default();
