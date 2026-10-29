@@ -439,6 +439,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.stub_rules",
+            "Set the longest dead-end copper branch a net class allows; null clears the limit",
+            schema(
+                json!({"class":id_schema(),"max_stub":{"type":["number","null"],"minimum":0,"maximum":100}}),
+                &["class"],
+            ),
+        ),
+        (
             "netclass.clearance",
             "Change the clearance a net class requires between its copper and everything else",
             schema(
@@ -1624,7 +1632,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -2294,7 +2302,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -3832,6 +3840,12 @@ struct LengthRulesParams {
     target_length: Option<f64>,
     #[serde(default)]
     length_tolerance: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StubRulesParams {
+    class: Id,
+    max_stub: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -7429,6 +7443,7 @@ fn run_command(
                 max_width: None,
                 target_length: None,
                 length_tolerance: None,
+                max_stub: None,
                 via_diameter: None,
                 via_drill: None,
                 pair_width: None,
@@ -7540,6 +7555,35 @@ fn run_command(
                 "class": a.class,
                 "target_length": class.target_length,
                 "length_tolerance": class.length_tolerance,
+            }))
+        }
+        "netclass.stub_rules" => {
+            let a: StubRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.max_stub = match &a.max_stub {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let s = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0 && *v <= 100.0)
+                        .ok_or_else(|| {
+                            Error::Invalid("max stub must be between 0 and 100 mm".into())
+                        })?;
+                    Some(s)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "max stub must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "max_stub": class.max_stub,
             }))
         }
         "netclass.clearance" => {
@@ -22363,6 +22407,109 @@ mod tests {
         assert!(s.project.validate().is_ok());
         let before = s.inspect();
         assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    #[test]
+    fn netclass_stub_rules_sets_and_clears_max_stub() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn stubs(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "stub_length")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":20.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":20.0,"y":10.0},"end":{"x":20.0,"y":13.0},"width":0.3}),
+            None,
+        )?;
+        assert!(
+            stubs(&s).is_empty(),
+            "without a class limit nothing reports"
+        );
+        s.execute(
+            "netclass.stub_rules",
+            json!({"class":class,"max_stub":1.0}),
+            None,
+        )?;
+        assert!(
+            stubs(&s)
+                .iter()
+                .any(|m| m.contains("3.000 mm") && m.contains("at most 1.000 mm")),
+            "the open stub is reported once the class limit is set"
+        );
+        s.execute(
+            "rules.severity",
+            json!({"code":"stub_length","severity":"off"}),
+            None,
+        )?;
+        assert!(stubs(&s).is_empty());
+        s.execute(
+            "rules.severity",
+            json!({"code":"stub_length","severity":"error"}),
+            None,
+        )?;
+        s.execute(
+            "netclass.stub_rules",
+            json!({"class":class,"max_stub":null}),
+            None,
+        )?;
+        assert!(stubs(&s).is_empty());
+        s.execute(
+            "netclass.stub_rules",
+            json!({"class":class,"max_stub":20.0}),
+            None,
+        )?;
+        assert!(stubs(&s).is_empty());
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_stub == Some(20.0)),
+            "the limit round-trips on the class"
+        );
+        let encoded =
+            serde_json::to_value(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let decoded: Project =
+            serde_json::from_value(encoded).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            decoded
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_stub == Some(20.0))
+        );
+        for params in [
+            json!({"class":class,"max_stub":-0.1}),
+            json!({"class":class,"max_stub":101.0}),
+            json!({"class":999,"max_stub":1.0}),
+            json!({"class":class,"max_stub":"wide"}),
+            json!({"class":class,"max_stub":1.0,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.stub_rules", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
         Ok(())
     }
     #[test]
