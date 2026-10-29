@@ -4650,6 +4650,283 @@ fn track_endpoint_touches_tracks(
     })
 }
 
+/// The bindable numeric fields a command accepts a `{"param": "name"}` value
+/// for: resolved to the parameter's number before the command parses its
+/// parameters, then recorded so a later parameter change follows it here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindableField {
+    HoleDiameter,
+    HoleX,
+    HoleY,
+    ViaDiameter,
+    ViaDrill,
+    ViaX,
+    ViaY,
+}
+impl BindableField {
+    /// The recorded field this parameter reference binds.
+    fn field(self) -> Field {
+        match self {
+            BindableField::HoleDiameter => Field::HoleDiameter,
+            BindableField::HoleX => Field::HoleX,
+            BindableField::HoleY => Field::HoleY,
+            BindableField::ViaDiameter => Field::ViaDiameter,
+            BindableField::ViaDrill => Field::ViaDrill,
+            BindableField::ViaX => Field::ViaX,
+            BindableField::ViaY => Field::ViaY,
+        }
+    }
+}
+/// The dotted parameter paths a command accepts a named parameter for, and
+/// the field each one drives. Commands absent from this table refuse a
+/// `{"param": "name"}` value with a plain message.
+fn bindable_fields(command: &str) -> &'static [(&'static str, BindableField)] {
+    const HOLE_POSITION: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::HoleX),
+        ("position.y", BindableField::HoleY),
+    ];
+    const HOLE_PLACE: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::HoleX),
+        ("position.y", BindableField::HoleY),
+        ("diameter", BindableField::HoleDiameter),
+    ];
+    const VIA_POSITION: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::ViaX),
+        ("position.y", BindableField::ViaY),
+    ];
+    const VIA_PLACE: &[(&str, BindableField)] = &[
+        ("position.x", BindableField::ViaX),
+        ("position.y", BindableField::ViaY),
+        ("diameter", BindableField::ViaDiameter),
+        ("drill", BindableField::ViaDrill),
+    ];
+    const VIA_SIZE: &[(&str, BindableField)] = &[
+        ("diameter", BindableField::ViaDiameter),
+        ("drill", BindableField::ViaDrill),
+    ];
+    const HOLE_SIZE: &[(&str, BindableField)] = &[("diameter", BindableField::HoleDiameter)];
+    match command {
+        "board.hole_place" => HOLE_PLACE,
+        "board.hole_move" => HOLE_POSITION,
+        "board.hole_set_size" => HOLE_SIZE,
+        "via.place" => VIA_PLACE,
+        "via.move" => VIA_POSITION,
+        "via.set_size" => VIA_SIZE,
+        _ => &[],
+    }
+}
+/// Where the object a command just bound comes from: the id the command
+/// returned for a fresh object, or the id the caller named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingTarget {
+    Placed,
+    Targeted,
+}
+impl BindingTarget {
+    /// How a command's bound fields find their object.
+    fn of(command: &str) -> Self {
+        match command {
+            "board.hole_place" | "via.place" => BindingTarget::Placed,
+            _ => BindingTarget::Targeted,
+        }
+    }
+}
+/// A command's parameters with every named parameter reference replaced by
+/// its current number, plus the fields those references bind.
+struct ResolvedCommand {
+    params: Value,
+    bound: Vec<(BindableField, String)>,
+}
+/// Collect the dotted paths of every `{"param": "name"}` value in `value`,
+/// together with the name each one references.
+fn parameter_ref_paths(value: &Value, path: &mut Vec<String>, out: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            if map.len() == 1
+                && let Some(Value::String(name)) = map.get("param")
+            {
+                out.push((path.join("."), name.clone()));
+                return;
+            }
+            for (key, child) in map {
+                path.push(key.clone());
+                parameter_ref_paths(child, path, out);
+                path.pop();
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                path.push(index.to_string());
+                parameter_ref_paths(child, path, out);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+/// The child of `root` named by one dotted path segment, reading a number as
+/// an array index and anything else as an object key.
+fn path_child_mut<'a>(root: &'a mut Value, segment: &str) -> Option<&'a mut Value> {
+    match segment.parse::<usize>() {
+        Ok(index) => root.get_mut(index),
+        Err(_) => root.get_mut(segment),
+    }
+}
+/// The value at a dotted parameter path, if the path exists.
+fn value_at<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.')
+        .try_fold(root, |node, segment| match segment.parse::<usize>() {
+            Ok(index) => node.get(index),
+            Err(_) => node.get(segment),
+        })
+}
+/// Replace the value at a dotted parameter path.
+fn set_at(root: &mut Value, path: &str, replacement: Value) -> Result<(), Error> {
+    let segments: Vec<&str> = path.split('.').collect();
+    let (last, parents) = segments
+        .split_last()
+        .ok_or_else(|| Error::Invalid("a parameter reference has no path".into()))?;
+    let mut cursor = root;
+    for segment in parents {
+        cursor = path_child_mut(cursor, segment)
+            .ok_or_else(|| Error::Invalid(format!("parameter path {path:?} is missing")))?;
+    }
+    *path_child_mut(cursor, last)
+        .ok_or_else(|| Error::Invalid(format!("parameter path {path:?} is missing")))? =
+        replacement;
+    Ok(())
+}
+/// Resolve every named parameter reference in one command's parameters,
+/// refusing a name the design does not record and a slot the command cannot
+/// bind.
+fn resolve_parameters(
+    p: &Project,
+    command: &str,
+    params: &Value,
+) -> Result<ResolvedCommand, Error> {
+    let mut found = Vec::new();
+    parameter_ref_paths(params, &mut Vec::new(), &mut found);
+    if found.is_empty() {
+        return Ok(ResolvedCommand {
+            params: params.clone(),
+            bound: vec![],
+        });
+    }
+    let slots = bindable_fields(command);
+    let mut resolved = params.clone();
+    let mut bound = Vec::new();
+    for (path, name) in found {
+        let field = slots
+            .iter()
+            .find(|(slot, _)| *slot == path)
+            .map(|(_, field)| *field)
+            .ok_or_else(|| {
+                Error::Invalid(format!(
+                    "{command} cannot take a named parameter for {path:?}; only hole and via placement, move and size commands can"
+                ))
+            })?;
+        let parameter = p.parameters.get(&name).ok_or_else(|| {
+            Error::Invalid(format!(
+                "no parameter named {name:?}; record it before referencing it"
+            ))
+        })?;
+        set_at(&mut resolved, &path, json!(parameter.value))?;
+        bound.push((field, name));
+    }
+    Ok(ResolvedCommand {
+        params: resolved,
+        bound,
+    })
+}
+/// Write one bound field again and re-run the range checks of the command
+/// that normally writes it.
+fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> Result<(), Error> {
+    match field {
+        Field::HoleDiameter => {
+            let hole = p
+                .board
+                .holes
+                .iter_mut()
+                .find(|h| h.id == object)
+                .ok_or_else(missing)?;
+            if !(0.05..=25.0).contains(&value) {
+                return Err(Error::Invalid(
+                    "hole drill must be within 0.05 to 25 mm".into(),
+                ));
+            }
+            hole.diameter = value;
+        }
+        Field::HoleX | Field::HoleY => {
+            let hole = p
+                .board
+                .holes
+                .iter_mut()
+                .find(|h| h.id == object)
+                .ok_or_else(missing)?;
+            let moved = if field == Field::HoleX {
+                Point::new(value, hole.position.y)
+            } else {
+                Point::new(hole.position.x, value)
+            };
+            if !moved.valid() {
+                return Err(Error::Invalid("hole position is out of range".into()));
+            }
+            hole.position = moved;
+        }
+        Field::ViaDiameter => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            if !value.is_finite() || value <= 0.0 || value > 100.0 {
+                return Err(Error::Invalid(
+                    "via diameter must be within 0 to 100 mm".into(),
+                ));
+            }
+            if value <= via.drill {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.diameter = value;
+        }
+        Field::ViaDrill => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            if !value.is_finite() || value < 0.0 || value >= via.diameter {
+                return Err(Error::Invalid(
+                    "via drill must be smaller than its pad".into(),
+                ));
+            }
+            via.drill = value;
+        }
+        Field::ViaX | Field::ViaY => {
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == object)
+                .ok_or_else(missing)?;
+            let moved = if field == Field::ViaX {
+                Point::new(value, via.position.y)
+            } else {
+                Point::new(via.position.x, value)
+            };
+            if !moved.valid() {
+                return Err(Error::Invalid("via position is out of range".into()));
+            }
+            via.position = moved;
+        }
+    }
+    Ok(())
+}
+
 fn track_endpoint_anchored(p: &Project, point: Point, net: Id, layer: Layer, skip: Id) -> bool {
     track_endpoint_touches_tracks(&p.board.tracks, point, net, layer, skip)
         || via_touches_track_point(p, point, net)
@@ -11714,11 +11991,8 @@ fn run_command(
                 ));
             }
             let a: ArtifactSetParams = parse(params)?;
-            let Some(artifact) = p.artifacts.iter_mut().find(|art| art.id == a.id) else {
-                return Err(missing());
-            };
-            if let Some(name) = a.name {
-                let name = name.trim();
+            if let Some(ref name_raw) = a.name {
+                let name = name_raw.trim();
                 if name.is_empty() || name.len() > 128 {
                     return Err(Error::Invalid(
                         "an artifact name must be 1 to 128 bytes".into(),
@@ -11727,7 +12001,12 @@ fn run_command(
                 if p.artifacts.iter().any(|art| art.id != a.id && art.name == name) {
                     return Err(Error::Invalid("an artifact with that name exists".into()));
                 }
-                artifact.name = name.into();
+            }
+            let Some(artifact) = p.artifacts.iter_mut().find(|art| art.id == a.id) else {
+                return Err(missing());
+            };
+            if let Some(name) = a.name {
+                artifact.name = name.trim().into();
             }
             if let Some(kind) = a.kind {
                 if !Artifact::kind_valid(&kind) {
