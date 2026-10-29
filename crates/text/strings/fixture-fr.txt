@@ -1,0 +1,10 @@
+# Test-only language used by the unit tests and the language story.
+language.name = Français (test)
+menu.file = Fichier
+menu.settings = Paramètres
+menu.settings.language = Langue
+menu.edit = Édition
+menu.help = Aide
+app.home = Accueil
+cmp.count.one = {count} pièce
+cmp.count.other = {count} pièces
