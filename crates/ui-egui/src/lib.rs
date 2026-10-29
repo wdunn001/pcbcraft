@@ -5313,7 +5313,11 @@ impl App {
         ui.heading("Files");
         ui.label("The design file, its library sources and the builds made from it.");
         ui.add_space(10.0);
-        ui.label(egui::RichText::new("DESIGN FILE").size(10.0).color(self.muted()));
+        ui.label(
+            egui::RichText::new("DESIGN FILE")
+                .size(10.0)
+                .color(self.muted()),
+        );
         ui.label(egui::RichText::new(&self.path).monospace());
         ui.add_space(8.0);
         if ui
@@ -7001,6 +7005,62 @@ mod tests {
             text_row(&ctx, &mut app, "Save").is_none(),
             "Save is an icon in the bar, not a word"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_reads_the_workspace_tabs_and_opens_files_and_the_layout() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        let mut rows = vec![];
+        for needle in ["Files", "Schematic", "Layout", "3D View"] {
+            rows.push(
+                text_row(&ctx, &mut app, needle)
+                    .ok_or_else(|| format!("{needle} tab is not on screen"))?,
+            );
+        }
+        assert!(
+            rows.windows(2).all(|w| (w[0] - w[1]).abs() < 1.0),
+            "the four tabs share one row: {rows:?}"
+        );
+        assert!(
+            text_row(&ctx, &mut app, "PCB Layout").is_none(),
+            "the board tab is called Layout"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Layout")?;
+        assert!(matches!(app.tab, Tab::Pcb), "Layout opens the board");
+        authoring::tests::tap(&ctx, &mut app, "Files")?;
+        assert!(matches!(app.tab, Tab::Files));
+        assert!(
+            paints_text(&ctx, &mut app, "DESIGN FILE")?,
+            "Files shows the design file"
+        );
+        authoring::tests::tap(&ctx, &mut app, "3D View")?;
+        assert!(paints_text(
+            &ctx,
+            &mut app,
+            "A 3D picture of the finished board is planned. Until it arrives, the Layout view shows every layer."
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_closes_a_view_and_brings_it_back_from_the_plus_menu() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        app.closed_tabs.push(Tab::Rules);
+        assert!(
+            text_row(&ctx, &mut app, "Rules").is_none(),
+            "a closed view leaves the row"
+        );
+        authoring::tests::tap(&ctx, &mut app, "+")?;
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
+        assert!(app.closed_tabs.is_empty());
         Ok(())
     }
 
