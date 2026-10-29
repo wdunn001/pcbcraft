@@ -22663,17 +22663,20 @@ mod tests {
             polygon: vec![],
             raw_source: String::new(),
         };
-        s.project.library.footprints.push(pcbcraft_library::FootprintDefinition {
-            name: "CONN-PEG".into(),
-            description: String::new(),
-            keywords: String::new(),
-            pads: vec![thru("1", -2.54), thru("2", 2.54), peg(-5.0), peg(5.0)],
-            graphics: vec![],
-            model: None,
-            rules: None,
-            raw_source: String::new(),
-            unsupported: vec![],
-        });
+        s.project
+            .library
+            .footprints
+            .push(pcbcraft_library::FootprintDefinition {
+                name: "CONN-PEG".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![thru("1", -2.54), thru("2", 2.54), peg(-5.0), peg(5.0)],
+                graphics: vec![],
+                model: None,
+                rules: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            });
         s.execute(
             "footprint.assign_custom",
             json!({"id":id,"name":"CONN-PEG"}),

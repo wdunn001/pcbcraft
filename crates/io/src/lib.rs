@@ -1902,13 +1902,14 @@ fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
 }
 
 type DrillHitPoint = (f64, f64, f64, f64);
+type DrillToolGroups = BTreeMap<(u64, u64, bool), Vec<DrillHitPoint>>;
 
 fn footprint_pad_drill_plated(geometry: &pcbcraft_library::FootprintPad) -> bool {
     geometry.pad_type == "thru_hole"
 }
 
 fn push_footprint_drill_hit(
-    drills: &mut BTreeMap<(u64, u64, bool), Vec<DrillHitPoint>>,
+    drills: &mut DrillToolGroups,
     footprint: &pcbcraft_doc::Footprint,
     pad: &pcbcraft_doc::Pad,
     geometry: &pcbcraft_library::FootprintPad,
@@ -1924,9 +1925,7 @@ fn push_footprint_drill_hit(
     }
     let span = ((wide - narrow) * 1_000.0).round() as u64;
     let local = pad.offset.offset(drill.offset.rotate(-geometry.rotation));
-    let world = footprint
-        .position
-        .offset(local.rotate(-footprint.rotation));
+    let world = footprint.position.offset(local.rotate(-footprint.rotation));
     let (ux, uy) = if span == 0 {
         (0.0, 0.0)
     } else {
@@ -1944,11 +1943,9 @@ fn push_footprint_drill_hit(
         .push((world.x, world.y, ux, uy));
 }
 
-fn project_drill_groups(
-    p: &Project,
-) -> Result<BTreeMap<(u64, u64, bool), Vec<DrillHitPoint>>, String> {
+fn project_drill_groups(p: &Project) -> Result<DrillToolGroups, String> {
     const MAX_HITS: usize = 50_000;
-    let mut drills: BTreeMap<(u64, u64, bool), Vec<DrillHitPoint>> = BTreeMap::new();
+    let mut drills: DrillToolGroups = BTreeMap::new();
     for v in &p.board.vias {
         if v.drill > 0.0 {
             drills
@@ -1982,7 +1979,7 @@ fn project_drill_groups(
 }
 
 fn excellon_drill_file(
-    drills: &BTreeMap<(u64, u64, bool), Vec<DrillHitPoint>>,
+    drills: &DrillToolGroups,
     plated: bool,
     inch: bool,
     scale: f64,
@@ -6591,12 +6588,7 @@ mod tests {
             name: "CONN-PEG".into(),
             description: String::new(),
             keywords: String::new(),
-            pads: vec![
-                thru("1", -2.54),
-                thru("2", 2.54),
-                peg(-5.0),
-                peg(5.0),
-            ],
+            pads: vec![thru("1", -2.54), thru("2", 2.54), peg(-5.0), peg(5.0)],
             graphics: vec![],
             model: None,
             rules: None,

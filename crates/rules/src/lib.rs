@@ -893,8 +893,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Component, Footprint, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via,
-        component_template,
+        Component, Footprint, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
     };
     fn fixture() -> Project {
         let mut p = Project::default();
@@ -1669,17 +1668,15 @@ mod tests {
             kind: "library".into(),
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
-            pins: vec![
-                Pin {
-                    number: "1".into(),
-                    name: String::new(),
-                    offset: Point::default(),
-                    net: Some(1),
-                    electrical_type: "passive".into(),
-                    direction: None,
-                    unit: 1,
-                },
-            ],
+            pins: vec![Pin {
+                number: "1".into(),
+                name: String::new(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            }],
             units: vec![],
             fields: vec![],
             sheet: 0,
@@ -1714,9 +1711,7 @@ mod tests {
         let findings = drc(&p);
         assert!(
             findings.iter().any(|f| {
-                f.code == "clearance"
-                    && f.objects.iter().any(|o| *o == 2)
-                    && f.objects.iter().any(|o| *o == 3)
+                f.code == "clearance" && f.objects.contains(&2) && f.objects.contains(&3)
             }),
             "a track through a footprint peg is a clearance finding: {findings:?}"
         );

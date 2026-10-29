@@ -2522,9 +2522,10 @@ impl Project {
                 );
             }
             for p in &f.pads {
-                let mechanical = p.geometry.as_ref().is_some_and(|g| {
-                    g.pad_type == "unplated" && p.number.is_empty()
-                });
+                let mechanical = p
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "unplated" && p.number.is_empty());
                 if mechanical {
                     if p.net.is_some() {
                         return Err("unplated mechanical pad cannot carry a net".into());
@@ -2781,7 +2782,9 @@ pub fn validate_footprint_support(
                 || (p.shape == "circle" && (p.size.x - p.size.y).abs() > 1e-6)
                 || p.drill.is_none()
             {
-                return Err("unplated mechanical pads need a drill and must not carry copper layers".into());
+                return Err(
+                    "unplated mechanical pads need a drill and must not carry copper layers".into(),
+                );
             }
             let drill_ok = if p.size.x.min(p.size.y) > 1e-6 {
                 drill_inside_pad(p)
@@ -3429,7 +3432,9 @@ mod drill_tests {
             pads,
         });
         assert!(
-            project.validate().is_err_and(|e| e.contains("unplated mechanical pad cannot carry a net"))
+            project
+                .validate()
+                .is_err_and(|e| e.contains("unplated mechanical pad cannot carry a net"))
         );
         Ok(())
     }
