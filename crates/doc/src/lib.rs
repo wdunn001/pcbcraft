@@ -1348,6 +1348,132 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
+/// Shop equipment profile for fabrication artifacts.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MachineProfile {
+    UvPrinter(UvPrinterProfile),
+}
+
+/// Settings for a UV flatbed printer that registers artwork on a camera photo.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct UvPrinterProfile {
+    pub name: String,
+    pub bed_width_mm: f64,
+    pub bed_height_mm: f64,
+    #[serde(default = "default_uv_dpi_options")]
+    pub dpi_options: Vec<u32>,
+    #[serde(default = "default_uv_white_choke")]
+    pub white_choke_mm: f64,
+    #[serde(default = "default_uv_bleed")]
+    pub default_bleed_mm: f64,
+    #[serde(default = "default_uv_pad_clearance")]
+    pub pad_clearance_mm: f64,
+    pub min_text_height_mm: f64,
+    pub min_stroke_mm: f64,
+    #[serde(default = "default_uv_channels")]
+    pub channels: Vec<String>,
+    pub max_substrate_height_mm: f64,
+    #[serde(default = "default_uv_registration")]
+    pub registration: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask_colour: Option<String>,
+}
+
+fn default_uv_dpi_options() -> Vec<u32> {
+    vec![720, 1440]
+}
+
+fn default_uv_white_choke() -> f64 {
+    0.2
+}
+
+fn default_uv_bleed() -> f64 {
+    0.3
+}
+
+fn default_uv_pad_clearance() -> f64 {
+    0.15
+}
+
+fn default_uv_channels() -> Vec<String> {
+    vec!["cmyk".into(), "white".into(), "gloss".into()]
+}
+
+fn default_uv_registration() -> String {
+    "camera_photo".into()
+}
+
+impl UvPrinterProfile {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() || self.name.len() > 64 {
+            return Err("uv printer profile name must be 1 to 64 bytes".into());
+        }
+        if !(50.0..=2000.0).contains(&self.bed_width_mm)
+            || !(50.0..=2000.0).contains(&self.bed_height_mm)
+        {
+            return Err("uv printer bed size is out of range".into());
+        }
+        if self.dpi_options.is_empty() || self.dpi_options.len() > 8 {
+            return Err("uv printer needs one to eight dpi choices".into());
+        }
+        if self.dpi_options.iter().any(|d| *d < 300 || *d > 4800) {
+            return Err("uv printer dpi choices must be between 300 and 4800".into());
+        }
+        if !(0.0..=2.0).contains(&self.white_choke_mm) {
+            return Err("white underbase choke must be between 0 and 2 mm".into());
+        }
+        if !(0.0..=5.0).contains(&self.default_bleed_mm) {
+            return Err("default bleed must be between 0 and 5 mm".into());
+        }
+        if !(0.0..=1.0).contains(&self.pad_clearance_mm) {
+            return Err("pad clearance must be between 0 and 1 mm".into());
+        }
+        if !(0.2..=5.0).contains(&self.min_text_height_mm) {
+            return Err("minimum text height is out of range".into());
+        }
+        if !(0.05..=1.0).contains(&self.min_stroke_mm) {
+            return Err("minimum stroke width is out of range".into());
+        }
+        if self.channels.is_empty() || self.channels.len() > 8 {
+            return Err("uv printer channel list is out of range".into());
+        }
+        if !(1.0..=200.0).contains(&self.max_substrate_height_mm) {
+            return Err("max substrate height is out of range".into());
+        }
+        if self.registration.len() > 64 {
+            return Err("registration method name is too long".into());
+        }
+        Ok(())
+    }
+
+    pub fn allows_dpi(&self, dpi: u32) -> bool {
+        self.dpi_options.contains(&dpi)
+    }
+
+    pub fn has_gloss_channel(&self) -> bool {
+        self.channels.iter().any(|c| c == "gloss")
+    }
+}
+
+/// Default profile for the eufyMake E1 UV flatbed (330 by 420 mm bed).
+pub fn eufymake_e1_uv_printer() -> UvPrinterProfile {
+    UvPrinterProfile {
+        name: "eufyMake E1".into(),
+        bed_width_mm: 330.0,
+        bed_height_mm: 420.0,
+        dpi_options: default_uv_dpi_options(),
+        white_choke_mm: default_uv_white_choke(),
+        default_bleed_mm: default_uv_bleed(),
+        pad_clearance_mm: default_uv_pad_clearance(),
+        min_text_height_mm: 1.0,
+        min_stroke_mm: 0.12,
+        channels: default_uv_channels(),
+        max_substrate_height_mm: 60.0,
+        registration: default_uv_registration(),
+        mask_colour: None,
+    }
+}
 /// Settings for a galvo laser job handed to the shop laser program.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -1426,7 +1552,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 28] = [
+pub const OUTPUT_KINDS: [&str; 29] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1455,6 +1581,7 @@ pub const OUTPUT_KINDS: [&str; 28] = [
     "panel",
     "raster",
     "laser_job",
+    "uv_print",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
