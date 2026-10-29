@@ -3,6 +3,8 @@
 
 pub(crate) mod support;
 
+mod audit;
+
 mod artifacts;
 mod board;
 mod board3d;
