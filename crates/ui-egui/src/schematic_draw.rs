@@ -23,14 +23,18 @@ impl App {
         self.sch_points.clear();
     }
 
-    #[cfg(test)]
-    pub(crate) fn test_arm_schematic(&mut self, shape: SchShape) {
-        self.tab = Tab::Schematic;
+    pub(crate) fn arm_schematic_draw(&mut self, shape: SchShape) {
         self.tool = Tool::SchematicDraw(shape);
         self.schematic_draw_reset();
         if shape == SchShape::Text && self.sch_text.trim().is_empty() {
             self.sch_text = "Title".into();
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_arm_schematic(&mut self, shape: SchShape) {
+        self.tab = Tab::Schematic;
+        self.arm_schematic_draw(shape);
     }
 
     pub(crate) fn schematic_click(&mut self, pos: Point, zoom: f32) {

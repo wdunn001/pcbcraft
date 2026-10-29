@@ -659,6 +659,19 @@ impl App {
                     {
                         self.tool = Tool::NoConnect;
                     }
+                    if self.tab == Tab::Schematic
+                        && ui
+                            .selectable_label(
+                                matches!(self.tool, Tool::SchematicDraw(_)),
+                                "Draw on sheet",
+                            )
+                            .on_hover_text(
+                                "Draw lines, boxes, headings, dimensions, and tables on the schematic sheet.",
+                            )
+                            .clicked()
+                    {
+                        self.arm_schematic_draw(schematic_draw::SchShape::Line);
+                    }
                     if self.tab == Tab::Pcb
                         && ui
                             .selectable_label(matches!(self.tool, Tool::Fiducial), "Assembly mark")
@@ -789,6 +802,93 @@ impl App {
                                     .desired_width(150.0),
                             )
                             .on_hover_text("The words a click will print on the active layer.");
+                        }
+                    });
+                });
+        }
+        if self.tab == Tab::Schematic && matches!(self.tool, Tool::SchematicDraw(_)) {
+            egui::Area::new(egui::Id::new("schematic-draw-options"))
+                .fixed_pos(egui::pos2(rect.max.x - 280.0, rect.min.y + 44.0))
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    ui.vertical(|ui| {
+                        let current = match self.tool {
+                            Tool::SchematicDraw(shape) => shape,
+                            _ => schematic_draw::SchShape::Line,
+                        };
+                        ui.horizontal(|ui| {
+                            for (shape, label, tip) in [
+                                (
+                                    schematic_draw::SchShape::Line,
+                                    "Line",
+                                    "Two clicks: the start and end of one line.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Box,
+                                    "Box",
+                                    "Two clicks on opposite corners.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Circle,
+                                    "Circle",
+                                    "Click the centre, then a point on the edge.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Arc,
+                                    "Arc",
+                                    "Three clicks along the arc.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Polygon,
+                                    "Outline",
+                                    "Click each corner; click the first point or press Enter to close it.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Text,
+                                    "Heading",
+                                    "Type below, then click once where the text starts.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Dimension,
+                                    "Dimension",
+                                    "Two clicks: the points to measure between.",
+                                ),
+                                (
+                                    schematic_draw::SchShape::Table,
+                                    "Table",
+                                    "One click where the parts table should sit.",
+                                ),
+                            ] {
+                                if ui
+                                    .selectable_label(current == shape, label)
+                                    .on_hover_text(tip)
+                                    .clicked()
+                                {
+                                    self.arm_schematic_draw(shape);
+                                }
+                            }
+                        });
+                        ui.add(
+                            egui::DragValue::new(&mut self.sch_stroke)
+                                .speed(0.02)
+                                .range(0.05..=2.0)
+                                .suffix(" mm"),
+                        )
+                        .on_hover_text("Stroke width for new schematic graphics.");
+                        if current == schematic_draw::SchShape::Text {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.sch_text)
+                                    .hint_text("heading text")
+                                    .desired_width(150.0),
+                            )
+                            .on_hover_text("The words a click will place on the sheet.");
+                            ui.add(
+                                egui::DragValue::new(&mut self.sch_text_size)
+                                    .speed(0.05)
+                                    .range(0.5..=12.0)
+                                    .suffix(" mm"),
+                            )
+                            .on_hover_text("Text height on the sheet.");
                         }
                     });
                 });
