@@ -407,9 +407,17 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "netclass.set",
-            "Rename a net class, change the default track width its members route at, or both at once, with the class rules echoed back",
+            "Rename a net class, change routing defaults, via size, or differential-pair defaults, with the class rules echoed back",
             schema(
-                json!({"class":id_schema(),"name":{"type":"string","minLength":1,"maxLength":128},"width":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"default track width, millimetres"}}),
+                json!({
+                    "class":id_schema(),
+                    "name":{"type":"string","minLength":1,"maxLength":128},
+                    "width":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"default track width, millimetres"},
+                    "via_diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "via_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "pair_width":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10}
+                }),
                 &["class"],
             ),
         ),
@@ -873,10 +881,10 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated through-hole via joining front and back copper on an existing net",
+            "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
             schema(
                 json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
-                &["net", "position", "diameter"],
+                &["net", "position"],
             ),
         ),
         (
@@ -1008,10 +1016,34 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.rules.set",
-            "Set minimum copper clearance in millimetres",
+            "Set the board default copper clearance and recorded fabrication minimums in millimetres",
             schema(
-                json!({"clearance":{"type":"number","exclusiveMinimum":0}}),
-                &["clearance"],
+                json!({
+                    "clearance":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_track":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_space":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_npth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_ring_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "min_ring_pth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_hole_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_hole_pad":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_via":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_pth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "hole_to_copper_npth":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "edge_routed":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "edge_vscore":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_line":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_text_height":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "silk_to_pad":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "mask_dam":{"type":"number","exclusiveMinimum":0,"maximum":100},
+                    "max_aspect_ratio":{"type":"number","exclusiveMinimum":1,"maximum":50},
+                    "plating_allowance":{"type":"number","minimum":0,"maximum":0.5},
+                    "preset":{"type":"string","maxLength":64},
+                    "source_url":{"type":"string","maxLength":512},
+                    "retrieved":{"type":"string","maxLength":32}
+                }),
+                &[],
             ),
         ),
         (
@@ -1194,9 +1226,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "track.route",
-            "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing. Single layer, no vias",
+            "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks; when end_layer differs from layer a plated via is placed at the bend in the same undo step. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing",
             schema(
-                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
+                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"start copper layer for the route"},"end_layer":{"type":"string","maxLength":64,"description":"finish copper layer; defaults to layer"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
                 &["from", "to"],
             ),
         ),
@@ -1387,6 +1419,35 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"kind":{"type":"string","enum":["track","via","zone","pad","footprint","text","component"]},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["kind"],
             ),
+        ),
+        (
+            "rules.class_pair_set",
+            "Require a minimum clearance between two net classes, stricter than either class alone",
+            schema(
+                json!({"class_a":id_schema(),"class_b":id_schema(),"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100}}),
+                &["class_a", "class_b", "clearance"],
+            ),
+        ),
+        (
+            "rules.class_pair_remove",
+            "Remove the clearance override between two net classes",
+            schema(
+                json!({"class_a":id_schema(),"class_b":id_schema()}),
+                &["class_a", "class_b"],
+            ),
+        ),
+        (
+            "rules.preset_apply",
+            "Apply a named fabrication capability preset to the board rules in one undo step",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
+            "rules.preset_list",
+            "List the built-in fabrication capability presets",
+            schema(json!({}), &[]),
         ),
         (
             "rules.severity",
@@ -2788,9 +2849,10 @@ struct ImportSheetParams {
 struct ViaParams {
     net: Id,
     position: Point,
-    diameter: f64,
     #[serde(default)]
-    drill: f64,
+    diameter: Option<f64>,
+    #[serde(default)]
+    drill: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3037,6 +3099,14 @@ struct ClassSetParams {
     name: Option<String>,
     #[serde(default)]
     width: Option<f64>,
+    #[serde(default)]
+    via_diameter: Option<f64>,
+    #[serde(default)]
+    via_drill: Option<f64>,
+    #[serde(default)]
+    pair_width: Option<f64>,
+    #[serde(default)]
+    pair_gap: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4092,10 +4162,119 @@ struct Resize {
     width: f64,
     height: f64,
 }
+fn fab_mm_ok(v: f64) -> bool {
+    v.is_finite() && (0.001..=100.0).contains(&v)
+}
+
+fn merge_fab_mm(dst: &mut Option<f64>, src: Option<f64>) -> Result<(), Error> {
+    if let Some(v) = src {
+        if !fab_mm_ok(v) {
+            return Err(Error::Invalid(
+                "fabrication minimum must be between 0.001 and 100 mm".into(),
+            ));
+        }
+        *dst = Some(v);
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Clearance {
+struct BoardRulesSetParams {
+    #[serde(default)]
+    clearance: Option<f64>,
+    #[serde(default)]
+    min_track: Option<f64>,
+    #[serde(default)]
+    min_space: Option<f64>,
+    #[serde(default)]
+    min_drill: Option<f64>,
+    #[serde(default)]
+    min_npth: Option<f64>,
+    #[serde(default)]
+    min_ring_via: Option<f64>,
+    #[serde(default)]
+    min_ring_pth: Option<f64>,
+    #[serde(default)]
+    hole_to_hole_via: Option<f64>,
+    #[serde(default)]
+    hole_to_hole_pad: Option<f64>,
+    #[serde(default)]
+    hole_to_copper_via: Option<f64>,
+    #[serde(default)]
+    hole_to_copper_pth: Option<f64>,
+    #[serde(default)]
+    hole_to_copper_npth: Option<f64>,
+    #[serde(default)]
+    edge_routed: Option<f64>,
+    #[serde(default)]
+    edge_vscore: Option<f64>,
+    #[serde(default)]
+    silk_line: Option<f64>,
+    #[serde(default)]
+    silk_text_height: Option<f64>,
+    #[serde(default)]
+    silk_to_pad: Option<f64>,
+    #[serde(default)]
+    mask_dam: Option<f64>,
+    #[serde(default)]
+    max_aspect_ratio: Option<f64>,
+    #[serde(default)]
+    plating_allowance: Option<f64>,
+    #[serde(default)]
+    preset: Option<String>,
+    #[serde(default)]
+    source_url: Option<String>,
+    #[serde(default)]
+    retrieved: Option<String>,
+}
+
+impl BoardRulesSetParams {
+    fn touches_fab(&self) -> bool {
+        self.min_track.is_some()
+            || self.min_space.is_some()
+            || self.min_drill.is_some()
+            || self.min_npth.is_some()
+            || self.min_ring_via.is_some()
+            || self.min_ring_pth.is_some()
+            || self.hole_to_hole_via.is_some()
+            || self.hole_to_hole_pad.is_some()
+            || self.hole_to_copper_via.is_some()
+            || self.hole_to_copper_pth.is_some()
+            || self.hole_to_copper_npth.is_some()
+            || self.edge_routed.is_some()
+            || self.edge_vscore.is_some()
+            || self.silk_line.is_some()
+            || self.silk_text_height.is_some()
+            || self.silk_to_pad.is_some()
+            || self.mask_dam.is_some()
+            || self.max_aspect_ratio.is_some()
+            || self.plating_allowance.is_some()
+            || self.preset.is_some()
+            || self.source_url.is_some()
+            || self.retrieved.is_some()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassPairSetParams {
+    class_a: Id,
+    class_b: Id,
     clearance: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClassPairRemoveParams {
+    class_a: Id,
+    class_b: Id,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PresetApplyParams {
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4166,6 +4345,8 @@ struct Route {
     #[serde(default = "front")]
     layer: Layer,
     #[serde(default)]
+    end_layer: Option<Layer>,
+    #[serde(default)]
     mode: route::Mode,
     net: Option<Id>,
 }
@@ -4195,6 +4376,24 @@ fn class_width(p: &Project, net: Id) -> f64 {
     p.net_class(net)
         .map(|class| class.width)
         .unwrap_or_else(default_width)
+}
+fn default_via_diameter() -> f64 {
+    0.60
+}
+fn default_via_drill() -> f64 {
+    0.30
+}
+fn class_via_size(p: &Project, net: Id) -> (f64, f64) {
+    if let Some(class) = p.net_class(net) {
+        let diameter = class
+            .via_diameter
+            .unwrap_or_else(default_via_diameter);
+        let drill = class
+            .via_drill
+            .unwrap_or_else(default_via_drill);
+        return (diameter, drill);
+    }
+    (default_via_diameter(), default_via_drill())
 }
 fn start_at_one() -> u64 {
     1
@@ -4280,6 +4479,20 @@ fn optional_command_layer(p: &Project, params: &Value) -> Result<Option<Layer>, 
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(s)) => resolve_layer_param(p, s).map(Some),
         _ => Err(Error::Invalid("layer must be a string".into())),
+    }
+}
+fn end_command_layer(
+    p: &Project,
+    params: &Value,
+    start: Layer,
+    parsed_end: Option<Layer>,
+) -> Result<Layer, Error> {
+    if let Some(s) = params.get("end_layer").and_then(|v| v.as_str()) {
+        resolve_layer_param(p, s)
+    } else if let Some(end) = parsed_end {
+        Ok(end)
+    } else {
+        Ok(start)
     }
 }
 fn copper_count_in_records(records: &[LayerRecord]) -> u8 {
@@ -5696,6 +5909,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 max_width: None,
                 target_length: None,
                 length_tolerance: None,
+                via_diameter: None,
+                via_drill: None,
+                pair_width: None,
+                pair_gap: None,
                 nets: a.nets,
             });
             Ok(json!({"id": id}))
@@ -5821,10 +6038,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "netclass.set" => {
             let a: ClassSetParams = parse(params)?;
-            if a.name.is_none() && a.width.is_none() {
-                return Err(Error::Invalid(
-                    "give a new name, a new width, or both".into(),
-                ));
+            if a.name.is_none()
+                && a.width.is_none()
+                && a.via_diameter.is_none()
+                && a.via_drill.is_none()
+                && a.pair_width.is_none()
+                && a.pair_gap.is_none()
+            {
+                return Err(Error::Invalid("give at least one field to change".into()));
             }
             if let Some(name) = &a.name {
                 if name.is_empty() || name.len() > 128 {
@@ -5846,16 +6067,51 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "width must be between 0 and 100 millimetres".into(),
                 ));
             }
+            for bound in [a.via_diameter, a.pair_width] {
+                if bound.is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0) {
+                    return Err(Error::Invalid(
+                        "via and pair widths must be between 0 and 100 millimetres".into(),
+                    ));
+                }
+            }
+            if a.via_drill
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 100.0)
+            {
+                return Err(Error::Invalid(
+                    "via drill must be between 0 and 100 millimetres".into(),
+                ));
+            }
+            if a.pair_gap
+                .is_some_and(|w| !w.is_finite() || w <= 0.0 || w > 10.0)
+            {
+                return Err(Error::Invalid(
+                    "pair gap must be between 0 and 10 millimetres".into(),
+                ));
+            }
             let class = p
                 .net_classes
                 .iter_mut()
                 .find(|k| k.id == a.class)
                 .ok_or_else(missing)?;
-            if a.name.as_deref().is_none_or(|name| name == class.name)
-                && a.width.is_none_or(|width| width == class.width)
+            let via_diameter = a.via_diameter.or(class.via_diameter);
+            let via_drill = a.via_drill.or(class.via_drill);
+            if via_diameter
+                .zip(via_drill)
+                .is_some_and(|(d, drill)| drill >= d)
             {
                 return Err(Error::Invalid(
-                    "that class already goes by that name and width".into(),
+                    "via drill must stay smaller than the outer pad".into(),
+                ));
+            }
+            if a.name.as_deref().is_none_or(|name| name == class.name)
+                && a.width.is_none_or(|width| width == class.width)
+                && a.via_diameter.is_none_or(|v| class.via_diameter == Some(v))
+                && a.via_drill.is_none_or(|v| class.via_drill == Some(v))
+                && a.pair_width.is_none_or(|v| class.pair_width == Some(v))
+                && a.pair_gap.is_none_or(|v| class.pair_gap == Some(v))
+            {
+                return Err(Error::Invalid(
+                    "that class already carries those values".into(),
                 ));
             }
             if let Some(name) = a.name {
@@ -5864,11 +6120,27 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(width) = a.width {
                 class.width = width;
             }
+            if let Some(v) = a.via_diameter {
+                class.via_diameter = Some(v);
+            }
+            if let Some(v) = a.via_drill {
+                class.via_drill = Some(v);
+            }
+            if let Some(v) = a.pair_width {
+                class.pair_width = Some(v);
+            }
+            if let Some(v) = a.pair_gap {
+                class.pair_gap = Some(v);
+            }
             Ok(json!({
                 "class": class.id,
                 "name": class.name,
                 "width": class.width,
                 "clearance": class.clearance,
+                "via_diameter": class.via_diameter,
+                "via_drill": class.via_drill,
+                "pair_width": class.pair_width,
+                "pair_gap": class.pair_gap,
                 "nets": class.nets.len()
             }))
         }
@@ -5880,6 +6152,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .position(|k| k.id == a.class)
                 .ok_or_else(missing)?;
             let freed = p.net_classes.remove(index).nets.len();
+            p.class_pairs
+                .retain(|r| r.class_a != a.class && r.class_b != a.class);
             Ok(json!({"removed":a.class,"nets_released":freed}))
         }
         "netclass.assign_pattern" => {
@@ -8780,10 +9054,23 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if !a.position.valid() {
                 return Err(Error::Invalid("via position is out of range".into()));
             }
-            if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
+            let class = p.net_class(a.net);
+            let diameter = a
+                .diameter
+                .or_else(|| class.and_then(|c| c.via_diameter))
+                .ok_or_else(|| {
+                    Error::Invalid(
+                        "give a via diameter or classify the net with a default via size".into(),
+                    )
+                })?;
+            let drill = a
+                .drill
+                .or_else(|| class.and_then(|c| c.via_drill))
+                .unwrap_or(0.0);
+            if !diameter.is_finite() || diameter <= 0.0 || diameter > 100.0 {
                 return Err(Error::Invalid("via diameter must be within 0–100mm".into()));
             }
-            if !a.drill.is_finite() || a.drill < 0.0 || a.drill >= a.diameter {
+            if !drill.is_finite() || drill < 0.0 || drill >= diameter {
                 return Err(Error::Invalid(
                     "via drill must be smaller than its pad".into(),
                 ));
@@ -8793,10 +9080,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 id,
                 net: a.net,
                 position: a.position,
-                diameter: a.diameter,
-                drill: a.drill,
+                diameter,
+                drill,
             });
-            Ok(json!({"id":id}))
+            Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
         "via.move" => {
             let a: PositionParams = parse(params)?;
@@ -10192,6 +10479,69 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 json!({"rows": rows, "count": count, "dielectric": height, "er": er, "target_ohm": a.target}),
             )
         }
+        "rules.class_pair_set" => {
+            let a: ClassPairSetParams = parse(params)?;
+            if a.class_a == a.class_b {
+                return Err(Error::Invalid(
+                    "class pair rules sit between two different classes".into(),
+                ));
+            }
+            if !fab_mm_ok(a.clearance) {
+                return Err(Error::Invalid(
+                    "clearance must be between 0.001 and 100 millimetres".into(),
+                ));
+            }
+            if !p.net_classes.iter().any(|c| c.id == a.class_a)
+                || !p.net_classes.iter().any(|c| c.id == a.class_b)
+            {
+                return Err(Error::Invalid("unknown net class".into()));
+            }
+            let key = (a.class_a.min(a.class_b), a.class_a.max(a.class_b));
+            if let Some(rule) = p.class_pairs.iter_mut().find(|r| r.key() == key) {
+                rule.clearance = a.clearance;
+            } else {
+                if p.class_pairs.len() >= 64 {
+                    return Err(Error::Invalid(
+                        "a project carries at most 64 class pair rules".into(),
+                    ));
+                }
+                p.class_pairs.push(ClassPairRule {
+                    class_a: key.0,
+                    class_b: key.1,
+                    clearance: a.clearance,
+                });
+            }
+            Ok(json!({"class_a":key.0,"class_b":key.1,"clearance":a.clearance}))
+        }
+        "rules.class_pair_remove" => {
+            let a: ClassPairRemoveParams = parse(params)?;
+            if a.class_a == a.class_b {
+                return Err(Error::Invalid(
+                    "class pair rules sit between two different classes".into(),
+                ));
+            }
+            let key = (a.class_a.min(a.class_b), a.class_a.max(a.class_b));
+            let before = p.class_pairs.len();
+            p.class_pairs.retain(|r| r.key() != key);
+            if p.class_pairs.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"removed":true}))
+        }
+        "rules.preset_apply" => {
+            let a: PresetApplyParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 64 {
+                return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
+            }
+            if !FAB_PRESET_NAMES.contains(&a.name.as_str()) {
+                return Err(Error::Invalid("unknown fabrication preset".into()));
+            }
+            let preset = fab_preset(&a.name)
+                .ok_or_else(|| Error::Invalid("unknown fabrication preset".into()))?;
+            p.board.rules = Some(preset.rules);
+            Ok(json!({"preset":a.name,"rules":p.board.rules}))
+        }
+        "rules.preset_list" => Ok(json!({"presets":fab_preset_list()})),
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
             if a.code.is_empty() || a.code.len() > 32 {
@@ -11572,9 +11922,78 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             Ok(json!({"width":a.width,"height":a.height}))
         }
         "board.rules.set" => {
-            let a: Clearance = parse(params)?;
-            p.board.clearance = a.clearance;
-            Ok(json!({"clearance":a.clearance}))
+            let a: BoardRulesSetParams = parse(params)?;
+            if a.clearance.is_none() && !a.touches_fab() {
+                return Err(Error::Invalid(
+                    "give a clearance or at least one fabrication minimum".into(),
+                ));
+            }
+            if let Some(clearance) = a.clearance {
+                if !fab_mm_ok(clearance) {
+                    return Err(Error::Invalid(
+                        "clearance must be between 0.001 and 100 millimetres".into(),
+                    ));
+                }
+                p.board.clearance = clearance;
+            }
+            if a.touches_fab() {
+                let rules = p.board.rules.get_or_insert_with(FabRules::default);
+                merge_fab_mm(&mut rules.min_track, a.min_track)?;
+                merge_fab_mm(&mut rules.min_space, a.min_space)?;
+                merge_fab_mm(&mut rules.min_drill, a.min_drill)?;
+                merge_fab_mm(&mut rules.min_npth, a.min_npth)?;
+                merge_fab_mm(&mut rules.min_ring_via, a.min_ring_via)?;
+                merge_fab_mm(&mut rules.min_ring_pth, a.min_ring_pth)?;
+                merge_fab_mm(&mut rules.hole_to_hole_via, a.hole_to_hole_via)?;
+                merge_fab_mm(&mut rules.hole_to_hole_pad, a.hole_to_hole_pad)?;
+                merge_fab_mm(&mut rules.hole_to_copper_via, a.hole_to_copper_via)?;
+                merge_fab_mm(&mut rules.hole_to_copper_pth, a.hole_to_copper_pth)?;
+                merge_fab_mm(&mut rules.hole_to_copper_npth, a.hole_to_copper_npth)?;
+                merge_fab_mm(&mut rules.edge_routed, a.edge_routed)?;
+                merge_fab_mm(&mut rules.edge_vscore, a.edge_vscore)?;
+                merge_fab_mm(&mut rules.silk_line, a.silk_line)?;
+                merge_fab_mm(&mut rules.silk_text_height, a.silk_text_height)?;
+                merge_fab_mm(&mut rules.silk_to_pad, a.silk_to_pad)?;
+                merge_fab_mm(&mut rules.mask_dam, a.mask_dam)?;
+                if let Some(ratio) = a.max_aspect_ratio {
+                    if !ratio.is_finite() || !(1.0..=50.0).contains(&ratio) {
+                        return Err(Error::Invalid(
+                            "aspect ratio must be between 1 and 50".into(),
+                        ));
+                    }
+                    rules.max_aspect_ratio = Some(ratio);
+                }
+                if let Some(pad) = a.plating_allowance {
+                    if !pad.is_finite() || !(0.0..=0.5).contains(&pad) {
+                        return Err(Error::Invalid(
+                            "plating allowance must be between 0 and 0.5 mm".into(),
+                        ));
+                    }
+                    rules.plating_allowance = Some(pad);
+                }
+                if let Some(name) = a.preset {
+                    if name.is_empty() || name.len() > 64 {
+                        return Err(Error::Invalid("preset name must be 1 to 64 bytes".into()));
+                    }
+                    rules.preset = Some(name);
+                }
+                if let Some(url) = a.source_url {
+                    if url.is_empty() || url.len() > 512 {
+                        return Err(Error::Invalid("source URL is out of range".into()));
+                    }
+                    rules.source_url = Some(url);
+                }
+                if let Some(day) = a.retrieved {
+                    if day.is_empty() || day.len() > 32 {
+                        return Err(Error::Invalid("retrieval date is out of range".into()));
+                    }
+                    rules.retrieved = Some(day);
+                }
+                if !rules.valid() {
+                    return Err(Error::Invalid("fabrication rules are inconsistent".into()));
+                }
+            }
+            Ok(json!({"clearance":p.board.clearance,"rules":p.board.rules}))
         }
         "board.cutout.add" => {
             let a: Cut = parse(params)?;
@@ -12132,8 +12551,95 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.route" => {
             let a: Route = parse(params)?;
-            let layer = command_layer(p, params, a.layer)?;
-            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, layer)?;
+            let start_layer = command_layer(p, params, a.layer)?;
+            let end_layer = end_command_layer(p, params, start_layer, a.end_layer)?;
+            if start_layer != end_layer {
+                if a.mode != route::Mode::Orthogonal {
+                    return Err(Error::Invalid(
+                        "layer changes are only supported in orthogonal mode".into(),
+                    ));
+                }
+                let (start, net_from) = match &a.from {
+                    route::Endpoint::Pad(r) => pad(p, r, start_layer)?,
+                    route::Endpoint::Point(_) => {
+                        return Err(Error::Invalid(
+                            "layer changes require pad endpoints on each copper layer".into(),
+                        ));
+                    }
+                };
+                let (end, net_to) = match &a.to {
+                    route::Endpoint::Pad(r) => pad(p, r, end_layer)?,
+                    route::Endpoint::Point(_) => {
+                        return Err(Error::Invalid(
+                            "layer changes require pad endpoints on each copper layer".into(),
+                        ));
+                    }
+                };
+                if net_from != net_to {
+                    return Err(Error::Invalid(
+                        "route requires distinct pads on the same net and a valid width".into(),
+                    ));
+                }
+                let net = net_from;
+                let width = a.width.unwrap_or_else(|| class_width(p, net));
+                if start.distance(end) < 1e-6 || !positive(width) {
+                    return Err(Error::Invalid(
+                        "route requires distinct pads on the same net and a valid width".into(),
+                    ));
+                }
+                let bend = Point::new(end.x, start.y);
+                if !bend.valid() {
+                    return Err(Error::Invalid("route bend is out of range".into()));
+                }
+                let (via_diameter, via_drill) = class_via_size(p, net);
+                if !via_diameter.is_finite()
+                    || via_diameter <= 0.0
+                    || via_drill < 0.0
+                    || via_drill >= via_diameter
+                {
+                    return Err(Error::Invalid(
+                        "via size from the net class is not usable for this route".into(),
+                    ));
+                }
+                let mut ids = vec![];
+                if start.distance(bend) > 1e-6 {
+                    let id = allocate(next)?;
+                    ids.push(id);
+                    p.board.tracks.push(Track {
+                        id,
+                        net,
+                        start,
+                        end: bend,
+                        width,
+                        layer: start_layer,
+                        arc: None,
+                    });
+                }
+                let via_id = allocate(next)?;
+                p.board.vias.push(pcbcraft_doc::Via {
+                    id: via_id,
+                    net,
+                    position: bend,
+                    diameter: via_diameter,
+                    drill: via_drill,
+                });
+                ids.push(via_id);
+                if bend.distance(end) > 1e-6 {
+                    let id = allocate(next)?;
+                    ids.push(id);
+                    p.board.tracks.push(Track {
+                        id,
+                        net,
+                        start: bend,
+                        end,
+                        width,
+                        layer: end_layer,
+                        arc: None,
+                    });
+                }
+                return Ok(json!({"ids":ids,"net":net,"width":width,"via":via_id}));
+            }
+            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, start_layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, net));
             if start.distance(end) < 1e-6 || !positive(width) {
                 return Err(Error::Invalid(
@@ -12141,7 +12647,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.mode != route::Mode::Orthogonal {
-                return route::run(p, next, start, end, net, width, layer, a.mode);
+                return route::run(p, next, start, end, net, width, start_layer, a.mode);
             }
             let bend = Point::new(end.x, start.y);
             let mut ids = vec![];
@@ -12155,7 +12661,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         start: from,
                         end: to,
                         width,
-                        layer,
+                        layer: start_layer,
                         arc: None,
                     });
                 }
@@ -27966,6 +28472,263 @@ mod tests {
         assert!(
             s.execute("board.clear_layer_records", json!({}), None).is_err(),
             "clearing stack notes is refused while inner copper is in use"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fabrication_rules_preset_class_pairs_and_via_defaults() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let rev = s.revision;
+        s.execute(
+            "rules.preset_apply",
+            json!({"name":"JLCPCB 1-2L"}),
+            Some(rev),
+        )?;
+        let rules = s.project.board.rules.as_ref().ok_or_else(missing)?;
+        assert_eq!(rules.preset.as_deref(), Some("JLCPCB 1-2L"));
+        assert!(rules.min_drill.is_some());
+        let before = rules.min_track;
+        s.undo()?;
+        assert!(s.project.board.rules.is_none());
+        s.execute("rules.preset_apply", json!({"name":"JLCPCB 1-2L"}), None)?;
+        assert_eq!(
+            s.project.board.rules.as_ref().and_then(|r| r.min_track),
+            before
+        );
+        let presets = s.execute("rules.preset_list", json!({}), None)?;
+        let list = presets["result"]["presets"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert!(list.iter().any(|v| v == "JLCPCB 1-2L"));
+        let class_a = s.execute(
+            "netclass.add",
+            json!({"name":"A","clearance":0.2,"width":0.25,"nets":[]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class_b = s.execute(
+            "netclass.add",
+            json!({"name":"B","clearance":0.2,"width":0.25,"nets":[]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "rules.class_pair_set",
+            json!({"class_a":class_a,"class_b":class_b,"clearance":0.9}),
+            None,
+        )?;
+        let net_a = s.project.nets.first().ok_or_else(missing)?.id;
+        let net_b = s.project.nets.get(1).ok_or_else(missing)?.id;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_a,"class":class_a}),
+            None,
+        )?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_b,"class":class_b}),
+            None,
+        )?;
+        assert!(
+            (s.project.required_clearance(net_a, net_b) - 0.9).abs() < 1e-9,
+            "class pair clearance beats class defaults"
+        );
+        s.execute(
+            "netclass.set",
+            json!({"class":class_a,"via_diameter":1.0,"via_drill":0.4}),
+            None,
+        )?;
+        s.execute(
+            "netclass.assign",
+            json!({"net":net_a,"class":class_a}),
+            None,
+        )?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net_a,"position":{"x":20.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            s.project
+                .board
+                .vias
+                .iter()
+                .find(|v| v.id == via)
+                .map(|v| v.diameter),
+            Some(1.0)
+        );
+        s.project
+            .board
+            .rules
+            .as_mut()
+            .ok_or_else(missing)?
+            .min_drill = Some(0.45);
+        let findings = pcbcraft_rules::drc(&s.project);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "min_drill" && f.objects.contains(&via)),
+            "a via smaller than min_drill is reported"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn old_board_without_rules_field_loads_cleanly() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.rules = None;
+        s.project.validate()?;
+        assert!(
+            !pcbcraft_rules::drc(&s.project)
+                .iter()
+                .any(|f| f.code == "min_drill" || f.code == "min_track"),
+            "absent fab rules stay silent"
+        );
+        Ok(())
+    }
+
+    fn route_test_th_footprints(s: &mut Session, net: Id) -> Result<(Id, Id), Error> {
+        use pcbcraft_doc::{Footprint, Pad, component_template};
+        use pcbcraft_library::{Drill, FootprintPad};
+        for (component, footprint, x, y) in [(2, 12, 10.0, 10.0), (3, 13, 30.0, 20.0)] {
+            let Some(mut c) = component_template(
+                "resistor",
+                component,
+                format!("R{component}"),
+                Point::new(x, y),
+            ) else {
+                return Err(Error::Invalid("resistor template missing".into()));
+            };
+            for pin in &mut c.pins {
+                pin.net = Some(net);
+            }
+            s.project.components.push(c);
+            s.project.board.footprints.push(Footprint {
+                id: footprint,
+                component,
+                position: Point::new(x, y),
+                rotation: 0.0,
+                locked: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.0,
+                    net: Some(net),
+                    castellated: None,
+                    geometry: Some(FootprintPad {
+                        number: "1".into(),
+                        pad_type: "thru_hole".into(),
+                        shape: "circle".into(),
+                        size: Point::new(1.0, 1.0),
+                        position: Point::default(),
+                        rotation: 0.0,
+                        layers: vec!["*.Cu".into()],
+                        drill: Some(Drill {
+                            size: Point::new(0.4, 0.4),
+                            offset: Point::default(),
+                        }),
+                        roundrect_ratio: None,
+                        chamfer: None,
+                        polygon: vec![],
+                        raw_source: String::new(),
+                    }),
+                }],
+            });
+        }
+        s.project.validate().map_err(Error::Invalid)?;
+        Ok((12, 13))
+    }
+
+    #[test]
+    fn track_route_with_different_end_layer_places_via_and_undo_once() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        let (from_fp, to_fp) = route_test_th_footprints(&mut s, net)?;
+        let tracks_before = s.project.board.tracks.len();
+        let vias_before = s.project.board.vias.len();
+        s.execute(
+            "track.route",
+            json!({
+                "from":{"footprint":from_fp,"pad":"1"},
+                "to":{"footprint":to_fp,"pad":"1"},
+                "layer":"F.Cu",
+                "end_layer":"In1.Cu"
+            }),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks.len(), tracks_before + 2);
+        assert_eq!(s.project.board.vias.len(), vias_before + 1);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), tracks_before);
+        assert_eq!(s.project.board.vias.len(), vias_before);
+        Ok(())
+    }
+
+    #[test]
+    fn track_route_rejects_end_layer_without_pad_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        let (from_fp, to_fp) = route_test_th_footprints(&mut s, net)?;
+        if let Some(pad) = s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .find(|f| f.id == to_fp)
+            .and_then(|f| f.pads.first_mut())
+            && let Some(g) = pad.geometry.as_mut()
+        {
+            g.pad_type = "smd".into();
+            g.layers = vec!["F.Cu".into()];
+            g.drill = None;
+        }
+        s.project.validate().map_err(Error::Invalid)?;
+        assert!(
+            s.execute(
+                "track.route",
+                json!({
+                    "from":{"footprint":from_fp,"pad":"1"},
+                    "to":{"footprint":to_fp,"pad":"1"},
+                    "layer":"F.Cu",
+                    "end_layer":"In1.Cu"
+                }),
+                None,
+            )
+            .is_err(),
+            "the finish pad must carry copper on end_layer"
         );
         Ok(())
     }

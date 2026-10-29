@@ -1,5 +1,5 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
-use pcbcraft_doc::{Board, Id, Layer, Project};
+use pcbcraft_doc::{ArtKind, ArtShape, Board, FabRules, Id, Layer, Pad, Project, Via};
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -841,6 +841,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![net.id],
         });
     }
+    result.extend(fab_findings(project, board));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -849,12 +850,235 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result
 }
 
+fn pad_outer_radius(pad: &Pad) -> f64 {
+    pad.geometry
+        .as_ref()
+        .map(|g| g.size.x.max(g.size.y) / 2.0)
+        .unwrap_or(pad.diameter / 2.0)
+}
+
+fn pad_drill_diameter(pad: &Pad) -> Option<f64> {
+    pad.geometry
+        .as_ref()
+        .and_then(|g| g.drill.as_ref())
+        .map(|d| d.size.x.min(d.size.y))
+}
+
+fn via_annular_ring(rules: &FabRules, via: &Via) -> f64 {
+    let tool = rules.drill_tool(via.drill);
+    (via.diameter - tool) / 2.0
+}
+
+fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
+    let drill = pad_drill_diameter(pad)?;
+    let tool = rules.drill_tool(drill);
+    Some((pad_outer_radius(pad) * 2.0 - tool) / 2.0)
+}
+
+fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
+    let Some(rules) = board.rules.as_ref() else {
+        return vec![];
+    };
+    let mut result = vec![];
+    if let Some(min) = rules.min_track {
+        for track in &board.tracks {
+            if track.width + 1e-6 < min {
+                result.push(Finding {
+                    code: "min_track",
+                    severity: project.rule_severity("min_track", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, fabrication needs at least {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        min
+                    ),
+                    objects: vec![track.id],
+                });
+            }
+        }
+    }
+    if let Some(min) = rules.min_drill {
+        for via in &board.vias {
+            if via.drill > 0.0 && via.drill + 1e-6 < min {
+                result.push(Finding {
+                    code: "min_drill",
+                    severity: project.rule_severity("min_drill", "error"),
+                    message: format!(
+                        "Via drill {:.3} mm is below the {:.3} mm fabrication minimum",
+                        via.drill, min
+                    ),
+                    objects: vec![via.id],
+                });
+            }
+        }
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                if let Some(drill) = pad_drill_diameter(pad)
+                    && drill + 1e-6 < min
+                {
+                    result.push(Finding {
+                        code: "min_drill",
+                        severity: project.rule_severity("min_drill", "error"),
+                        message: format!(
+                            "Pad drill {:.3} mm is below the {:.3} mm fabrication minimum",
+                            drill, min
+                        ),
+                        objects: vec![fp.id],
+                    });
+                }
+            }
+        }
+    }
+    if let Some(min) = rules.min_ring_via {
+        for via in &board.vias {
+            if via.drill <= 0.0 {
+                continue;
+            }
+            let ring = via_annular_ring(rules, via);
+            if ring + 1e-6 < min {
+                result.push(Finding {
+                    code: "annular_ring",
+                    severity: project.rule_severity("annular_ring", "error"),
+                    message: format!(
+                        "Via annular ring {:.3} mm is below the {:.3} mm via minimum",
+                        ring, min
+                    ),
+                    objects: vec![via.id],
+                });
+            }
+        }
+    }
+    if let Some(min) = rules.min_ring_pth {
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                let Some(ring) = pad_annular_ring(rules, pad) else {
+                    continue;
+                };
+                if ring + 1e-6 < min {
+                    result.push(Finding {
+                        code: "annular_ring",
+                        severity: project.rule_severity("annular_ring", "error"),
+                        message: format!(
+                            "Pad annular ring {:.3} mm is below the {:.3} mm plated-hole minimum",
+                            ring, min
+                        ),
+                        objects: vec![fp.id],
+                    });
+                }
+            }
+        }
+    }
+    if let Some(edge) = rules.edge_routed {
+        let items = copper(project);
+        for a in &items {
+            let edge_dist = if let Some(points) = &a.outline {
+                points
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let q = points[(i + 1) % points.len()];
+                        board_edge_distance(board, *p, q)
+                    })
+                    .fold(f64::INFINITY, f64::min)
+                    - a.outline_error
+            } else {
+                board_edge_distance(board, a.start, a.end) - a.radius
+            };
+            if edge_dist + 1e-6 < edge {
+                result.push(Finding {
+                    code: "copper_to_edge",
+                    severity: project.rule_severity("copper_to_edge", "error"),
+                    message: format!("Copper is {:.3} mm from the routed edge", edge_dist),
+                    objects: vec![a.id],
+                });
+            }
+        }
+    }
+    if let Some(max_ratio) = rules.max_aspect_ratio {
+        let mut smallest = f64::INFINITY;
+        for via in &board.vias {
+            if via.drill > 0.0 {
+                smallest = smallest.min(via.drill);
+            }
+        }
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                if let Some(d) = pad_drill_diameter(pad) {
+                    smallest = smallest.min(d);
+                }
+            }
+        }
+        for hole in &board.holes {
+            smallest = smallest.min(hole.diameter);
+        }
+        if smallest.is_finite() && board.thickness / smallest > max_ratio + 1e-6 {
+            result.push(Finding {
+                code: "aspect_ratio",
+                severity: project.rule_severity("aspect_ratio", "error"),
+                message: format!(
+                    "Board {:.3} mm thick over {:.3} mm drill exceeds {:.1}:1",
+                    board.thickness, smallest, max_ratio
+                ),
+                objects: vec![],
+            });
+        }
+    }
+    if let Some(min) = rules.min_space {
+        let items = copper(project);
+        for (i, a) in items.iter().enumerate() {
+            for b in items.iter().skip(i + 1) {
+                if a.net == b.net || a.layer != b.layer {
+                    continue;
+                }
+                let separation = gap(a, b);
+                if separation + 1e-6 < min {
+                    result.push(Finding {
+                        code: "min_space",
+                        severity: project.rule_severity("min_space", "error"),
+                        message: format!(
+                            "{} / {} spacing {:.3} mm is below the {:.3} mm fabrication minimum",
+                            project.net_name(a.net),
+                            project.net_name(b.net),
+                            separation,
+                            min
+                        ),
+                        objects: vec![a.id, b.id],
+                    });
+                }
+            }
+        }
+    }
+    for layer in &board.user_layers {
+        if layer.kind != ArtKind::Silk {
+            continue;
+        }
+        for shape in &layer.shapes {
+            if let ArtShape::Text { size, .. } = shape
+                && let Some(min) = rules.silk_text_height
+                && *size + 1e-6 < min
+            {
+                result.push(Finding {
+                    code: "silk_text_height",
+                    severity: project.rule_severity("silk_text_height", "error"),
+                    message: format!(
+                        "Silk text height {:.3} mm is below the {:.3} mm minimum",
+                        size, min
+                    ),
+                    objects: vec![layer.id],
+                });
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
     };
+    use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -1594,5 +1818,57 @@ mod tests {
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn annular_ring_uses_separate_via_and_pth_limits() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_ring_via: Some(0.2),
+            min_ring_pth: Some(0.35),
+            ..FabRules::default()
+        });
+        p.board.vias.push(Via {
+            id: 99,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        let fp_id = p.board.footprints[0].id;
+        if let Some(pad) = p.board.footprints[0].pads.first_mut() {
+            pad.diameter = 1.0;
+            pad.geometry = Some(FootprintPad {
+                number: "1".into(),
+                pad_type: "thru_hole".into(),
+                shape: "circle".into(),
+                size: Point::new(1.0, 1.0),
+                position: Point::default(),
+                rotation: 0.0,
+                layers: vec!["F.Cu".into(), "B.Cu".into()],
+                drill: Some(Drill {
+                    size: Point::new(0.4, 0.4),
+                    offset: Point::default(),
+                }),
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            });
+        }
+        let findings = drc(&p);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&99)),
+            "via ring passes the via limit"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&fp_id)),
+            "the same ring fails the plated-hole limit"
+        );
+        Ok(())
     }
 }
