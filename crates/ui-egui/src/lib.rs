@@ -4,6 +4,7 @@ mod assistant;
 mod authoring;
 mod board3d;
 mod canvas;
+mod contrast;
 mod datums;
 mod editing;
 mod footprint_wizard;
@@ -11,6 +12,7 @@ mod impedance_panel;
 mod keymap;
 mod library;
 mod library_quality;
+mod palette;
 mod plot_viewer;
 mod reference_panel;
 mod sources;
@@ -1709,36 +1711,20 @@ impl App {
         success
     }
 
+    fn colours(&self) -> palette::ThemeColours {
+        palette::palette(self.preferences.dark, self.preferences.accent)
+    }
     fn accent(&self) -> Color32 {
-        if !self.preferences.dark && self.preferences.accent == [91, 224, 188] {
-            return Color32::from_rgb(18, 135, 110);
-        }
-        Color32::from_rgb(
-            self.preferences.accent[0],
-            self.preferences.accent[1],
-            self.preferences.accent[2],
-        )
+        self.colours().accent
     }
     fn surface(&self) -> Color32 {
-        if self.preferences.dark {
-            Color32::from_rgb(20, 29, 43)
-        } else {
-            Color32::from_rgb(245, 247, 251)
-        }
+        self.colours().surface
     }
     fn muted(&self) -> Color32 {
-        if self.preferences.dark {
-            Color32::from_rgb(140, 157, 182)
-        } else {
-            Color32::from_rgb(88, 104, 128)
-        }
+        self.colours().muted
     }
     fn ink(&self) -> Color32 {
-        if self.preferences.dark {
-            Color32::from_rgb(225, 234, 247)
-        } else {
-            Color32::from_rgb(34, 48, 68)
-        }
+        self.colours().ink
     }
     fn select(&mut self, id: Option<Id>) {
         self.selected = id;
@@ -3354,35 +3340,7 @@ impl App {
         });
     }
     fn style(&self, ctx: &egui::Context) {
-        let mut visuals = if self.preferences.dark {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-        visuals.panel_fill = if self.preferences.dark {
-            Color32::from_rgb(17, 24, 36)
-        } else {
-            Color32::from_rgb(235, 239, 245)
-        };
-        visuals.window_fill = self.surface();
-        visuals.selection.bg_fill = self.accent().gamma_multiply(0.25);
-        visuals.selection.stroke = Stroke::new(1.0, self.accent());
-        craft_ui::theme::WidgetPalette {
-            noninteractive: self.surface(),
-            inactive: self.surface(),
-            hovered: if self.preferences.dark {
-                Color32::from_rgb(37, 53, 73)
-            } else {
-                Color32::from_rgb(215, 225, 236)
-            },
-            active: self.accent().gamma_multiply(0.25),
-            open: self.surface(),
-        }
-        .apply_to(
-            &mut visuals.widgets,
-            egui::CornerRadius::same(6),
-            Stroke::new(1.0, self.ink()),
-        );
+        let visuals = palette::visuals(&self.colours());
         ctx.set_visuals(visuals);
         ctx.style_mut_of(ctx.theme(), |s| {
             s.spacing.item_spacing = Vec2::new(8.0, 8.0);

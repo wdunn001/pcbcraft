@@ -1,0 +1,104 @@
+id = "commarker-b6-mopa"
+name = "ComMarker B6 MOPA"
+kind = "laser_galvo"
+vendor = "ComMarker"
+model = "B6 MOPA"
+notes = "Galvo fiber laser. Starting values from forum reports and the store sheet; none are verified on the owner unit, so run a test grid first. Wattage is a placeholder."
+
+[work_area]
+x = 150.0
+y = 150.0
+origin = "center"
+y_up = true
+
+[output]
+format = "svg"
+dialect = "laser_job"
+units = "mm"
+line_ending = "lf"
+mirror_bottom = true
+mirror_axis = "x"
+invert = false
+
+[laser]
+field_x_mm = 150.0
+field_y_mm = 150.0
+source_watts = 30.0
+wavelength_nm = 1064.0
+lens_options_mm = [150.0, 300.0]
+frequency_khz_min = 1.0
+frequency_khz_max = 4000.0
+pulse_width_ns_min = 2.0
+pulse_width_ns_max = 350.0
+
+[[laser.operation]]
+name = "fiducials"
+mode = "line"
+speed_mm_s = 750.0
+power_percent = 100.0
+passes = 2
+frequency_khz = 25.0
+pulse_width_ns = 200.0
+kerf_offset_mm = 0.0
+verified = false
+
+[[laser.operation]]
+name = "isolation-cut"
+mode = "line"
+speed_mm_s = 750.0
+power_percent = 100.0
+passes = 2
+frequency_khz = 25.0
+pulse_width_ns = 200.0
+kerf_offset_mm = 0.0
+verified = false
+
+[[laser.operation]]
+name = "copper-rubout"
+mode = "fill"
+speed_mm_s = 750.0
+power_percent = 100.0
+passes = 2
+frequency_khz = 25.0
+pulse_width_ns = 200.0
+line_interval_mm = 0.025
+hatch_angle_deg = 45.0
+angle_increment_deg = 90.0
+verified = false
+
+[[laser.operation]]
+name = "mask-open"
+mode = "fill"
+speed_mm_s = 1500.0
+power_percent = 30.0
+passes = 1
+frequency_khz = 60.0
+pulse_width_ns = 50.0
+line_interval_mm = 0.03
+hatch_angle_deg = 0.0
+angle_increment_deg = 90.0
+verified = false
+
+[[laser.operation]]
+name = "legend"
+mode = "fill"
+speed_mm_s = 1500.0
+power_percent = 35.0
+passes = 1
+frequency_khz = 60.0
+pulse_width_ns = 50.0
+line_interval_mm = 0.03
+hatch_angle_deg = 0.0
+angle_increment_deg = 90.0
+verified = false
+
+[[laser.operation]]
+name = "stencil-cut"
+mode = "line"
+speed_mm_s = 300.0
+power_percent = 100.0
+passes = 10
+frequency_khz = 30.0
+pulse_width_ns = 350.0
+kerf_offset_mm = 0.02
+verified = false
