@@ -99,6 +99,10 @@ change until you reassign. Formats, pad limits and fixture licenses:
 
 These are the shipping defaults, not a full user keymap.
 
+## Screen readers
+
+The desktop app hands its controls to the screen reader through AccessKit, so Narrator on Windows and VoiceOver on macOS can read the buttons, menus, tabs and settings by name. Linux support is not claimed yet. The canvas buttons Fit, Move and Rotate have names too. Nothing is sent until a screen reader asks, so the app costs nothing extra for everyone else.
+
 ## Contribute on the fork
 
 Branch from fork `main`, merge latest `origin/main` before the last push, push

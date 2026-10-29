@@ -47,7 +47,7 @@ impl Browser {
         #[cfg(target_arch = "wasm32")]
         {
             let _ = (ctx, name, args);
-            self.error = "Installed library browsing is available in the desktop build.".into();
+            self.error = t!("library.request.installed_library_browsing_is_available");
             self.catalog = Some(json!({}));
             if name == "library.sources" {
                 self.sources = Some(json!({"sources": []}));
@@ -67,20 +67,20 @@ impl Browser {
                     "library.catalog" => self.catalog = Some(v),
                     "library.sources" => self.sources = Some(v),
                     "library.add_folder" => {
-                        self.notice = format!(
-                            "Added {} · {} symbol libraries · {} footprint libraries now in the unified list",
-                            v["added"].as_str().unwrap_or(""),
-                            v["symbol_libraries"].as_u64().unwrap_or(0),
-                            v["footprint_libraries"].as_u64().unwrap_or(0)
+                        self.notice = t!(
+                            "library.poll.added_v0_v1_symbol_libraries",
+                            v0 = v["added"].as_str().unwrap_or(""),
+                            v1 = v["symbol_libraries"].as_u64().unwrap_or(0),
+                            v2 = v["footprint_libraries"].as_u64().unwrap_or(0)
                         );
                         self.sources = Some(json!({"sources": v["sources"].clone()}));
                         self.catalog = None;
                         self.new_source.clear();
                     }
                     "library.remove_folder" => {
-                        self.notice = format!(
-                            "Removed {} from the library sources; installed folders stay untouched",
-                            v["removed"].as_str().unwrap_or("")
+                        self.notice = t!(
+                            "library.poll.removed_v0_from_the_library",
+                            v0 = v["removed"].as_str().unwrap_or("")
                         );
                         self.sources = Some(json!({"sources": v["sources"].clone()}));
                         self.catalog = None;
@@ -144,21 +144,29 @@ impl App {
         if self.library.sources.is_none() && self.library.pending.is_none() {
             self.library.request(ui.ctx(), "library.sources", json!({}));
         }
-        ui.heading("Component libraries");
-        ui.label(
-            "One library for every collection below · add any folder as a source · definitions used by a project are embedded on placement.",
-        );
+        ui.heading(t!("library.collection_browser.component_libraries"));
+        ui.label(t!(
+            "library.collection_browser.one_library_for_every_collection"
+        ));
         let busy = self.library.pending.is_some();
         let before = self.library.kind;
         ui.add_enabled_ui(!busy, |ui| {
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.library.kind, false, "Symbols");
-                ui.selectable_value(&mut self.library.kind, true, "Footprints");
+                ui.selectable_value(
+                    &mut self.library.kind,
+                    false,
+                    t!("library.collection_browser.symbols"),
+                )
+                .on_hover_text(t!("library.collection_browser.symbols.tip"));
+                ui.selectable_value(
+                    &mut self.library.kind,
+                    true,
+                    t!("library.collection_browser.footprints"),
+                )
+                .on_hover_text(t!("library.collection_browser.footprints.tip"));
                 if ui
-                    .button("Refresh folders")
-                    .on_hover_text(
-                        "Rescan the library folders for symbol and footprint collections.",
-                    )
+                    .button(t!("library.collection_browser.refresh_folders"))
+                    .on_hover_text(t!("library.collection_browser.refresh_folders.tip"))
                     .clicked()
                 {
                     self.library.catalog = None;
@@ -218,10 +226,13 @@ impl App {
         }
         if source_names.len() > 1 {
             ui.horizontal(|ui| {
-                ui.label("Sources");
+                ui.label(t!("library.collection_browser.sources"));
                 if ui
-                    .selectable_label(self.library.source_filter.is_empty(), "All")
-                    .on_hover_text("Show collections from every library source together.")
+                    .selectable_label(
+                        self.library.source_filter.is_empty(),
+                        t!("library.collection_browser.all"),
+                    )
+                    .on_hover_text(t!("library.collection_browser.all.tip"))
                     .clicked()
                 {
                     self.library.source_filter.clear();
@@ -232,7 +243,10 @@ impl App {
                         name.clone(),
                         name.as_str(),
                     )
-                    .on_hover_text(format!("Show only the collections that come from {name}."));
+                    .on_hover_text(t!(
+                        "library.collection_browser.show_only_the_collections_that.tip",
+                        name = name
+                    ));
                 }
             });
         }
@@ -249,7 +263,10 @@ impl App {
             let label = std::path::Path::new(&self.library.path)
                 .file_stem()
                 .and_then(|s| s.to_str())
-                .unwrap_or("Choose library");
+                .map_or_else(
+                    || t!("library.collection_browser.choose_library"),
+                    str::to_owned,
+                );
             egui::ComboBox::from_id_salt("kicad-library")
                 .selected_text(label)
                 .width(300.0)
@@ -258,23 +275,24 @@ impl App {
                     grouped.sort_by(|a, b| {
                         (
                             entry_source(a),
-                            a.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+                            a.get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_owned(),
                         )
                             .cmp(&(
                                 entry_source(b),
-                                b.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+                                b.get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_owned(),
                             ))
                     });
                     let mut last_source: Option<String> = None;
                     for item in &grouped {
                         let source = entry_source(item);
                         if Some(&source) != last_source.as_ref() {
-                            ui.label(
-                                egui::RichText::new(source.as_str())
-                                    .weak()
-                                    .small()
-                                    .strong(),
-                            );
+                            ui.label(egui::RichText::new(source.as_str()).weak().small().strong());
                             last_source = Some(source);
                         }
                         if let (Some(name), Some(path)) = (
@@ -283,29 +301,32 @@ impl App {
                         ) {
                             changed |= ui
                                 .selectable_value(&mut self.library.path, path.to_owned(), name)
-                                .on_hover_text("Browse this collection.")
+                                .on_hover_text(t!(
+                                    "library.collection_browser.browse_this_collection.tip"
+                                ))
                                 .changed();
                         }
                     }
                 });
             ui.horizontal(|ui| {
-                ui.label("Library path");
+                ui.label(t!("library.collection_browser.library_path"));
                 ui.add(egui::TextEdit::singleline(&mut self.library.path).desired_width(480.0))
-                    .on_hover_text("The collection the search box below reads; pick any library from the list above or type a path.");
+                    .on_hover_text(t!(
+                        "library.collection_browser.the_collection_the_search_box.tip"
+                    ));
             });
             ui.horizontal(|ui| {
                 let response = ui
                     .add(
                         egui::TextEdit::singleline(&mut self.library.new_source)
-                            .hint_text("Folder to add as a library source")
+                            .hint_text(t!("library.collection_browser.folder_to_add_as_a"))
                             .desired_width(320.0),
                     )
-                    .on_hover_text("Any folder holding symbol files or footprint collections, from any distributor or your own shelf; it joins the list above without moving your files. Press Enter to add it.");
+                    .on_hover_text(t!("library.collection_browser.folder_to_add_as_a.tip"));
                 let selected_source = items
                     .iter()
                     .find(|item| {
-                        item.get("path").and_then(Value::as_str)
-                            == Some(self.library.path.as_str())
+                        item.get("path").and_then(Value::as_str) == Some(self.library.path.as_str())
                     })
                     .map(entry_source);
                 let removable = self
@@ -325,8 +346,8 @@ impl App {
                     .and_then(Value::as_str)
                     .map(str::to_owned);
                 let wants_add = ui
-                    .button("Add folder")
-                    .on_hover_text("Register the folder named to the left as a library source; its collections appear in the list above on the next scan.")
+                    .button(t!("library.collection_browser.add_folder"))
+                    .on_hover_text(t!("library.collection_browser.add_folder.tip"))
                     .clicked()
                     || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
                 if wants_add {
@@ -338,26 +359,29 @@ impl App {
                 }
                 if let Some(folder) = removable
                     && ui
-                        .button("Remove source")
-                        .on_hover_text("Stop listing the added source that contains the selected library; installed folders are never removed.")
+                        .button(t!("library.collection_browser.remove_source"))
+                        .on_hover_text(t!("library.collection_browser.remove_source.tip"))
                         .clicked()
                 {
-                    self.library
-                        .request(ui.ctx(), "library.remove_folder", json!({"path": folder}));
+                    self.library.request(
+                        ui.ctx(),
+                        "library.remove_folder",
+                        json!({"path": folder}),
+                    );
                     self.library.source_filter.clear();
                 }
             });
             ui.horizontal(|ui| {
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.library.query)
-                        .hint_text("Search names, descriptions, keywords")
+                        .hint_text(t!(
+                            "library.collection_browser.search_names_descriptions_keywords"
+                        ))
                         .desired_width(360.0),
                 );
                 if ui
-                    .button("Search")
-                    .on_hover_text(
-                        "Find symbols and footprints by name across the loaded collections.",
-                    )
+                    .button(t!("library.collection_browser.search"))
+                    .on_hover_text(t!("library.collection_browser.search.tip"))
                     .clicked()
                     || (response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                 {
@@ -371,7 +395,7 @@ impl App {
         if busy {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Reading library…");
+                ui.label(t!("library.collection_browser.reading_library"));
             });
         }
         if !self.library.error.is_empty() {
@@ -389,19 +413,21 @@ impl App {
             .and_then(Value::as_bool)
             == Some(true)
         {
-            ui.label("Some library folders exceeded the scan limit; use a specific library path.");
+            ui.label(t!(
+                "library.collection_browser.some_library_folders_exceeded_the"
+            ));
         }
         let filter = self.library.filter.trim().to_lowercase();
         ui.columns(2,|cols| {
             let left=&mut cols[0];
-            if let Some(total)=results.get("total").and_then(Value::as_u64) {left.label(format!("{total} matches in scanned entries · showing up to 100"));}
-            if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label("Directory scan reached its limit; more entries may exist.");}
+            if let Some(total)=results.get("total").and_then(Value::as_u64) {left.label(t!("library.collection_browser.total_matches_in_scanned_entries", total = total));}
+            if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label(t!("library.collection_browser.directory_scan_reached_its_limit"));}
             let listed: Vec<Value> = results.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
             let shown: Vec<&Value> = listed.iter().filter(|item| entry_matches(item, &filter)).collect();
-            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text("Filter shown results").desired_width(240.0));
-            let response = response.on_hover_text("Narrow the list below as you type; matches names and descriptions, ignoring case. Double-click to clear.");
-            if left.button("Clear filter").on_hover_text("Show every listed result again.").clicked() || response.double_clicked() {self.library.filter.clear();}
-            if !filter.is_empty() {left.label(format!("{} of {} listed entries match the filter", shown.len(), listed.len()));}
+            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text(t!("library.collection_browser.filter_shown_results")).desired_width(240.0));
+            let response = response.on_hover_text(t!("library.collection_browser.narrow_the_list_below_as.tip"));
+            if left.button(t!("library.collection_browser.clear_filter")).on_hover_text(t!("library.collection_browser.clear_filter.tip")).clicked() || response.double_clicked() {self.library.filter.clear();}
+            if !filter.is_empty() {left.label(t!("library.collection_browser.len_of_len2_listed_entries", len = shown.len(), len2 = listed.len()));}
             egui::ScrollArea::vertical().id_salt("library-results").max_height(360.0).show(left,|ui| {
                 for item in shown {
                     let name=item.get("name").and_then(Value::as_str).unwrap_or("");
@@ -419,42 +445,44 @@ impl App {
             let right=&mut cols[1];
             if let Some(preview)=self.library.preview.clone() {
                 let path=preview.get("path").and_then(Value::as_str).unwrap_or("").to_owned();
-                if preview.get("source_truncated").and_then(Value::as_bool)==Some(true) {right.label("Original nodes exceed inline editing limits; the source file is preserved.");}
+                if preview.get("source_truncated").and_then(Value::as_bool)==Some(true) {right.label(t!("library.collection_browser.original_nodes_exceed_inline_editing"));}
                 if self.library.kind {
                     if let Some(def)=preview.get("definition").and_then(|v|serde_json::from_value::<FootprintDefinition>(v.clone()).ok()) {
                         right.heading(&def.name);right.label(&def.description);
-                        if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new("Edit a copy →")).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Footprint(copy));self.library.editor.mode=2;}
+                        if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Footprint(copy));self.library.editor.mode=2;}
                         self.library_preview(right,None,Some(&def));
-                        right.label(format!("{} pads · {} graphics",def.pads.len(),def.graphics.len()));
+                        right.label(t!("library.collection_browser.len_pads_len2_graphics", len = def.pads.len(), len2 = def.graphics.len()));
                         let supported=pcbcraft_doc::validate_footprint_support(&def);
                         if let Err(e)=&supported {right.label(e);}
                         let component=self.selected.and_then(|id|self.project.component(id)).map(|c|(c.id,c.reference.clone()));
                         if let Some((id,reference))=component {
                             let matches=self.project.component(id).is_some_and(|c|c.pins.iter().map(|p|p.number.as_str()).collect::<std::collections::BTreeSet<_>>()==def.pads.iter().map(|p|p.number.as_str()).collect::<std::collections::BTreeSet<_>>());
-                            if !matches {right.label("Pad numbers must match every pin of the selected symbol.");}
-                            if right.add_enabled(supported.is_ok() && matches,egui::Button::new(format!("Assign to {reference}"))).clicked() {self.run("footprint.assign",json!({"id":id,"path":path}));}
-                        } else {right.label("Select a schematic component before assigning its footprint.");}
+                            if !matches {right.label(t!("library.collection_browser.pad_numbers_must_match_every"));}
+                            if right.add_enabled(supported.is_ok() && matches,egui::Button::new(t!("library.collection_browser.assign_to_reference", reference = reference))).clicked() {self.run("footprint.assign",json!({"id":id,"path":path}));}
+                        } else {right.label(t!("library.collection_browser.select_a_schematic_component_before"));}
                     }
                 } else if let Some(def)=preview.get("definition").and_then(|v|serde_json::from_value::<SymbolDefinition>(v.clone()).ok()) {
                     right.heading(&def.name);right.label(&def.description);
-                    if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new("Edit a copy →")).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Symbol(copy));self.library.editor.mode=2;}
+                    if right.add_enabled(preview.get("source_truncated").and_then(Value::as_bool)!=Some(true),egui::Button::new(t!("library.collection_browser.edit_a_copy"))).clicked() {let mut copy=def.clone();copy.name.push_str("_custom");self.library.editor.notice=Some(format!("Edited copy of {} from {}. KiCad-derived data credits the KiCad community contributors; custom sources retain their original license. Official collections: https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints.\n{}",def.name,path,include_str!("../../library/tests/fixtures/LICENSE-kicad-libraries.md")));self.library.editor.draft=Some(super::authoring::Draft::Symbol(copy));self.library.editor.mode=2;}
                     self.library_preview(right,Some(&def),None);
                     let supported=pcbcraft_doc::library_component(def.clone(),"preview".into(),0,"preview".into(),Point::default(),None).is_ok();
-                    right.label(format!("{} pins · {} units",def.pins.len(),def.pins.iter().map(|p|p.unit).max().unwrap_or(1)));
-                    right.label(format!("Suggested footprint: {}",def.footprint));
-                    if right.add_enabled(supported,egui::Button::new("Place in schematic →")).clicked() {
+                    right.label(t!("library.collection_browser.len_pins_v1_units", len = def.pins.len(), v1 = def.pins.iter().map(|p|p.unit).max().unwrap_or(1)));
+                    right.label(t!("library.collection_browser.suggested_footprint_footprint", footprint = def.footprint));
+                    if right.add_enabled(supported,egui::Button::new(t!("library.collection_browser.place_in_schematic"))).clicked() {
                         self.change_tab(Tab::Schematic);self.tool=Tool::LibraryPlace(path,def.name.clone(),Box::new(def));
                     }
-                    if !supported {right.label("Inspection available; unsupported pin/graphic styles or repeated common pin numbers cannot be placed yet.");}
+                    if !supported {right.label(t!("library.collection_browser.inspection_available_unsupported_pin_graphic"));}
                 }
-            } else {right.label("Choose an entry to preview its real geometry.");}
+            } else {right.label(t!("library.collection_browser.choose_an_entry_to_preview"));}
         });
         ui.separator();
         ui.hyperlink_to(
-            "Library data license: CC-BY-SA 4.0 + design exception",
+            t!("library.collection_browser.library_data_license_cc_by"),
             "https://www.kicad.org/libraries/license/",
         );
-        ui.label("Placement: single/multi-unit symbols, matching front SMD or plated through-hole packages. Use Edit a copy to customize a definition.");
+        ui.label(t!(
+            "library.collection_browser.placement_single_multi_unit_symbols"
+        ));
     }
     pub(super) fn library_preview(
         &mut self,
@@ -470,10 +498,10 @@ impl App {
             }
             if units.len() > 1 {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Preview unit");
+                    ui.label(t!("library.library_preview.preview_unit"));
                     for unit in units {
                         ui.selectable_value(&mut self.library.preview_unit, unit, unit.to_string())
-                            .on_hover_text("Draw this half of the part in the preview.");
+                            .on_hover_text(t!("library.library_preview.draw_this_half_of_the.tip"));
                     }
                 });
             }
