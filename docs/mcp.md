@@ -82,6 +82,15 @@ To capture the actual UI, use the desktop's `--capture /absolute/path.png` optio
 
 ## Library workflow
 
+`library.list` filters part listings (the open project's saved parts, installed libraries and any `listings` you pass) with one
+filter (`categories`, `packages`, `value_min`, `value_max`, `voltage_min`,
+`temp_range`, `stock_min`, `lifecycle`, `sources`, `rohs`, `text`), `limit`
+(1-100) and a `cursor` from the previous answer. It returns `items`,
+`next_cursor` and `total_known`. A listing with an empty number never matches a
+numeric filter. Results are grouped by source in each source's own order and are
+not ranked across sources. Optional `listings` carries already loaded
+distributor pages to filter with the same rules. It is read-only.
+
 `library.catalog` discovers host folders. `library.search` accepts `path`, `kind`
 (`symbol` or `footprint`), optional `query`, and `limit` (1–100). A symbol path is
 a `.kicad_sym` file; a footprint search path is a `.pretty` directory. Results
@@ -168,7 +177,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |

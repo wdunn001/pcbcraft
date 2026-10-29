@@ -3,6 +3,7 @@ mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
 pub mod listing;
+pub mod listing_adapters;
 mod paths;
 mod reader;
 mod sexpr;
