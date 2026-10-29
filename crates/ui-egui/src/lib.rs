@@ -32,6 +32,7 @@ mod motion;
 mod number_entry;
 mod pages;
 mod palette;
+mod pin_matrix;
 mod plot_viewer;
 mod pour_panel;
 mod properties;
@@ -6876,6 +6877,7 @@ impl App {
             }
             ui.add_space(12.0);
         }
+        self.pin_matrix_section(ui);
     }
     fn capture(&mut self, ctx: &egui::Context) {
         self.frames = self.frames.saturating_add(1);
