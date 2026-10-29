@@ -2960,13 +2960,7 @@ mod drill_tests {
     #[test]
     fn hundred_pad_grid_passes_footprint_support_validation() -> Result<(), String> {
         let pads: Vec<_> = (0..100)
-            .map(|i| {
-                front_smd_circle_pad(
-                    &((i + 1).to_string()),
-                    (i % 10) as f64,
-                    (i / 10) as f64,
-                )
-            })
+            .map(|i| front_smd_circle_pad(&((i + 1).to_string()), (i % 10) as f64, (i / 10) as f64))
             .collect();
         let definition = pcbcraft_library::FootprintDefinition {
             name: "GRID100".into(),
