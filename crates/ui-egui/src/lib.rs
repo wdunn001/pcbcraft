@@ -2,19 +2,26 @@
 mod authoring;
 mod canvas;
 mod library;
+mod library_quality;
+mod plot_viewer;
+mod sources;
+mod via_covering;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+#[cfg(test)]
 use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
 /// staring at a blank list.
+#[cfg(test)]
 const EMPTY_SYMBOLS: &str =
     "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
 const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+#[cfg(test)]
 const EMPTY_BOARD: &str =
     "No packages on the board yet. Run board.sync to place a package for every symbol.";
 const EMPTY_CHECKS: &str =
@@ -431,6 +438,7 @@ enum Tab {
     Checks,
     Settings,
     Libraries,
+    PlotFiles,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -585,7 +593,6 @@ pub struct App {
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
-    left_tab: usize,
     tree_query: String,
     tree_hidden: Vec<String>,
     focus_layer: Option<String>,
@@ -660,12 +667,17 @@ pub struct App {
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     palette: bool,
     part_search: String,
+    part_sources: sources::PartSources,
+    pending_source: Option<pcbcraft_library::sources::PartResult>,
     hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// Left edge of the central page, so tests can check text keeps its margin.
+    page_left: f32,
     schematic: Camera,
     pcb: Camera,
+    plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
@@ -789,6 +801,10 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            "Protection".into(),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
@@ -908,6 +924,7 @@ impl App {
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("plots") => Tab::PlotFiles,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -922,7 +939,6 @@ impl App {
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
             home_path_focus: false,
-            left_tab: 0,
             tree_query: String::new(),
             tree_hidden: Vec::new(),
             focus_layer: None,
@@ -996,14 +1012,18 @@ impl App {
             net_draft: None,
             palette: false,
             part_search: String::new(),
+            part_sources: sources::PartSources::default(),
+            pending_source: None,
             hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
@@ -1118,6 +1138,11 @@ impl App {
                         self.selected_unit = 1;
                     }
                     self.selected = Some(id);
+                    if command == "component.add" {
+                        self.refresh();
+                        self.attach_pending_source(id);
+                        return;
+                    }
                 }
             }
             Err(e) => self.message = e,
@@ -1245,8 +1270,13 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        // Rules, Checks and Settings are pages, not canvases: going to one or
+        // coming back from one keeps the user's zoom and pan.
+        let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
+        if !page(tab) && !page(self.tab) {
+            self.needs_fit = true;
+        }
         self.tab = tab;
-        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -1512,6 +1542,7 @@ impl App {
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label("Thickness");
             ui.add(
@@ -2595,7 +2626,6 @@ impl App {
         egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
     }
     const APP_BAR_HEIGHT: f32 = 34.0;
-    const WORKBENCH_TAB_HEIGHT: f32 = 36.0;
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
             .exact_size(Self::APP_BAR_HEIGHT)
@@ -2707,6 +2737,7 @@ impl App {
                 (Tab::Board3d, "3D View"),
                 (Tab::Rules, "Rules"),
                 (Tab::Checks, "Checks"),
+                (Tab::PlotFiles, "Plot files"),
                 (Tab::Settings, "Settings"),
             ] {
                 let selected = self.tab == tab;
@@ -3002,81 +3033,6 @@ impl App {
             "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
         );
     }
-    fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Settings", |ui| {
-            if ui
-                .button("Appearance & settings…")
-                .on_hover_text(
-                    "Open the settings page: theme, accent colour and everything for the project.",
-                )
-                .clicked()
-            {
-                self.change_tab(Tab::Settings);
-            }
-            if ui
-                .button(if self.preferences.dark {
-                    "Switch to the light theme"
-                } else {
-                    "Switch to the dark theme"
-                })
-                .on_hover_text("Change between the dark and light look.")
-                .clicked()
-            {
-                self.preferences.dark = !self.preferences.dark;
-            }
-            if ui
-                .button(if self.preferences.grid {
-                    "Hide the grid"
-                } else {
-                    "Show the grid"
-                })
-                .on_hover_text("Show or hide the placement grid in the work area.")
-                .clicked()
-            {
-                self.preferences.grid = !self.preferences.grid;
-            }
-            ui.menu_button("Route on", |ui| {
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
-            })
-            .response
-            .on_hover_text("Choose which copper layer new tracks are drawn on.");
-            ui.menu_button("Pad labels", |ui| {
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Number,
-                    PadLabels::Number.name(),
-                )
-                .on_hover_text("Draw each pad's own number on the board.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Net,
-                    PadLabels::Net.name(),
-                )
-                .on_hover_text("Draw the net name on each pad, useful when debugging.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Off,
-                    PadLabels::Off.name(),
-                )
-                .on_hover_text("Hide the pad labels for a clean picture.");
-            })
-            .response
-            .on_hover_text(
-                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
-            );
-            ui.separator();
-            if ui
-                .button("Library sources…")
-                .on_hover_text("Manage the folders that feed the component list.")
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
-            }
-        })
-        .response
-        .on_hover_text("Theme, grid and library folders.");
-    }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Help", |ui| {
             if ui
@@ -3311,6 +3267,7 @@ impl App {
                                     self.part_card(ui, &definition);
                                 }
                             }
+                            self.source_section(ui);
                         });
                 }
                 ui.add_space(12.0);
@@ -3782,6 +3739,20 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.horizontal(|ui| {
+            ui.label("Route on");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
+                .on_hover_text("New tracks are drawn on the top copper layer.");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom")
+                .on_hover_text("New tracks are drawn on the bottom copper layer.");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Pad labels");
+            for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
+                ui.selectable_value(&mut self.preferences.pad_labels, labels, labels.name())
+                    .on_hover_text("Choose what is drawn at each pad centre on the board.");
+            }
+        });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
         ui.label(
@@ -5455,11 +5426,6 @@ impl App {
             self.message = format!("{label} saved in {directory}");
         }
     }
-    fn board_body(&mut self, ui: &mut egui::Ui) {
-        if self.project.board.footprints.is_empty() {
-            empty_state(ui, EMPTY_BOARD, self.muted());
-        }
-    }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("inspector")
             .default_size(280.0)
@@ -5683,6 +5649,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
@@ -6316,6 +6283,7 @@ impl App {
             }
             ui.add_space(20.0);
         }
+        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -6451,9 +6419,9 @@ impl App {
         }
     }
 
-    fn record_icon(&mut self, id: &str, rect: Rect) {
+    fn record_icon(&mut self, _id: &str, _rect: Rect) {
         #[cfg(test)]
-        self.icon_rects.insert(id.to_owned(), rect);
+        self.icon_rects.insert(_id.to_owned(), _rect);
     }
 
     fn icon_button_style(&self) -> IconButtonStyle {
@@ -6775,6 +6743,7 @@ impl App {
                 .show(ui, |ui| {
                     self.workbench_tabs(ui);
                     self.tool_strip(ui);
+                    self.page_left = ui.max_rect().left();
                     match self.tab {
                         Tab::Schematic | Tab::Pcb => self.canvas(ui),
                         Tab::Files => {
@@ -6798,12 +6767,29 @@ impl App {
                         }
                         Tab::Checks => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.checks_view(ui))
-                                .inner
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
                         }
                         Tab::Settings => {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                        }
+                        Tab::PlotFiles => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                Self::margined(ui, |ui| {
+                                    let theme = plot_viewer::Theme {
+                                        surface: self.surface(),
+                                        muted: self.muted(),
+                                        accent: self.accent(),
+                                    };
+                                    plot_viewer::ui(
+                                        &mut self.plot_viewer,
+                                        ui,
+                                        theme,
+                                        &mut self.message,
+                                        self.make_dir.trim(),
+                                    );
+                                });
+                            });
                         }
                     }
                 });

@@ -50,6 +50,7 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         position: Point::new(20.0, 10.0),
         diameter: 0.6,
         drill: 0.3,
+        covering: None,
     });
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;

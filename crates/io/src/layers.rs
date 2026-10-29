@@ -652,6 +652,7 @@ mod tests {
             cutouts: vec![],
             filled: true,
             kind: None,
+            pour: None,
         });
         project.board.vias.push(Via {
             id: 4,
@@ -659,6 +660,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
