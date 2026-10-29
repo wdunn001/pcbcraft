@@ -146,6 +146,27 @@ fn language_text(tag: &str) -> Option<&'static str> {
     }
 }
 
+/// True when the language's "one" form is used for `count`.
+///
+/// CLDR cardinal rule: French and Portuguese (`fr`, `pt`, `pt-BR` and so on)
+/// use "one" for 0 and 1; every other shipped language only for 1.
+///
+/// # Rules
+/// Whole-number counts only; richer categories are #602.
+///
+/// # Dependencies
+/// None.
+///
+/// # Do not
+/// Add few or many here.
+fn is_one(tag: &str, count: u64) -> bool {
+    let primary = tag.split(['-', '_']).next().unwrap_or(tag);
+    match primary {
+        "fr" | "pt" => count <= 1,
+        _ => count == 1,
+    }
+}
+
 /// Map a system locale such as `de_DE.UTF-8` to a shipped tag, or `en`.
 pub fn match_locale(locale: &str) -> String {
     let primary: String = locale
@@ -264,15 +285,25 @@ impl Catalog {
         text
     }
 
-    /// `{base}.one` for a count of one, else `{base}.other`, with `{count}`
-    /// filled in. A language may add `{base}.zero`.
+    /// `{base}.one` when the language treats the count as one, else
+    /// `{base}.other`, with `{count}` filled in. A language may add
+    /// `{base}.zero`.
+    ///
+    /// # Rules
+    /// French and Portuguese count 0 as one (see `is_one`).
+    ///
+    /// # Dependencies
+    /// `strings/en.txt` for the `.one` and `.other` keys.
+    ///
+    /// # Do not
+    /// Build a plural with an inline `s` in screen code.
     pub fn plural(&self, base: &str, count: u64) -> String {
         let zero = format!("{base}.zero");
         let form = if count == 0
             && (self.overrides.contains_key(&zero) || self.english.contains_key(&zero))
         {
             "zero"
-        } else if count == 1 {
+        } else if is_one(&self.tag, count) {
             "one"
         } else {
             "other"
@@ -399,6 +430,54 @@ mod tests {
         assert_eq!(english.plural("cmp.count", 7), "7 parts");
         let french = Catalog::english().with_language("fr", FIXTURE);
         assert_eq!(french.plural("cmp.count", 2), "2 pièces");
+    }
+
+    #[test]
+    fn french_uses_the_one_form_for_zero_and_one() {
+        let french = Catalog::english().with_language("fr", FIXTURE);
+        let forms: Vec<String> = [0, 1, 2, 5, 11, 21, 101]
+            .iter()
+            .map(|n| french.plural("cmp.count", *n))
+            .collect();
+        assert_eq!(
+            forms,
+            [
+                "0 pièce",
+                "1 pièce",
+                "2 pièces",
+                "5 pièces",
+                "11 pièces",
+                "21 pièces",
+                "101 pièces"
+            ]
+        );
+    }
+
+    #[test]
+    fn portuguese_uses_the_one_form_for_zero_and_one() {
+        let text = "cmp.count.one = {count} peça\ncmp.count.other = {count} peças\n";
+        for tag in ["pt", "pt-BR"] {
+            let pt = Catalog::english().with_language(tag, text);
+            assert_eq!(pt.plural("cmp.count", 0), "0 peça");
+            assert_eq!(pt.plural("cmp.count", 1), "1 peça");
+            assert_eq!(pt.plural("cmp.count", 2), "2 peças");
+            assert_eq!(pt.plural("cmp.count", 5), "5 peças");
+        }
+    }
+
+    #[test]
+    fn english_and_spanish_use_the_one_form_only_for_one() {
+        let text = "cmp.count.one = {count} pieza\ncmp.count.other = {count} piezas\n";
+        let es = Catalog::english().with_language("es", text);
+        let en = Catalog::english();
+        assert_eq!(es.plural("cmp.count", 0), "0 piezas");
+        assert_eq!(es.plural("cmp.count", 1), "1 pieza");
+        assert_eq!(es.plural("cmp.count", 2), "2 piezas");
+        assert_eq!(es.plural("cmp.count", 5), "5 piezas");
+        assert_eq!(en.plural("cmp.count", 0), "0 parts");
+        assert_eq!(en.plural("cmp.count", 1), "1 part");
+        assert_eq!(en.plural("cmp.count", 2), "2 parts");
+        assert_eq!(en.plural("cmp.count", 5), "5 parts");
     }
 
     #[test]
