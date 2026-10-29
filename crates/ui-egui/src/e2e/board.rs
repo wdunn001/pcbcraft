@@ -697,6 +697,530 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
     Ok(())
 }
 
+fn right_click(ctx: &egui::Context, app: &mut App, screen: egui::Pos2) {
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(screen),
+                egui::Event::PointerButton {
+                    pos: screen,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    // A new popup is laid out hidden for a frame or two before it paints.
+    for _ in 0..3 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+}
+
+fn sample_board_app() -> App {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Pcb);
+    app.needs_fit = true;
+    app
+}
+
+#[test]
+fn a_newcomer_presses_escape_and_the_menu_closes_without_acting() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, Point::new(1.0, 1.0));
+    right_click(&ctx, &mut app, screen);
+    assert!(
+        paints_text(&ctx, &mut app, "Fit view")?,
+        "right-clicking empty space opens a menu: {}",
+        app.message
+    );
+    let tracks = app.project.board.tracks.len();
+    let parts = app.project.board.footprints.len();
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Fit view")?,
+        "Escape closes the menu"
+    );
+    assert_eq!(app.project.board.tracks.len(), tracks);
+    assert_eq!(app.project.board.footprints.len(), parts);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_empty_space_and_can_fit_the_view() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.pcb.zoom *= 4.0;
+    let zoomed = app.pcb.zoom;
+    let screen = pcb_screen(&app, Point::new(-500.0, -500.0));
+    let screen = egui::pos2(
+        screen
+            .x
+            .clamp(app.canvas_rect.min.x + 5.0, app.canvas_rect.max.x - 5.0),
+        screen
+            .y
+            .clamp(app.canvas_rect.min.y + 5.0, app.canvas_rect.max.y - 5.0),
+    );
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Fit view")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        (app.pcb.zoom - zoomed).abs() > f32::EPSILON,
+        "Fit view brings the whole board back into frame: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_part_to_rotate_lock_or_delete_it() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (id, at, turned) = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| (f.id, f.position, f.rotation))
+        .ok_or("the sample board has parts")?;
+    for _ in 0..6 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+    app.refresh();
+    let after = app.project.footprint(id).map(|f| f.rotation);
+    assert_ne!(
+        after,
+        Some(turned),
+        "Rotate turns the part: {}",
+        app.message
+    );
+
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Lock in place")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.footprint(id).map(|f| f.locked),
+        Some(Some(true)),
+        "Lock in place freezes the part: {}",
+        app.message
+    );
+
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Delete")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert!(
+        app.project.footprint(id).is_some(),
+        "a locked part refuses to be deleted: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_wire_and_assigns_its_layer() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.tool_call(
+        "track.route",
+        json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+    );
+    let middle = app
+        .project
+        .board
+        .tracks
+        .first()
+        .map(|t| Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0))
+        .ok_or("routing should leave a wire")?;
+    app.change_tab(Tab::Pcb);
+    app.needs_fit = true;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, middle);
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(screen),
+                egui::Event::PointerButton {
+                    pos: screen,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "Assign layer")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Back")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let layer = app.project.board.tracks.first().map(|t| t.layer);
+    assert_eq!(
+        layer,
+        Some(pcbcraft_doc::Layer::Back),
+        "Assign layer moves the wire: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_wire_and_cuts_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.tool_call(
+        "track.route",
+        json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+    );
+    let (before, middle) = app
+        .project
+        .board
+        .tracks
+        .first()
+        .map(|t| {
+            (
+                app.project.board.tracks.len(),
+                Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+            )
+        })
+        .ok_or("routing should leave a wire to cut")?;
+    app.change_tab(Tab::Pcb);
+    app.needs_fit = true;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, middle);
+    for pressed in [true, false] {
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(screen),
+                egui::Event::PointerButton {
+                    pos: screen,
+                    button: egui::PointerButton::Secondary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Cut")?,
+        "right-clicking a wire opens a menu with Cut: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Cut")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.board.tracks.len(),
+        before + 1,
+        "Cut splits the wire in two: {}",
+        app.message
+    );
+    Ok(())
+}
+
+/// A board with one routed wire, on the board tab, ready to right-click.
+///
+/// # Rules
+/// Returns the wire's midpoint in board units.
+///
+/// # Dependencies
+/// `track.route` in ../../../engine; `sample_design` from ../../../mcp.
+///
+/// # Do not
+/// Use for stories that need more than one wire.
+fn routed_wire_app() -> Result<(App, Point), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.tool_call(
+        "track.route",
+        json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+    );
+    let middle = app
+        .project
+        .board
+        .tracks
+        .first()
+        .map(|t| Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0))
+        .ok_or("routing should leave a wire")?;
+    app.change_tab(Tab::Pcb);
+    app.needs_fit = true;
+    Ok((app, middle))
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pad_and_starts_a_route() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (id, number, at) = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find_map(|f| {
+            f.pads.first().and_then(|p| {
+                f.pad_position(&p.number)
+                    .map(|at| (f.id, p.number.clone(), at))
+            })
+        })
+        .ok_or("the sample board has a pad")?;
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Start route")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(&app.tool, Tool::Route(Some((f, n))) if *f == id && *n == number),
+        "Start route arms the route tool on that pad: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pad_and_opens_its_properties() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let (id, _number, at, home) = app
+        .project
+        .board
+        .footprints
+        .iter()
+        .find_map(|f| {
+            f.pads.first().and_then(|p| {
+                f.pad_position(&p.number)
+                    .map(|at| (f.id, p.number.clone(), at, f.position))
+            })
+        })
+        .ok_or("the sample board has a pad")?;
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert_eq!(app.selected, Some(id), "the pad's part is selected");
+    assert_eq!(app.x, home.x, "Properties loads the part: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_part_and_duplicates_it() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| f.position)
+        .ok_or("the sample board has parts")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let before = app.project.components.len();
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.components.len(),
+        before + 1,
+        "Duplicate places a copy: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_part_and_opens_its_properties() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| f.position)
+        .ok_or("the sample board has parts")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert_eq!(app.x, at.x, "Properties loads the part: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_wire_and_changes_its_width() -> Result<(), String> {
+    let (mut app, middle) = routed_wire_app()?;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, middle);
+    right_click(&ctx, &mut app, screen);
+    app.track_width = 0.75;
+    authoring::tests::tap(&ctx, &mut app, "Change width")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let width = app.project.board.tracks.first().map(|t| t.width);
+    assert_eq!(width, Some(0.75), "Change width applies: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_wire_and_opens_its_properties() -> Result<(), String> {
+    let (mut app, middle) = routed_wire_app()?;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, middle);
+    right_click(&ctx, &mut app, screen);
+    let wire = app.project.board.tracks.first().map(|t| t.id);
+    assert_eq!(app.selected, wire, "right-click selects the wire");
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert!(
+        app.canvas_menu.is_none(),
+        "Properties closes the menu: {}",
+        app.message
+    );
+    Ok(())
+}
+
+/// The sample design on the schematic tab, plus a pin that is on screen.
+///
+/// # Rules
+/// Fits the view first, then takes the first pin whose screen spot lies well
+/// inside the canvas. Returns the app, the part, the pin number and the
+/// screen spot.
+///
+/// # Dependencies
+/// `sample_design` from ../../../mcp.
+///
+/// # Do not
+/// Assume which part owns the pin.
+fn sample_schematic_pin(ctx: &egui::Context) -> Result<(App, Id, String, egui::Pos2), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Schematic);
+    app.needs_fit = true;
+    // Let the side panels settle so the canvas stops moving before we aim.
+    for _ in 0..6 {
+        frame(ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let inside = app.canvas_rect.shrink(30.0);
+    let found = app.project.components.iter().find_map(|c| {
+        c.pins.iter().find_map(|p| {
+            let spot = c
+                .pin_position(&p.number)
+                .map(|at| app.schematic.screen(at, app.canvas_rect))?;
+            inside
+                .contains(spot)
+                .then(|| (c.id, p.number.clone(), spot))
+        })
+    });
+    let (id, pin, spot) = found.ok_or("no pin is on screen")?;
+    Ok((app, id, pin, spot))
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pin_and_starts_a_wire() -> Result<(), String> {
+    let ctx = egui::Context::default();
+    let (mut app, id, pin, screen) = sample_schematic_pin(&ctx)?;
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Start wire")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(&app.tool, Tool::Wire(Some(p)) if p.component == id && p.pin == pin),
+        "Start wire arms the wire tool on that pin: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pin_and_marks_no_connect() -> Result<(), String> {
+    let ctx = egui::Context::default();
+    let (mut app, _id, _pin, screen) = sample_schematic_pin(&ctx)?;
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Mark no connect")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(app.tool, Tool::NoConnect),
+        "Mark no connect arms the no-connect tool: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_pin_and_opens_its_properties() -> Result<(), String> {
+    let ctx = egui::Context::default();
+    let (mut app, id, _pin, screen) = sample_schematic_pin(&ctx)?;
+    right_click(&ctx, &mut app, screen);
+    let home = app
+        .project
+        .component(id)
+        .map(|c| c.position)
+        .ok_or("pin's part exists")?;
+    app.x = -9999.0;
+    authoring::tests::tap(&ctx, &mut app, "Properties")?;
+    assert_eq!(app.selected, Some(id), "the pin's part is selected");
+    assert_eq!(app.x, home.x, "Properties loads the part: {}", app.message);
+    Ok(())
+}
+
 fn fresh_board_app() -> (egui::Context, App) {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -815,6 +1339,164 @@ fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
         app.project.board.datums.len(),
         1,
         "names are unique ignoring case"
+    );
+    Ok(())
+}
+
+fn board_app_with_via(layers: u32) -> Result<(App, Point), String> {
+    let mut app = sample_board_app();
+    if layers > 2 {
+        let mut session = app.session.lock().map_err(|_| "session busy")?;
+        let records = &mut session.project.board.layer_records;
+        records.clear();
+        for i in 1..=layers {
+            records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            });
+            if i < layers {
+                records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.4,
+                    copper_role: None,
+                });
+            }
+        }
+    }
+    let at = Point::new(20.0, 14.0);
+    app.tool_call(
+        "via.place",
+        json!({"net":4,"position":{"x":at.x,"y":at.y},"diameter":0.8,"drill":0.4}),
+    );
+    if app.project.board.vias.is_empty() {
+        return Err(format!("the via should be placed: {}", app.message));
+    }
+    Ok((app, at))
+}
+
+#[test]
+fn a_newcomer_sees_one_span_on_a_two_layer_board() -> Result<(), String> {
+    let (mut app, at) = board_app_with_via(2)?;
+    let ctx = egui::Context::default();
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Assign layers")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top to bottom (current)")?,
+        "the only span is top to bottom and says it is current: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_via_and_assigns_its_layers() -> Result<(), String> {
+    let (mut app, at) = board_app_with_via(4)?;
+    let ctx = egui::Context::default();
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Assign layers")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "L1 to L2")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let via = app.project.board.vias.first().ok_or("via missing")?;
+    assert_eq!(
+        app.project.via_span(via).1.index(),
+        1,
+        "the via now ends on the second layer: {}",
+        app.message
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    let via = app.project.board.vias.first().ok_or("via missing")?;
+    assert_eq!(
+        app.project.via_span(via).1.index(),
+        3,
+        "one undo restores the old span: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cannot_paste_before_copying() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, Point::new(1.0, 1.0));
+    right_click(&ctx, &mut app, screen);
+    let parts = app.project.board.footprints.len();
+    authoring::tests::tap(&ctx, &mut app, "Paste")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        parts,
+        "Paste does nothing while nothing is copied: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_copies_a_part_and_pastes_it_from_the_right_click_menu() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| f.position)
+        .ok_or("the sample board has parts")?;
+    let before = app.project.board.footprints.len();
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Copy")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.edit.clip.is_some(),
+        "Copy keeps the text: {}",
+        app.message
+    );
+    let spot = Point::new(at.x + 12.0, at.y + 9.0);
+    let screen = pcb_screen(&app, spot);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Paste")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before + 1,
+        "Paste adds one part: {}",
+        app.message
+    );
+    let copy = app.project.board.footprints.last().ok_or("copy missing")?;
+    assert!(
+        (copy.position.x - spot.x).abs() < 1.0 && (copy.position.y - spot.y).abs() < 1.0,
+        "the copy lands at the click: {:?}",
+        copy.position
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before,
+        "one undo removes the paste: {}",
+        app.message
     );
     Ok(())
 }

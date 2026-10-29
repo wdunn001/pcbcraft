@@ -1,9 +1,17 @@
 use super::*;
 use egui::{Pos2, Sense};
-use pcbcraft_doc::{Component, Layer};
+use pcbcraft_doc::{Component, Layer, PinRef};
 use pcbcraft_geom::point_segment;
 mod board_art;
 mod underlay;
+
+pub(super) enum CanvasMenuKind {
+    Empty,
+    Pin(PinRef),
+    Pad(Id, String),
+    Track(Id),
+    Object(Id),
+}
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, everything drawn on the schematic tab, falling back to the
@@ -376,6 +384,7 @@ impl App {
             Sense::click_and_drag().union(Sense::hover()),
         );
         let rect = response.rect;
+        self.canvas_rect = rect;
         let mut camera = if self.tab == Tab::Pcb {
             self.pcb
         } else {
@@ -716,13 +725,24 @@ impl App {
             let layer = self.art_layer.unwrap_or_default();
             self.commit_poly(layer);
         }
-        if response.clicked()
+        if response.clicked() {
+            self.canvas_menu = None;
+            if let Some(pos) = cursor {
+                if matches!(self.tool, Tool::Select) && ui.input(|i| i.modifiers.shift) {
+                    self.shift_click(pos, camera.zoom);
+                } else {
+                    self.canvas_click(pos, camera.zoom);
+                }
+            }
+        }
+        if response.secondary_clicked()
             && let Some(pos) = cursor
+            && let Some(screen) = response.interact_pointer_pos()
         {
             if matches!(self.tool, Tool::Select) && ui.input(|i| i.modifiers.shift) {
                 self.shift_click(pos, camera.zoom);
             } else {
-                self.canvas_click(pos, camera.zoom);
+                self.open_canvas_menu(screen, pos, camera.zoom);
             }
         }
         // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
@@ -819,6 +839,24 @@ impl App {
                             });
                         });
                 }
+            }
+        }
+        if let Some((screen, kind)) = self.canvas_menu.take() {
+            let mut close = false;
+            egui::Area::new(egui::Id::new("canvas-context-menu"))
+                .fixed_pos(screen)
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::menu(ui.style())
+                        .inner_margin(egui::Margin::same(8))
+                        .show(ui, |ui| {
+                            ui.set_min_width(140.0);
+                            ui.spacing_mut().item_spacing.y = 4.0;
+                            close |= self.paint_canvas_menu(ui, &kind);
+                        });
+                });
+            if !close {
+                self.canvas_menu = Some((screen, kind));
             }
         }
     }
@@ -1073,6 +1111,51 @@ impl App {
         }
         None
     }
+    /// When both clicked pads sit on the same net of a declared differential
+    /// pair, the pad each of those footprints has on the partner net, so one
+    /// drag routes both sides. None when the net is not paired or a footprint
+    /// has no single partner pad.
+    fn pair_mates(
+        &self,
+        from: Id,
+        from_pad: &str,
+        to: Id,
+        to_pad: &str,
+    ) -> Option<(String, String)> {
+        let net_of = |fp: Id, number: &str| {
+            self.project
+                .footprint(fp)?
+                .pads
+                .iter()
+                .find(|p| p.number == number)?
+                .net
+        };
+        let net = net_of(from, from_pad)?;
+        if net_of(to, to_pad)? != net {
+            return None;
+        }
+        let pair = self
+            .project
+            .board
+            .diff_pairs
+            .iter()
+            .find(|d| d.net_p == net || d.net_n == net)?;
+        let partner = if pair.net_p == net {
+            pair.net_n
+        } else {
+            pair.net_p
+        };
+        let mate = |fp: Id| {
+            let f = self.project.footprint(fp)?;
+            let mut on_partner = f.pads.iter().filter(|p| p.net == Some(partner));
+            let first = on_partner.next()?;
+            if on_partner.next().is_some() {
+                return None;
+            }
+            Some(first.number.clone())
+        };
+        Some((mate(from)?, mate(to)?))
+    }
     fn pick_pad(&self, pos: Point, zoom: f32) -> Option<(Id, String)> {
         for f in &self.project.board.footprints {
             for pad in &f.pads {
@@ -1102,6 +1185,438 @@ impl App {
             }
         }
         best.map(|(_, id)| id)
+    }
+    fn pick_via(&self, pos: Point, zoom: f32) -> Option<Id> {
+        self.project
+            .board
+            .vias
+            .iter()
+            .filter(|v| {
+                pos.distance(v.position) * (zoom as f64)
+                    < (v.diameter as f32 * zoom / 2.0 + 6.0) as f64
+            })
+            .min_by(|a, b| {
+                a.position
+                    .distance(pos)
+                    .total_cmp(&b.position.distance(pos))
+            })
+            .map(|v| v.id)
+    }
+    fn canvas_menu_target(&self, pos: Point, zoom: f32) -> CanvasMenuKind {
+        if self.tab == Tab::Schematic
+            && let Some(pin) = self.pick_pin(pos, zoom)
+        {
+            return CanvasMenuKind::Pin(pin);
+        }
+        if self.tab == Tab::Pcb {
+            if let Some((id, pad)) = self.pick_pad(pos, zoom) {
+                return CanvasMenuKind::Pad(id, pad);
+            } else if let Some(id) = self.pick_via(pos, zoom) {
+                return CanvasMenuKind::Object(id);
+            } else if let Some(id) = self.pick_track(pos, zoom) {
+                return CanvasMenuKind::Track(id);
+            }
+        }
+        if let Some(id) = self.pick_object(pos, zoom) {
+            return CanvasMenuKind::Object(id);
+        }
+        CanvasMenuKind::Empty
+    }
+    fn open_canvas_menu(&mut self, screen: Pos2, pos: Point, zoom: f32) {
+        let kind = self.canvas_menu_target(pos, zoom);
+        match &kind {
+            CanvasMenuKind::Empty => self.select(None),
+            CanvasMenuKind::Pin(pin) => {
+                self.select(Some(pin.component));
+                self.load_properties();
+            }
+            CanvasMenuKind::Pad(id, _) => {
+                self.select(Some(*id));
+                self.load_properties();
+            }
+            CanvasMenuKind::Track(id) => {
+                self.select(Some(*id));
+                if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == *id) {
+                    self.track_width = track.width;
+                }
+                self.load_properties();
+            }
+            CanvasMenuKind::Object(id) => {
+                self.select_at(pos, zoom);
+                if self.selected != Some(*id) {
+                    self.select(Some(*id));
+                }
+                self.load_properties();
+            }
+        }
+        self.edit.menu_at = Some(pos);
+        self.canvas_menu = Some((screen, kind));
+    }
+    /// "Assign layers": the spans this board allows for a via, each running
+    /// `via.set_span`. The span the via already has is marked in text.
+    fn assign_span_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
+        let Some(via) = self.project.board.vias.iter().find(|v| v.id == id).cloned() else {
+            return false;
+        };
+        let current = self.project.via_span(&via);
+        let last = self.project.copper_layer_count().saturating_sub(1);
+        let tip = command_tip("via.set_span");
+        let mut done = false;
+        ui.menu_button("Assign layers", |ui| {
+            for (a, b) in self.project.allowed_via_spans() {
+                let mut label = if a.index() == 0 && b.index() >= last {
+                    "Top to bottom".to_string()
+                } else {
+                    format!(
+                        "{} to {}",
+                        self.project.layer_name(a),
+                        self.project.layer_name(b)
+                    )
+                };
+                if (a, b) == current {
+                    label.push_str(" (current)");
+                }
+                if Self::canvas_menu_button(ui, &label, &tip) {
+                    self.run(
+                        "via.set_span",
+                        json!({
+                            "id": id,
+                            "from_layer": self.project.layer_name(a),
+                            "to_layer": self.project.layer_name(b),
+                        }),
+                    );
+                    done = true;
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Choose which copper layers this via connects.");
+        done
+    }
+    /// "Copy" for menus that open on a part's pad or pin: the part is already
+    /// selected by the right-click, so this copies the whole part.
+    fn copy_part_menu(&mut self, ui: &mut egui::Ui) -> bool {
+        let tip = command_tip("selection.copy_text");
+        if Self::canvas_menu_button(ui, "Copy", &tip) {
+            let ctx = ui.ctx().clone();
+            self.copy_selection(&ctx);
+            return true;
+        }
+        false
+    }
+    fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
+        ui.button(label).on_hover_text(tip).clicked()
+    }
+    /// "Assign layer": a small submenu listing the copper faces a track can
+    /// move to. The face it is already on is left out.
+    fn assign_layer_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
+        let Some(current) = self
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.layer)
+        else {
+            return false;
+        };
+        let mut done = false;
+        ui.menu_button("Assign layer", |ui| {
+            for (layer, label, name, tip) in [
+                (
+                    Layer::Front,
+                    "Front",
+                    "F.Cu",
+                    "Move this wire to the front copper layer.",
+                ),
+                (
+                    Layer::Back,
+                    "Back",
+                    "B.Cu",
+                    "Move this wire to the back copper layer.",
+                ),
+            ] {
+                if layer == current {
+                    continue;
+                }
+                if Self::canvas_menu_button(ui, label, tip) {
+                    self.run("track.set_layer", json!({"id": id, "layer": name}));
+                    done = true;
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Choose which copper layer this wire lives on.");
+        done
+    }
+    fn paint_canvas_menu(&mut self, ui: &mut egui::Ui, kind: &CanvasMenuKind) -> bool {
+        match kind {
+            CanvasMenuKind::Empty => {
+                if Self::canvas_menu_button(
+                    ui,
+                    "Fit view",
+                    "Zoom the view so the whole design fits.",
+                ) {
+                    self.needs_fit = true;
+                    return true;
+                }
+                let ready = self.edit.clip.is_some();
+                let paste_tip = if ready {
+                    command_tip("selection.paste")
+                } else {
+                    "Copy something first".to_string()
+                };
+                if ui
+                    .add_enabled(ready, egui::Button::new("Paste"))
+                    .on_hover_text(&paste_tip)
+                    .on_disabled_hover_text(&paste_tip)
+                    .clicked()
+                {
+                    if let Some(at) = self.edit.menu_at {
+                        self.paste_last_copy_at(at);
+                    }
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Clear selection",
+                    "Drop the current highlight so nothing is selected.",
+                ) {
+                    self.select(None);
+                    return true;
+                }
+            }
+            CanvasMenuKind::Pin(pin) => {
+                if self.copy_part_menu(ui) {
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Start wire",
+                    "Wire tool: click another pin to connect them.",
+                ) {
+                    self.tool = Tool::Wire(Some(PinRef {
+                        component: pin.component,
+                        pin: pin.pin.clone(),
+                    }));
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Mark no connect",
+                    "Mark this pin deliberately unconnected, or clear an existing mark.",
+                ) {
+                    self.tool = Tool::NoConnect;
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Properties",
+                    "Load this pin's part into the inspector.",
+                ) {
+                    self.load_properties();
+                    return true;
+                }
+            }
+            CanvasMenuKind::Pad(id, pad) => {
+                if self.copy_part_menu(ui) {
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Start route",
+                    "Route tool: click another pad to draw a track between them.",
+                ) {
+                    self.tool = Tool::Route(Some((*id, pad.clone())));
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Properties",
+                    "Load this pad's package into the inspector.",
+                ) {
+                    self.load_properties();
+                    return true;
+                }
+            }
+            CanvasMenuKind::Track(id) => {
+                if Self::canvas_menu_button(
+                    ui,
+                    "Cut",
+                    "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
+                ) {
+                    if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == *id) {
+                        let at = Point::new(
+                            (track.start.x + track.end.x) / 2.0,
+                            (track.start.y + track.end.y) / 2.0,
+                        );
+                        self.run(
+                            "track.split",
+                            json!({"id": *id, "at": {"x": at.x, "y": at.y}}),
+                        );
+                    }
+                    return true;
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Change width",
+                    "Set this wire to the width shown in the inspector.",
+                ) {
+                    self.run(
+                        "track.set_width",
+                        json!({"id": *id, "width": self.track_width}),
+                    );
+                    return true;
+                }
+                if self.assign_layer_menu(ui, *id) {
+                    return true;
+                }
+                if Self::canvas_menu_button(ui, "Properties", "Load this wire into the inspector.")
+                {
+                    self.load_properties();
+                    return true;
+                }
+                let delete_tip = command_tip("object.delete");
+                if Self::canvas_menu_button(ui, "Delete", &delete_tip) {
+                    self.run("object.delete", json!({"id": *id}));
+                    self.select(None);
+                    return true;
+                }
+            }
+            CanvasMenuKind::Object(id) => {
+                let copy_tip = command_tip("selection.copy_text");
+                if Self::canvas_menu_button(ui, "Copy", &copy_tip) {
+                    let ctx = ui.ctx().clone();
+                    self.copy_selection(&ctx);
+                    return true;
+                }
+                if self.project.board.vias.iter().any(|v| v.id == *id)
+                    && self.assign_span_menu(ui, *id)
+                {
+                    return true;
+                }
+                let is_track = self.project.board.tracks.iter().any(|t| t.id == *id);
+                let component = self.project.component(*id).is_some();
+                let footprint = self.project.footprint(*id).is_some();
+                if component || footprint {
+                    if Self::canvas_menu_button(
+                        ui,
+                        "Duplicate",
+                        "Places a copy of this part nearby, with its own new reference number. Undo removes the copy.",
+                    ) {
+                        let target = self.project.footprint(*id).map_or(*id, |fp| fp.component);
+                        self.run(
+                            "object.duplicate",
+                            json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
+                        );
+                        return true;
+                    }
+                    let part_locked = self
+                        .project
+                        .footprint(*id)
+                        .is_some_and(|fp| fp.locked == Some(true));
+                    let rotate_tip = if part_locked {
+                        "This part is locked. Unlock it first."
+                    } else {
+                        "Turn the selected object by 90 degrees."
+                    };
+                    if ui
+                        .add_enabled(!part_locked, egui::Button::new("Rotate"))
+                        .on_hover_text(rotate_tip)
+                        .on_disabled_hover_text(rotate_tip)
+                        .clicked()
+                    {
+                        self.rotate();
+                        return true;
+                    }
+                    if footprint {
+                        let locked = self
+                            .project
+                            .footprint(*id)
+                            .is_some_and(|fp| fp.locked == Some(true));
+                        if Self::canvas_menu_button(
+                            ui,
+                            if locked { "Unlock" } else { "Lock in place" },
+                            if locked {
+                                "Let this part move, rotate and dock again."
+                            } else {
+                                "Freeze this part so no accidental click, key or dock can nudge it off where you placed it."
+                            },
+                        ) {
+                            self.run(
+                                "footprint.set_locked",
+                                json!({"id": *id, "locked": !locked}),
+                            );
+                            return true;
+                        }
+                    }
+                }
+                if is_track {
+                    if Self::canvas_menu_button(
+                        ui,
+                        "Cut",
+                        "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
+                    ) {
+                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == *id)
+                        {
+                            let at = Point::new(
+                                (track.start.x + track.end.x) / 2.0,
+                                (track.start.y + track.end.y) / 2.0,
+                            );
+                            self.run(
+                                "track.split",
+                                json!({"id": *id, "at": {"x": at.x, "y": at.y}}),
+                            );
+                        }
+                        return true;
+                    }
+                    if Self::canvas_menu_button(
+                        ui,
+                        "Change width",
+                        "Set this wire to the width shown in the inspector.",
+                    ) {
+                        self.run(
+                            "track.set_width",
+                            json!({"id": *id, "width": self.track_width}),
+                        );
+                        return true;
+                    }
+                    if self.assign_layer_menu(ui, *id) {
+                        return true;
+                    }
+                }
+                if Self::canvas_menu_button(
+                    ui,
+                    "Properties",
+                    "Load this object into the inspector.",
+                ) {
+                    self.load_properties();
+                    return true;
+                }
+                let part_locked = self
+                    .project
+                    .footprint(*id)
+                    .is_some_and(|fp| fp.locked == Some(true));
+                let delete_tip = if part_locked {
+                    "This part is locked. Unlock it first.".to_string()
+                } else {
+                    command_tip("object.delete")
+                };
+                if ui
+                    .add_enabled(!part_locked, egui::Button::new("Delete"))
+                    .on_hover_text(&delete_tip)
+                    .on_disabled_hover_text(&delete_tip)
+                    .clicked()
+                {
+                    self.run("object.delete", json!({"id": *id}));
+                    self.select(None);
+                    return true;
+                }
+            }
+        }
+        false
     }
     pub(super) fn canvas_click(&mut self, pos: Point, zoom: f32) {
         match self.tool.clone() {
@@ -1175,7 +1690,28 @@ impl App {
             Tool::Route(start) => {
                 if let Some((id, pad)) = self.pick_pad(pos, zoom) {
                     if let Some((from, from_pad)) = start {
-                        self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer}));
+                        let mode = if self.preferences.chamfer_corners {
+                            "octilinear"
+                        } else {
+                            "orthogonal"
+                        };
+                        if let Some((mate_from, mate_to)) =
+                            self.pair_mates(from, &from_pad, id, &pad)
+                        {
+                            self.run(
+                                "track.route_pair",
+                                json!({
+                                    "from_p":{"footprint":from,"pad":from_pad},
+                                    "from_n":{"footprint":from,"pad":mate_from},
+                                    "to_p":{"footprint":id,"pad":pad},
+                                    "to_n":{"footprint":id,"pad":mate_to},
+                                    "layer":self.route_layer,
+                                    "mode":mode,
+                                }),
+                            );
+                        } else {
+                            self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer,"mode":mode}));
+                        }
                         self.tool = Tool::Select;
                     } else {
                         self.tool = Tool::Route(Some((id, pad)));

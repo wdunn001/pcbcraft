@@ -16,7 +16,9 @@ cargo run -p pcbcraft-cli -- mcp
 
 The executable `pcbcraft-cli mcp` implements a stdio MCP server. It negotiates
 2025-11-25, 2025-06-18 or 2024-11-05 protocol versions, advertises tools, and returns
-tool failures as `isError` responses. Messages are capped at 1 MiB.
+tool failures as `isError` responses. Messages are capped at 1 MiB. Until a
+successful `initialize`, the stdio server answers every request except `initialize` and
+`ping` with error -32002; notifications get no reply.
 
 Example client configuration after `cargo build -p pcbcraft-cli`:
 
@@ -42,6 +44,9 @@ The bridge binds only to literal loopback addresses. It is trusted local automat
 with filesystem access as the invoking user. It has no remote authentication.
 Only tools/call requests are forwarded; tool discovery comes from the same registry.
 Do not expose this port through forwarding to an untrusted network.
+
+How the server measures against the specification, and the test list, are in
+[mcp-conformance.md](mcp-conformance.md).
 
 ## Recommended agent flow
 
@@ -102,10 +107,6 @@ declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
 
-`track.tune_skew` takes a differential pair `id` or `name`, optional `layer`
-(default `F.Cu`), and a declared `length_tolerance`. It adds meander bumps on the
-shorter net until skew is within tolerance, in one undo step.
-
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
 nodes report `source_truncated`. The GUI disables copying truncated definitions.
@@ -158,3 +159,78 @@ jobs).
 - [architecture.md](architecture.md) for the mutation boundary and crate layers
 - [kicad-libraries.md](kicad-libraries.md) for library DTO fields used in authoring
 - README **CLI and MCP** for copy-paste sample commands
+
+## Tool hints
+
+Every tool in `tools/list` carries a `title` and an `annotations` block with the four
+MCP hints, so a client can decide when to ask the user first.
+
+| Kind | Tools | readOnly | destructive | idempotent |
+| --- | --- | --- | --- | --- |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
+| Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
+| Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |
+
+`openWorldHint` is false for every tool. The title is the tool name with dots and
+underscores turned into spaces. The table lives in `annotations_for` in
+`crates/mcp/src/lib.rs`.
+
+## Streamable HTTP
+
+`pcbcraft-cli mcp --http 127.0.0.1:PORT` serves MCP over the Streamable HTTP transport
+(revision 2025-11-25) on one endpoint, `http://127.0.0.1:PORT/mcp`. It prints the endpoint
+and a per-run random bearer token to stderr; stdout is never used. With
+`--token-file PATH` the token goes to that file (mode 0600) and is not printed.
+
+```sh
+pcbcraft-cli mcp --http 127.0.0.1:7992 --token-file ~/.pcbcraft-mcp-token
+curl -s http://127.0.0.1:7992/mcp -H "Authorization: Bearer $(cat ~/.pcbcraft-mcp-token)" \
+  -H "Accept: application/json, text/event-stream" -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+What the listener does and does not do:
+
+- It binds only a literal loopback address (`127.0.0.1` or `::1`). There is no flag to
+  bind elsewhere, and names such as `localhost` are refused.
+- Every request needs `Authorization: Bearer <token>` (401 otherwise). A browser `Origin`
+  header that is not `http://127.0.0.1`, `http://localhost` or `http://[::1]` (any port)
+  gets 403; a request with no `Origin` is allowed.
+- POST only. GET and DELETE get 405 (there is no event stream), other paths 404, bodies over
+  1 MiB 413, a wrong `MCP-Protocol-Version` 400, a missing JSON `Accept` 406.
+- A request gets 200 with one JSON object. A notification or a client response gets 202 with
+  no body. A JSON array (batching) gets 400.
+- It is stateless: no `MCP-Session-Id` is issued, so the initialize gate of the stdio server
+  does not apply. Requests run one at a time against one design session.
+- It reuses `handle_rpc`, the same dispatcher as stdio and the `--control` bridge.
+
+## Resources
+
+The server advertises `resources` (no subscribe, no list-changed notice) and answers
+`resources/list`, `resources/templates/list` and `resources/read`. Reading never edits the
+design; it goes through the active design like the tools do.
+
+| URI | Type | Content |
+| --- | --- | --- |
+| `pcbcraft://design` | JSON | Same as `inspect_design` |
+| `pcbcraft://commands` | JSON | Same as `list_commands` |
+| `pcbcraft://checks` | JSON | Runs `checks` when read; there is no stored last result |
+| `pcbcraft://design/preview/{view}` | PNG blob | `schematic` or `pcb`, same renderer as `screenshot` |
+
+An unknown URI is error -32002 "Resource not found" with the URI in `data`. A preview view
+other than `schematic` or `pcb` is -32602.
+
+## Prompts
+
+The server advertises `prompts` (no list-changed notice) and answers `prompts/list` and
+`prompts/get`. Prompts are templates the user picks; each only names tools from `tools/list`.
+
+| Prompt | Argument | What it asks the model to do |
+| --- | --- | --- |
+| `review_board` | `focus`: `placement`, `power` or `signal` (optional) | Call `inspect_design` and `checks`, review, report by object id, edit nothing |
+| `fix_unrouted_nets` | none | Call `checks`, route the unrouted nets with `execute` or `batch`, check again |
+| `prepare_fabrication` | `fab`: short text (optional) | Run `checks`, stop on errors, else write outputs with `gerber.export`, `bom.write`, `placement.write` |
+
+An unknown prompt name or a `focus` outside the list is error -32602. Argument text is
+inserted as plain text and clipped to 200 characters.
