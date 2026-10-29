@@ -3,7 +3,7 @@
 use crate::Tab;
 use egui::Key;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Stable action id stored in profiles and used for dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
