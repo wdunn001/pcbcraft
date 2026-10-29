@@ -349,13 +349,13 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
             }
             continue;
         }
-        if let Some(d_only) = s.strip_prefix('D') {
-            if d_only.len() <= 3 && d_only.chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(code) = d_only.parse::<u32>() {
-                    current_ap = code;
-                }
-                continue;
-            }
+        if let Some(d_only) = s.strip_prefix('D')
+            && d_only.len() <= 3
+            && d_only.chars().all(|c| c.is_ascii_digit())
+            && let Ok(code) = d_only.parse::<u32>()
+        {
+            current_ap = code;
+            continue;
         }
         if let Some((x, y)) = parse_coord_pair(s) {
             let (x_mm, y_mm) = inch_to_mm(inch, x, y);
@@ -379,10 +379,8 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
                 if ops > MAX_OPS {
                     return Err("plot layer exceeds the object limit".into());
                 }
-                if stroke_pts.is_empty() {
-                    if let Some(p) = pending {
-                        stroke_pts.push(p);
-                    }
+                if stroke_pts.is_empty() && let Some(p) = pending {
+                    stroke_pts.push(p);
                 }
                 stroke_pts.push((x_mm, y_mm));
                 if in_region {
@@ -397,10 +395,11 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
                 }
                 pending = Some((x_mm, y_mm));
             }
-        } else if s.contains('D') && s.len() < 8 {
-            if let Some(num) = s.strip_prefix('D').and_then(|t| t.parse::<u32>().ok()) {
-                current_ap = num;
-            }
+        } else if s.contains('D')
+            && s.len() < 8
+            && let Some(num) = s.strip_prefix('D').and_then(|t| t.parse::<u32>().ok())
+        {
+            current_ap = num;
         }
     }
 
@@ -448,22 +447,18 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
             continue;
         }
         if in_header {
-            if let Some(rest) = line.strip_prefix('T') {
-                if let Some((num, diam)) = rest.split_once('C') {
-                    if let Ok(n) = num.parse::<u32>() {
-                        if let Ok(d) = diam.parse::<f64>() {
-                            tools.insert(n, d * scale);
-                        }
-                    }
-                }
+            if let Some(rest) = line.strip_prefix('T')
+                && let Some((num, diam)) = rest.split_once('C')
+                && let Ok(n) = num.parse::<u32>()
+                && let Ok(d) = diam.parse::<f64>()
+            {
+                tools.insert(n, d * scale);
             }
             continue;
         }
-        if let Some(rest) = line.strip_prefix('T') {
-            if let Ok(n) = rest.parse::<u32>() {
-                current_tool = n;
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix('T') && let Ok(n) = rest.parse::<u32>() {
+            current_tool = n;
+            continue;
         }
         if line.starts_with('X') {
             if hits.len() >= MAX_HITS {
