@@ -5,9 +5,11 @@ mod connections;
 mod context;
 mod describe;
 mod gate;
+mod guard;
 mod http;
 mod prompt;
 mod script;
+mod store;
 mod text;
 mod tool_names;
 mod transcript;
@@ -29,9 +31,14 @@ pub use gate::{
     AMBIGUOUS_KEYS, FILE_EXTENSIONS, FILE_KEYS, Mode, Verdict, describe, edits_design, request,
     tool_key,
 };
+pub use guard::{Blocked, can_send};
 pub use http::{MAX_BODY, plain_http, plain_request};
 pub use prompt::SYSTEM_NOTE;
-pub use script::ScriptBackend;
+pub use script::{CountingHttp, ScriptBackend};
+pub use store::{
+    clear as clear_transcript, export_markdown, load as load_transcript, save as save_transcript,
+    transcript_path,
+};
 pub use text::{MAX_PROMPT, check_prompt_length, prompt_too_long_reason};
 pub use tool_names::{ToolNames, to_wire};
 pub use transcript::{Item, MAX_ITEMS, Transcript};

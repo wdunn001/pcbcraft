@@ -88,7 +88,7 @@ pub(super) fn item(
         } => approval(ui, *id, title, detail, *answer),
         Item::Queued { text } => {
             ui.label(egui::RichText::new(format!("Queued: {text}")).color(muted))
-                .on_hover_text(text::QUEUED_TIP);
+                .on_hover_text(text::queued_tip());
             None
         }
         Item::Note { text, error } => {
@@ -107,8 +107,8 @@ pub(super) fn item(
             ui.horizontal(|ui| {
                 ui.label(format!("{changes} changes made"));
                 if ui
-                    .add_enabled(undo_live && !undone, egui::Button::new(text::UNDO))
-                    .on_hover_text(text::UNDO_TIP)
+                    .add_enabled(undo_live && !undone, egui::Button::new(text::undo()))
+                    .on_hover_text(text::undo_tip())
                     .clicked()
                 {
                     pressed = Some(Pressed::Undo);
@@ -141,22 +141,22 @@ fn approval(
         }
         ui.horizontal_wrapped(|ui| {
             if ui
-                .button(text::ALLOW)
-                .on_hover_text(text::ALLOW_TIP)
+                .button(text::allow())
+                .on_hover_text(text::allow_tip())
                 .clicked()
             {
                 pressed = Some(Pressed::Allow(id));
             }
             if ui
-                .button(text::ALWAYS_ALLOW)
-                .on_hover_text(text::ALWAYS_ALLOW_TIP)
+                .button(text::always_allow())
+                .on_hover_text(text::always_allow_tip())
                 .clicked()
             {
                 pressed = Some(Pressed::AlwaysAllow(id));
             }
             if ui
-                .button(text::DENY)
-                .on_hover_text(text::DENY_TIP)
+                .button(text::deny())
+                .on_hover_text(text::deny_tip())
                 .clicked()
             {
                 pressed = Some(Pressed::Deny(id));

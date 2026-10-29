@@ -21,12 +21,15 @@ pub const LIST_LIMIT: usize = 64;
 pub struct ChangeSummary {
     /// New objects as (kind, reference or id).
     pub added: Vec<(String, String)>,
+    /// Objects the batch would delete, as (kind, reference or id).
     pub removed: Vec<(String, String)>,
     /// Objects whose only difference is their position.
     pub moved: Vec<(String, String)>,
+    /// Objects changed in more than their position.
     pub changed: Vec<(String, String)>,
     /// Nets added, removed or changed.
     pub nets_changed: usize,
+    /// True when the board itself (size, outline, rules) would change.
     pub board_changed: bool,
     /// Entries left out of the lists above because of `LIST_LIMIT`.
     pub more: usize,
@@ -35,7 +38,9 @@ pub struct ChangeSummary {
 /// The results of the commands plus what they would change.
 #[derive(Clone, Debug, Serialize)]
 pub struct DryRun {
+    /// One result per command, as the commands would return them.
     pub results: Vec<Value>,
+    /// What the batch would change.
     pub summary: ChangeSummary,
 }
 
