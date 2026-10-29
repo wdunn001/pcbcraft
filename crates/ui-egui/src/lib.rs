@@ -2420,6 +2420,19 @@ impl App {
             }
         }
     }
+    fn net_for_selection(&self, id: Id) -> Option<Id> {
+        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
+            return Some(track.net);
+        }
+        if let Some(via) = self.project.board.vias.iter().find(|v| v.id == id) {
+            return Some(via.net);
+        }
+        if let Some(fp) = self.project.footprint(id) {
+            return fp.pads.iter().find_map(|p| p.net);
+        }
+        None
+    }
+
     fn dispatch_shortcut(&mut self, action: keymap::KeyAction) {
         use keymap::KeyAction;
         match action {
