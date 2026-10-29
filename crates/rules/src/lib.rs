@@ -1,5 +1,9 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
-use pcbcraft_doc::{Board, Id, Layer, Project};
+use pcbcraft_doc::{
+    Board, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
+    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, PanelSeparation, Project, panel_layout,
+    panel_score_lines,
+};
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -56,6 +60,42 @@ fn copper(project: &Project) -> Vec<Copper> {
             .and_then(|l| l.definition.rules.as_ref())
             .and_then(|r| r.clearance);
         for pad in &f.pads {
+            if pad
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.pad_type == "unplated")
+            {
+                let Some(drill) = pad.geometry.as_ref().and_then(|g| g.drill.as_ref()) else {
+                    continue;
+                };
+                let position = f.pad_world_position(pad);
+                let radius = drill.size.x.min(drill.size.y) / 2.0;
+                if radius <= 0.0 {
+                    continue;
+                }
+                let item = Copper {
+                    id: f.id,
+                    net: 0,
+                    start: position,
+                    end: position,
+                    radius,
+                    contact_radius: radius,
+                    conservative: false,
+                    outline: None,
+                    outline_error: 0.0,
+                    layer: Layer::Front,
+                    pad: false,
+                    clearance: None,
+                    bridge: None,
+                    hole: None,
+                    cutouts: vec![],
+                };
+                let mut back = item.clone();
+                back.layer = Layer::Back;
+                result.push(back);
+                result.push(item);
+                continue;
+            }
             if let Some(position) = f.pad_position(&pad.number) {
                 let plated = pad
                     .geometry
@@ -208,13 +248,15 @@ fn copper(project: &Project) -> Vec<Copper> {
         result.push(item);
     }
     for h in &project.board.holes {
-        // An unplated drill is a keep-out circle on every layer: copper may
-        // not enter the drilled annulus and the hole must clear the edge.
+        // An unplated drill is a keep-out shape on every layer: copper may
+        // not enter the drilled area and the drill must clear the edge. A
+        // slot is a capsule between its two centres, so clearance and the
+        // edge check measure the drilled shape itself.
         let item = Copper {
             id: h.id,
             net: 0,
-            start: h.position,
-            end: h.position,
+            start: h.start(),
+            end: h.finish(),
             radius: h.diameter / 2.0,
             contact_radius: h.diameter / 2.0,
             conservative: false,
@@ -258,6 +300,54 @@ fn copper(project: &Project) -> Vec<Copper> {
         });
     }
     result
+}
+/// Copper a new track must keep clear of, seen exactly as the checks see it.
+#[derive(Clone, Debug)]
+pub struct Obstacle {
+    pub id: Id,
+    pub net: Id,
+    pub layer: Layer,
+    /// True only for straight track segments, the one kind a shove may move.
+    /// Pads, vias, drilled holes, net ties, zones and arc tracks stay put.
+    pub is_track: bool,
+    /// Support points: the true pad outline, or both ends of a segment.
+    pub points: Vec<Point>,
+    /// Grow the support points by this much to get the copper edge.
+    pub radius: f64,
+    /// Where `Project::required_clearance_at` is asked about this copper.
+    pub at: Point,
+    /// Extra clearance the owning footprint demands, if any.
+    pub clearance: Option<f64>,
+}
+
+/// Every copper item on `layer`, built from the same list that `drc` uses.
+pub fn obstacles(project: &Project, layer: Layer) -> Vec<Obstacle> {
+    copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer)
+        .map(|c| {
+            let at = Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0);
+            let straight = project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.id == c.id && t.arc.is_none());
+            let (points, radius, is_track) = match c.outline {
+                Some(points) => (points, c.outline_error, false),
+                None => (vec![c.start, c.end], c.radius, straight),
+            };
+            Obstacle {
+                id: c.id,
+                net: c.net,
+                layer: c.layer,
+                is_track,
+                points,
+                radius,
+                at,
+                clearance: c.clearance,
+            }
+        })
+        .collect()
 }
 fn hole_contains(hole: &Hole, other: &Copper) -> bool {
     // The distance-to-segment function is convex. Endpoint discs contained by
@@ -530,6 +620,123 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
     }
 }
 
+fn panel_findings(project: &Project) -> Vec<Finding> {
+    if !project.panel.enabled {
+        return Vec::new();
+    }
+    let settings = &project.panel;
+    let Ok(layout) = panel_layout(project) else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    if layout.panel_width > PANEL_ASSEMBLER_MAX_MM + 1e-6
+        || layout.panel_height > PANEL_ASSEMBLER_MAX_MM + 1e-6
+    {
+        result.push(Finding {
+            code: "panel_too_large_for_assembler",
+            severity: project.rule_severity("panel_too_large_for_assembler", "error"),
+            message: format!(
+                "Panel is {:.1} by {:.1} mm; assembly panels must fit within {:.0} by {:.0} mm",
+                layout.panel_width,
+                layout.panel_height,
+                PANEL_ASSEMBLER_MAX_MM,
+                PANEL_ASSEMBLER_MAX_MM
+            ),
+            objects: vec![],
+        });
+    }
+    if project.board.fiducials.len() < PANEL_FIDUCIAL_COUNT {
+        result.push(Finding {
+            code: "panel_missing_fiducials",
+            severity: project.rule_severity("panel_missing_fiducials", "error"),
+            message: format!(
+                "Panel needs {} fiducials in the rails; this board has {}",
+                PANEL_FIDUCIAL_COUNT,
+                project.board.fiducials.len()
+            ),
+            objects: vec![],
+        });
+    }
+    if settings.separation == PanelSeparation::Tab
+        && settings.tab_channel + 1e-6 < PANEL_TAB_CHANNEL_MIN_MM
+    {
+        result.push(Finding {
+            code: "panel_tab_too_narrow",
+            severity: project.rule_severity("panel_tab_too_narrow", "error"),
+            message: format!(
+                "Tab channel is {:.3} mm; routed tabs need at least {:.1} mm",
+                settings.tab_channel, PANEL_TAB_CHANNEL_MIN_MM
+            ),
+            objects: vec![],
+        });
+    }
+    if settings.separation != PanelSeparation::VScore {
+        return result;
+    }
+    let Ok(score_lines) = panel_score_lines(project) else {
+        return result;
+    };
+    let board = &project.board;
+    for copy in &layout.copies {
+        let shift = |p: Point| Point::new(p.x + copy.x, p.y + copy.y);
+        for track in &board.tracks {
+            let start = shift(track.start);
+            let end = shift(track.end);
+            let radius = track.width / 2.0;
+            for (a, b) in &score_lines {
+                let gap = segment_distance(start, end, *a, *b) - radius;
+                if gap + 1e-6 < PANEL_SCORE_COPPER_MIN_MM {
+                    result.push(Finding {
+                        code: "panel_copper_near_score",
+                        severity: project.rule_severity("panel_copper_near_score", "error"),
+                        message: format!(
+                            "Copper on copy ({}, {}) is {:.3} mm from a V-score line; keep at least {:.2} mm",
+                            copy.row,
+                            copy.column,
+                            gap.max(0.0),
+                            PANEL_SCORE_COPPER_MIN_MM
+                        ),
+                        objects: vec![track.id],
+                    });
+                    break;
+                }
+            }
+        }
+        for footprint in &board.footprints {
+            let mut too_close = false;
+            for pad in &footprint.pads {
+                if let Some(position) = footprint.pad_position(&pad.number) {
+                    let centre = shift(position);
+                    let clearance = pad.bounding_radius();
+                    for (a, b) in &score_lines {
+                        if point_segment(centre, *a, *b) - clearance + 1e-6
+                            < PANEL_SCORE_COMPONENT_MIN_MM
+                        {
+                            too_close = true;
+                            break;
+                        }
+                    }
+                }
+                if too_close {
+                    break;
+                }
+            }
+            if too_close {
+                result.push(Finding {
+                    code: "panel_component_near_score",
+                    severity: project.rule_severity("panel_component_near_score", "error"),
+                    message: format!(
+                        "A part on copy ({}, {}) sits within {:.1} mm of a V-score line",
+                        copy.row, copy.column, PANEL_SCORE_COMPONENT_MIN_MM
+                    ),
+                    objects: vec![footprint.id],
+                });
+            }
+        }
+    }
+    result
+}
+
 pub fn drc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     let items = copper(project);
@@ -793,6 +1000,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![net.id],
         });
     }
+    result.extend(panel_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -1546,5 +1754,300 @@ mod tests {
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
+    }
+
+    fn panel_settings_vscore() -> pcbcraft_doc::PanelSettings {
+        pcbcraft_doc::PanelSettings {
+            enabled: true,
+            columns: 2,
+            rows: 1,
+            pitch_x: 0.0,
+            pitch_y: 2.0,
+            rail: 5.0,
+            separation: PanelSeparation::VScore,
+            tab_channel: 1.6,
+        }
+    }
+    fn panel_project(settings: pcbcraft_doc::PanelSettings) -> Project {
+        let mut p = fixture();
+        p.board.width = 60.0;
+        p.board.height = 40.0;
+        for (index, fid) in [(1, 5.0), (2, 30.0), (3, 55.0)] {
+            p.board.fiducials.push(pcbcraft_doc::Fiducial {
+                id: 500 + index,
+                position: Point::new(fid, 2.0),
+                diameter: 1.0,
+                layer: Layer::Front,
+            });
+        }
+        p.panel = settings;
+        p
+    }
+    #[test]
+    fn panel_checks_skip_when_panel_disabled() {
+        let mut settings = panel_settings_vscore();
+        settings.enabled = false;
+        let p = panel_project(settings);
+        assert!(
+            drc(&p).iter().all(|f| !f.code.starts_with("panel_")),
+            "disabled panel must not run fabrication checks"
+        );
+    }
+    #[test]
+    fn panel_too_large_for_assembler_flags_oversized_grids() {
+        let mut settings = panel_settings_vscore();
+        settings.columns = 5;
+        settings.rows = 5;
+        settings.pitch_x = 2.0;
+        settings.pitch_y = 2.0;
+        let findings = drc(&panel_project(settings));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "panel_too_large_for_assembler"),
+            "{findings:?}"
+        );
+        let mut ok = panel_settings_vscore();
+        ok.columns = 2;
+        ok.rows = 2;
+        assert!(
+            !drc(&panel_project(ok))
+                .iter()
+                .any(|f| f.code == "panel_too_large_for_assembler")
+        );
+    }
+    #[test]
+    fn panel_missing_fiducials_counts_rail_marks() {
+        let mut p = panel_project(panel_settings_vscore());
+        p.board.fiducials.clear();
+        let missing = drc(&p);
+        assert!(
+            missing.iter().any(|f| f.code == "panel_missing_fiducials"),
+            "{missing:?}"
+        );
+        assert!(
+            !drc(&panel_project(panel_settings_vscore()))
+                .iter()
+                .any(|f| f.code == "panel_missing_fiducials")
+        );
+    }
+    #[test]
+    fn panel_tab_too_narrow_honours_channel_width() {
+        let mut narrow = panel_settings_vscore();
+        narrow.separation = PanelSeparation::Tab;
+        narrow.tab_channel = 1.0;
+        assert!(
+            drc(&panel_project(narrow))
+                .iter()
+                .any(|f| f.code == "panel_tab_too_narrow")
+        );
+        let mut ok = panel_settings_vscore();
+        ok.separation = PanelSeparation::Tab;
+        ok.tab_channel = 1.8;
+        assert!(
+            !drc(&panel_project(ok))
+                .iter()
+                .any(|f| f.code == "panel_tab_too_narrow")
+        );
+    }
+    #[test]
+    fn panel_copper_near_score_measures_v_score_clearance() {
+        let mut p = panel_project(panel_settings_vscore());
+        p.board.tracks.push(Track {
+            id: 90,
+            net: 1,
+            start: Point::new(59.5, 10.0),
+            end: Point::new(59.9, 10.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        assert!(
+            drc(&p).iter().any(|f| f.code == "panel_copper_near_score"),
+            "track hugging the score line should fail"
+        );
+        let mut ok = panel_project(panel_settings_vscore());
+        ok.board.tracks.push(Track {
+            id: 91,
+            net: 1,
+            start: Point::new(50.0, 10.0),
+            end: Point::new(55.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        assert!(!drc(&ok).iter().any(|f| f.code == "panel_copper_near_score"));
+    }
+    #[test]
+    fn panel_component_near_score_measures_part_body_clearance() {
+        let mut p = panel_project(panel_settings_vscore());
+        if let Some(f) = p.board.footprints.first_mut() {
+            f.position = Point::new(59.0, 10.0);
+        }
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "panel_component_near_score")
+        );
+        let ok = panel_project(panel_settings_vscore());
+        assert!(
+            !drc(&ok)
+                .iter()
+                .any(|f| f.code == "panel_component_near_score")
+        );
+    }
+    #[test]
+    fn drc_clearance_when_track_crosses_footprint_unplated_drill() -> Result<(), String> {
+        let thru = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let peg = pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegOnly".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![thru("1", -2.54), thru("2", 2.54), peg.clone()],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut component =
+            component_template("resistor", 2, "R1".into(), Point::default()).ok_or("template")?;
+        component.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        p.components.push(component);
+        p.board.footprints.push(Footprint {
+            id: 4,
+            component: 2,
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![
+                Pad {
+                    number: "1".into(),
+                    offset: Point::new(-2.54, 0.0),
+                    diameter: 1.6,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(definition.pads[0].clone()),
+                },
+                Pad {
+                    number: "2".into(),
+                    offset: Point::new(2.54, 0.0),
+                    diameter: 1.6,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(definition.pads[1].clone()),
+                },
+                Pad {
+                    number: String::new(),
+                    offset: peg.position,
+                    diameter: 0.0,
+                    net: None,
+                    castellated: None,
+                    geometry: Some(peg),
+                },
+            ],
+        });
+        p.board.tracks.push(Track {
+            id: 5,
+            net: 1,
+            start: Point::new(20.0, 20.0),
+            end: Point::new(40.0, 20.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings.iter().any(|f| {
+                (f.code == "clearance" || f.code == "copper_short")
+                    && f.objects.contains(&4)
+                    && f.objects.contains(&5)
+            }),
+            "a track through a peg drill is a clearance finding: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn slot_clearance_is_measured_along_its_length() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.clearance = 0.2;
+        p.board.holes.push(pcbcraft_doc::Hole {
+            id: 40,
+            position: Point::new(14.0, 10.0),
+            diameter: 2.0,
+            end: Some(Point::new(20.0, 10.0)),
+        });
+        p.board.tracks.push(Track {
+            id: 41,
+            net: 1,
+            start: Point::new(21.1, 8.0),
+            end: Point::new(21.1, 12.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.objects.contains(&40) && f.code != "board_edge"),
+            "a track beside a slot's end centre is a clearance violation: {findings:?}"
+        );
+        p.board.tracks[0].start = Point::new(15.0, 12.0);
+        p.board.tracks[0].end = Point::new(19.0, 12.0);
+        let slot_only: Vec<Finding> = drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&40))
+            .collect();
+        assert!(
+            slot_only.is_empty(),
+            "copper clear of the slot's side has room: {slot_only:?}"
+        );
+        Ok(())
     }
 }

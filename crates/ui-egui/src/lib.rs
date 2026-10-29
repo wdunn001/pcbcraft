@@ -424,7 +424,9 @@ enum Tab {
     Schematic,
     Pcb,
     Libraries,
+    Rules,
     Checks,
+    Settings,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -635,7 +637,6 @@ pub struct App {
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
-    appearance: bool,
     palette: bool,
     part_search: String,
     hidden_sets: Vec<String>,
@@ -970,7 +971,6 @@ impl App {
             net_editor: None,
             pin_pick: None,
             net_draft: None,
-            appearance: false,
             palette: false,
             part_search: String::new(),
             hidden_sets: Vec::new(),
@@ -1593,10 +1593,23 @@ impl App {
                         *held = diameter;
                     }
                 } else {
-                    ui.label(format!(
-                        "{:.2} mm at {:.1}, {:.1}",
-                        hole.diameter, hole.position.x, hole.position.y
-                    ));
+                    if hole.is_slot() {
+                        ui.label(format!(
+                            "{:.2} mm slot {:.2} mm long at {:.1}, {:.1}",
+                            hole.diameter,
+                            hole.length(),
+                            hole.position.x,
+                            hole.position.y
+                        ))
+                        .on_hover_text(
+                            "A routed slot: its width, its overall length end to end, and where it starts.",
+                        );
+                    } else {
+                        ui.label(format!(
+                            "{:.2} mm at {:.1}, {:.1}",
+                            hole.diameter, hole.position.x, hole.position.y
+                        ));
+                    }
                     if ui
                         .small_button("Tune")
                         .on_hover_text("Change this hole's drill size.")
@@ -2490,7 +2503,6 @@ impl App {
             }
             if i.key_pressed(egui::Key::E) {
                 self.select_hover();
-                self.appearance = false;
                 self.load_properties();
             }
             if i.key_pressed(egui::Key::Home) {
@@ -2584,7 +2596,9 @@ impl App {
                     (Tab::Schematic, "Schematic"),
                     (Tab::Pcb, "PCB Layout"),
                     (Tab::Libraries, "Libraries"),
+                    (Tab::Rules, "Rules"),
                     (Tab::Checks, "Checks"),
+                    (Tab::Settings, "Settings"),
                 ] {
                     let (_, rect) = ui.allocate_space(Vec2::new(132.0, 30.0));
                     let selected = self.tab == tab;
@@ -2908,11 +2922,13 @@ impl App {
     fn settings_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Settings", |ui| {
             if ui
-                .button("Appearance…")
-                .on_hover_text("Pick the theme, accent colour and what sits on each pad.")
+                .button("Appearance & settings…")
+                .on_hover_text(
+                    "Open the settings page: theme, accent colour and everything for the project.",
+                )
                 .clicked()
             {
-                self.appearance = !self.appearance;
+                self.change_tab(Tab::Settings);
             }
             if ui
                 .button(if self.preferences.dark {
@@ -2947,17 +2963,20 @@ impl App {
                     &mut self.preferences.pad_labels,
                     PadLabels::Number,
                     PadLabels::Number.name(),
-                );
+                )
+                .on_hover_text("Draw each pad's own number on the board.");
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Net,
                     PadLabels::Net.name(),
-                );
+                )
+                .on_hover_text("Draw the net name on each pad, useful when debugging.");
                 ui.selectable_value(
                     &mut self.preferences.pad_labels,
                     PadLabels::Off,
                     PadLabels::Off.name(),
-                );
+                )
+                .on_hover_text("Hide the pad labels for a clean picture.");
             })
             .response
             .on_hover_text(
@@ -3032,22 +3051,13 @@ impl App {
                         self.left_tab = 1;
                     }
                     if ui
-                        .selectable_label(self.left_tab == 2, "Rules")
-                        .on_hover_text(
-                            "The gaps and wire widths the checks hold this design to, per group of connections.",
-                        )
-                        .clicked()
-                    {
-                        self.left_tab = 2;
-                    }
-                    if ui
-                        .selectable_label(self.left_tab == 3, "Builds")
+                        .selectable_label(self.left_tab == 2, "Builds")
                         .on_hover_text(
                             "Extra versions of this board: parts left off or swapped for another package.",
                         )
                         .clicked()
                     {
-                        self.left_tab = 3;
+                        self.left_tab = 2;
                     }
                 });
                 ui.separator();
@@ -3057,7 +3067,6 @@ impl App {
                         .auto_shrink([false, false])
                         .show(ui, |ui| match dock {
                             1 => self.layers_tab(ui),
-                            2 => self.rules_tab(ui),
                             _ => self.builds_tab(ui),
                         });
                     return;
@@ -3675,6 +3684,597 @@ impl App {
             );
         }
     }
+    /// Room for a full-page panel to breathe: wide side margins and one
+    /// readable column, so nothing sits flush against the window edge.
+    fn margined<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin::symmetric(28, 20))
+            .show(ui, |ui| {
+                ui.set_max_width(720.0);
+                add(ui)
+            })
+            .inner
+    }
+
+    /// Everything that used to crowd the right-hand aside: how the app looks
+    /// and every setting for the project as a whole.
+    fn settings_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Settings");
+        ui.label("How the app looks, and everything that applies to the whole project.");
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new("APPEARANCE")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.preferences.dark, true, "Dark")
+                .on_hover_text("Dark canvas and panels, the usual working look.");
+            ui.selectable_value(&mut self.preferences.dark, false, "Light")
+                .on_hover_text("Light canvas and panels, easier on printed previews.");
+        });
+        ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.label("Accent color");
+        ui.color_edit_button_srgb(&mut self.preferences.accent);
+        ui.label(
+            egui::RichText::new("Appearance is saved automatically.")
+                .small()
+                .color(self.muted()),
+        );
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("BOARD GEOMETRY")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        field_help(ui, FIELD_HELP_BOARD, self.muted());
+        ui.horizontal(|ui| {
+            ui.label("W");
+            ui.add(
+                egui::DragValue::new(&mut self.width)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("H");
+            ui.add(
+                egui::DragValue::new(&mut self.height)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+        });
+        if ui
+            .button("Apply board dimensions")
+            .on_hover_text(command_tip("board.resize"))
+            .clicked()
+        {
+            self.run(
+                "board.resize",
+                json!({"width":self.width,"height":self.height}),
+            );
+        }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("CUT-OUT HOLE")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "A round hole anywhere inside the board, for a sensor, a cable or a screw bigger than a drill bit.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        ui.horizontal(|ui| {
+            ui.label("X");
+            ui.add(
+                egui::DragValue::new(&mut self.cut_x)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+            ui.label("Y");
+            ui.add(
+                egui::DragValue::new(&mut self.cut_y)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("Radius");
+            ui.add(
+                egui::DragValue::new(&mut self.cut_r)
+                    .speed(0.1)
+                    .range(0.1..=50.0)
+                    .suffix(" mm"),
+            );
+        });
+        if ui
+            .button("Add hole")
+            .on_hover_text(
+                "Cuts this round hole into the board. The checks keep copper and other holes clear of it, and undo takes the hole out again.",
+            )
+            .clicked()
+        {
+            self.run(
+                "board.cutout.add",
+                json!({"center":{"x":self.cut_x,"y":self.cut_y},"radius":self.cut_r}),
+            );
+        }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("COPPER POUR")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "A solid rectangle of copper that joins every wire and pad inside it to one connection.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if !self.project.nets.is_empty() && !self.project.nets.iter().any(|n| n.id == self.pour_net)
+        {
+            self.pour_net = self.project.nets[0].id;
+        }
+        ui.horizontal(|ui| {
+            ui.label("X");
+            ui.add(
+                egui::DragValue::new(&mut self.pour_x)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+            ui.label("Y");
+            ui.add(
+                egui::DragValue::new(&mut self.pour_y)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("W");
+            ui.add(
+                egui::DragValue::new(&mut self.pour_w)
+                    .speed(0.5)
+                    .range(1.0..=500.0)
+                    .suffix(" mm"),
+            );
+            ui.label("H");
+            ui.add(
+                egui::DragValue::new(&mut self.pour_h)
+                    .speed(0.5)
+                    .range(1.0..=500.0)
+                    .suffix(" mm"),
+            );
+        });
+        let pour_net = self.pour_net;
+        let net_choices: Vec<(Id, String)> = self
+            .project
+            .nets
+            .iter()
+            .take(64)
+            .map(|n| (n.id, self.project.net_name(n.id).to_owned()))
+            .collect();
+        egui::ComboBox::from_id_salt("pour_net")
+            .selected_text(format!("Copper for: {}", self.project.net_name(pour_net)))
+            .show_ui(ui, |ui| {
+                for (id, name) in net_choices {
+                    ui.selectable_value(&mut self.pour_net, id, name);
+                }
+            });
+        if ui
+            .button("Pour copper")
+            .on_hover_text(
+                "Pours this rectangle of copper onto the board. It joins every wire and pad it touches to the chosen connection, and undo pours it away again.",
+            )
+            .clicked()
+        {
+            self.run(
+                "zone.place",
+                json!({"net": pour_net, "layer":"F.Cu","outline":[
+                    {"x":self.pour_x,"y":self.pour_y},
+                    {"x":self.pour_x+self.pour_w,"y":self.pour_y},
+                    {"x":self.pour_x+self.pour_w,"y":self.pour_y+self.pour_h},
+                    {"x":self.pour_x,"y":self.pour_y+self.pour_h},
+                    {"x":self.pour_x,"y":self.pour_y},
+                ]}),
+            );
+        }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("BOARD LABELS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new("Words printed on the board: a version tag, a name, a warning.")
+                .small()
+                .color(self.muted()),
+        );
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.label_text)
+                    .desired_width(110.0)
+                    .hint_text("what to print"),
+            )
+            .on_hover_text("The words to print on the board.");
+        });
+        ui.horizontal(|ui| {
+            ui.label("At");
+            ui.add(
+                egui::DragValue::new(&mut self.label_x)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.label_y)
+                    .speed(0.5)
+                    .suffix(" mm"),
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.label_size)
+                    .range(0.3..=20.0)
+                    .speed(0.1)
+                    .suffix(" mm"),
+            )
+            .on_hover_text("How tall the letters are.");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Side");
+            ui.selectable_value(&mut self.label_front, true, "Top");
+            ui.selectable_value(&mut self.label_front, false, "Bottom");
+        });
+        if ui
+            .button("Add label")
+            .on_hover_text(
+                "Prints these words on the board at the chosen spot. Undo erases it again.",
+            )
+            .clicked()
+        {
+            let text = self.label_text.trim().to_owned();
+            if !text.is_empty() {
+                self.run(
+                    "text.place",
+                    json!({
+                        "text": text,
+                        "position": {"x": self.label_x, "y": self.label_y},
+                        "size": self.label_size,
+                        "layer": if self.label_front { "F.Cu" } else { "B.Cu" },
+                    }),
+                );
+            }
+        }
+        let labels: Vec<(Id, String, bool)> = self
+            .project
+            .board
+            .texts
+            .iter()
+            .map(|t| (t.id, t.text.clone(), t.layer == pcbcraft_doc::Layer::Front))
+            .collect();
+        if !labels.is_empty() {
+            ui.label(
+                egui::RichText::new("Words on the board")
+                    .small()
+                    .color(self.muted()),
+            );
+            for (id, text, front) in labels {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{text} · {}", if front { "Top" } else { "Bottom" }));
+                    if ui
+                        .small_button("Erase")
+                        .on_hover_text("Wipe this word off the board.")
+                        .clicked()
+                    {
+                        self.run("object.delete", json!({"id": id}));
+                    }
+                });
+            }
+        }
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new("BOARD EDGE")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
+        if corners >= 3 {
+            ui.label(
+                egui::RichText::new(format!("A free shape with {corners} corners."))
+                    .small()
+                    .color(self.muted()),
+            );
+            if ui
+                .button("Back to a plain rectangle")
+                .on_hover_text(
+                    "Trade the drawn board edge for the simple rectangle sized by W and H above.",
+                )
+                .clicked()
+            {
+                self.run("board.clear_outline", json!({}));
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.svg_path)
+                    .hint_text("drawing file path (.svg)")
+                    .desired_width(150.0),
+            )
+            .on_hover_text(
+                "A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.",
+            );
+        });
+        if ui
+            .button("Import drawing")
+            .on_hover_text(
+                "Lay the shapes from the drawing file onto the board as editable artwork.",
+            )
+            .clicked()
+        {
+            self.run(
+                "svg.import",
+                json!({"path": self.svg_path.clone(), "use_outline": false}),
+            );
+        }
+        if ui
+            .button("Import as board edge")
+            .on_hover_text("Trace the closed shape in the drawing file into the board outline.")
+            .clicked()
+        {
+            self.run(
+                "svg.import",
+                json!({"path": self.svg_path.clone(), "use_outline": true}),
+            );
+        }
+        ui.horizontal(|ui| {
+            ui.label("Cutout radius");
+            ui.add(
+                egui::DragValue::new(&mut self.cutout_radius)
+                    .speed(0.1)
+                    .suffix(" mm"),
+            );
+        });
+        field_help(ui, FIELD_HELP_CUTOUT, self.muted());
+        ui.add_space(12.0);
+        ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
+        let erc = self
+            .checks
+            .get("erc")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        let drc = self
+            .checks
+            .get("drc")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
+        if ui
+            .button(format!("{erc} electrical · {drc} board >"))
+            .on_hover_text("Open the checks tab for the full list of findings.")
+            .clicked()
+        {
+            self.change_tab(Tab::Checks);
+        }
+        ui.label(
+            egui::RichText::new("Initial checks; full ERC/DRC is in development.")
+                .small()
+                .color(self.muted()),
+        );
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("MAKE FILES")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Plain files for the board factory, written beside your design unless you name another folder.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        ui.add(
+            egui::TextEdit::singleline(&mut self.make_dir)
+                .hint_text("folder for the files (blank means \"outputs\" beside the design)")
+                .desired_width(220.0),
+        )
+        .on_hover_text(
+            "Where the make files land. Leave blank to use a folder named outputs next to the design file.",
+        );
+        if ui
+            .button("Copper & drill files")
+            .on_hover_text(
+                "The Gerber copper layers, board outline and drill file a board house asks for.",
+            )
+            .clicked()
+        {
+            self.write_make_files("gerber.export");
+        }
+        if ui
+            .button("Parts list (CSV)")
+            .on_hover_text(
+                "A spreadsheet of every part: one row per unique part with all its references.",
+            )
+            .clicked()
+        {
+            self.write_make_files("bom.write");
+        }
+        if ui
+            .button("Net list")
+            .on_hover_text("A plain text list of every connection and the pins on it.")
+            .clicked()
+        {
+            self.write_make_files("netlist.write");
+        }
+        if ui
+            .button("Pick and place file")
+            .on_hover_text(
+                "Where every part sits, which way it faces and which side it goes on, for the assembly machine.",
+            )
+            .clicked()
+        {
+            self.write_make_files("placement.write");
+        }
+        if ui
+            .button("Design report")
+            .on_hover_text(
+                "A readable summary of the whole design: board, every part and every connection.",
+            )
+            .clicked()
+        {
+            self.write_make_files("report.write");
+        }
+        if ui
+            .button("Drill map (CSV)")
+            .on_hover_text(
+                "Every hole on the board counted and grouped by size, so you can sanity-check the drill sizes before the board goes away.",
+            )
+            .clicked()
+        {
+            self.write_job_file("drillmap", "drill_chart", "Drill map");
+        }
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("BOARD DRAWINGS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "Flat drawings and 3D models, for your records, your fab or a web page.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if ui
+            .button("3D model (Step)")
+            .on_hover_text(
+                "The standard 3D file for mechanical programs and free viewers. It lands in the make folder.",
+            )
+            .clicked()
+        {
+            self.write_job_file("step3d", "step", "3D model");
+        }
+        if ui
+            .button("3D viewer file")
+            .on_hover_text(
+                "A lighter 3D file that simple viewers open quickly. It lands in the make folder.",
+            )
+            .clicked()
+        {
+            self.write_job_file("wrl3d", "vrml", "3D viewer file");
+        }
+        if ui
+            .button("Printable drawing (PDF)")
+            .on_hover_text(
+                "A one-page drawing of the finished board you can print or email. It lands in the make folder.",
+            )
+            .clicked()
+        {
+            self.write_job_file("pdfdraw", "pdf", "Printable drawing");
+        }
+        if ui
+            .button("Web drawing (SVG)")
+            .on_hover_text(
+                "A crisp picture of the board that any web browser can show, at any size. It lands in the make folder.",
+            )
+            .clicked()
+        {
+            self.write_job_file("svgdraw", "svg", "Web drawing");
+        }
+        ui.add_space(6.0);
+        ui.label(
+            egui::RichText::new("PANEL PLAN")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.label(
+            egui::RichText::new(
+                "See how your board would sit repeated on a bigger manufacturing panel.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.panel_columns)
+                    .range(1..=32)
+                    .suffix(" across")
+                    .speed(1.0),
+            )
+            .on_hover_text("How many copies of the board sit side by side.");
+            ui.add(
+                egui::DragValue::new(&mut self.panel_rows)
+                    .range(1..=32)
+                    .suffix(" down")
+                    .speed(1.0),
+            )
+            .on_hover_text("How many copies of the board sit top to bottom.");
+        });
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut self.panel_gap)
+                    .range(0.0..=25.0)
+                    .speed(0.5)
+                    .suffix(" mm gap"),
+            )
+            .on_hover_text(
+                "Empty space between neighbouring copies, room for cutting them apart later.",
+            );
+            ui.add(
+                egui::DragValue::new(&mut self.panel_rail)
+                    .range(0.0..=25.0)
+                    .speed(0.5)
+                    .suffix(" mm rail"),
+            )
+            .on_hover_text(
+                "Solid border left around the edge of the panel, where the factory grips it.",
+            );
+        });
+        if ui
+            .button("Preview panel")
+            .on_hover_text(
+                "Work out the panel size and where every copy lands, using the board's own measurements. The design itself is left alone.",
+            )
+            .clicked()
+        {
+            self.panel_plan = self.run_and_keep(
+                "board.panel",
+                json!({
+                    "columns": self.panel_columns,
+                    "rows": self.panel_rows,
+                    "pitch_x": self.panel_gap,
+                    "pitch_y": self.panel_gap,
+                    "rail": self.panel_rail,
+                }),
+            );
+        }
+        if let Some(plan) = self.panel_plan.get("panel") {
+            let copies = self
+                .panel_plan
+                .get("copies")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            let width = plan.get("width").and_then(Value::as_f64).unwrap_or(0.0);
+            let height = plan.get("height").and_then(Value::as_f64).unwrap_or(0.0);
+            ui.label(
+                egui::RichText::new(format!(
+                    "{copies} copies \u{b7} panel {width:.1} \u{d7} {height:.1} mm"
+                ))
+                .small()
+                .color(self.muted()),
+            )
+            .on_hover_text("The finished panel: its overall size and how many boards fit on it.");
+        }
+        ui.label(
+            egui::RichText::new("Writing these files changes nothing in the design.")
+                .small()
+                .color(self.muted()),
+        );
+    }
+
     fn rules_tab(&mut self, ui: &mut egui::Ui) {
         if self
             .rule_draft
@@ -4148,7 +4748,8 @@ impl App {
                     .selected_text(name_of(self.pair_a))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.pair_a, *id, name);
+                            ui.selectable_value(&mut self.pair_a, *id, name)
+                                .on_hover_text("Pick the first net of the pair.");
                         }
                     });
                 ui.label("away from");
@@ -4156,7 +4757,8 @@ impl App {
                     .selected_text(name_of(self.pair_b))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.pair_b, *id, name);
+                            ui.selectable_value(&mut self.pair_b, *id, name)
+                                .on_hover_text("Pick the second net of the pair.");
                         }
                     });
             });
@@ -4255,7 +4857,8 @@ impl App {
                     .selected_text(name_of(self.dp_p))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.dp_p, *id, name);
+                            ui.selectable_value(&mut self.dp_p, *id, name)
+                                .on_hover_text("Pick the net that carries the positive side.");
                         }
                     });
                 ui.label("+");
@@ -4263,7 +4866,8 @@ impl App {
                     .selected_text(name_of(self.dp_n))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
-                            ui.selectable_value(&mut self.dp_n, *id, name);
+                            ui.selectable_value(&mut self.dp_n, *id, name)
+                                .on_hover_text("Pick the net that carries the negative side.");
                         }
                     });
             });
@@ -4797,22 +5401,6 @@ impl App {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                 ui.add_space(12.0);
-                if self.appearance {
-                    ui.heading("Appearance");
-                    ui.add_space(12.0);
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.preferences.dark, true, "Dark")
-                            .on_hover_text("Dark canvas and panels, the usual working look.");
-                        ui.selectable_value(&mut self.preferences.dark, false, "Light")
-                            .on_hover_text("Light canvas and panels, easier on printed previews.");
-                    });
-                    ui.checkbox(&mut self.preferences.grid, "Show grid");
-                    ui.label("Accent color");
-                    ui.color_edit_button_srgb(&mut self.preferences.accent);
-                    ui.add_space(16.0);
-                    ui.label("Appearance is saved automatically.");
-                    return;
-                }
                 ui.label(
                     egui::RichText::new("PROPERTIES")
                         .size(10.0)
@@ -5157,542 +5745,12 @@ impl App {
                     }
                     ui.separator();
                 } else {
-                    ui.heading("Project settings");
-                    ui.label("Select an item to inspect and edit it.");
+                    ui.heading("Nothing selected");
+                    ui.label(
+                        "Select an item on the drawing to inspect and edit it. Everything for the whole project lives in the Settings tab up top.",
+                    );
                     ui.add_space(12.0);
                 }
-                ui.label(
-                    egui::RichText::new("BOARD GEOMETRY")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                field_help(ui, FIELD_HELP_BOARD, self.muted());
-                ui.horizontal(|ui| {
-                    ui.label("W");
-                    ui.add(
-                        egui::DragValue::new(&mut self.width)
-                            .speed(0.5)
-                            .suffix(" mm"),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.label("H");
-                    ui.add(
-                        egui::DragValue::new(&mut self.height)
-                            .speed(0.5)
-                            .suffix(" mm"),
-                    );
-                });
-                if ui.button("Apply board dimensions").on_hover_text(command_tip("board.resize")).clicked() {
-                    self.run(
-                        "board.resize",
-                        json!({"width":self.width,"height":self.height}),
-                    );
-                }
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new("CUT-OUT HOLE").size(10.0).color(self.muted()));
-                ui.label(
-                    egui::RichText::new(
-                        "A round hole anywhere inside the board, for a sensor, a cable or a screw bigger than a drill bit.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-                ui.horizontal(|ui| {
-                    ui.label("X");
-                    ui.add(egui::DragValue::new(&mut self.cut_x).speed(0.5).suffix(" mm"));
-                    ui.label("Y");
-                    ui.add(egui::DragValue::new(&mut self.cut_y).speed(0.5).suffix(" mm"));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Radius");
-                    ui.add(
-                        egui::DragValue::new(&mut self.cut_r)
-                            .speed(0.1)
-                            .range(0.1..=50.0)
-                            .suffix(" mm"),
-                    );
-                });
-                if ui
-                    .button("Add hole")
-                    .on_hover_text(
-                        "Cuts this round hole into the board. The checks keep copper and other holes clear of it, and undo takes the hole out again.",
-                    )
-                    .clicked()
-                {
-                    self.run(
-                        "board.cutout.add",
-                        json!({"center":{"x":self.cut_x,"y":self.cut_y},"radius":self.cut_r}),
-                    );
-                }
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new("COPPER POUR")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "A solid rectangle of copper that joins every wire and pad inside it to one connection.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-                if !self.project.nets.is_empty()
-                    && !self.project.nets.iter().any(|n| n.id == self.pour_net)
-                {
-                    self.pour_net = self.project.nets[0].id;
-                }
-                ui.horizontal(|ui| {
-                    ui.label("X");
-                    ui.add(egui::DragValue::new(&mut self.pour_x).speed(0.5).suffix(" mm"));
-                    ui.label("Y");
-                    ui.add(egui::DragValue::new(&mut self.pour_y).speed(0.5).suffix(" mm"));
-                });
-                ui.horizontal(|ui| {
-                    ui.label("W");
-                    ui.add(
-                        egui::DragValue::new(&mut self.pour_w)
-                            .speed(0.5)
-                            .range(1.0..=500.0)
-                            .suffix(" mm"),
-                    );
-                    ui.label("H");
-                    ui.add(
-                        egui::DragValue::new(&mut self.pour_h)
-                            .speed(0.5)
-                            .range(1.0..=500.0)
-                            .suffix(" mm"),
-                    );
-                });
-                let pour_net = self.pour_net;
-                let net_choices: Vec<(Id, String)> = self
-                    .project
-                    .nets
-                    .iter()
-                    .take(64)
-                    .map(|n| (n.id, self.project.net_name(n.id).to_owned()))
-                    .collect();
-                egui::ComboBox::from_id_salt("pour_net")
-                    .selected_text(format!(
-                        "Copper for: {}",
-                        self.project.net_name(pour_net)
-                    ))
-                    .show_ui(ui, |ui| {
-                        for (id, name) in net_choices {
-                            ui.selectable_value(&mut self.pour_net, id, name);
-                        }
-                    });
-                if ui
-                    .button("Pour copper")
-                    .on_hover_text(
-                        "Pours this rectangle of copper onto the board. It joins every wire and pad it touches to the chosen connection, and undo pours it away again.",
-                    )
-                    .clicked()
-                {
-                    self.run(
-                        "zone.place",
-                        json!({"net": pour_net, "layer":"F.Cu","outline":[
-                            {"x":self.pour_x,"y":self.pour_y},
-                            {"x":self.pour_x+self.pour_w,"y":self.pour_y},
-                            {"x":self.pour_x+self.pour_w,"y":self.pour_y+self.pour_h},
-                            {"x":self.pour_x,"y":self.pour_y+self.pour_h},
-                            {"x":self.pour_x,"y":self.pour_y},
-                        ]}),
-                    );
-                }
-                ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new("BOARD LABELS")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                ui.label(
-                    egui::RichText::new(
-                        "Words printed on the board: a version tag, a name, a warning.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.label_text)
-                            .desired_width(110.0)
-                            .hint_text("what to print"),
-                    )
-                    .on_hover_text("The words to print on the board.");
-                });
-                ui.horizontal(|ui| {
-                    ui.label("At");
-                    ui.add(
-                        egui::DragValue::new(&mut self.label_x)
-                            .speed(0.5)
-                            .suffix(" mm"),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.label_y)
-                            .speed(0.5)
-                            .suffix(" mm"),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.label_size)
-                            .range(0.3..=20.0)
-                            .speed(0.1)
-                            .suffix(" mm"),
-                    )
-                    .on_hover_text("How tall the letters are.");
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Side");
-                    ui.selectable_value(&mut self.label_front, true, "Top");
-                    ui.selectable_value(&mut self.label_front, false, "Bottom");
-                });
-                if ui
-                    .button("Add label")
-                    .on_hover_text(
-                        "Prints these words on the board at the chosen spot. Undo erases it again.",
-                    )
-                    .clicked()
-                {
-                    let text = self.label_text.trim().to_owned();
-                    if !text.is_empty() {
-                        self.run(
-                            "text.place",
-                            json!({
-                                "text": text,
-                                "position": {"x": self.label_x, "y": self.label_y},
-                                "size": self.label_size,
-                                "layer": if self.label_front { "F.Cu" } else { "B.Cu" },
-                            }),
-                        );
-                    }
-                }
-                let labels: Vec<(Id, String, bool)> = self
-                    .project
-                    .board
-                    .texts
-                    .iter()
-                    .map(|t| {
-                        (
-                            t.id,
-                            t.text.clone(),
-                            t.layer == pcbcraft_doc::Layer::Front,
-                        )
-                    })
-                    .collect();
-                if !labels.is_empty() {
-                    ui.label(
-                        egui::RichText::new("Words on the board")
-                            .small()
-                            .color(self.muted()),
-                    );
-                    for (id, text, front) in labels {
-                        ui.horizontal(|ui| {
-                            ui.label(format!(
-                                "{text} · {}",
-                                if front { "Top" } else { "Bottom" }
-                            ));
-                            if ui
-                                .small_button("Erase")
-                                .on_hover_text("Wipe this word off the board.")
-                                .clicked()
-                            {
-                                self.run("object.delete", json!({"id": id}));
-                            }
-                        });
-                    }
-                }
-                ui.add_space(8.0);
-                ui.label(egui::RichText::new("BOARD EDGE").size(10.0).color(self.muted()));
-                let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
-                if corners >= 3 {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "A free shape with {corners} corners."
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    );
-                    if ui
-                        .button("Back to a plain rectangle")
-                        .on_hover_text(
-                            "Trade the drawn board edge for the simple rectangle sized by W and H above.",
-                        )
-                        .clicked()
-                    {
-                        self.run("board.clear_outline", json!({}));
-                    }
-                }
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.svg_path)
-                            .hint_text("drawing file path (.svg)")
-                            .desired_width(150.0),
-                    )
-                    .on_hover_text(
-                        "A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.",
-                    );
-                });
-                if ui
-                    .button("Import drawing")
-                    .on_hover_text(
-                        "Lay the shapes from the drawing file onto the board as editable artwork.",
-                    )
-                    .clicked()
-                {
-                    self.run(
-                        "svg.import",
-                        json!({"path": self.svg_path.clone(), "use_outline": false}),
-                    );
-                }
-                if ui
-                    .button("Import as board edge")
-                    .on_hover_text(
-                        "Trace the closed shape in the drawing file into the board outline.",
-                    )
-                    .clicked()
-                {
-                    self.run(
-                        "svg.import",
-                        json!({"path": self.svg_path.clone(), "use_outline": true}),
-                    );
-                }
-                ui.horizontal(|ui| {
-                    ui.label("Cutout radius");
-                    ui.add(
-                        egui::DragValue::new(&mut self.cutout_radius)
-                            .speed(0.1)
-                            .suffix(" mm"),
-                    );
-                });
-                field_help(ui, FIELD_HELP_CUTOUT, self.muted());
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
-                let erc = self
-                    .checks
-                    .get("erc")
-                    .and_then(Value::as_array)
-                    .map(Vec::len)
-                    .unwrap_or(0);
-                let drc = self
-                    .checks
-                    .get("drc")
-                    .and_then(Value::as_array)
-                    .map(Vec::len)
-                    .unwrap_or(0);
-                if ui
-                    .button(format!("{erc} electrical · {drc} board >"))
-                    .on_hover_text("Open the checks tab for the full list of findings.")
-                    .clicked()
-                {
-                    self.change_tab(Tab::Checks);
-                }
-                ui.label(
-                    egui::RichText::new("Initial checks; full ERC/DRC is in development.")
-                        .small()
-                        .color(self.muted()),
-                );
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("MAKE FILES").size(10.0).color(self.muted()));
-                ui.label(
-                    egui::RichText::new(
-                        "Plain files for the board factory, written beside your design unless you name another folder.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.make_dir)
-                        .hint_text("folder for the files (blank means \"outputs\" beside the design)")
-                        .desired_width(220.0),
-                )
-                .on_hover_text(
-                    "Where the make files land. Leave blank to use a folder named outputs next to the design file.",
-                );
-                if ui
-                    .button("Copper & drill files")
-                    .on_hover_text(
-                        "The Gerber copper layers, board outline and drill file a board house asks for.",
-                    )
-                    .clicked()
-                {
-                    self.write_make_files("gerber.export");
-                }
-                if ui
-                    .button("Parts list (CSV)")
-                    .on_hover_text(
-                        "A spreadsheet of every part: one row per unique part with all its references.",
-                    )
-                    .clicked()
-                {
-                    self.write_make_files("bom.write");
-                }
-                if ui
-                    .button("Net list")
-                    .on_hover_text("A plain text list of every connection and the pins on it.")
-                    .clicked()
-                {
-                    self.write_make_files("netlist.write");
-                }
-                if ui
-                    .button("Pick and place file")
-                    .on_hover_text(
-                        "Where every part sits, which way it faces and which side it goes on, for the assembly machine.",
-                    )
-                    .clicked()
-                {
-                    self.write_make_files("placement.write");
-                }
-                if ui
-                    .button("Design report")
-                    .on_hover_text(
-                        "A readable summary of the whole design: board, every part and every connection.",
-                    )
-                    .clicked()
-                {
-                    self.write_make_files("report.write");
-                }
-                if ui
-                    .button("Drill map (CSV)")
-                    .on_hover_text(
-                        "Every hole on the board counted and grouped by size, so you can sanity-check the drill sizes before the board goes away.",
-                    )
-                    .clicked()
-                {
-                    self.write_job_file("drillmap", "drill_chart", "Drill map");
-                }
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new("BOARD DRAWINGS").size(10.0).color(self.muted()));
-                ui.label(
-                    egui::RichText::new(
-                        "Flat drawings and 3D models, for your records, your fab or a web page.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-                if ui
-                    .button("3D model (Step)")
-                    .on_hover_text(
-                        "The standard 3D file for mechanical programs and free viewers. It lands in the make folder.",
-                    )
-                    .clicked()
-                {
-                    self.write_job_file("step3d", "step", "3D model");
-                }
-                if ui
-                    .button("3D viewer file")
-                    .on_hover_text(
-                        "A lighter 3D file that simple viewers open quickly. It lands in the make folder.",
-                    )
-                    .clicked()
-                {
-                    self.write_job_file("wrl3d", "vrml", "3D viewer file");
-                }
-                if ui
-                    .button("Printable drawing (PDF)")
-                    .on_hover_text(
-                        "A one-page drawing of the finished board you can print or email. It lands in the make folder.",
-                    )
-                    .clicked()
-                {
-                    self.write_job_file("pdfdraw", "pdf", "Printable drawing");
-                }
-                if ui
-                    .button("Web drawing (SVG)")
-                    .on_hover_text(
-                        "A crisp picture of the board that any web browser can show, at any size. It lands in the make folder.",
-                    )
-                    .clicked()
-                {
-                    self.write_job_file("svgdraw", "svg", "Web drawing");
-                }
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new("PANEL PLAN").size(10.0).color(self.muted()));
-                ui.label(
-                    egui::RichText::new(
-                        "See how your board would sit repeated on a bigger manufacturing panel.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.panel_columns)
-                            .range(1..=32)
-                            .suffix(" across")
-                            .speed(1.0),
-                    )
-                    .on_hover_text("How many copies of the board sit side by side.");
-                    ui.add(
-                        egui::DragValue::new(&mut self.panel_rows)
-                            .range(1..=32)
-                            .suffix(" down")
-                            .speed(1.0),
-                    )
-                    .on_hover_text("How many copies of the board sit top to bottom.");
-                });
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.panel_gap)
-                            .range(0.0..=25.0)
-                            .speed(0.5)
-                            .suffix(" mm gap"),
-                    )
-                    .on_hover_text(
-                        "Empty space between neighbouring copies, room for cutting them apart later.",
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.panel_rail)
-                            .range(0.0..=25.0)
-                            .speed(0.5)
-                            .suffix(" mm rail"),
-                    )
-                    .on_hover_text(
-                        "Solid border left around the edge of the panel, where the factory grips it.",
-                    );
-                });
-                if ui
-                    .button("Preview panel")
-                    .on_hover_text(
-                        "Work out the panel size and where every copy lands, using the board's own measurements. The design itself is left alone.",
-                    )
-                    .clicked()
-                {
-                    self.panel_plan = self.run_and_keep(
-                        "board.panel",
-                        json!({
-                            "columns": self.panel_columns,
-                            "rows": self.panel_rows,
-                            "pitch_x": self.panel_gap,
-                            "pitch_y": self.panel_gap,
-                            "rail": self.panel_rail,
-                        }),
-                    );
-                }
-                if let Some(plan) = self.panel_plan.get("panel") {
-                    let copies = self
-                        .panel_plan
-                        .get("copies")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(0);
-                    let width = plan.get("width").and_then(Value::as_f64).unwrap_or(0.0);
-                    let height = plan.get("height").and_then(Value::as_f64).unwrap_or(0.0);
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{copies} copies \u{b7} panel {width:.1} \u{d7} {height:.1} mm"
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    )
-                    .on_hover_text(
-                        "The finished panel: its overall size and how many boards fit on it.",
-                    );
-                }
-                ui.label(
-                    egui::RichText::new("Writing these files changes nothing in the design.")
-                        .small()
-                        .color(self.muted()),
-                );
                     });
             });
     }
@@ -6303,10 +6361,18 @@ impl App {
                             .show(ui, |ui| self.library(ui))
                             .inner
                     }
+                    Tab::Rules => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
+                    }
                     Tab::Checks => {
                         egui::ScrollArea::vertical()
                             .show(ui, |ui| self.checks_view(ui))
                             .inner
+                    }
+                    Tab::Settings => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
                     }
                 });
         }
@@ -6635,10 +6701,27 @@ mod tests {
     /// Scroll the left dock until `needle` appears, then turn the wheel a
     /// little further so the rows just below it are on screen too.
     fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        for _ in 0..14 {
+        scrolled_to_at(ctx, app, needle, 150.0)
+    }
+
+    /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
+    /// left dock, 300 the middle page (Rules, Settings, Checks).
+    fn scrolled_to_at(
+        ctx: &egui::Context,
+        app: &mut App,
+        needle: &str,
+        x: f32,
+    ) -> Result<bool, String> {
+        // One fixed pointer can land on a text field, which swallows the
+        // wheel; step down the same column so the scroll always finds a gap.
+        let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
+        for step in 0..80 {
+            let (lane_x, lane_y) = lanes[step % lanes.len()];
+            // Small point-sized steps: a line-sized jump can sail a short
+            // button clean past the viewport between two polls.
             let wheel = egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Line,
-                delta: egui::vec2(0.0, -4.0),
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -60.0),
                 phase: egui::TouchPhase::Move,
                 modifiers: egui::Modifiers::NONE,
             };
@@ -6658,7 +6741,7 @@ mod tests {
             frame(
                 ctx,
                 app,
-                vec![egui::Event::PointerMoved(egui::pos2(150.0, 500.0)), wheel],
+                vec![egui::Event::PointerMoved(egui::pos2(lane_x, lane_y)), wheel],
                 egui::Modifiers::NONE,
             );
         }
@@ -6679,8 +6762,9 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "BOARD EDGE")?,
+            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
             "the board's edge lives in its own plain-language section"
         );
         app.svg_path = file.to_string_lossy().into_owned();
@@ -7008,9 +7092,10 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "MAKE FILES")?,
-            "the inspector should offer the factory files"
+            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
+            "the settings page should offer the factory files"
         );
         authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -8365,8 +8450,9 @@ mod tests {
         let before = app.project.board.texts.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "BOARD LABELS")?,
+            scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
             "the board panel should offer printed words: {}",
             app.message
         );
@@ -8375,6 +8461,7 @@ mod tests {
         app.label_y = 2.0;
         app.label_size = 1.2;
         app.label_front = false;
+        scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
         authoring::tests::tap(&ctx, &mut app, "Add label")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.refresh();
@@ -8457,8 +8544,8 @@ mod tests {
             );
         }
         assert!(
-            paints_text(&ctx, &mut app, "BOARD AREAS")?,
-            "the rules dock should offer stricter corners: {}",
+            scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
+            "the rules page should offer stricter corners: {}",
             app.message
         );
         app.area_x = 1.0;
@@ -8530,8 +8617,8 @@ mod tests {
             );
         }
         assert!(
-            paints_text(&ctx, &mut app, "DIFFERENTIAL PAIRS")?,
-            "the rules dock should offer team lines: {}",
+            scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 300.0)?,
+            "the rules page should offer team lines: {}",
             app.message
         );
         app.dp_gap = 0.3;
@@ -8835,6 +8922,7 @@ mod tests {
         app.tool_call("sample_design", json!({}));
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
             paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
             "the board geometry section should offer a hole: {}",
@@ -8863,6 +8951,50 @@ mod tests {
         assert!(
             (hole.radius - 1.5).abs() < 1e-9,
             "the hole should be exactly the size that was typed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "hole.slot",
+            json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
+        );
+        let slot = app
+            .project
+            .board
+            .holes
+            .iter()
+            .find(|h| h.is_slot())
+            .map(|h| h.id)
+            .ok_or("the slot should be on the board")?;
+        app.change_tab(Tab::Pcb);
+        app.refresh();
+        let ctx = egui::Context::default();
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        assert!(
+            scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
+            "the hole list is the place a slot is read: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
+            "a slot reads as its width and its overall length: {}",
+            app.message
+        );
+        // The canvas paints the slot without complaint; the drawing is the
+        // only place a capsule outline shows up.
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.select(Some(slot));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.holes.iter().any(|h| h.id == slot),
+            "looking at the slot leaves it on the board"
         );
         Ok(())
     }
@@ -9191,6 +9323,8 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
         authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
@@ -9223,8 +9357,9 @@ mod tests {
         let before = app.project.board.zones.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "Pour copper")?,
+            scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
             "the board geometry section should offer a copper pour: {}",
             app.message
         );
@@ -9328,24 +9463,9 @@ mod tests {
         app.make_dir = folder.to_string_lossy().into_owned();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..6 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "Drill map (CSV)")?,
+            scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
             "the make files should include a drill map: {}",
             app.message
         );
@@ -9389,8 +9509,9 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "BOARD DRAWINGS")?,
+            scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
             "the factory folder section should also offer a 3D look: {}",
             app.message
         );
@@ -9441,8 +9562,9 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "PANEL PLAN")?,
+            scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
             "the factory folder section should also plan panels: {}",
             app.message
         );
@@ -10086,6 +10208,42 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn a_newcomer_opens_rules_and_settings_from_the_top() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        assert!(
+            paints_text(&ctx, &mut app, "Design rules travel with the design")?,
+            "the Rules tab explains what rules are for: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "New class")?,
+            "the Rules tab offers a way to add a rule set"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        assert!(
+            paints_text(&ctx, &mut app, "APPEARANCE")?,
+            "the Settings tab opens with the look of the app"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "BOARD GEOMETRY")?,
+            "the board settings that used to crowd the aside now live on the Settings tab"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Nothing selected")?,
+            "the aside no longer holds the project settings"
+        );
+        authoring::tests::tap(&ctx, &mut app, "Dark")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(app.preferences.dark, "the theme switch on the tab works");
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -10514,22 +10672,6 @@ mod tests {
         );
         authoring::tests::tap(&ctx, &mut app, "Checks")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..4 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
         assert!(
             paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
             "the review shows the check under the name it was given: {}",
@@ -10540,27 +10682,8 @@ mod tests {
             "a breach of a must-fix check lands in the footer count: {}",
             app.message
         );
-        authoring::tests::tap(&ctx, &mut app, "Schematic")?;
-        for _ in 0..24 {
-            if paints_text(&ctx, &mut app, "Remove this check")? {
-                break;
-            }
-            let dir = 4.0;
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 430.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, dir),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        scrolled_to_at(&ctx, &mut app, "Remove this check", 300.0)?;
         authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.refresh();
