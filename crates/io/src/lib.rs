@@ -288,6 +288,163 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
     Ok(project)
 }
 
+/// Portable reusable block: one template schematic page and the library it needs.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct DesignBlock {
+    pub format: String,
+    pub version: u32,
+    pub sheet: pcbcraft_doc::Sheet,
+    pub components: Vec<pcbcraft_doc::Component>,
+    pub nets: Vec<pcbcraft_doc::Net>,
+    pub ports: Vec<pcbcraft_doc::Port>,
+    pub wires: Vec<pcbcraft_doc::Wire>,
+    pub drawn_wires: Vec<pcbcraft_doc::DrawnWire>,
+    pub labels: Vec<pcbcraft_doc::Label>,
+    pub library: pcbcraft_doc::ProjectLibrary,
+}
+
+fn sheet_object_ids(project: &Project, sheet: pcbcraft_doc::Id) -> BTreeSet<pcbcraft_doc::Id> {
+    let mut nets = BTreeSet::new();
+    for c in project
+        .components
+        .iter()
+        .filter(|c| c.sheet == sheet)
+    {
+        for pin in &c.pins {
+            if let Some(net) = pin.net {
+                nets.insert(net);
+            }
+        }
+    }
+    for p in project.ports.iter().filter(|p| p.sheet == sheet) {
+        nets.insert(p.net);
+    }
+    nets
+}
+
+/// Write one template page and its dependencies into a stored ZIP archive.
+pub fn design_block_zip(project: &Project, sheet: pcbcraft_doc::Id) -> Result<Vec<u8>, String> {
+    let Some(sheet_row) = project.sheets.iter().find(|s| s.id == sheet).cloned() else {
+        return Err("sheet does not exist".into());
+    };
+    if !project.components.iter().any(|c| c.sheet == sheet) {
+        return Err("sheet has no components".into());
+    }
+    let net_ids = sheet_object_ids(project, sheet);
+    let block = DesignBlock {
+        format: "pcbcraft-block".into(),
+        version: 1,
+        sheet: sheet_row,
+        components: project
+            .components
+            .iter()
+            .filter(|c| c.sheet == sheet && c.instance.is_none())
+            .cloned()
+            .collect(),
+        nets: project
+            .nets
+            .iter()
+            .filter(|n| net_ids.contains(&n.id) && n.instance.is_none())
+            .cloned()
+            .collect(),
+        ports: project
+            .ports
+            .iter()
+            .filter(|p| p.sheet == sheet)
+            .cloned()
+            .collect(),
+        wires: project
+            .wires
+            .iter()
+            .filter(|w| {
+                project
+                    .component(w.from.component)
+                    .is_some_and(|c| c.sheet == sheet)
+                    && project
+                        .component(w.to.component)
+                        .is_some_and(|c| c.sheet == sheet)
+            })
+            .cloned()
+            .collect(),
+        drawn_wires: project
+            .drawn_wires
+            .iter()
+            .filter(|w| project.schematic_drawn_wire_page(w) == sheet)
+            .cloned()
+            .collect(),
+        labels: project
+            .labels
+            .iter()
+            .filter(|l| project.schematic_label_page(l) == sheet)
+            .cloned()
+            .collect(),
+        library: project.library.clone(),
+    };
+    if block.components.is_empty() {
+        return Err("sheet has no template components".into());
+    }
+    let body = serde_json::to_string_pretty(&block).map_err(|e| e.to_string())?;
+    zip_bytes(&[("block.json".into(), body.into_bytes())])
+}
+
+/// Read a design block archive written by `design_block_zip`.
+pub fn design_block_read(bytes: &[u8]) -> Result<DesignBlock, String> {
+    let eocd = bytes
+        .windows(22)
+        .rposition(|w| w.starts_with(b"PK\x05\x06"))
+        .ok_or_else(|| "not a design block archive: no archive directory".to_string())?;
+    let read_u16 = |at: usize| -> u16 { u16::from_le_bytes([bytes[at], bytes[at + 1]]) };
+    let read_u32 = |at: usize| -> u32 {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    let entries = read_u16(eocd + 10) as usize;
+    let mut at = read_u32(eocd + 16) as usize;
+    let mut block: Option<&[u8]> = None;
+    for _ in 0..entries {
+        if !bytes[at..].starts_with(b"PK\x01\x02") || at + 46 > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let size = read_u32(at + 20) as usize;
+        let name_len = read_u16(at + 28) as usize;
+        let extra_len = read_u16(at + 30) as usize;
+        let comment_len = read_u16(at + 32) as usize;
+        let local_at = read_u32(at + 42) as usize;
+        if name_len == 0 || at + 46 + name_len > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let name = &bytes[at + 46..at + 46 + name_len];
+        if name == b"block.json" {
+            if local_at + 30 > bytes.len() || !bytes[local_at..].starts_with(b"PK\x03\x04") {
+                return Err("corrupt archive entry header".into());
+            }
+            let local_name = read_u16(local_at + 26) as usize;
+            let local_extra = read_u16(local_at + 28) as usize;
+            if local_at + 30 + local_name > bytes.len()
+                || &bytes[local_at + 30..local_at + 30 + local_name] != name
+            {
+                return Err("archive entry headers disagree about the name".into());
+            }
+            let data_at = local_at + 30 + local_name + local_extra;
+            if data_at + size > bytes.len() {
+                return Err("archive entry runs past the end of the file".into());
+            }
+            block = Some(&bytes[data_at..data_at + size]);
+        }
+        at += 46 + name_len + extra_len + comment_len;
+    }
+    let block = block.ok_or_else(|| "archive holds no block.json".to_string())?;
+    let text = std::str::from_utf8(block).map_err(|_| "block.json is not UTF-8".to_string())?;
+    let parsed: DesignBlock =
+        serde_json::from_str(text).map_err(|e| format!("block.json is invalid: {e}"))?;
+    if parsed.format != "pcbcraft-block" || parsed.version != 1 {
+        return Err("unsupported design block format".into());
+    }
+    if parsed.sheet.name.is_empty() || parsed.components.is_empty() {
+        return Err("design block is empty".into());
+    }
+    Ok(parsed)
+}
+
 /// A small vector PDF writer: the drawing is collected as path and text
 /// operations in page space (PostScript points, origin bottom left) and
 /// assembled into a one-page document without any external dependency.
@@ -6491,6 +6648,40 @@ fn svg_document(name: &str, box_min: Point, box_max: Point, body: String) -> Str
 mod tests {
 
     use super::*;
+    #[test]
+    fn design_block_round_trip_preserves_template_sheet() -> Result<(), String> {
+        let mut project = Project::default();
+        let sheet = 3;
+        project.sheets.push(pcbcraft_doc::Sheet {
+            id: sheet,
+            name: "filter".into(),
+            parent: Some(0),
+            entry: None,
+        });
+        project.components.push(pcbcraft_doc::Component {
+            id: 10,
+            reference: "R1".into(),
+            value: "1k".into(),
+            kind: "resistor".into(),
+            position: Point::new(5.0, 5.0),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet,
+            instance: None,
+            prototype: None,
+        });
+        let zip = design_block_zip(&project, sheet)?;
+        let block = design_block_read(&zip)?;
+        assert_eq!(block.sheet.name, "filter");
+        assert_eq!(block.components.len(), 1);
+        assert_eq!(block.components[0].reference, "R1");
+        Ok(())
+    }
+
     #[test]
     fn archive_round_trips_a_project_and_its_attached_files() -> Result<(), String> {
         let mut project = Project {

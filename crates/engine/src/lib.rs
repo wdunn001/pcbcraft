@@ -715,6 +715,35 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "schematic.instance_add",
+            "Place another copy of a template schematic page on a parent page with distinct references, local nets and hierarchy ports wired by name",
+            schema(
+                json!({"sheet":id_schema(),"name":{"type":"string","minLength":1,"maxLength":64},"parent":{"type":"integer","minimum":0},"entry":point_schema(),"reference_offset":{"type":"integer","minimum":0,"maximum":999000}}),
+                &["sheet", "name", "parent", "entry", "reference_offset"],
+            ),
+        ),
+        (
+            "schematic.instance_remove",
+            "Remove one sheet instance and every component, net fragment, wire and label it materialized",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "schematic.export_design_block",
+            "Write one template schematic page and the library it needs to a portable design block archive on disk",
+            schema(
+                json!({"sheet":id_schema(),"path":{"type":"string","minLength":1,"maxLength":1024}}),
+                &["sheet", "path"],
+            ),
+        ),
+        (
+            "schematic.import_design_block",
+            "Read a design block archive from disk as a new template page and place the first instance on a parent page",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":1024},"parent":{"type":"integer","minimum":0},"entry":point_schema(),"name":{"type":"string","minLength":1,"maxLength":64},"reference_offset":{"type":"integer","minimum":0,"maximum":999000}}),
+                &["path", "parent", "entry"],
+            ),
+        ),
+        (
             "graphic.scale",
             "Scale a graphic about an anchor point by a factor from 0.01 to 100; the stroke width follows the factor unless keep_width is set",
             schema(
@@ -1182,6 +1211,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"footprint":id_schema(),"columns":{"type":"integer","minimum":1,"maximum":64},"rows":{"type":"integer","minimum":1,"maximum":64},"dx":{"type":"number","exclusiveMinimum":0,"maximum":10000},"dy":{"type":"number","exclusiveMinimum":0,"maximum":10000}}),
                 &["footprint", "columns", "rows", "dx", "dy"],
+            ),
+        ),
+        (
+            "board.repeat_layout",
+            "Copy footprint placement and instance-local copper from one sheet instance onto others relative to an anchor reference on the template page",
+            schema(
+                json!({"source_instance":id_schema(),"targets":{"type":"array","items":id_schema(),"minItems":1,"maxItems":63},"anchor_reference":{"type":"string","minLength":1,"maxLength":64}}),
+                &["source_instance", "targets", "anchor_reference"],
             ),
         ),
         (
@@ -2959,6 +2996,44 @@ struct ImportSheetParams {
     path: String,
     #[serde(default)]
     name: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstanceAddParams {
+    sheet: Id,
+    name: String,
+    parent: Id,
+    entry: Point,
+    reference_offset: u64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstanceRemoveParams {
+    id: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesignBlockExportParams {
+    sheet: Id,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DesignBlockImportParams {
+    path: String,
+    parent: Id,
+    entry: Point,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    reference_offset: Option<u64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepeatLayoutParams {
+    source_instance: Id,
+    targets: Vec<Id>,
+    anchor_reference: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5055,6 +5130,164 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
+
+fn component_for_instance_prototype(
+    p: &Project,
+    instance: Id,
+    prototype: Id,
+) -> Option<&Component> {
+    p.components.iter().find(|c| {
+        c.instance == Some(instance) && c.prototype == Some(prototype)
+    })
+}
+
+fn footprint_for_component(p: &Project, component: Id) -> Option<&Footprint> {
+    p.board.footprints.iter().find(|f| f.component == component)
+}
+
+fn template_component_by_reference(p: &Project, sheet: Id, reference: &str) -> Option<&Component> {
+    p.components
+        .iter()
+        .find(|c| c.sheet == sheet && c.instance.is_none() && c.reference == reference)
+}
+
+fn instance_materialized_net_name(template_name: &str, instance_name: &str) -> String {
+    format!("{template_name}__{instance_name}")
+}
+
+fn merge_design_block_template(
+    p: &mut Project,
+    block: pcbcraft_io::DesignBlock,
+    next: &mut Id,
+) -> Result<Id, Error> {
+    let mut sheet_name = block.sheet.name.clone();
+    if p.sheets.iter().any(|s| s.name == sheet_name) {
+        let mut n = 2u64;
+        loop {
+            sheet_name = format!("{} ({n})", block.sheet.name);
+            if sheet_name.len() > 128 {
+                return Err(Error::Invalid("design block sheet name is too long".into()));
+            }
+            if !p.sheets.iter().any(|s| s.name == sheet_name) {
+                break;
+            }
+            n += 1;
+        }
+    }
+    let sheet_id = allocate(next)?;
+    let mut id_map: std::collections::BTreeMap<Id, Id> = std::collections::BTreeMap::new();
+    id_map.insert(block.sheet.id, sheet_id);
+    for net in &block.nets {
+        let new_id = allocate(next)?;
+        id_map.insert(net.id, new_id);
+    }
+    for component in &block.components {
+        let new_id = allocate(next)?;
+        id_map.insert(component.id, new_id);
+    }
+    for port in &block.ports {
+        let new_id = allocate(next)?;
+        id_map.insert(port.id, new_id);
+    }
+    for wire in &block.wires {
+        let new_id = allocate(next)?;
+        id_map.insert(wire.id, new_id);
+    }
+    for wire in &block.drawn_wires {
+        let new_id = allocate(next)?;
+        id_map.insert(wire.id, new_id);
+    }
+    for label in &block.labels {
+        let new_id = allocate(next)?;
+        id_map.insert(label.id, new_id);
+    }
+    p.sheets.push(Sheet {
+        id: sheet_id,
+        name: sheet_name,
+        parent: block.sheet.parent,
+        entry: block.sheet.entry,
+    });
+    for symbol in block.library.symbols {
+        if !p.library.symbols.iter().any(|s| s.name == symbol.name) {
+            p.library.symbols.push(symbol);
+        }
+    }
+    for footprint in block.library.footprints {
+        if !p.library.footprints.iter().any(|f| f.name == footprint.name) {
+            p.library.footprints.push(footprint);
+        }
+    }
+    for net in block.nets {
+        p.nets.push(Net {
+            id: *id_map.get(&net.id).ok_or_else(missing)?,
+            name: net.name.clone(),
+            target_length: net.target_length,
+            length_tolerance: net.length_tolerance,
+            instance: None,
+        });
+    }
+    for component in block.components {
+        let id = *id_map.get(&component.id).ok_or_else(missing)?;
+        let mut clone = component.clone();
+        clone.id = id;
+        clone.sheet = sheet_id;
+        clone.instance = None;
+        clone.prototype = None;
+        for pin in &mut clone.pins {
+            if let Some(net) = pin.net {
+                pin.net = Some(*id_map.get(&net).ok_or_else(missing)?);
+            }
+        }
+        p.components.push(clone);
+    }
+    for port in block.ports {
+        p.ports.push(Port {
+            id: *id_map.get(&port.id).ok_or_else(missing)?,
+            name: port.name.clone(),
+            net: *id_map.get(&port.net).ok_or_else(missing)?,
+            sheet: sheet_id,
+            position: port.position,
+        });
+    }
+    for wire in block.wires {
+        p.wires.push(Wire {
+            id: *id_map.get(&wire.id).ok_or_else(missing)?,
+            net: *id_map.get(&wire.net).ok_or_else(missing)?,
+            from: PinRef {
+                component: *id_map
+                    .get(&wire.from.component)
+                    .ok_or_else(missing)?,
+                pin: wire.from.pin.clone(),
+            },
+            to: PinRef {
+                component: *id_map.get(&wire.to.component).ok_or_else(missing)?,
+                pin: wire.to.pin.clone(),
+            },
+        });
+    }
+    for wire in block.drawn_wires {
+        p.drawn_wires.push(DrawnWire {
+            id: *id_map.get(&wire.id).ok_or_else(missing)?,
+            net: wire
+                .net
+                .map(|n| *id_map.get(&n).ok_or_else(missing))
+                .transpose()?,
+            points: wire.points.clone(),
+        });
+    }
+    for label in block.labels {
+        p.labels.push(Label {
+            id: *id_map.get(&label.id).ok_or_else(missing)?,
+            kind: label.kind.clone(),
+            net: *id_map.get(&label.net).ok_or_else(missing)?,
+            position: label.position,
+            rotation: label.rotation,
+            text: label.text.clone(),
+        });
+    }
+    Ok(sheet_id)
+}
+
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
@@ -5960,7 +6193,11 @@ fn run_command(
                 {
                     continue;
                 }
-                groups.entry(pre).or_default().push(i);
+                let key = match c.instance {
+                    Some(inst) => format!("instance:{inst}:{pre}"),
+                    None => pre.clone(),
+                };
+                groups.entry(key).or_default().push(i);
             }
             if groups.is_empty() {
                 return Err(Error::Invalid("no letter-prefixed references match".into()));
@@ -5987,10 +6224,23 @@ fn run_command(
                 .collect();
             let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
             let mut planned: Vec<(usize, Id, String, String)> = Vec::new();
-            for (pre, g) in &groups {
+            for (key, g) in &groups {
+                let pre = key
+                    .split(':')
+                    .last()
+                    .ok_or_else(|| Error::Invalid("invalid reannotate group".into()))?;
                 let pre = a.prefix.as_deref().unwrap_or(pre);
                 for (n, i) in g.iter().enumerate() {
-                    let to = format!("{pre}{}", a.start + n as u64);
+                    let offset = p.components[*i]
+                        .instance
+                        .and_then(|inst| {
+                            p.sheet_instances
+                                .iter()
+                                .find(|row| row.id == inst)
+                                .map(|row| row.reference_offset)
+                        })
+                        .unwrap_or(0);
+                    let to = format!("{pre}{}", a.start + n as u64 + offset);
                     if to.len() > 64 || taken.contains(to.as_str()) || !used.insert(to.clone()) {
                         return Err(Error::Invalid(format!("reference {to} is already in use")));
                     }
@@ -8718,6 +8968,107 @@ fn run_command(
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
+        }
+        "schematic.instance_add" => {
+            let a: InstanceAddParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > MAX_INSTANCE_NAME {
+                return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
+            }
+            if a.reference_offset > MAX_REFERENCE_OFFSET {
+                return Err(Error::Invalid("reference offset must be 0 to 999000".into()));
+            }
+            if !a.entry.valid() {
+                return Err(Error::Invalid("entry position is out of range".into()));
+            }
+            if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
+                return Err(Error::Invalid(
+                    "a schematic supports at most 64 sheet instances".into(),
+                ));
+            }
+            if p
+                .sheet_instances
+                .iter()
+                .any(|i| i.parent == a.parent && i.name == a.name)
+            {
+                return Err(Error::Invalid(
+                    "that parent page already carries an instance with this name".into(),
+                ));
+            }
+            if !p.sheets.iter().any(|s| s.id == a.sheet) {
+                return Err(Error::Invalid("template sheet does not exist".into()));
+            }
+            if !p.components.iter().any(|c| c.sheet == a.sheet) {
+                return Err(Error::Invalid("template sheet has no components".into()));
+            }
+            let id = allocate(next)?;
+            let inst = SheetInstance {
+                id,
+                sheet: a.sheet,
+                name: a.name.clone(),
+                reference_offset: a.reference_offset,
+                parent: a.parent,
+                entry: a.entry,
+            };
+            let (components, nets) =
+                expand_instance(p, &inst, next).map_err(Error::Invalid)?;
+            p.sheet_instances.push(inst);
+            Ok(json!({"id": id, "components": components, "nets": nets}))
+        }
+        "schematic.instance_remove" => {
+            let a: InstanceRemoveParams = parse(params)?;
+            if !p.sheet_instances.iter().any(|i| i.id == a.id) {
+                return Err(missing());
+            }
+            collapse_instance(p, a.id).map_err(Error::Invalid)?;
+            Ok(json!({"removed": a.id}))
+        }
+        "schematic.export_design_block" => {
+            let a: DesignBlockExportParams = parse(params)?;
+            let bytes = pcbcraft_io::design_block_zip(p, a.sheet).map_err(Error::Invalid)?;
+            pcbcraft_io::atomic_write(std::path::Path::new(&a.path), &bytes)
+                .map_err(Error::Invalid)?;
+            Ok(json!({"path": a.path, "bytes": bytes.len()}))
+        }
+        "schematic.import_design_block" => {
+            let a: DesignBlockImportParams = parse(params)?;
+            if !a.entry.valid() {
+                return Err(Error::Invalid("entry position is out of range".into()));
+            }
+            let bytes = std::fs::read(std::path::Path::new(&a.path))
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let block = pcbcraft_io::design_block_read(&bytes).map_err(Error::Invalid)?;
+            let sheet = merge_design_block_template(p, block, next)?;
+            let name = a.name.unwrap_or_else(|| "block".into());
+            let reference_offset = a.reference_offset.unwrap_or(0);
+            if name.is_empty() || name.len() > MAX_INSTANCE_NAME {
+                return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
+            }
+            if reference_offset > MAX_REFERENCE_OFFSET {
+                return Err(Error::Invalid("reference offset must be 0 to 999000".into()));
+            }
+            if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
+                return Err(Error::Invalid(
+                    "a schematic supports at most 64 sheet instances".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            let inst = SheetInstance {
+                id,
+                sheet,
+                name: name.clone(),
+                reference_offset,
+                parent: a.parent,
+                entry: a.entry,
+            };
+            let (components, nets) =
+                expand_instance(p, &inst, next).map_err(Error::Invalid)?;
+            p.sheet_instances.push(inst);
+            Ok(json!({
+                "sheet": sheet,
+                "instance": id,
+                "components": components,
+                "nets": nets,
+            }))
         }
         "schematic.cleanup" => {
             let mut merged = 0usize;
@@ -13338,6 +13689,205 @@ fn run_command(
                 "count": copies.len() + 1,
                 "components": copies,
                 "footprints": parts
+            }))
+        }
+        "board.repeat_layout" => {
+            let a: RepeatLayoutParams = parse(params)?;
+            if a.targets.is_empty() || a.targets.len() > 63 {
+                return Err(Error::Invalid("targets must list 1 to 63 instances".into()));
+            }
+            if a.anchor_reference.is_empty() || a.anchor_reference.len() > 64 {
+                return Err(Error::Invalid("anchor reference must be 1 to 64 bytes".into()));
+            }
+            let source = p
+                .sheet_instances
+                .iter()
+                .find(|i| i.id == a.source_instance)
+                .ok_or_else(missing)?
+                .clone();
+            if a.targets.contains(&a.source_instance) {
+                return Err(Error::Invalid(
+                    "the source instance cannot also be a target".into(),
+                ));
+            }
+            for target in &a.targets {
+                if !p.sheet_instances.iter().any(|i| i.id == *target) {
+                    return Err(Error::Invalid("target instance does not exist".into()));
+                }
+                if p.sheet_instances.iter().find(|i| i.id == *target).is_some_and(|t| {
+                    t.sheet != source.sheet || t.parent != source.parent
+                }) {
+                    return Err(Error::Invalid(
+                        "every target must share the template and parent page".into(),
+                    ));
+                }
+            }
+            let template_anchor = template_component_by_reference(p, source.sheet, &a.anchor_reference)
+                .ok_or_else(|| {
+                    Error::Invalid("anchor reference is missing on the template page".into())
+                })?;
+            let source_anchor = component_for_instance_prototype(
+                p,
+                source.id,
+                template_anchor.id,
+            )
+            .ok_or_else(missing)?;
+            let source_fp = footprint_for_component(p, source_anchor.id).ok_or_else(|| {
+                Error::Invalid(
+                    "sync footprints before repeating layout across instances".into(),
+                )
+            })?;
+            if footprint_locked(p, source_fp.id) {
+                return Err(Error::Invalid(
+                    "the anchor footprint is locked against placement changes".into(),
+                ));
+            }
+            let template_parts: Vec<Id> = p
+                .components
+                .iter()
+                .filter(|c| c.sheet == source.sheet && c.instance.is_none())
+                .map(|c| c.id)
+                .collect();
+            let mut copied_tracks = 0usize;
+            let mut copied_vias = 0usize;
+            for target_id in &a.targets {
+                let target_row = p
+                    .sheet_instances
+                    .iter()
+                    .find(|i| i.id == *target_id)
+                    .ok_or_else(missing)?;
+                let target_anchor = component_for_instance_prototype(
+                    p,
+                    *target_id,
+                    template_anchor.id,
+                )
+                .ok_or_else(missing)?;
+                let target_fp = footprint_for_component(p, target_anchor.id).ok_or_else(|| {
+                    Error::Invalid(
+                        "sync footprints before repeating layout across instances".into(),
+                    )
+                })?;
+                if footprint_locked(p, target_fp.id) {
+                    return Err(Error::Invalid(
+                        "a target anchor footprint is locked against placement changes".into(),
+                    ));
+                }
+                let layout_shift = Point::new(
+                    target_fp.position.x - source_fp.position.x,
+                    target_fp.position.y - source_fp.position.y,
+                );
+                for prototype in &template_parts {
+                    let source_part = component_for_instance_prototype(
+                        p,
+                        source.id,
+                        *prototype,
+                    )
+                    .ok_or_else(missing)?;
+                    let target_part = component_for_instance_prototype(
+                        p,
+                        *target_id,
+                        *prototype,
+                    )
+                    .ok_or_else(missing)?;
+                    let source_foot = footprint_for_component(p, source_part.id)
+                        .ok_or_else(missing)?;
+                    let target_foot = p
+                        .board
+                        .footprints
+                        .iter_mut()
+                        .find(|f| f.component == target_part.id)
+                        .ok_or_else(missing)?;
+                    if footprint_locked(p, target_foot.id) {
+                        return Err(Error::Invalid(
+                            "a target footprint is locked against placement changes".into(),
+                        ));
+                    }
+                    let rel = Point::new(
+                        source_foot.position.x - source_fp.position.x,
+                        source_foot.position.y - source_fp.position.y,
+                    );
+                    let want = Point::new(
+                        target_fp.position.x + rel.x,
+                        target_fp.position.y + rel.y,
+                    );
+                    if !want.valid() {
+                        return Err(Error::Invalid(
+                            "the repeated layout would move a footprint out of range".into(),
+                        ));
+                    }
+                    target_foot.position = want;
+                    target_foot.rotation = source_foot.rotation;
+                }
+                let source_nets: Vec<(String, Id)> = p
+                    .nets
+                    .iter()
+                    .filter(|n| n.instance == Some(source.id))
+                    .map(|n| (n.name.clone(), n.id))
+                    .collect();
+                for (name, source_net) in source_nets {
+                    let template_name = name
+                        .strip_suffix(&format!("__{}", source.name))
+                        .ok_or_else(|| {
+                            Error::Invalid(
+                                "instance net names no longer match the template".into(),
+                            )
+                        })?;
+                    let target_name =
+                        instance_materialized_net_name(template_name, &target_row.name);
+                    let target_net = p
+                        .nets
+                        .iter()
+                        .find(|n| n.instance == Some(*target_id) && n.name == target_name)
+                        .map(|n| n.id)
+                        .ok_or_else(|| {
+                            Error::Invalid("target instance net is missing".into())
+                        })?;
+                    for track in p
+                        .board
+                        .tracks
+                        .iter()
+                        .filter(|t| t.net == source_net)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                    {
+                        let id = allocate(next)?;
+                        p.board.tracks.push(Track {
+                            id,
+                            net: target_net,
+                            start: track.start.offset(layout_shift),
+                            end: track.end.offset(layout_shift),
+                            width: track.width,
+                            layer: track.layer,
+                            arc: track
+                                .arc
+                                .map(|mid| mid.offset(layout_shift)),
+                        });
+                        copied_tracks += 1;
+                    }
+                    for via in p
+                        .board
+                        .vias
+                        .iter()
+                        .filter(|v| v.net == source_net)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                    {
+                        let id = allocate(next)?;
+                        p.board.vias.push(Via {
+                            id,
+                            net: target_net,
+                            position: via.position.offset(layout_shift),
+                            diameter: via.diameter,
+                            drill: via.drill,
+                        });
+                        copied_vias += 1;
+                    }
+                }
+            }
+            Ok(json!({
+                "targets": a.targets,
+                "tracks": copied_tracks,
+                "vias": copied_vias,
             }))
         }
         "track.add" => {
@@ -22822,6 +23372,351 @@ mod tests {
         assert_eq!(pages.len(), 2);
         assert!(pages.iter().any(|p| p.as_u64() == Some(0)));
         assert!(pages.iter().any(|p| p.as_u64() == Some(page)));
+        Ok(())
+    }
+
+    fn two_resistor_template_sheet(s: &mut Session) -> Result<Id, Error> {
+        let sheet = s.execute("schematic.new_sheet", json!({"name":"channel"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "schematic.move_component",
+            json!({"id":r1,"sheet":sheet}),
+            None,
+        )?;
+        s.execute(
+            "schematic.move_component",
+            json!({"id":r2,"sheet":sheet}),
+            None,
+        )?;
+        let net = s.execute("net.create", json!({"name":"LOCAL"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({
+                "net": net,
+                "pins": [
+                    {"component": r1, "pin": "1"},
+                    {"component": r2, "pin": "1"},
+                ],
+            }),
+            None,
+        )?;
+        Ok(sheet)
+    }
+
+    #[test]
+    fn instance_add_triples_a_two_resistor_page() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        for (name, offset) in [("A", 0), ("B", 100), ("C", 200)] {
+            s.execute(
+                "schematic.instance_add",
+                json!({
+                    "sheet": sheet,
+                    "name": name,
+                    "parent": 0,
+                    "entry": {"x": 0.0, "y": 0.0},
+                    "reference_offset": offset,
+                }),
+                None,
+            )?;
+        }
+        assert_eq!(
+            s.project.components.len(),
+            8,
+            "two template parts plus six materialized copies"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn instance_add_gives_distinct_references_and_local_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "left",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?;
+        s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "right",
+                "parent": 0,
+                "entry": {"x": 40.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?;
+        let refs: BTreeSet<String> = s
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        assert!(refs.contains("R1"));
+        assert!(refs.contains("R101"));
+        assert!(refs.contains("R2"));
+        assert!(refs.contains("R102"));
+        let local: Vec<_> = s
+            .project
+            .nets
+            .iter()
+            .filter(|n| n.instance.is_some())
+            .map(|n| n.name.clone())
+            .collect();
+        assert!(local.iter().any(|n| n.contains("left")));
+        assert!(local.iter().any(|n| n.contains("right")));
+        Ok(())
+    }
+
+    #[test]
+    fn instance_remove_strips_all_materialized_parts() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        let out = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "only",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?["result"]
+            .clone();
+        let id = out["id"].as_u64().ok_or_else(missing)?;
+        assert_eq!(s.project.components.len(), 4);
+        s.execute("schematic.instance_remove", json!({"id": id}), None)?;
+        assert_eq!(s.project.components.len(), 2);
+        assert!(s.project.sheet_instances.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn reannotate_honors_instance_reference_offset() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "ch",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?;
+        s.execute(
+            "components.reannotate",
+            json!({"prefix":"R","start":1}),
+            None,
+        )?;
+        let refs: Vec<String> = s
+            .project
+            .components
+            .iter()
+            .filter(|c| c.instance.is_some())
+            .map(|c| c.reference.clone())
+            .collect();
+        assert!(refs.iter().any(|r| r == "R101"));
+        assert!(refs.iter().any(|r| r == "R102"));
+        Ok(())
+    }
+
+    #[test]
+    fn repeat_layout_copies_footprints_relative_to_anchor() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        let a = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "src",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "dst",
+                "parent": 0,
+                "entry": {"x": 50.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let src_r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(a) && c.reference == "R1")
+            .ok_or_else(missing)?;
+        let src_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == src_r1.id)
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.move",
+            json!({"id": src_fp.id, "position": {"x": 12.0, "y": 14.0}}),
+            None,
+        )?;
+        s.execute(
+            "board.repeat_layout",
+            json!({
+                "source_instance": a,
+                "targets": [b],
+                "anchor_reference": "R1",
+            }),
+            None,
+        )?;
+        let dst_r2 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(b) && c.reference == "R102")
+            .ok_or_else(missing)?;
+        let dst_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == dst_r2.id)
+            .ok_or_else(missing)?;
+        let src_r2 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(a) && c.reference == "R2")
+            .ok_or_else(missing)?;
+        let src_r2_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == src_r2.id)
+            .ok_or_else(missing)?;
+        let rel_x = src_r2_fp.position.x - src_fp.position.x;
+        let rel_y = src_r2_fp.position.y - src_fp.position.y;
+        let dst_r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.instance == Some(b) && c.reference == "R101")
+            .ok_or_else(missing)?;
+        let dst_r1_fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == dst_r1.id)
+            .ok_or_else(missing)?;
+        assert!(
+            (dst_fp.position.x - (dst_r1_fp.position.x + rel_x)).abs() < 1e-6
+                && (dst_fp.position.y - (dst_r1_fp.position.y + rel_y)).abs() < 1e-6,
+            "the copied layout keeps the same relative spacing"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn repeat_layout_undo_removes_copied_tracks_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sheet = two_resistor_template_sheet(&mut s)?;
+        let a = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "src",
+                "parent": 0,
+                "entry": {"x": 0.0, "y": 0.0},
+                "reference_offset": 0,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "schematic.instance_add",
+            json!({
+                "sheet": sheet,
+                "name": "dst",
+                "parent": 0,
+                "entry": {"x": 50.0, "y": 0.0},
+                "reference_offset": 100,
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let src_net = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.instance == Some(a))
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "track.add",
+            json!({
+                "net": src_net,
+                "start": {"x": 1.0, "y": 1.0},
+                "end": {"x": 5.0, "y": 5.0},
+                "width": 0.25,
+            }),
+            None,
+        )?;
+        let before = s.project.board.tracks.len();
+        s.execute(
+            "board.repeat_layout",
+            json!({
+                "source_instance": a,
+                "targets": [b],
+                "anchor_reference": "R1",
+            }),
+            None,
+        )?;
+        assert!(s.project.board.tracks.len() > before);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), before);
         Ok(())
     }
 
