@@ -7,26 +7,37 @@ use std::collections::{BTreeMap, BTreeSet};
 const EPS: f64 = 1e-6;
 const MAX_JSON_CHANGES: usize = 4096;
 
+/// One added, removed, or changed object when two saved designs are compared.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DesignChange {
+    /// `added`, `removed`, or `changed`.
     pub kind: String,
+    /// Stable object id in the design that moved.
     pub object: Id,
+    /// Short human label, such as `component R1` or `net GND`.
     pub summary: String,
+    /// Field name when the change is scalar; absent for whole-object add/remove.
     pub field: Option<String>,
+    /// Previous value for a field change, as text.
     pub before: Option<String>,
+    /// New value for a field change, as text.
     pub after: Option<String>,
 }
 
+/// Sorted list of differences between an old and new [`Project`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DesignDiff {
+    /// Every change, ordered by kind, object id, then summary.
     pub changes: Vec<DesignChange>,
 }
 
 impl DesignDiff {
+    /// True when no changes were recorded.
     pub fn is_empty(&self) -> bool {
         self.changes.is_empty()
     }
 
+    /// One line per change, sorted lexicographically for stable logs and diffs.
     pub fn to_text(&self) -> String {
         let mut lines: Vec<String> = self
             .changes
@@ -46,6 +57,7 @@ impl DesignDiff {
         lines.join("\n")
     }
 
+    /// JSON summary with `count`, `truncated`, and a `changes` array for automation.
     pub fn to_json(&self) -> Value {
         let count = self.changes.len();
         let truncated = count > MAX_JSON_CHANGES;
@@ -663,6 +675,7 @@ fn diff_rule_maps(changes: &mut Vec<DesignChange>, old: &Project, new: &Project)
     }
 }
 
+/// Compare two validated designs and return every board and schematic delta found.
 pub fn project_diff(old: &Project, new: &Project) -> DesignDiff {
     let mut changes = Vec::new();
     diff_components(&mut changes, old, new);
