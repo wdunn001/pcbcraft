@@ -28,6 +28,7 @@ fn main() -> eframe::Result {
     } else {
         pcbcraft_engine::Session::default()
     };
+    session.config = pcbcraft_engine::user_config::UserConfig::from_environment();
     if args.iter().any(|a| a == "--sample") {
         // The demo board shows the default 45 degree corners.
         let cut = serde_json::json!({"points":[[3.0,0.0],[57.0,0.0],[60.0,3.0],[60.0,37.0],[57.0,40.0],[3.0,40.0],[0.0,37.0],[0.0,3.0]]});

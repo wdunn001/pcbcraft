@@ -281,7 +281,7 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::list_with_project(args, Some(&s.project))
+        return pcbcraft_engine::library::list_with_project(&s.config, args, Some(&s.project))
             .map(text_result);
     }
     if [
@@ -297,7 +297,12 @@ pub(crate) fn invoke_session(
     ]
     .contains(&name)
     {
-        return pcbcraft_engine::library::read_tool(name, args).map(text_result);
+        let config = session
+            .lock()
+            .map_err(|_| "session unavailable after internal failure".to_string())?
+            .config
+            .clone();
+        return pcbcraft_engine::library::read_tool(&config, name, args).map(text_result);
     }
     let mut s = session
         .lock()

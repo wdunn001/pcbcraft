@@ -573,3 +573,34 @@ pub(crate) fn tap_left(ctx: &egui::Context, app: &mut App, label: &str) -> Resul
     frame(ctx, app, vec![], egui::Modifiers::NONE);
     Ok(())
 }
+
+/// A settings folder no other test can see: unique per process, tag and call.
+///
+/// Recents, library sources and saved conversations all live below the
+/// folder a session carries, so a story that needs them gets its own and
+/// nothing leaks between tests or into the real configuration folder.
+pub(crate) fn private_config(
+    tag: &str,
+) -> Result<(pcbcraft_engine::user_config::UserConfig, std::path::PathBuf), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let folder = std::env::temp_dir().join(format!(
+        "pcbcraft-config-{}-{}-{tag}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    Ok((
+        pcbcraft_engine::user_config::UserConfig::in_folder(&folder),
+        folder,
+    ))
+}
+
+/// An empty session that keeps its settings in `config`.
+pub(crate) fn session_with(
+    config: &pcbcraft_engine::user_config::UserConfig,
+) -> pcbcraft_mcp::SharedSession {
+    let mut session = pcbcraft_engine::Session::default();
+    session.config = config.clone();
+    pcbcraft_mcp::shared(session)
+}

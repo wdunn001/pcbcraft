@@ -19,6 +19,21 @@ use super::*;
 /// The generated showcase design, embedded at build time.
 const SHOWCASE: &str = include_str!("../../../examples/showcase.pcbcraft");
 
+/// A temporary file name no other window or test shares: the process, a
+/// counter and the clock keep two opens apart.
+fn unique_showcase_path() -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    std::env::temp_dir().join(format!(
+        "pcbcraft-showcase-sensor-node-{}-{}-{stamp}.pcbcraft",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
 impl App {
     /// Open the showcase board as the current design.
     ///
@@ -35,8 +50,9 @@ impl App {
     ///
     /// # Do not
     /// - Keep the temporary file open; it is only read once.
+    /// - Reuse a fixed file name; two opens at once would overwrite each other.
     pub(crate) fn open_showcase(&mut self) -> bool {
-        let path = std::env::temp_dir().join("pcbcraft-showcase-sensor-node.pcbcraft");
+        let path = unique_showcase_path();
         if let Err(error) = std::fs::write(&path, SHOWCASE) {
             self.message = error.to_string();
             return false;

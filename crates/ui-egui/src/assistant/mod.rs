@@ -668,7 +668,7 @@ impl App {
     }
 
     fn transcript_file(&self) -> Option<std::path::PathBuf> {
-        pcbcraft_assistant::transcript_path(Some(self.path.as_str()))
+        pcbcraft_assistant::transcript_path(&self.user_config(), Some(self.path.as_str()))
     }
 
     /// Write this design's conversation outside the design file. Does nothing for a design

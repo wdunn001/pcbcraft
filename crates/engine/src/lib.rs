@@ -8,6 +8,7 @@ mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod user_config;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
@@ -2319,6 +2320,9 @@ pub struct Session {
     next_id: Id,
     undo: VecDeque<Project>,
     redo: VecDeque<Project>,
+    /// Where recents, library sources and conversations live. Detached by
+    /// default; the application entry points set the real folder.
+    pub config: user_config::UserConfig,
 }
 impl Default for Session {
     fn default() -> Self {
@@ -2328,6 +2332,7 @@ impl Default for Session {
             next_id: 1,
             undo: VecDeque::new(),
             redo: VecDeque::new(),
+            config: user_config::UserConfig::detached(),
         }
     }
 }

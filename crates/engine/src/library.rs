@@ -4,6 +4,7 @@
 //! grouped by source; it never merges sources by rank and never mutates.
 //! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`;
 //! `crates/library/src/listing_adapters.rs` for the symbol adapters.
+use crate::user_config::UserConfig;
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
 use pcbcraft_library::listing_adapters::listings_from_symbols;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
@@ -127,30 +128,8 @@ pub struct LibrarySource {
     pub path: String,
 }
 const MAX_LIBRARY_SOURCES: usize = 64;
-pub static SOURCES_PATH_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
-/// Held by any test that redirects the sources file, so two never
-/// race over the shared slot.
-pub static SOURCES_TEST_LOCK: Mutex<()> = Mutex::new(());
-fn sources_path() -> Result<PathBuf, String> {
-    if let Some(path) = SOURCES_PATH_TEST
-        .lock()
-        .ok()
-        .and_then(|locked| locked.as_ref().cloned())
-    {
-        return Ok(path);
-    }
-    let directory = |key: &str| {
-        std::env::var(key)
-            .ok()
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-    };
-    directory("XDG_CONFIG_HOME")
-        .or_else(|| directory("APPDATA"))
-        .or_else(|| directory("HOME").map(|home| home.join(".config")))
-        .map(|base| base.join("pcbcraft").join("library-sources.json"))
-        .ok_or_else(|| "no user configuration folder was found".into())
+fn sources_path(config: &UserConfig) -> Result<PathBuf, String> {
+    config.file("library-sources.json")
 }
 fn usable_source(source: &LibrarySource) -> bool {
     !source.name.trim().is_empty()
@@ -159,8 +138,8 @@ fn usable_source(source: &LibrarySource) -> bool {
         && source.path.chars().count() <= 1024
         && std::fs::metadata(&source.path).is_ok_and(|metadata| metadata.is_dir())
 }
-fn load_sources() -> Vec<LibrarySource> {
-    let Ok(path) = sources_path() else {
+fn load_sources(config: &UserConfig) -> Vec<LibrarySource> {
+    let Ok(path) = sources_path(config) else {
         return vec![];
     };
     let Ok(text) = std::fs::read_to_string(path) else {
@@ -179,8 +158,8 @@ fn same_folder(left: &Path, right: &Path) -> bool {
 }
 /// Which named source a scanned root belongs to, so the unified list can say
 /// where every collection came from.
-fn source_label(root: &Path) -> String {
-    if let Some(source) = load_sources()
+fn source_label(config: &UserConfig, root: &Path) -> String {
+    if let Some(source) = load_sources(config)
         .into_iter()
         .find(|source| same_folder(Path::new(&source.path), root))
     {
@@ -194,8 +173,8 @@ fn source_label(root: &Path) -> String {
     }
     "Other libraries".into()
 }
-fn write_sources(sources: &[LibrarySource]) -> Result<(), String> {
-    let file = sources_path()?;
+fn write_sources(config: &UserConfig, sources: &[LibrarySource]) -> Result<(), String> {
+    let file = sources_path(config)?;
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -206,8 +185,8 @@ fn write_sources(sources: &[LibrarySource]) -> Result<(), String> {
             .as_bytes(),
     )
 }
-fn counts(root: &Path) -> Result<(usize, usize), String> {
-    let scanned = catalog_paths(vec![root.to_path_buf()], 200)?;
+fn counts(config: &UserConfig, root: &Path) -> Result<(usize, usize), String> {
+    let scanned = catalog_paths(config, vec![root.to_path_buf()], 200)?;
     Ok((
         scanned["symbol_libraries"]
             .as_array()
@@ -221,7 +200,7 @@ fn counts(root: &Path) -> Result<(usize, usize), String> {
 }
 /// Register any folder on this computer as a library source; its collections
 /// join every other collection in the unified browser on the next scan.
-pub fn add_folder(path: &str, name: Option<&str>) -> Result<Value, String> {
+pub fn add_folder(config: &UserConfig, path: &str, name: Option<&str>) -> Result<Value, String> {
     let path = path.trim();
     if path.is_empty() || path.chars().count() > 1024 {
         return Err("provide the full path to a library folder".into());
@@ -247,7 +226,7 @@ pub fn add_folder(path: &str, name: Option<&str>) -> Result<Value, String> {
     if name.chars().count() > 64 {
         return Err("source names must be 64 characters or fewer".into());
     }
-    let mut sources = load_sources();
+    let mut sources = load_sources(config);
     if sources.len() >= MAX_LIBRARY_SOURCES {
         return Err("library sources are limited to 64 folders".into());
     }
@@ -257,22 +236,22 @@ pub fn add_folder(path: &str, name: Option<&str>) -> Result<Value, String> {
     {
         return Err("that folder is already one of the library sources".into());
     }
-    let (symbols, footprints) = counts(&canonical)?;
+    let (symbols, footprints) = counts(config, &canonical)?;
     sources.push(LibrarySource {
         name: name.clone(),
         path: canonical.to_string_lossy().into_owned(),
     });
-    write_sources(&sources)?;
+    write_sources(config, &sources)?;
     Ok(json!({
         "added": name,
         "path": canonical.to_string_lossy(),
         "symbol_libraries": symbols,
         "footprint_libraries": footprints,
-        "sources": self::sources()?["sources"].clone(),
+        "sources": self::sources(config)?["sources"].clone(),
     }))
 }
 /// Forget an added folder; the installed locations are never removed.
-pub fn remove_folder(path: &str) -> Result<Value, String> {
+pub fn remove_folder(config: &UserConfig, path: &str) -> Result<Value, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("provide the folder path to remove".into());
@@ -280,7 +259,7 @@ pub fn remove_folder(path: &str) -> Result<Value, String> {
     let target = PathBuf::from(path);
     let mut removed = None;
     let mut sources = Vec::new();
-    for source in load_sources() {
+    for source in load_sources(config) {
         if removed.is_none() && same_folder(Path::new(&source.path), &target) {
             removed = Some(source.name);
         } else {
@@ -290,15 +269,15 @@ pub fn remove_folder(path: &str) -> Result<Value, String> {
     let Some(name) = removed else {
         return Err("that folder is not one of the added library sources".into());
     };
-    write_sources(&sources)?;
-    Ok(json!({"removed": name, "sources": self::sources()?["sources"].clone()}))
+    write_sources(config, &sources)?;
+    Ok(json!({"removed": name, "sources": self::sources(config)?["sources"].clone()}))
 }
 /// Every place collections are read from: added folders first, then installed
 /// locations, each with how many collections it contributes.
-pub fn sources() -> Result<Value, String> {
+pub fn sources(config: &UserConfig) -> Result<Value, String> {
     let mut list: Vec<Value> = Vec::new();
-    for source in load_sources() {
-        let (symbols, footprints) = counts(&PathBuf::from(&source.path)).unwrap_or((0, 0));
+    for source in load_sources(config) {
+        let (symbols, footprints) = counts(config, &PathBuf::from(&source.path)).unwrap_or((0, 0));
         list.push(json!({
             "name": source.name,
             "path": source.path,
@@ -311,7 +290,7 @@ pub fn sources() -> Result<Value, String> {
         if !std::fs::metadata(&installed).is_ok_and(|metadata| metadata.is_dir()) {
             continue;
         }
-        let (symbols, footprints) = counts(&installed).unwrap_or((0, 0));
+        let (symbols, footprints) = counts(config, &installed).unwrap_or((0, 0));
         list.push(json!({
             "name": "Installed collections",
             "path": installed.to_string_lossy(),
@@ -322,10 +301,10 @@ pub fn sources() -> Result<Value, String> {
     }
     Ok(json!({"sources": list}))
 }
-fn paths() -> Vec<PathBuf> {
+fn paths(config: &UserConfig) -> Vec<PathBuf> {
     let mut roots = built_in_roots();
     roots.extend(
-        load_sources()
+        load_sources(config)
             .into_iter()
             .map(|source| PathBuf::from(source.path)),
     );
@@ -348,16 +327,20 @@ fn built_in_roots() -> Vec<PathBuf> {
     }
     roots
 }
-pub fn catalog() -> Result<Value, String> {
-    catalog_paths(paths(), 4096)
+pub fn catalog(config: &UserConfig) -> Result<Value, String> {
+    catalog_paths(config, paths(config), 4096)
 }
-fn catalog_paths(roots: Vec<PathBuf>, scan_limit: usize) -> Result<Value, String> {
+fn catalog_paths(
+    config: &UserConfig,
+    roots: Vec<PathBuf>,
+    scan_limit: usize,
+) -> Result<Value, String> {
     let mut symbol_files = vec![];
     let mut footprint_libraries = vec![];
     let mut truncated_directories = vec![];
     let mut seen = std::collections::BTreeSet::new();
     for root in roots {
-        let source = source_label(&root);
+        let source = source_label(config, &root);
         for (directory, symbols) in [
             (root.join("symbols"), true),
             (root.join("footprints"), false),
@@ -657,10 +640,14 @@ fn list_args(args: &Value) -> Result<ListArgs, String> {
 
 /// Listings from installed library files, clipped to `room`. Returns the
 /// listings and how many symbols were found in all.
-fn installed_listings(roots: Vec<PathBuf>, room: usize) -> (Vec<PartListing>, usize) {
+fn installed_listings(
+    config: &UserConfig,
+    roots: Vec<PathBuf>,
+    room: usize,
+) -> (Vec<PartListing>, usize) {
     let mut out = vec![];
     let mut found = 0;
-    let Ok(scanned) = catalog_paths(roots, 4096) else {
+    let Ok(scanned) = catalog_paths(config, roots, 4096) else {
         return (out, found);
     };
     let paths = scanned["symbol_libraries"]
@@ -714,10 +701,11 @@ pub fn project_listings(project: &pcbcraft_doc::Project) -> Vec<PartListing> {
 /// # Do not
 /// Change the project or any library.
 pub fn list_with_project(
+    config: &UserConfig,
     args: &Value,
     project: Option<&pcbcraft_doc::Project>,
 ) -> Result<Value, String> {
-    list_over(args, project, paths())
+    list_over(config, args, project, paths(config))
 }
 
 /// Find the footprint a symbol's package text names, such as
@@ -734,6 +722,7 @@ pub fn list_with_project(
 /// # Do not
 /// Run on the frame thread; it reads files.
 pub fn resolve_footprint_over(
+    config: &UserConfig,
     roots: Vec<PathBuf>,
     package: &str,
 ) -> Result<FootprintDefinition, String> {
@@ -749,7 +738,7 @@ pub fn resolve_footprint_over(
     {
         return Err("that package name cannot be looked up".into());
     }
-    let catalog = catalog_paths(roots, 4096)?;
+    let catalog = catalog_paths(config, roots, 4096)?;
     for lib in catalog["footprint_libraries"]
         .as_array()
         .into_iter()
@@ -769,8 +758,11 @@ pub fn resolve_footprint_over(
 }
 
 /// [`resolve_footprint_over`] over the user's own installed folders.
-pub fn resolve_footprint(package: &str) -> Result<FootprintDefinition, String> {
-    resolve_footprint_over(paths(), package)
+pub fn resolve_footprint(
+    config: &UserConfig,
+    package: &str,
+) -> Result<FootprintDefinition, String> {
+    resolve_footprint_over(config, paths(config), package)
 }
 /// `library.list` over chosen installed folders instead of the user's own.
 ///
@@ -781,6 +773,7 @@ pub fn resolve_footprint(package: &str) -> Result<FootprintDefinition, String> {
 /// # Do not
 /// Change the project or any library.
 pub fn list_over(
+    config: &UserConfig,
     args: &Value,
     project: Option<&pcbcraft_doc::Project>,
     roots: Vec<PathBuf>,
@@ -788,7 +781,7 @@ pub fn list_over(
     let (filter, limit, cursor, mut listings) = list_args(args)?;
     listings.extend(project.map(project_listings).unwrap_or_default());
     let room = MAX_LISTINGS.saturating_sub(listings.len());
-    let (installed, found) = installed_listings(roots, room);
+    let (installed, found) = installed_listings(config, roots, room);
     let clipped = found > installed.len();
     listings.extend(installed);
     let mut out = list_listings(listings, &filter, limit, &cursor)?;
@@ -798,25 +791,25 @@ pub fn list_over(
     }
     Ok(out)
 }
-pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
+pub fn read_tool(config: &UserConfig, name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
             .ok_or_else(|| format!("missing {key}"))
     };
     match name {
-        "library.catalog" => catalog(),
-        "library.sources" => sources(),
-        "library.list" => list_with_project(args, None),
-        "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
+        "library.catalog" => catalog(config),
+        "library.sources" => sources(config),
+        "library.list" => list_with_project(config, args, None),
+        "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths(config)})),
         "library.add_folder" => {
             let name = match args.get("name") {
                 None => None,
                 Some(v) => Some(v.as_str().ok_or("name must be a string")?),
             };
-            add_folder(text("path")?, name)
+            add_folder(config, text("path")?, name)
         }
-        "library.remove_folder" => remove_folder(text("path")?),
+        "library.remove_folder" => remove_folder(config, text("path")?),
         "library.search" => {
             let limit = match args.get("limit") {
                 None => 30,
@@ -923,6 +916,7 @@ mod tests {
     }
     #[test]
     fn library_search_rejects_bad_json_types_before_filesystem_access() {
+        let config = &UserConfig::detached();
         for limit in [
             json!(0),
             json!(101),
@@ -933,10 +927,11 @@ mod tests {
             json!(4_294_967_297u64),
         ] {
             let args = json!({"path":"missing.kicad_sym","kind":"symbol","limit":limit});
-            assert!(read_tool("library.search", &args).is_err_and(|e| e.contains("limit")));
+            assert!(read_tool(config, "library.search", &args).is_err_and(|e| e.contains("limit")));
         }
         assert!(
             read_tool(
+                config,
                 "library.search",
                 &json!({"path":"missing.kicad_sym","kind":"symbol","query":true})
             )
@@ -967,6 +962,7 @@ mod tests {
     }
     #[test]
     fn directory_scans_report_truncation_and_errors() -> Result<(), String> {
+        let config = &UserConfig::detached();
         let directory = TestDirectory::new()?;
         for name in ["A.kicad_sym", "B.kicad_sym"] {
             std::fs::write(directory.0.join(name), "(kicad_symbol_lib)")
@@ -978,7 +974,7 @@ mod tests {
         let (_, truncated) = scan_directory(&directory.0, 2)?;
         assert!(!truncated);
         assert!(scan_directory(&directory.0.join("absent"), 10).is_err());
-        let catalog = catalog_paths(vec![directory.0.clone()], 1)?;
+        let catalog = catalog_paths(config, vec![directory.0.clone()], 1)?;
         assert_eq!(catalog["scan_truncated"], true);
         assert_eq!(
             catalog["truncated_directories"].as_array().map(Vec::len),
@@ -1002,10 +998,8 @@ mod tests {
     }
     #[test]
     fn added_folders_join_the_one_library_and_can_be_removed_again() -> Result<(), String> {
-        let _guard = SOURCES_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
         let root = TestDirectory::new()?;
+        let config = &UserConfig::in_folder(root.0.join("config"));
         let vendor = root.0.join("digikey_footprints");
         std::fs::create_dir_all(vendor.join("footprints")).map_err(|e| e.to_string())?;
         std::fs::write(
@@ -1015,15 +1009,15 @@ mod tests {
         .map_err(|e| e.to_string())?;
         std::fs::create_dir_all(vendor.join("footprints/Resistors.pretty"))
             .map_err(|e| e.to_string())?;
-        SOURCES_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")?
-            .replace(root.0.join("sources.json"));
-        let added = add_folder(vendor.to_str().ok_or("folder path is not text")?, None)?;
+        let added = add_folder(
+            config,
+            vendor.to_str().ok_or("folder path is not text")?,
+            None,
+        )?;
         assert_eq!(added["added"], "digikey footprints");
         assert_eq!(added["symbol_libraries"], 1);
         assert_eq!(added["footprint_libraries"], 1);
-        let listing = catalog_paths(paths(), 64)?;
+        let listing = catalog_paths(config, paths(config), 64)?;
         let entry = listing["symbol_libraries"]
             .as_array()
             .and_then(|items| items.iter().find(|item| item["name"] == "MyParts"))
@@ -1032,7 +1026,7 @@ mod tests {
             entry["source"], "digikey footprints",
             "every collection says where it came from"
         );
-        let listed = sources()?;
+        let listed = sources(config)?;
         assert!(
             listed["sources"].as_array().is_some_and(|items| items
                 .iter()
@@ -1042,58 +1036,57 @@ mod tests {
             "the source list names the added folder with its counts"
         );
         assert!(
-            add_folder(vendor.to_str().ok_or("folder path is not text")?, None)
-                .is_err_and(|error| error.contains("already")),
+            add_folder(
+                config,
+                vendor.to_str().ok_or("folder path is not text")?,
+                None
+            )
+            .is_err_and(|error| error.contains("already")),
             "the same folder is not registered twice"
         );
         assert!(
-            add_folder("/definitely/missing/library-folder", None)
+            add_folder(config, "/definitely/missing/library-folder", None)
                 .is_err_and(|error| error.contains("folder that exists")),
             "a missing folder is refused"
         );
         let long = "n".repeat(65);
         assert!(
             add_folder(
+                config,
                 vendor.to_str().ok_or("folder path is not text")?,
                 Some(&long)
             )
             .is_err_and(|error| error.contains("64")),
             "source names are bounded"
         );
-        let removed = remove_folder(vendor.to_str().ok_or("folder path is not text")?)?;
+        let removed = remove_folder(config, vendor.to_str().ok_or("folder path is not text")?)?;
         assert_eq!(removed["removed"], "digikey footprints");
         assert!(
-            remove_folder(vendor.to_str().ok_or("folder path is not text")?)
+            remove_folder(config, vendor.to_str().ok_or("folder path is not text")?)
                 .is_err_and(|error| error.contains("not one of")),
             "removing twice says so plainly"
         );
-        SOURCES_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")?
-            .take();
         Ok(())
     }
     #[test]
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
-        let _guard = SOURCES_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let listing = read_tool("library.sources", &json!({}))?;
+        let config = &UserConfig::detached();
+        let listing = read_tool(config, "library.sources", &json!({}))?;
         assert!(
             listing["sources"].is_array(),
             "sources always answers with a list"
         );
         assert!(
-            read_tool("design.recents", &json!({}))?["designs"].is_array(),
+            read_tool(config, "design.recents", &json!({}))?["designs"].is_array(),
             "the recent designs tool answers through the same router"
         );
         assert!(
-            read_tool("library.add_folder", &json!({"path": 4}))
+            read_tool(config, "library.add_folder", &json!({"path": 4}))
                 .is_err_and(|error| error.contains("path")),
             "a non-text path is refused"
         );
         assert!(
-            read_tool("library.remove_folder", &json!({}))
+            read_tool(config, "library.remove_folder", &json!({}))
                 .is_err_and(|error| error.contains("path")),
             "a missing path is refused"
         );
@@ -1161,15 +1154,17 @@ mod tests {
 
     #[test]
     fn library_list_refuses_a_bad_limit_and_too_many_categories() {
+        let config = &UserConfig::detached();
         for limit in [0, 101] {
-            assert!(read_tool("library.list", &json!({"limit": limit})).is_err());
+            assert!(read_tool(config, "library.list", &json!({"limit": limit})).is_err());
         }
         let many = json!({"categories": vec!["led"; 17]});
-        assert!(read_tool("library.list", &json!({"filter": many})).is_err());
+        assert!(read_tool(config, "library.list", &json!({"filter": many})).is_err());
     }
 
     #[test]
     fn a_package_text_finds_its_installed_footprint_and_refuses_paths() -> Result<(), String> {
+        let config = &UserConfig::detached();
         let root = TestDirectory::new()?;
         let pretty = root.0.join("footprints/Resistor_SMD.pretty");
         std::fs::create_dir_all(&pretty).map_err(|e| e.to_string())?;
@@ -1180,16 +1175,18 @@ mod tests {
         std::fs::copy(fixture, pretty.join("R_0805_2012Metric.kicad_mod"))
             .map_err(|e| e.to_string())?;
         let roots = vec![root.0.clone()];
-        let found = resolve_footprint_over(roots.clone(), "Resistor_SMD:R_0805_2012Metric")?;
+        let found =
+            resolve_footprint_over(config, roots.clone(), "Resistor_SMD:R_0805_2012Metric")?;
         assert!(!found.pads.is_empty());
-        assert!(resolve_footprint_over(roots.clone(), "R_0805_2012Metric").is_ok());
-        assert!(resolve_footprint_over(roots.clone(), "Other:R_0805_2012Metric").is_err());
-        assert!(resolve_footprint_over(roots.clone(), "Resistor_SMD:../x").is_err());
-        assert!(resolve_footprint_over(roots, "Resistor_SMD:Nope").is_err());
+        assert!(resolve_footprint_over(config, roots.clone(), "R_0805_2012Metric").is_ok());
+        assert!(resolve_footprint_over(config, roots.clone(), "Other:R_0805_2012Metric").is_err());
+        assert!(resolve_footprint_over(config, roots.clone(), "Resistor_SMD:../x").is_err());
+        assert!(resolve_footprint_over(config, roots, "Resistor_SMD:Nope").is_err());
         Ok(())
     }
     #[test]
     fn library_list_over_installed_and_fixture_sources_returns_both_kinds() -> Result<(), String> {
+        let config = &UserConfig::detached();
         let dir = TestDirectory::new()?;
         let symbols_dir = dir.0.join("symbols");
         std::fs::create_dir(&symbols_dir).map_err(|e| e.to_string())?;
@@ -1198,7 +1195,7 @@ mod tests {
         std::fs::copy(device, symbols_dir.join("Device.kicad_sym")).map_err(|e| e.to_string())?;
         let fixture = listed("F1", ListingSource::Fixture, "Sample");
         let args = json!({"listings": [fixture], "limit": 100});
-        let out = list_over(&args, None, vec![dir.0.clone()])?;
+        let out = list_over(config, &args, None, vec![dir.0.clone()])?;
         let kinds: Vec<&str> = out["items"]
             .as_array()
             .map(|a| a.iter().filter_map(|i| i["source"].as_str()).collect())

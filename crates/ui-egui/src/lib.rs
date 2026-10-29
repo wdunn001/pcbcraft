@@ -1462,6 +1462,17 @@ impl App {
         app.home_open = show_home && app.project.components.is_empty();
         app
     }
+    /// The settings folder this window's session was given. Recents, library
+    /// sources and conversations are all read and written below it.
+    ///
+    /// # Do not
+    /// - Read the environment here; the entry point puts the folder in the session.
+    pub(crate) fn user_config(&self) -> pcbcraft_engine::user_config::UserConfig {
+        self.session
+            .lock()
+            .map(|s| s.config.clone())
+            .unwrap_or_default()
+    }
     fn create(
         session: SharedSession,
         preferences: Preferences,
@@ -1472,9 +1483,11 @@ impl App {
             .lock()
             .map(|s| s.project.clone())
             .unwrap_or_default();
+        let config = session.lock().map(|s| s.config.clone()).unwrap_or_default();
         let width = project.board.width;
         let height = project.board.height;
         let library = library::Browser {
+            config: config.clone(),
             editor: authoring::initial_editor(tab, &project),
             ..Default::default()
         };
@@ -1509,7 +1522,7 @@ impl App {
                 &preferences.language,
             )),
             preferences,
-            recent_designs: pcbcraft_engine::recents::load_recent_paths(),
+            recent_designs: pcbcraft_engine::recents::load_recent_paths(&config),
             home_open: false,
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
@@ -1807,8 +1820,9 @@ impl App {
             self.assistant_save();
         }
         if success && (name == "save" || name == "open") {
-            pcbcraft_engine::recents::record_recent_path(&self.path);
-            self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
+            let config = self.user_config();
+            pcbcraft_engine::recents::record_recent_path(&config, &self.path);
+            self.recent_designs = pcbcraft_engine::recents::load_recent_paths(&config);
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
@@ -7178,33 +7192,17 @@ mod tests {
     #[test]
     fn a_folder_added_from_anywhere_joins_the_list_and_removal_forgets_it_again()
     -> Result<(), String> {
-        let _turn = pcbcraft_engine::library::SOURCES_TEST_LOCK
-            .lock()
-            .map_err(|_| "source test lock unavailable")?;
-        let file =
-            std::env::temp_dir().join(format!("pcbcraft-source-e2e-{}.json", std::process::id()));
-        let _ = std::fs::remove_file(&file);
-        {
-            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "source path slot unavailable")?;
-            *slot = Some(file.clone());
-        }
-        let outcome = source_round_trip(&file);
-        {
-            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "source path slot unavailable")?;
-            *slot = None;
-        }
-        let _ = std::fs::remove_file(&file);
+        let (config, directory) = e2e::support::private_config("sources")?;
+        let outcome = source_round_trip(&config);
+        let _ = std::fs::remove_dir_all(&directory);
         outcome
     }
     /// The visible loop a newcomer follows: type a folder, press Add folder,
     /// watch its collections appear, select one, press Remove source, and
     /// watch both the list and the remembered config forget it.
-    fn source_round_trip(file: &std::path::Path) -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    fn source_round_trip(config: &pcbcraft_engine::user_config::UserConfig) -> Result<(), String> {
+        let file = config.file("library-sources.json")?;
+        let shared = e2e::support::session_with(config);
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.change_tab(Tab::Libraries);
         app.refresh();
@@ -7241,7 +7239,7 @@ mod tests {
             app.library.notice
         );
         let saved =
-            std::fs::read_to_string(file).map_err(|e| format!("config not written: {e}"))?;
+            std::fs::read_to_string(&file).map_err(|e| format!("config not written: {e}"))?;
         assert!(
             saved.contains(&shelf),
             "the folder is remembered in the config file"
@@ -7688,17 +7686,8 @@ mod tests {
 
     #[test]
     fn the_start_screen_lists_designs_you_can_open_again() -> Result<(), String> {
-        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-home-recents-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let (config, directory) = e2e::support::private_config("home-recents")?;
+        let shared = e2e::support::session_with(&config);
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         let file = directory
@@ -7722,10 +7711,6 @@ mod tests {
             !app.home_open,
             "clicking a recent design opens it and leaves the start screen"
         );
-        pcbcraft_engine::recents::clear_recent_paths();
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = None;
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
@@ -7973,19 +7958,10 @@ mod tests {
 
     #[test]
     fn designs_opened_on_this_computer_are_remembered_for_the_start_screen() -> Result<(), String> {
-        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-ui-recents-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        pcbcraft_engine::recents::record_recent_path("/designs/flashlight.board.json");
-        pcbcraft_engine::recents::record_recent_path("/designs/radio.board.json");
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let (config, directory) = e2e::support::private_config("ui-recents")?;
+        pcbcraft_engine::recents::record_recent_path(&config, "/designs/flashlight.board.json");
+        pcbcraft_engine::recents::record_recent_path(&config, "/designs/radio.board.json");
+        let shared = e2e::support::session_with(&config);
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         assert_eq!(
@@ -8003,11 +7979,77 @@ mod tests {
             1,
             "the app keeps the recent list ready for the Start screen"
         );
-        pcbcraft_engine::recents::clear_recent_paths();
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = None;
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    /// Every files-on-disk side effect of a window goes below the folder its
+    /// session carries, and a session built by a test has none. This proves it
+    /// for the whole suite: the suite runs again in a child process whose
+    /// home, configuration and cache folders are empty sentinels, and any file
+    /// that shows up in one means some test reached the real folders.
+    #[test]
+    fn the_ui_suite_leaves_the_real_configuration_folder_untouched() -> Result<(), String> {
+        const INNER: &str = "PCBCRAFT_CONFIG_PROOF_INNER";
+        if std::env::var_os(INNER).is_some() {
+            return Ok(());
+        }
+        fn files_below(folder: &std::path::Path, found: &mut Vec<String>) {
+            let Ok(entries) = std::fs::read_dir(folder) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    files_below(&path, found);
+                } else {
+                    found.push(path.display().to_string());
+                }
+            }
+        }
+        let root = std::env::temp_dir().join(format!("pcbcraft-sentinel-{}", std::process::id()));
+        let sentinel = |name: &str| -> Result<std::path::PathBuf, String> {
+            let folder = root.join(name);
+            std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+            Ok(folder)
+        };
+        let (home, config, appdata, cache) = (
+            sentinel("home")?,
+            sentinel("config")?,
+            sentinel("appdata")?,
+            sentinel("cache")?,
+        );
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let run = std::process::Command::new(exe)
+            .args([
+                "--test-threads=32",
+                "--skip",
+                "the_ui_suite_leaves_the_real_configuration_folder_untouched",
+            ])
+            .env(INNER, "1")
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("APPDATA", &appdata)
+            .env("XDG_CACHE_HOME", &cache)
+            .env("LOCALAPPDATA", &cache)
+            .output()
+            .map_err(|e| e.to_string())?;
+        let mut found = Vec::new();
+        for folder in [&home, &config, &appdata, &cache] {
+            files_below(folder, &mut found);
+        }
+        let _ = std::fs::remove_dir_all(&root);
+        let log = String::from_utf8_lossy(&run.stdout);
+        let tail: Vec<&str> = log.lines().rev().take(40).collect();
+        assert!(
+            found.is_empty(),
+            "the suite wrote into the real configuration folders: {found:?}"
+        );
+        assert!(
+            run.status.success(),
+            "the suite failed in the sentinel run:\n{}",
+            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+        );
         Ok(())
     }
 
