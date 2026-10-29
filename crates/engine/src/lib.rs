@@ -2132,6 +2132,14 @@ impl Session {
         self.next_id = next;
         Ok(json!({"revision":self.revision,"results":results}))
     }
+    /// Run one command on a scratch copy and return its result without
+    /// committing anything: no revision bump, no undo entry. For read
+    /// commands a panel polls every frame.
+    pub fn peek(&self, id: &str, params: Value) -> Result<Value, Error> {
+        let mut candidate = self.project.clone();
+        let mut next = self.next_id;
+        run(&mut candidate, &mut next, id, &params)
+    }
     fn commit(&mut self, p: Project) {
         self.undo.push_back(std::mem::replace(&mut self.project, p));
         while self.undo.len() > 32 {
