@@ -66,8 +66,8 @@ fn a_newcomer_opens_the_3d_view_and_sees_the_parts() -> Result<(), String> {
         "the parts list names the connector"
     );
     assert!(
-        paints_text(&ctx, &mut app, "not loaded yet")?,
-        "the tab says model files are not loaded"
+        paints_text(&ctx, &mut app, "default boxes")?,
+        "the tab says bodies are default boxes"
     );
     let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
@@ -143,6 +143,143 @@ fn a_newcomer_picks_a_part_from_the_3d_list() -> Result<(), String> {
     let family = app.view3d.body_family(j1).ok_or("J1 should have a body")?;
     authoring::tests::tap(&ctx, &mut app, &format!("J1  {family}"))?;
     assert_eq!(app.selected, Some(j1));
+    Ok(())
+}
+
+/// Give J1 a footprint that names `model_path`, then open the 3D tab and let
+/// the loader settle. The edit goes through the session so a refresh keeps it.
+fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), String> {
+    let (ctx, mut app, j1) = open_3d()?;
+    {
+        let mut s = app.session.lock().map_err(|_| "session lock")?;
+        let mut pads = vec![];
+        for f in s
+            .project
+            .board
+            .footprints
+            .iter_mut()
+            .filter(|f| f.component == j1)
+        {
+            for p in &mut f.pads {
+                let mut g = authoring::new_pad(&p.number, p.diameter);
+                g.position = p.offset;
+                g.size = pcbcraft_geom::Point::new(p.diameter, p.diameter);
+                p.geometry = Some(g.clone());
+                pads.push(g);
+            }
+        }
+        let c = s
+            .project
+            .components
+            .iter_mut()
+            .find(|c| c.id == j1)
+            .ok_or("J1 vanished")?;
+        c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "WithModel".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads,
+                graphics: vec![],
+                model: Some(pcbcraft_library::Model3D {
+                    path: model_path.into(),
+                    offset: [0.0; 3],
+                    scale: [1.0; 3],
+                    rotate: [0.0; 3],
+                    raw_source: String::new(),
+                }),
+                rules: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            },
+        });
+        s.revision += 1;
+    }
+    app.refresh();
+    for _ in 0..200 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if app.view3d.model_status(j1) != Some(pcbcraft_io::ModelStatus::Loading) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    if let Some(e) = app.view3d.build_error() {
+        return Err(format!("the 3D view could not be built: {e}"));
+    }
+    Ok((ctx, app, j1))
+}
+
+fn scratch_file(name: &str, bytes: &[u8]) -> Result<String, String> {
+    let dir = std::env::temp_dir().join(format!("pcbcraft-3d-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let file = dir.join(name);
+    std::fs::write(&file, bytes).map_err(|e| e.to_string())?;
+    file.to_str().map(str::to_string).ok_or("path".into())
+}
+
+#[test]
+fn a_newcomer_sees_the_real_part_model_in_3d() -> Result<(), String> {
+    let (_, _, j1) = open_3d()?;
+    let box_triangles = {
+        let (_, app, _) = open_3d()?;
+        app.view3d.body_triangles(j1).ok_or("J1 box")?
+    };
+    let path = scratch_file(
+        "wedge.gltf",
+        include_bytes!("../../../io/tests/fixtures/wedge.gltf"),
+    )?;
+    let (ctx, mut app, j1) = open_3d_with_model(&path)?;
+    assert_eq!(
+        app.view3d.model_status(j1),
+        Some(pcbcraft_io::ModelStatus::Loaded)
+    );
+    let triangles = app.view3d.body_triangles(j1).ok_or("J1 body")?;
+    assert_eq!(
+        triangles, 2,
+        "the wedge has two faces, the box had {box_triangles}"
+    );
+    assert_ne!(triangles, box_triangles);
+    assert_eq!(app.view3d.body_family(j1).as_deref(), Some("model"));
+    let (lo, hi) = app.view3d.body_bounds(j1).ok_or("bounds")?;
+    assert!(
+        (hi[0] - lo[0] - 4.0).abs() < 1e-3 && (hi[1] - lo[1] - 3.0).abs() < 1e-3,
+        "the 4 by 3 millimetre wedge sits on the board: {lo:?} {hi:?}"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "J1  model")?,
+        "the parts list says model for J1"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_why_a_model_did_not_load() -> Result<(), String> {
+    let path = scratch_file("broken.gltf", b"this is not a model")?;
+    let (ctx, mut app, j1) = open_3d_with_model(&path)?;
+    assert!(
+        matches!(
+            app.view3d.model_status(j1),
+            Some(pcbcraft_io::ModelStatus::Failed(_))
+        ),
+        "a corrupt file is a failure, not a crash"
+    );
+    assert_eq!(
+        app.view3d.body_family(j1).as_deref().map(|f| f != "model"),
+        Some(true),
+        "the default box stays"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Box kept.")?,
+        "the parts list says the box was kept"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "could not be read")?,
+        "the parts list says why in plain words"
+    );
     Ok(())
 }
 

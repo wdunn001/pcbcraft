@@ -64,6 +64,7 @@ impl Default for Editor {
             wizard: Default::default(),
             tool: LibraryTool::Select,
             camera: Camera {
+                mirror: false,
                 center: Point::default(),
                 zoom: 18.0,
             },
@@ -1932,6 +1933,19 @@ pub(crate) mod tests {
         app.tool_call("redo", json!({}));
         assert_eq!(app.project.library.symbols.len(), 1);
         Ok(())
+    }
+    /// Opens a page the way a person does now that the pages live in menus:
+    /// Settings is Edit > Preferences, Rules and Checks are in View.
+    pub(crate) fn open_page(ctx: &egui::Context, app: &mut App, page: &str) -> Result<(), String> {
+        let (menu, item) = match page {
+            "Settings" => ("Edit", "Preferences"),
+            "Rules" => ("View", "Rules"),
+            "Checks" => ("View", "Checks"),
+            other => return Err(format!("{other} is not a page in a menu")),
+        };
+        tap(ctx, app, menu)?;
+        frame(ctx, app, vec![]);
+        tap(ctx, app, item)
     }
     /// Find the button whose label reads exactly `label`, scrolling the page
     /// down and then up if needed, and click it like a person would.

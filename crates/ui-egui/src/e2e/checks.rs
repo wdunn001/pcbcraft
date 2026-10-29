@@ -2,80 +2,49 @@ use super::super::*;
 use super::support::*;
 
 #[test]
-fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
+fn a_newcomer_sees_findings_as_rows_in_the_bottom_sheet() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
-    let mut best: Option<(String, usize)> = None;
-    for key in ["erc", "drc"] {
-        if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-            let mut counts: Vec<(String, usize)> = Vec::new();
-            for finding in findings {
-                let code = finding
-                    .get("code")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("finding")
-                    .to_owned();
-                if let Some(row) = counts.iter_mut().find(|(c, _)| *c == code) {
-                    row.1 += 1;
-                } else {
-                    counts.push((code, 1));
-                }
-            }
-            if let Some(top) = counts.iter().max_by_key(|(_, n)| *n)
-                && best.as_ref().is_none_or(|(_, n)| top.1 > *n)
-            {
-                best = Some(top.clone());
-            }
-        }
-    }
-    let (code, count) = best.ok_or("the practice board should have findings")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
-    let words = code.replace('_', " ");
-    let mut chars = words.chars();
-    let human = match chars.next() {
-        Some(first) => first
-            .to_uppercase()
-            .next()
-            .into_iter()
-            .chain(chars)
-            .collect::<String>(),
-        None => words,
-    };
-    let title = format!("{human} · {count} places");
-    let mut shown = false;
-    for _ in 0..10 {
-        if paints_text(&ctx, &mut app, &title)? {
-            shown = true;
-            break;
-        }
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Line,
-                    delta: egui::vec2(0.0, -4.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
     assert!(
-        shown,
-        "the checks list should group every place one check fired under one heading ({title}): {}",
-        app.message
+        !app.region().bottom_open,
+        "the sheet starts collapsed to its tab strip"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Whether the wiring makes electrical sense")?,
-        "each checks group should say in plain words what it looks at: {}",
-        app.message
+        paints_text(&ctx, &mut app, "Console")?,
+        "the collapsed sheet still shows its tabs"
+    );
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(app.region().bottom_open, "View > Checks opens the sheet");
+    for word in ["Run checks", "All findings", "Show", "Hide", "Mute"] {
+        assert!(
+            paints_text(&ctx, &mut app, word)?,
+            "the Findings tab offers {word}: {}",
+            app.message
+        );
+    }
+    let first = app
+        .checks
+        .get("erc")
+        .and_then(Value::as_array)
+        .and_then(|v| v.first())
+        .or_else(|| {
+            app.checks
+                .get("drc")
+                .and_then(Value::as_array)
+                .and_then(|v| v.first())
+        })
+        .and_then(|f| f.get("message"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or("the practice board should have findings")?;
+    assert!(
+        paints_text(&ctx, &mut app, &first)?,
+        "a finding is one row with its message: {first}"
     );
     Ok(())
 }
@@ -87,7 +56,7 @@ fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for _ in 0..2 {
         frame(
@@ -153,14 +122,14 @@ fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Quiet this area")?,
+        paints_text(&ctx, &mut app, "Mute")?,
         "every finding offers to quiet its corner of the board: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Quiet this area")?;
+    authoring::tests::tap(&ctx, &mut app, "Mute")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let code = app
@@ -238,14 +207,14 @@ fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
     let before = total(&app);
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Hide this")?,
+        paints_text(&ctx, &mut app, "Hide")?,
         "every finding offers to be hidden: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Hide this")?;
+    authoring::tests::tap(&ctx, &mut app, "Hide")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -285,7 +254,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for _ in 0..1 {
         frame(
@@ -324,19 +293,35 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         "the check is written into the design: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let named = app
+        .checks
+        .get("drc")
+        .and_then(Value::as_array)
+        .into_iter()
+        .chain(app.checks.get("erc").and_then(Value::as_array))
+        .flatten()
+        .find(|f| {
+            f.get("code")
+                .and_then(Value::as_str)
+                .is_some_and(|c| c.starts_with("custom_"))
+        })
+        .and_then(|f| f.get("message"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or("the custom check should fire on the practice board")?;
     assert!(
-        paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
-        "the review shows the check under the name it was given: {}",
+        paints_text(&ctx, &mut app, &named)?,
+        "the sheet lists the check's finding: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "1 to fix")?,
+        paints_text(&ctx, &mut app, "1 error")?,
         "a breach of a must-fix check lands in the footer count: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     scrolled_to_at(&ctx, &mut app, "Remove this check", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -371,5 +356,53 @@ fn a_newcomer_jumps_from_a_finding_to_the_copper_it_names() -> Result<(), String
             "{name}: the finding picks its copper"
         );
     }
+    Ok(())
+}
+
+/// A newcomer opens the sample board that carries three known problems and
+/// reads them on the Checks sheet: one error and two warnings.
+#[test]
+fn a_newcomer_reads_the_showcase_findings() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("showcase-with-findings.pcbcraft");
+    let path = path.to_str().ok_or("the example path is text")?.to_owned();
+    assert!(
+        app.tool_call("open", json!({ "path": path })),
+        "the example opens: {}",
+        app.message
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let level = |name: &str| -> usize {
+        ["erc", "drc"]
+            .iter()
+            .filter_map(|key| app.checks.get(*key).and_then(serde_json::Value::as_array))
+            .flatten()
+            .filter(|f| f.get("severity").and_then(serde_json::Value::as_str) == Some(name))
+            .count()
+    };
+    assert_eq!(level("error"), 1, "one error is waiting");
+    assert_eq!(level("warning"), 2, "two warnings are waiting");
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let error_message = ["erc", "drc"]
+        .iter()
+        .filter_map(|key| app.checks.get(*key).and_then(serde_json::Value::as_array))
+        .flatten()
+        .find(|f| f.get("severity").and_then(serde_json::Value::as_str) == Some("error"))
+        .and_then(|f| f.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or("the error finding has a message")?;
+    assert!(
+        paints_text(&ctx, &mut app, &error_message)?,
+        "the error is named on the Checks sheet: {error_message}"
+    );
     Ok(())
 }

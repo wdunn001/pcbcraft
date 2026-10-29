@@ -12,7 +12,8 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    app.change_tab(Tab::Pcb);
+    open_tree_row(&ctx, &mut app, "nets");
     assert!(
         scrolled_to(&ctx, &mut app, "New net")?,
         "the layers tree offers a way to add a connection"
@@ -206,7 +207,7 @@ fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -324,7 +325,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..18 {
         frame(
             &ctx,
@@ -386,7 +387,7 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     for _ in 0..14 {
         frame(
             &ctx,
@@ -578,10 +579,14 @@ fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Renumber parts")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Preview")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "R7  →  R3")?,
+        scrolled_to_at(&ctx, &mut app, "R7  →  R3", 150.0)?,
         "the plan spells out a new number before anything changes: {}",
         app.message
     );

@@ -1,0 +1,44 @@
+[
+ {
+  "id": "1cb16b43012d96bfb090dc6a47b160d75ad5574f",
+  "name": "C.kicad_sym",
+  "type": "blob",
+  "path": "Device.kicad_symdir/C.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "3d08ad680e4dfe1d3989b02a05afb7679b2e01ad",
+  "name": "D.kicad_sym",
+  "type": "blob",
+  "path": "Device.kicad_symdir/D.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "8a6f1a73332c918883b6782ac9cd03162f0949c7",
+  "name": "L.kicad_sym",
+  "type": "blob",
+  "path": "Device.kicad_symdir/L.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "d7af0c685e07eee9e2cf5a34b2710fdb8fe6735a",
+  "name": "LED.kicad_sym",
+  "type": "blob",
+  "path": "Device.kicad_symdir/LED.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "7518db51e6f8580ceaae96208b4cad1e8065c66b",
+  "name": "R.kicad_sym",
+  "type": "blob",
+  "path": "Device.kicad_symdir/R.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "8cf5980a2b41689afc82aff6a3efff53a12863ba",
+  "name": "R_Small.kicad_sym",
+  "type": "blob",
+  "path": "Device.kicad_symdir/R_Small.kicad_sym",
+  "mode": "100644"
+ }
+]

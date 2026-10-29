@@ -98,7 +98,7 @@ jobs:
     name: Clippy and docs
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -149,7 +149,7 @@ jobs:
     name: Tests
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     env:
@@ -187,7 +187,7 @@ jobs:
     name: E2E stories and control coverage
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -267,8 +267,9 @@ jobs:
   msrv:
     name: Minimum Rust version
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Main and manual runs only: pull requests share a small pool of hosted runners.
+    if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -437,7 +438,8 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    # Main and manual runs only: pull requests share a small pool of hosted runners.
+    if: needs.changes.outputs.rust == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read

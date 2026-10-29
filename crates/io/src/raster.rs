@@ -565,6 +565,7 @@ mod tests {
             position: Point::default(),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad],
         });
         p.components.push(pcbcraft_doc::Component {

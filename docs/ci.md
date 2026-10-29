@@ -114,6 +114,10 @@ proves the release packaging works. Packaging logic is in
 Release packaging, signing and hosted web bundles are maintainer decisions listed
 below. Fork branch pushes do not publish artifacts unless a maintainer cuts a tag.
 
+## Brand icons
+
+The logo masters and every platform icon live in `assets/brand/`. Run `assets/brand/build.sh` (needs docker) to regenerate the masters, the Linux hicolor PNGs and scalable SVG, the Windows `.ico`, the macOS `.icns` and the web icons in `assets/brand/generated/`. Commit the result; packaging and the app embed the committed files and need no rasteriser.
+
 ## See also
 
 - [getting-started.md](getting-started.md) for branch and proof workflow

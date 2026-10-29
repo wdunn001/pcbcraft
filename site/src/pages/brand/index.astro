@@ -1,0 +1,394 @@
+---
+// Brand style guide at /brand/. Everything that can be derived is derived: swatches, hex values
+// and contrast ratios are read from src/styles/theme.css through src/lib/contrast.js, the logos come
+// from src/assets/brand/, and the kit zip is built by ./pcbcraft-brand-kit.zip.ts.
+// Rules: no colour value is typed in this page; building fails if a shown pair is below AA.
+// Do not: add copy that makes a product claim; the voice section governs this page too.
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+import StatusChip from '../../components/StatusChip.astro';
+import mark from '../../assets/brand/concept-2.svg';
+import mark16 from '../../assets/brand/concept-2-16.svg';
+import mono from '../../assets/brand/concept-2-mono.svg';
+import { TOKEN_ROWS, TEXT_TOKENS, GROUNDS, textRatio, controlRatio, assertBrandPairs, tokenMap, type ThemeId } from '../../lib/brand';
+import { url } from '../../lib/site';
+
+assertBrandPairs();
+const themes: ThemeId[] = ['dark', 'light'];
+const sections = [
+  ['logo', 'Logo'], ['colour', 'Colour'], ['type', 'Typography'], ['motifs', 'Motifs and imagery'],
+  ['components', 'Components'], ['voice', 'Voice and wording'], ['downloads', 'Downloads'], ['terms', 'Usage terms'],
+];
+const scale = [
+  ['Display', 'h1', '3.4rem', '700', '1.04', 'IBM Plex Sans Condensed'],
+  ['Heading', 'h2', '2.4rem', '700', '1.12', 'IBM Plex Sans Condensed'],
+  ['Subheading', 'h3', '1.3rem', '600', '1.25', 'IBM Plex Sans Condensed'],
+  ['Body', 'p', '1rem', '400', '1.65', 'IBM Plex Sans'],
+  ['Label', 'p', '0.78rem', '600', '1.2', 'JetBrains Mono'],
+];
+const donts = [
+  ['Stretched', 'stretch'], ['Recoloured', 'recolour'], ['On a busy background', 'busy'], ['Rotated', 'rotate'], ['With effects', 'effect'],
+];
+const fmt = (n: number) => n.toFixed(2);
+---
+
+<MarketingLayout title="Brand" description="How PCBCraft looks: logo, colour, type, motifs, components and voice, with a downloadable brand kit.">
+  <section class="head">
+    <div class="wrap">
+      <p class="eyebrow">Brand</p>
+      <h1>The PCBCraft brand</h1>
+      <p class="lede">One place that shows how PCBCraft looks and how to use it. The colours, ratios and logos on this page are read from the same files the site is built from.</p>
+      <nav class="toc mono" aria-label="On this page">
+        {sections.map(([id, label]) => <a href={`#${id}`}>{label}</a>)}
+      </nav>
+    </div>
+  </section>
+
+  <!-- 1 Logo -->
+  <section class="section" id="logo" aria-labelledby="h-logo">
+    <div class="wrap">
+      <h2 id="h-logo">Logo</h2>
+      <p class="sub">The mark is the Layer stack: three board layers, offset, with the top layer in silkscreen white. The wordmark is PCBCraft in IBM Plex Sans SemiBold. The finished mark replaces these files through #687.</p>
+      <div class="tiles">
+        {
+          themes.map((t) => (
+            <figure class="tile" data-theme-scope={t}>
+              <div class="lockup"><img src={mark.src} width="56" height="56" alt="" /><span>PCBCraft</span></div>
+              <figcaption class="mono">Full lockup, {t}</figcaption>
+            </figure>
+          ))
+        }
+        <figure class="tile" data-theme-scope="dark">
+          <img src={mark.src} width="96" height="96" alt="The PCBCraft mark: three stacked board layers" />
+          <figcaption class="mono">Icon only</figcaption>
+        </figure>
+        <figure class="tile" data-theme-scope="light">
+          <span class="wordmark">PCBCraft</span>
+          <figcaption class="mono">Wordmark</figcaption>
+        </figure>
+        <figure class="tile" data-theme-scope="light">
+          <span class="mono-mark" style={`--src:url(${mono.src})`} role="img" aria-label="The mark in one colour, dark ink"></span>
+          <figcaption class="mono">One colour, dark ink</figcaption>
+        </figure>
+        <figure class="tile" data-theme-scope="dark">
+          <span class="mono-mark" style={`--src:url(${mono.src})`} role="img" aria-label="The mark in one colour, light ink"></span>
+          <figcaption class="mono">One colour, light ink</figcaption>
+        </figure>
+      </div>
+
+      <div class="two">
+        <div>
+          <h3>Clear space and size</h3>
+          <p>Keep clear space equal to a quarter of the mark's width on every side. Do not place text or other marks inside it. The full lockup is at least 24 px high on screen. Below 24 px use the 16 px variant, which drops the third layer so the shapes stay open.</p>
+          <div class="sizes">
+            <figure><img src={mark.src} width="64" height="64" alt="The mark at 64 pixels" /><figcaption class="mono">64 px</figcaption></figure>
+            <figure><img src={mark.src} width="24" height="24" alt="The mark at 24 pixels, the smallest size for the full mark" /><figcaption class="mono">24 px</figcaption></figure>
+            <figure><img src={mark16.src} width="16" height="16" alt="The 16 pixel variant of the mark" /><figcaption class="mono">16 px variant</figcaption></figure>
+          </div>
+        </div>
+        <figure class="clear" data-theme-scope="dark">
+          <div class="clear-box"><img src={mark.src} width="120" height="120" alt="The mark with a quarter-width clear space drawn around it" /></div>
+          <figcaption class="mono">Clear space = 1/4 of the mark width (x)</figcaption>
+        </figure>
+      </div>
+
+      <h3>Do and do not</h3>
+      <div class="dd">
+        <figure class="dd-do" data-theme-scope="dark"><img src={mark.src} width="72" height="72" alt="The mark used correctly on a dark ground" /><figcaption class="mono">Do: on a plain dark ground</figcaption></figure>
+        <figure class="dd-do" data-theme-scope="light"><img src={mark.src} width="72" height="72" alt="The mark used correctly on a light ground" /><figcaption class="mono">Do: on a plain light ground</figcaption></figure>
+        {
+          donts.map(([label, kind]) => (
+            <figure class={`dd-dont ${kind}`}>
+              <div class="stage"><img src={mark.src} width="72" height="72" alt={`Wrong use of the mark: ${label.toLowerCase()}`} /></div>
+              <figcaption class="mono">Do not: {label.toLowerCase()}</figcaption>
+            </figure>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 Colour -->
+  <section class="section" id="colour" aria-labelledby="h-colour">
+    <div class="wrap">
+      <h2 id="h-colour">Colour</h2>
+      <p class="sub">Dark first. The ground is solder-mask green-black, the accents are copper and gold, and the layer colours are the app's. Every text pair shown is at least 4.5:1, and control borders at least 3:1. The build stops if one drops lower.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th scope="col">Token</th><th scope="col">Role</th><th scope="col">Dark</th><th scope="col">Light</th></tr>
+          </thead>
+          <tbody>
+            {
+              TOKEN_ROWS.map((r) => (
+                <tr>
+                  <th scope="row"><span class="mono">--pc-{r.id}</span><br />{r.name}</th>
+                  <td>{r.role}</td>
+                  {
+                    themes.map((t) => (
+                      <td>
+                        <span class="sw" style={`background:${tokenMap[t][r.id]}`} role="img" aria-label={`${r.name}, ${t}, ${tokenMap[t][r.id]}`}></span>
+                        <span class="mono hex">{tokenMap[t][r.id]}</span>
+                      </td>
+                    ))
+                  }
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Contrast of text colours</h3>
+      <p class="sub">Ratio of each text colour on each ground. AA needs 4.5:1.</p>
+      <div class="ratios">
+        {
+          themes.map((t) => (
+            <div class="table-wrap">
+              <table>
+                <caption class="mono">{t}</caption>
+                <thead><tr><th scope="col">Colour</th>{GROUNDS.map((g) => <th scope="col">on {g}</th>)}</tr></thead>
+                <tbody>
+                  {
+                    TEXT_TOKENS.map((fg) => (
+                      <tr>
+                        <th scope="row"><span class="sw sm" style={`background:${tokenMap[t][fg]}`} aria-hidden="true"></span> {fg}</th>
+                        {GROUNDS.map((g) => { const r = textRatio(t, fg, g); return <td class="mono">{fmt(r.value)} {r.pass ? 'AA' : 'fail'}</td>; })}
+                      </tr>
+                    ))
+                  }
+                  <tr>
+                    <th scope="row"><span class="sw sm" style={`background:${tokenMap[t].edge}`} aria-hidden="true"></span> edge (control border)</th>
+                    {['bg', 'surface', 'raised'].map((g) => { const r = controlRatio(t, 'edge', g); return <td class="mono">{fmt(r.value)} {r.pass ? '3:1' : 'fail'}</td>; })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 Type -->
+  <section class="section" id="type" aria-labelledby="h-type">
+    <div class="wrap">
+      <h2 id="h-type">Typography</h2>
+      <p class="sub">Three families, all under the SIL Open Font License 1.1 and self-hosted. Headings use IBM Plex Sans Condensed, body text IBM Plex Sans, and code, part numbers and labels JetBrains Mono.</p>
+      <div class="scale">
+        {
+          scale.map(([name, , size, weight, lh, family]) => (
+            <div class="row">
+              <p class="mono meta">{name}<br />{size} · {weight} · {lh}<br />{family}</p>
+              <p class="spec" style={`font-size:${size};font-weight:${weight};line-height:${lh};font-family:${family === 'JetBrains Mono' ? 'var(--pc-font-mono)' : family === 'IBM Plex Sans' ? 'var(--pc-font-body)' : 'var(--pc-font-head)'}`}>Route the board, check it, send it to fab</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 Motifs -->
+  <section class="section" id="motifs" aria-labelledby="h-motifs">
+    <div class="wrap">
+      <h2 id="h-motifs">Motifs and imagery</h2>
+      <p class="sub">The look comes from the board itself. Use these motifs sparingly and never as decoration without a job.</p>
+      <div class="motifs">
+        <figure class="motif"><div class="demo grid"></div><figcaption><b>Grid.</b> A 24 px grid at 5 percent, the pitch the editor shows. Page backgrounds only.</figcaption></figure>
+        <figure class="motif"><div class="demo"><span class="stub"></span><span class="stub-title">Heading</span></div><figcaption><b>Trace stub.</b> A 56 px copper bar above each section heading.</figcaption></figure>
+        <figure class="motif"><div class="demo pads"><span class="pad t-sch"></span><span class="pad t-pcb"></span><span class="pad t-lib"></span><span class="pad t-out"></span></div><figcaption><b>Pad dots.</b> One dot in the layer colour on cards: schematic, layout, libraries, outputs.</figcaption></figure>
+        <figure class="motif"><div class="demo chamfer"></div><figcaption><b>Chamfered corner.</b> The board edge shape, for hero imagery only.</figcaption></figure>
+      </div>
+      <h3>Rules</h3>
+      <ul class="rules">
+        <li>Real product images only. No stock photos, no gradients on text, no glow.</li>
+        <li>Motion draws a trace once and stops. It is off when the reader asks for reduced motion.</li>
+        <li>Mono uppercase labels, like silkscreen, for categories and part numbers. Reference designators (U1, R3) are decoration only.</li>
+      </ul>
+      <h3>Screenshot style</h3>
+      <div class="two">
+        <svg class="shotdemo" viewBox="0 0 320 200" role="img" aria-label="Diagram of a screenshot treatment: a tight crop, a gold ring around the target and a callout label">
+          <rect width="320" height="200" fill="var(--pc-surface)" stroke="var(--pc-edge)" />
+          <path d="M20 150H110L140 120H260" fill="none" stroke="var(--pc-copper)" stroke-width="5" stroke-linecap="round" />
+          <rect x="150" y="60" width="90" height="50" rx="3" fill="var(--pc-raised)" stroke="var(--pc-text)" stroke-width="2" />
+          <circle cx="195" cy="85" r="46" fill="none" stroke="var(--pc-gold)" stroke-width="3" />
+          <path d="M240 45H290" stroke="var(--pc-gold)" stroke-width="2" />
+          <rect x="240" y="30" width="72" height="24" rx="3" fill="var(--pc-gold)" />
+          <text x="248" y="46" font-family="var(--pc-font-mono)" font-size="11" font-weight="600" fill="var(--pc-onacc)">U1</text>
+        </svg>
+        <ul class="rules">
+          <li>Crop to the control or the part of the board the page is about, with a little padding.</li>
+          <li>Capture at 2x and never scale up pixels. Dark and light versions of each shot.</li>
+          <li>A highlight ring in gold marks the target. A callout is a short label and appears only when the page needs it.</li>
+          <li>Every screenshot has alt text in plain words.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 Components -->
+  <section class="section" id="components" aria-labelledby="h-comp">
+    <div class="wrap">
+      <h2 id="h-comp">Components</h2>
+      <p class="sub">Live examples in both themes. They use the same tokens and styles as the rest of the site.</p>
+      <div class="two cmp">
+        {
+          themes.map((t) => (
+            <div class="panel" data-theme-scope={t}>
+              <p class="mono label">{t}</p>
+              <div class="row-c"><a class="btn primary" href="#components">Primary</a><a class="btn ghost" href="#components">Ghost</a></div>
+              <p>Body text with a <a href="#components">link</a> and <code>inline code</code>.</p>
+              <div class="mini-card t-sch"><p class="tag"><span class="pad"></span>Schematic</p><p>A card with a pad dot in the layer colour.</p></div>
+              <div class="badges"><StatusChip status="browser" /><StatusChip status="available" /><StatusChip status="desktop" /></div>
+              <div class="callouts">
+                <p class="callout note"><b>Note.</b> Neutral information.</p>
+                <p class="callout tip"><b>Tip.</b> Something that helps.</p>
+                <p class="callout caution"><b>Caution.</b> Check before you go on.</p>
+                <p class="callout danger"><b>Danger.</b> Data may be lost.</p>
+              </div>
+              <pre class="code"><code>cargo run -p pcbcraft -- --sample</code></pre>
+              <table class="dl-table">
+                <thead><tr><th scope="col">Platform</th><th scope="col">File</th><th scope="col">Checksum</th></tr></thead>
+                <tbody><tr><td>Example</td><td><a href="#components"><code>file-name</code></a></td><td><code>sha256</code></td></tr></tbody>
+              </table>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 Voice -->
+  <section class="section" id="voice" aria-labelledby="h-voice">
+    <div class="wrap">
+      <h2 id="h-voice">Voice and wording</h2>
+      <p class="sub">PCBCraft writes the way a careful engineer talks. The same rules apply to the app's tooltips and the documentation.</p>
+      <div class="two">
+        <div>
+          <h3>Do</h3>
+          <ul class="rules">
+            <li>Write plain sentences. Short and concrete.</li>
+            <li>Say what the app does today, and name the command, tool or test that proves it.</li>
+            <li>Use plain, short labels: New, Open, Save.</li>
+            <li>Describe other products by the job they do, not by name.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Do not</h3>
+          <ul class="rules">
+            <li>No hype, no superlatives, no claims the code cannot back.</li>
+            <li>Do not name other design tools in copy, docs or code.</li>
+            <li>No dashes used as asides, and no "not X but Y" turns.</li>
+            <li>Do not invent product names for ordinary features.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="two ex">
+        <p class="good"><b>Writes the same sentence in the app and on the site:</b> Every edit goes through a typed engine command.</p>
+        <p class="bad"><b>Avoid:</b> A revolutionary next-generation platform that transforms how you design.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 Downloads -->
+  <section class="section" id="downloads" aria-labelledby="h-dl">
+    <div class="wrap">
+      <h2 id="h-dl">Downloads</h2>
+      <p class="sub">The brand kit is built with the site from the logo files and the theme tokens. It holds the mark as SVG and PNG at several sizes, the one-colour version, and the colours as CSS, JSON and a palette file.</p>
+      <p><a class="btn primary" href={url('brand/pcbcraft-brand-kit.zip')} download>Download the brand kit (zip)</a></p>
+    </div>
+  </section>
+
+  <!-- 8 Terms -->
+  <section class="section" id="terms" aria-labelledby="h-terms">
+    <div class="wrap prose">
+      <h2 id="h-terms">Usage terms</h2>
+      <p>The PCBCraft name and logo are reserved. The code is GPL-3.0, and the documentation and screenshots are CC BY-SA 4.0, which do not cover the name or the logo.</p>
+      <p data-slot="COPY #718">Placeholder for the acceptable-use paragraph. The owner approves the wording; it will match the <a href={url('license/')}>License page</a>.</p>
+    </div>
+  </section>
+</MarketingLayout>
+
+<style>
+  .head { padding: 3.5rem 0 1rem; }
+  .toc { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin-top: 1.8rem; font-size: 0.8rem; }
+  .tiles { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); margin-bottom: 3rem; }
+  .tile { display: grid; place-items: center; gap: 1rem; margin: 0; padding: 2rem 1rem 1rem; border: 1px solid var(--pc-edge); border-radius: 8px; }
+  .tile figcaption, .clear figcaption, .dd figcaption { color: var(--pc-muted); font-size: 0.72rem; }
+  .lockup { display: flex; align-items: center; gap: 0.8rem; font: 600 1.8rem/1 var(--pc-font-body); letter-spacing: -0.01em; }
+  .lockup img, .tile img { border-radius: 12px; }
+  .wordmark { font: 600 2rem/1 var(--pc-font-body); letter-spacing: -0.01em; }
+  .mono-mark { width: 96px; height: 96px; background: var(--pc-text); mask: var(--src) center / contain no-repeat; -webkit-mask: var(--src) center / contain no-repeat; }
+  .two { display: grid; gap: 2rem; margin: 2rem 0; }
+  @media (min-width: 56rem) { .two { grid-template-columns: 1fr 1fr; } }
+  .sizes { display: flex; align-items: flex-end; gap: 1.5rem; margin-top: 1rem; }
+  .sizes figure { margin: 0; text-align: center; }
+  .sizes figcaption { margin-top: 0.4rem; color: var(--pc-muted); font-size: 0.7rem; }
+  .clear { display: grid; place-items: center; gap: 0.8rem; margin: 0; padding: 1.5rem; border: 1px solid var(--pc-edge); border-radius: 8px; }
+  .clear-box { padding: 30px; outline: 1px dashed var(--pc-gold); }
+  .clear-box img { display: block; border-radius: 12px; }
+  .dd { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
+  .dd figure { display: grid; justify-items: center; gap: 0.7rem; margin: 0; padding: 1.2rem 0.5rem 0.8rem; border: 1px solid var(--pc-edge); border-radius: 8px; text-align: center; }
+  .dd-do { border-color: var(--pc-mask) !important; }
+  .dd-dont { border-color: var(--pc-red) !important; }
+  .dd img { border-radius: 12px; }
+  .stage { display: grid; place-items: center; width: 100%; padding: 0.5rem; border-radius: 6px; }
+  .stretch img { transform: scaleX(1.7); }
+  .recolour img { filter: hue-rotate(150deg) saturate(2); }
+  .busy .stage { background: repeating-linear-gradient(45deg, var(--pc-copper) 0 8px, var(--pc-cyan) 8px 16px, var(--pc-gold) 16px 24px); }
+  .rotate img { transform: rotate(28deg); }
+  .effect img { filter: drop-shadow(0 0 10px var(--pc-gold)) drop-shadow(4px 4px 0 var(--pc-red)); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: var(--pc-surface); border: 1px solid var(--pc-line); }
+  th, td { padding: 0.7rem 0.9rem; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--pc-line); font-size: 0.92rem; }
+  thead th { color: var(--pc-muted); background: var(--pc-raised); font: 600 0.72rem var(--pc-font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+  tbody th { font-weight: 500; }
+  caption { padding: 0.5rem 0.9rem; text-align: left; color: var(--pc-muted); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.72rem; }
+  .sw { display: inline-block; width: 2.4rem; height: 1.5rem; margin-inline-end: 0.6rem; vertical-align: middle; border: 1px solid var(--pc-edge); border-radius: 4px; }
+  .sw.sm { width: 1rem; height: 1rem; border-radius: 50%; margin-inline-end: 0.4rem; }
+  .hex { font-size: 0.8rem; }
+  .ratios { display: grid; gap: 1.5rem; }
+  @media (min-width: 64rem) { .ratios { grid-template-columns: 1fr 1fr; } }
+  .scale { border-top: 1px solid var(--pc-line); }
+  .row { display: grid; gap: 0.5rem 2rem; padding: 1.3rem 0; border-bottom: 1px solid var(--pc-line); }
+  @media (min-width: 48rem) { .row { grid-template-columns: 15rem 1fr; align-items: center; } }
+  .meta { margin: 0; color: var(--pc-muted); font-size: 0.72rem; line-height: 1.6; }
+  .spec { margin: 0; overflow-wrap: anywhere; }
+  .motifs { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+  .motif { margin: 0; background: var(--pc-surface); border: 1px solid var(--pc-line); border-radius: 8px; overflow: hidden; }
+  .motif figcaption { padding: 0.9rem 1rem 1rem; color: var(--pc-muted); font-size: 0.9rem; }
+  .demo { display: grid; place-items: center; align-content: center; height: 8rem; background: var(--pc-bg); }
+  .demo.grid { background-image: linear-gradient(var(--pc-line) 1px, transparent 1px), linear-gradient(90deg, var(--pc-line) 1px, transparent 1px); background-size: 24px 24px; }
+  .stub { display: block; width: 56px; height: 4px; margin-bottom: 10px; background: var(--pc-copper); border-radius: 2px; justify-self: start; }
+  .demo:has(.stub) { justify-items: start; padding: 0 2rem; }
+  .stub-title { font: 700 1.6rem var(--pc-font-head); }
+  .demo.pads { display: flex; gap: 1.4rem; justify-content: center; align-items: center; }
+  .demo.pads .pad { width: 1.3rem; height: 1.3rem; margin: 0; }
+  .demo.chamfer::before { content: ''; width: 9rem; height: 5rem; background: var(--pc-surface); border: 2px solid var(--pc-gold); clip-path: polygon(14% 0, 100% 0, 100% 100%, 0 100%, 0 28%); }
+  .rules { margin: 0 0 1.2rem; padding-left: 1.2rem; color: var(--pc-muted); }
+  .rules li { margin: 0.4rem 0; }
+  .shotdemo { width: 100%; max-width: 28rem; border-radius: 8px; }
+  .panel { display: grid; gap: 1.1rem; align-content: start; padding: 1.5rem; border: 1px solid var(--pc-edge); border-radius: 8px; }
+  .panel p { margin: 0; }
+  .panel a { color: var(--pc-cyan); }
+  .label { color: var(--pc-muted); text-transform: uppercase; letter-spacing: 0.1em; font-size: 0.72rem; }
+  .row-c { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .panel a.btn.primary { color: var(--pc-onacc); }
+  .panel a.btn.ghost { color: var(--pc-text); }
+  .mini-card { padding: 1rem 1.1rem; background: var(--pc-surface); border: 1px solid var(--pc-line); border-radius: 8px; }
+  .mini-card p + p { margin-top: 0.4rem; color: var(--pc-muted); }
+  .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .callouts { display: grid; gap: 0.5rem; }
+  .callout { padding: 0.65rem 0.9rem; border-inline-start: 4px solid; border-radius: 4px; }
+  .callout.note { background: var(--pc-note-low); border-color: var(--pc-cyan); }
+  .callout.tip { background: var(--pc-tip-low); border-color: var(--pc-mask); }
+  .callout.caution { background: var(--pc-caution-low); border-color: var(--pc-gold); }
+  .callout.danger { background: var(--pc-danger-low); border-color: var(--pc-red); }
+  .callout b { color: var(--pc-text); }
+  .code { margin: 0; padding: 0.9rem 1rem; overflow-x: auto; background: var(--pc-raised); border: 1px solid var(--pc-line); border-radius: 6px; font: 0.85rem var(--pc-font-mono); }
+  .dl-table { font-size: 0.85rem; }
+  .ex .good, .ex .bad { margin: 0; padding: 1rem 1.2rem; border-radius: 6px; border-inline-start: 4px solid; background: var(--pc-surface); }
+  .ex .good { border-color: var(--pc-mask); }
+  .ex .bad { border-color: var(--pc-red); }
+  .prose { max-width: 46rem; }
+  h3 { margin-top: 2rem; }
+</style>

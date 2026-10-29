@@ -70,10 +70,10 @@ fn a_newcomer_tents_every_via_from_the_board_notes() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        scrolled_to(&ctx, &mut app, "Left open")?,
+        scrolled_to_at(&ctx, &mut app, "Left open", 700.0)?,
         "the board notes show that vias are left open to begin with"
     );
     authoring::tests::tap(&ctx, &mut app, "Left open")?;

@@ -801,6 +801,7 @@ mod tests {
             position: Point::new(0.0, 0.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {

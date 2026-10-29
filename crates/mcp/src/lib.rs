@@ -1318,6 +1318,61 @@ mod tests {
     }
 
     #[test]
+    fn online_library_commands_are_listed_and_import_through_a_tool_call() -> Result<(), String> {
+        let session = shared(Session::default());
+        let listed = call_tool(&session, "list_commands", &json!({}));
+        let ids: Vec<String> = listed
+            .pointer("/structuredContent/commands")
+            .and_then(Value::as_array)
+            .map(|all| {
+                all.iter()
+                    .filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ["library.import_online", "library.place_online"] {
+            assert!(ids.iter().any(|x| x == id), "{id} is listed");
+        }
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym");
+        let inspected = call_tool(
+            &session,
+            "library.inspect_symbol",
+            &json!({"path":path,"name":"R"}),
+        );
+        let symbol = inspected
+            .pointer("/structuredContent/definition")
+            .cloned()
+            .ok_or("missing definition")?;
+        let imported = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.import_online","params":{
+                "symbol":symbol,
+                "notices":["Imported symbol from a test source. Licence CC-BY-SA 4.0."]}}),
+        );
+        assert_eq!(imported.get("isError"), Some(&json!(false)));
+        let state = session.lock().map_err(|_| "session unavailable")?.inspect();
+        assert_eq!(
+            state
+                .pointer("/project/library/notices/0")
+                .and_then(Value::as_str),
+            Some("Imported symbol from a test source. Licence CC-BY-SA 4.0.")
+        );
+        let refused = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.place_online","params":{"target":"layout","position":{"x":1.0,"y":1.0}}}),
+        );
+        assert_eq!(
+            refused.get("isError"),
+            Some(&json!(true)),
+            "a symbol is required"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn native_library_save_load_preserves_original_data_and_rejects_unknown_fields()
     -> Result<(), String> {
         let session = shared(Session::default());

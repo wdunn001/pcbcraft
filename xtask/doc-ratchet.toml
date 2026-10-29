@@ -2,6 +2,7 @@
 # Lower the number in the same commit that removes warnings.
 [missing_docs]
 pcbcraft-geom = 25
+pcbcraft-sim = 0
 pcbcraft-doc = 272
 pcbcraft-library = 184
 pcbcraft-rules = 19

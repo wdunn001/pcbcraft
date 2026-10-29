@@ -69,7 +69,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Dimensions, constraints, named parameters and expression-driven regeneration (#288)
 - [x] Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)
 - [x] PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)
-- [ ] Component bodies in STEP and enclosure model import (#321)
+- [ ] Component bodies in STEP and enclosure model import (#321) (#321 subset on fork main; STEP part bodies are in, glTF, VRML and STEP model import remain open)
 - [ ] Real 3D board tab with component bodies and inspection (#291) (#291 subset on fork main; #542, #670 remain open)
 
 ## M4: Complete workflows and distribution
@@ -121,7 +121,7 @@ User-interface work that cuts across milestones. These lines carry
 
 - [x] Top menu bar, Start page, plain menu labels, canvas handles, pin and pad click wiring, stackup-first Layers, status strip, Review groups, custom checks, unified library sources and sets, drawn machine layer model
 - [x] Workbench layout: top menu bar, library left, assistant and Layers tree right, tool strip under the tabs (#299)
-- [x] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274)
+- [ ] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274) (scope continues in #756)
 - [x] Draw directly on your own layers from the canvas (#275)
 - [x] Rules and Checks as top tabs, Project Settings with breathing room (#278)
 - [x] Right-click context menu on the canvas (#279)

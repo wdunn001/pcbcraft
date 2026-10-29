@@ -116,6 +116,12 @@ pads connect their own front/back copper; two different pads are never bridged.
 declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
+`track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
+optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
+put and the track is re-laid as 45-degree copper around pads, cutouts and other
+nets' tracks; shove mode also pushes other nets' tracks aside within fixed limits.
+A refusal gives a plain reason and changes nothing. `track.set_end` stays the
+unchecked move.
 
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
@@ -130,6 +136,18 @@ with `include_source: true`, or construct one using the fields documented in
 docs/kicad-libraries.md. `library.symbol.remove` / `library.footprint.remove` accept
 `name`. `component.place_custom` accepts `name`, `position`, optional reference/value;
 `footprint.assign_custom` accepts component `id` and footprint `name`.
+
+`library.import_online` adds a part fetched from an online library to the project
+library in one undoable step. It takes a `symbol` definition, an optional `footprint`
+definition, an optional `model` (a file path with optional offset, scale and rotate),
+up to four `notices` that record the source and licence in the project library, and
+`on_conflict` (`refuse` by default, `replace`, or `keep_both`). Importing identical
+content again changes nothing and answers `unchanged`. `library.place_online` does the
+same import and then places the part: `target` is `schematic` or `layout`, `position`
+is the drop point in that view, and a layout drop also adds the part to the schematic
+at a free spot, with the footprint on the board at `position`. Pad numbers must match
+the symbol pins or the whole command changes nothing. The engine never fetches files;
+the caller reads them with the library crate first.
 
 `library.save {path}` atomically writes a `.pcbcraft-lib` collection without
 changing history. `library.load {path}` validates and replaces the project-library

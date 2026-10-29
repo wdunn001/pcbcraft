@@ -16,6 +16,7 @@ fn four_layer_app() -> Result<(App, egui::Context), String> {
                     kind: "copper".into(),
                     thickness: 0.035,
                     copper_role: None,
+                    ..Default::default()
                 });
             if i < 4 {
                 session
@@ -27,6 +28,7 @@ fn four_layer_app() -> Result<(App, egui::Context), String> {
                         kind: "prepreg".into(),
                         thickness: 0.4,
                         copper_role: None,
+                        ..Default::default()
                     });
             }
         }
@@ -128,7 +130,8 @@ fn a_newcomer_allows_and_removes_a_buried_via_span() -> Result<(), String> {
     let (mut app, ctx) = four_layer_app()?;
     app.select(None);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    app.change_tab(Tab::Pcb);
+    open_tree_row(&ctx, &mut app, "root");
     scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?;
     assert!(
         scrolled_to(&ctx, &mut app, "VIA SPANS")?,

@@ -5,7 +5,10 @@
 
 use super::*;
 use egui::{Pos2, Sense};
-use pcbcraft_io::{BoardMesh, MeshLayers, PartKind};
+use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus, PartKind};
+
+mod model_cache;
+use model_cache::ModelCache;
 
 type V = [f64; 3];
 
@@ -45,6 +48,12 @@ pub(crate) struct View3d {
     pub dist: f64,
     pub target: V,
     mesh: Option<(u64, BoardMesh)>,
+    /// Model files read off the UI thread; see `board3d/model_cache.rs`.
+    models: ModelCache,
+    /// How many finished loads the current mesh already includes.
+    model_gen: u64,
+    /// Per part: did its model file load, or why did the box stay.
+    notes: std::collections::BTreeMap<Id, ModelStatus>,
     error: Option<String>,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
@@ -57,6 +66,9 @@ impl Default for View3d {
             dist: 100.0,
             target: [0.0; 3],
             mesh: None,
+            models: ModelCache::default(),
+            model_gen: 0,
+            notes: Default::default(),
             error: None,
             rect: Rect::NOTHING,
         }
@@ -151,6 +163,25 @@ impl View3d {
         }
         best
     }
+    /// Why the mesh could not be built, if it could not.
+    #[cfg(test)]
+    pub(crate) fn build_error(&self) -> Option<String> {
+        self.error.clone()
+    }
+    /// How the model file of this part loaded, when it names one.
+    #[cfg(test)]
+    pub(crate) fn model_status(&self, id: Id) -> Option<ModelStatus> {
+        self.notes.get(&id).cloned()
+    }
+    /// Triangles in this part's body.
+    #[cfg(test)]
+    pub(crate) fn body_triangles(&self, id: Id) -> Option<usize> {
+        let (_, mesh) = self.mesh.as_ref()?;
+        mesh.parts
+            .iter()
+            .find(|p| p.kind == PartKind::Body && p.component == Some(id))
+            .map(|p| p.triangle_count())
+    }
     #[cfg(test)]
     pub(crate) fn body_bounds(&self, id: Id) -> Option<(V, V)> {
         let (_, mesh) = self.mesh.as_ref()?;
@@ -168,7 +199,7 @@ impl View3d {
             .find(|p| p.kind == PartKind::Body && p.component == Some(id))
             .map(|p| p.family.clone().unwrap_or_else(|| "box".into()))
     }
-    fn fit(&mut self) {
+    pub(crate) fn fit(&mut self) {
         if let Some((lo, hi)) = self.mesh.as_ref().and_then(|(_, m)| m.bounds()) {
             self.target = [
                 (lo[0] + hi[0]) / 2.0,
@@ -181,15 +212,26 @@ impl View3d {
         self.yaw = -std::f64::consts::FRAC_PI_2;
         self.pitch = 0.6;
     }
+    /// Rebuild the mesh when the design changed or a model file finished
+    /// loading. Model files are only asked for here, never waited on.
     fn refresh(&mut self, project: &Project, revision: u64) {
-        if self.mesh.as_ref().is_some_and(|(r, _)| *r == revision) {
+        let generation = self.models.generation();
+        let same_design = self.mesh.as_ref().is_some_and(|(r, _)| *r == revision);
+        if same_design && self.model_gen == generation {
             return;
         }
         match pcbcraft_io::board_mesh(project, MeshLayers::default()) {
-            Ok(mesh) => {
+            Ok(mut mesh) => {
                 self.error = None;
+                self.model_gen = generation;
+                let models = self.models.clone();
+                self.notes = pcbcraft_io::with_models(&mut mesh, |p| models.lookup(p))
+                    .into_iter()
+                    .collect();
                 self.mesh = Some((revision, mesh));
-                self.fit();
+                if !same_design {
+                    self.fit();
+                }
             }
             Err(e) => {
                 self.mesh = None;
@@ -278,7 +320,10 @@ fn paint_mesh(view: &View3d, painter: &egui::Painter, rect: Rect, env: &Env<'_>)
             if (pass == 0) != is_board || (over && !is_board && part.kind != PartKind::Body) {
                 continue;
             }
-            let base = kind_color(part.kind, env.dark);
+            let base = match (part.kind, part.color) {
+                (PartKind::Body, Some(c)) => [c[0] * 255.0, c[1] * 255.0, c[2] * 255.0],
+                _ => kind_color(part.kind, env.dark),
+            };
             let picked = part.component.is_some() && part.component == env.selected;
             for tri in part.indices.as_chunks::<3>().0.iter() {
                 let (Some(a), Some(b), Some(c)) = (
@@ -338,7 +383,7 @@ fn paint_mesh(view: &View3d, painter: &egui::Painter, rect: Rect, env: &Env<'_>)
 pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Option<Id> {
     view.refresh(env.project, env.revision);
     let mut picked = None;
-    let mut bodies: Vec<(String, Id, String)> = view
+    let mut bodies: Vec<(String, Id, String, Option<ModelStatus>)> = view
         .mesh
         .as_ref()
         .map(|(_, m)| {
@@ -349,12 +394,17 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
                     let id = p.component?;
                     let name = env.project.component(id)?.reference.clone();
                     let note = p.family.clone().unwrap_or_else(|| "box".into());
-                    Some((name, id, note))
+                    Some((name, id, note, view.notes.get(&id).cloned()))
                 })
                 .collect()
         })
         .unwrap_or_default();
-    bodies.sort();
+    bodies.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    let loading = view.models.pending() > 0;
+    if loading {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
+    }
 
     egui::Panel::right("parts3d")
         .default_size(190.0)
@@ -363,11 +413,11 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
             ui.add_space(8.0);
             ui.label(
                 egui::RichText::new(t!("board.board3d.parts"))
-                    .size(10.0)
+                    .font(crate::fonts::Role::Caption.font())
                     .color(env.muted),
             );
             egui::ScrollArea::vertical().show(ui, |ui| {
-                for (name, id, note) in &bodies {
+                for (name, id, note, status) in &bodies {
                     let row = ui
                         .selectable_label(
                             env.selected == Some(*id),
@@ -376,6 +426,22 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
                         .on_hover_text(t!("board.board3d.name_note.tip"));
                     if row.clicked() {
                         picked = Some(*id);
+                    }
+                    let reason = match status {
+                        Some(ModelStatus::Failed(why)) => Some(format!("Box kept. {why}")),
+                        Some(ModelStatus::Loading) => Some("Loading model".to_string()),
+                        _ => None,
+                    };
+                    if let Some(reason) = reason {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(&reason)
+                                    .font(crate::fonts::Role::Caption.font())
+                                    .color(env.muted),
+                            )
+                            .wrap(),
+                        )
+                        .on_hover_text(reason.clone());
                     }
                 }
                 if bodies.is_empty() {
@@ -387,24 +453,9 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         ui.add_space(12.0);
-        if ui
-            .button(t!("board.board3d.reset_view"))
-            .on_hover_text(t!("board.board3d.reset_view.tip"))
-            .clicked()
-        {
-            view.fit();
-        }
-        if ui
-            .button(t!("board.board3d.top_view"))
-            .on_hover_text(t!("board.board3d.top_view.tip"))
-            .clicked()
-        {
-            view.yaw = -std::f64::consts::FRAC_PI_2;
-            view.pitch = 1.5;
-        }
         ui.label(
             egui::RichText::new(t!("board.board3d.drag_to_turn_the_board"))
-                .size(11.0)
+                .font(crate::fonts::Role::Caption.font())
                 .color(env.muted),
         );
     });
@@ -420,7 +471,8 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     let response = response.on_hover_text(t!("board.board3d.3d_board_drag_to_turn.tip"));
     let (shift, secondary, scroll) = ui.input(|i| {
         (
-            i.modifiers.shift,
+            crate::tool_modifiers::Held::new(i.modifiers, crate::tool_modifiers::Platform::host())
+                .shift,
             i.pointer.button_down(egui::PointerButton::Secondary)
                 || i.pointer.button_down(egui::PointerButton::Middle),
             i.smooth_scroll_delta.y,
@@ -447,9 +499,13 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     painter.rect_filled(rect, 0.0, env.bg);
     paint_mesh(view, &painter, rect, env);
     ui.label(
-        egui::RichText::new(t!("board.board3d.part_bodies_are_default_boxes"))
-            .size(11.0)
-            .color(env.muted),
+        egui::RichText::new(if loading {
+            t!("board.board3d.loading_models_note")
+        } else {
+            t!("board.board3d.part_bodies_are_default_boxes")
+        })
+        .font(crate::fonts::Role::Caption.font())
+        .color(env.muted),
     );
     picked
 }

@@ -1,0 +1,41 @@
+(PCBCraft drill)
+G21
+G90
+G0 Z5.000
+(tool T1 0.300 mm)
+M3 S10000
+G0 Z5.000
+G0 X10.000 Y10.000
+G1 Z-1.600 F100.000
+G0 Z2.000
+M5
+G0 Z5.000
+M0
+(tool change)
+M5
+G0 Z5.000
+M6 T2
+(change to 1.000 mm drill)
+(tool T2 1.000 mm)
+M3 S10000
+G0 Z5.000
+G0 X20.000 Y15.000
+G1 Z-1.600 F100.000
+G0 Z2.000
+M5
+G0 Z5.000
+M0
+(tool change)
+M5
+G0 Z5.000
+M6 T3
+(change to 2.000 mm drill)
+(tool T3 2.000 mm)
+M3 S10000
+G0 Z5.000
+G0 X30.000 Y20.000
+G1 Z-1.600 F100.000
+G0 Z2.000
+M5
+G0 Z5.000
+M2

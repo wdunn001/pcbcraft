@@ -1,6 +1,11 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod machine_profile;
+mod outline;
 pub use machine_profile::*;
+pub use outline::{
+    MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_sagitta, flatten_outline, outline_extent,
+    segment_arc, validate_outline_arcs,
+};
 mod panel;
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
@@ -18,8 +23,14 @@ use std::fmt;
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
 
+mod material;
+pub use material::{MATERIALS, Material, material};
+mod net_members;
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
-pub use fill::{KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, zone_fill, zone_fills};
+pub use fill::{
+    KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
@@ -49,6 +60,80 @@ pub struct SymbolUnitPlacement {
 fn passive() -> String {
     "passive".into()
 }
+/// Pin electrical types recognised by ERC and schematic validation.
+pub const PIN_ELECTRICAL_TYPES: [&str; 12] = [
+    "bidirectional",
+    "free",
+    "input",
+    "no_connect",
+    "open_collector",
+    "open_emitter",
+    "output",
+    "passive",
+    "power_in",
+    "power_out",
+    "tri_state",
+    "unspecified",
+];
+/// Sorted pair key for one cell of the pin-type connection matrix.
+pub fn pin_matrix_key(type_a: &str, type_b: &str) -> String {
+    if type_a <= type_b {
+        format!("{type_a}|{type_b}")
+    } else {
+        format!("{type_b}|{type_a}")
+    }
+}
+/// Default ERC level for a pin-type pair: `"ok"`, `"warning"`, or `"error"`.
+pub fn default_pin_matrix_level(type_a: &str, type_b: &str) -> &'static str {
+    let (a, b) = if type_a <= type_b {
+        (type_a, type_b)
+    } else {
+        (type_b, type_a)
+    };
+    if a == "no_connect" || b == "no_connect" {
+        return "error";
+    }
+    match (a, b) {
+        ("output", "output") => "error",
+        ("output", "power_out") => "error",
+        ("power_out", "power_out") => "error",
+        ("open_emitter", "power_out") => "error",
+        ("input", "input") => "warning",
+        ("output", "tri_state") => "warning",
+        ("open_collector", "power_out") => "warning",
+        ("bidirectional", "power_out") => "warning",
+        _ => "ok",
+    }
+}
+/// Default matrix cells whose level is not `"ok"`, for display beside overrides.
+pub const DEFAULT_PIN_MATRIX_OVERRIDES: &[(&str, &str, &str)] = &[
+    ("bidirectional", "no_connect", "error"),
+    ("bidirectional", "power_out", "warning"),
+    ("free", "no_connect", "error"),
+    ("input", "input", "warning"),
+    ("input", "no_connect", "error"),
+    ("no_connect", "no_connect", "error"),
+    ("no_connect", "open_collector", "error"),
+    ("no_connect", "open_emitter", "error"),
+    ("no_connect", "output", "error"),
+    ("no_connect", "passive", "error"),
+    ("no_connect", "power_in", "error"),
+    ("no_connect", "power_out", "error"),
+    ("no_connect", "tri_state", "error"),
+    ("no_connect", "unspecified", "error"),
+    ("open_collector", "power_out", "warning"),
+    ("open_emitter", "power_out", "error"),
+    ("output", "no_connect", "error"),
+    ("output", "output", "error"),
+    ("output", "power_out", "error"),
+    ("output", "tri_state", "warning"),
+    ("passive", "no_connect", "error"),
+    ("power_in", "no_connect", "error"),
+    ("power_out", "no_connect", "error"),
+    ("power_out", "power_out", "error"),
+    ("tri_state", "no_connect", "error"),
+    ("unspecified", "no_connect", "error"),
+];
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -94,6 +179,12 @@ fn is_root_sheet(id: &Id) -> bool {
 pub struct Sheet {
     pub id: Id,
     pub name: String,
+    /// Parent page in the hierarchy, when this page is shown as a child box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    /// Where the child page box sits on the parent page, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<Point>,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -965,9 +1056,77 @@ pub struct Footprint {
     /// to move it. Absent means unlocked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub locked: Option<bool>,
+    /// Which board side the footprint is soldered on. Absent means the top.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Board side the part is mounted on; absent means the top. Pad copper and
+    /// the silk, mask and paste layers are derived from it, never stored per pad.
+    pub side: Option<Layer>,
     pub pads: Vec<Pad>,
 }
+/// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
+/// A library pad as it sits when its part is mounted on the bottom: x offset,
+/// rotation and drill offset turned about the part's local vertical axis.
+///
+/// # Rules
+/// - Layer names stay as authored; `Footprint::pad_geometry_layers` swaps them.
+///
+/// # Do not
+/// - Write the result back to the library; packages stay authored on the top.
+pub fn mirrored_pad_for_bottom(
+    source: &pcbcraft_library::FootprintPad,
+) -> pcbcraft_library::FootprintPad {
+    let mut pad = source.clone();
+    pad.position = Point::new(-pad.position.x, pad.position.y);
+    pad.rotation = -pad.rotation;
+    if let Some(drill) = &mut pad.drill {
+        drill.offset = Point::new(-drill.offset.x, drill.offset.y);
+    }
+    pad
+}
+/// Swap the `F.` and `B.` prefix of a board layer name; other names such as
+/// `*.Cu` pass through unchanged.
+pub fn swap_board_side_layer(name: &str) -> String {
+    if let Some(rest) = name.strip_prefix("F.") {
+        return format!("B.{rest}");
+    }
+    if let Some(rest) = name.strip_prefix("B.") {
+        return format!("F.{rest}");
+    }
+    name.to_string()
+}
 impl Footprint {
+    /// The copper side the part is mounted on: the top unless `side` is set.
+    pub fn board_side(&self) -> Layer {
+        self.side.unwrap_or(Layer::Front)
+    }
+    /// Copper layer for a surface-mount pad; through-hole pads are handled on
+    /// both layers by callers that iterate copper.
+    ///
+    /// # Rules
+    /// - Derived from `board_side`; pads carry no side of their own.
+    pub fn pad_layer(&self, _pad: &Pad) -> Layer {
+        self.board_side()
+    }
+    /// Whether the pad has copper on `layer`: through-hole pads on both outer
+    /// layers, surface pads only on the part's own side.
+    pub fn pad_on_copper(&self, pad: &Pad, layer: Layer) -> bool {
+        match pad.geometry.as_ref() {
+            None => layer == Layer::Front,
+            Some(g) if g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu") => true,
+            Some(_) => self.board_side() == layer,
+        }
+    }
+    /// The pad's geometry layer names as placed: as authored on the top, with
+    /// the `F.` and `B.` prefixes swapped on the bottom.
+    pub fn pad_geometry_layers(&self, pad: &Pad) -> Vec<String> {
+        let Some(g) = pad.geometry.as_ref() else {
+            return vec!["F.Cu".into(), "F.Mask".into()];
+        };
+        if self.board_side() == Layer::Front {
+            return g.layers.clone();
+        }
+        g.layers.iter().map(|l| swap_board_side_layer(l)).collect()
+    }
     pub fn drawing_points(&self, project: &Project) -> Vec<Point> {
         let mut points: Vec<Point> = self.pads.iter().flat_map(|p| p.outline_points()).collect();
         if let Some(library) = project
@@ -1808,9 +1967,24 @@ impl Hole {
         }
     }
 }
-/// One named board layer record, kept for fabrication notes: a layer's role
-/// and thickness as stated by the stackup the design was built against.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// One physical layer of the board, in stack order: its role, thickness and,
+/// where known, the facts a fab and the impedance estimate need.
+///
+/// Every field after `copper_role` is optional and skipped when empty, so a
+/// project saved before they existed loads and saves byte for byte. The
+/// accessors (`function`, `dk`, `df`) answer with the stated value or a value
+/// derived from `kind` and the material table, so old designs need no rewrite.
+///
+/// # Rules
+/// - A stated `dk` or `df` always wins over the named material's table value.
+/// - `linked_copper` names the copper row a mask, silk or paste row sits on.
+///
+/// # Dependencies
+/// - `crates/doc/src/material.rs` for the built-in table.
+///
+/// # Do not
+/// - Store derived values back into the record; derive them at read time.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct LayerRecord {
     /// Display name, for example "F.Cu", "Core" or "L2".
     pub name: String,
@@ -1821,9 +1995,57 @@ pub struct LayerRecord {
     /// Copper plane style for fabrication output: signal, plane, mixed or hatched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copper_role: Option<String>,
+    /// Layer function when it differs from the one implied by `kind`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    /// Face the layer belongs to: top, bottom, internal, both or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side: Option<String>,
+    /// Polarity of the layer artwork: positive or negative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub polarity: Option<String>,
+    /// Name of a row in the built-in material table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<String>,
+    /// Relative permittivity stated on this row (1 to 20).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dk: Option<f64>,
+    /// Loss tangent stated on this row (0 to 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub df: Option<f64>,
+    /// Thickness tolerance in percent (0 to 50).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thickness_tol_pct: Option<f64>,
+    /// Copper weight in ounces per square foot (0.1 to 10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copper_weight_oz: Option<f64>,
+    /// Copper foil type: rolled or electrodeposited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foil: Option<String>,
+    /// The copper row this mask, silk or paste row sits on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_copper: Option<String>,
 }
+/// Layer functions a record may state.
+pub const LAYER_FUNCTIONS: [&str; 10] = [
+    "signal",
+    "plane",
+    "mixed",
+    "dielectric_core",
+    "dielectric_prepreg",
+    "soldermask",
+    "silkscreen",
+    "paste",
+    "other",
+    "none",
+];
 impl LayerRecord {
     fn valid(&self) -> bool {
+        let in_set =
+            |v: &Option<String>, set: &[&str]| v.as_ref().is_none_or(|x| set.contains(&x.as_str()));
+        let in_range = |v: Option<f64>, lo: f64, hi: f64| {
+            v.is_none_or(|x| x.is_finite() && (lo..=hi).contains(&x))
+        };
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && matches!(
@@ -1832,10 +2054,66 @@ impl LayerRecord {
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
+            && in_set(&self.copper_role, &["signal", "plane", "mixed", "hatched"])
+            && in_set(&self.function, &LAYER_FUNCTIONS)
+            && in_set(&self.side, &["top", "bottom", "internal", "both", "none"])
+            && in_set(&self.polarity, &["positive", "negative"])
+            && in_set(&self.foil, &["rolled", "electrodeposited"])
             && self
-                .copper_role
+                .material
                 .as_ref()
-                .is_none_or(|r| matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched"))
+                .is_none_or(|m| !m.trim().is_empty() && m.len() <= 64)
+            && self
+                .linked_copper
+                .as_ref()
+                .is_none_or(|m| !m.trim().is_empty() && m.len() <= 64)
+            && in_range(self.dk, 1.0, 20.0)
+            && in_range(self.df, 0.0, 1.0)
+            && in_range(self.thickness_tol_pct, 0.0, 50.0)
+            && in_range(self.copper_weight_oz, 0.1, 10.0)
+    }
+    /// Layer function: the stated one, else the one the role implies.
+    pub fn function(&self) -> &str {
+        if let Some(f) = &self.function {
+            return f;
+        }
+        match self.kind.as_str() {
+            "copper" => match self.copper_role.as_deref() {
+                Some("plane") => "plane",
+                Some("mixed") => "mixed",
+                _ => "signal",
+            },
+            "core" => "dielectric_core",
+            "prepreg" => "dielectric_prepreg",
+            "soldermask" => "soldermask",
+            "silkscreen" => "silkscreen",
+            "paste" => "paste",
+            _ => "other",
+        }
+    }
+    /// True for a core or prepreg row.
+    pub fn is_dielectric(&self) -> bool {
+        matches!(self.kind.as_str(), "core" | "prepreg")
+    }
+    /// Polarity: the stated one, else negative for a plane and positive otherwise.
+    pub fn polarity(&self) -> &str {
+        match (&self.polarity, self.function()) {
+            (Some(p), _) => p,
+            (None, "plane") => "negative",
+            _ => "positive",
+        }
+    }
+    /// Relative permittivity: the value stated on the row, else the named
+    /// material's table value.
+    pub fn dk(&self) -> Option<f64> {
+        self.dk
+            .or_else(|| self.material.as_deref().and_then(material).map(|m| m.dk))
+    }
+    /// Loss tangent: the value stated on the row, else the named material's
+    /// table value.
+    pub fn df(&self) -> Option<f64> {
+        self.df
+            .or_else(|| self.material.as_deref().and_then(material).map(|m| m.df))
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
@@ -2155,6 +2433,23 @@ impl MachiningNotes {
                 .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
     }
 }
+impl Board {
+    /// The outline as a plain polygon with arcs cut into chords that stay
+    /// within `max_chord_error` millimetres of the true edge; empty when the
+    /// board has no traced outline.
+    ///
+    /// # Dependencies
+    /// - crates/doc/src/outline.rs#flatten_outline
+    ///
+    /// # Do not
+    /// - Do not use the vertex list directly in a reader: it draws arcs as chords.
+    pub fn edge_ring(&self, max_chord_error: f64) -> Vec<Point> {
+        match &self.outline {
+            Some(points) => flatten_outline(points, &self.outline_arcs, max_chord_error),
+            None => Vec::new(),
+        }
+    }
+}
 fn is_open_covering(c: &ViaCovering) -> bool {
     *c == ViaCovering::Open
 }
@@ -2208,6 +2503,11 @@ pub struct Board {
     /// perimeter and implicitly closed. Absent means the plain rectangle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outline: Option<Vec<Point>>,
+    /// Arc midpoints for the outline, one entry per segment (vertex i to
+    /// vertex i + 1, the last closing to vertex 0). `None` is a straight
+    /// segment. Empty means the whole outline is straight.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outline_arcs: Vec<Option<Point>>,
     pub footprints: Vec<Footprint>,
     pub tracks: Vec<Track>,
     /// Plated through-hole vias joining front and back copper.
@@ -2329,6 +2629,33 @@ impl GraphicGroup {
         self.graphics.len() >= 2 && self.graphics.len() <= 512 && {
             let unique: BTreeSet<Id> = self.graphics.iter().copied().collect();
             unique.len() == self.graphics.len()
+        }
+    }
+}
+/// A set of objects of any kind (parts, footprints, copper, text, graphics)
+/// that move together, so a block of a design can be repositioned in one step.
+///
+/// # Rules
+/// - Two to 512 distinct members; a member belongs to at most one object group.
+/// - Ids that no longer name an object are dropped by `Project::prune_object_refs`.
+///
+/// # Dependencies
+/// - crates/engine/src/lib.rs#object.group
+///
+/// # Do not
+/// - Store the same id in two object groups.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ObjectGroup {
+    /// Stable id of the group.
+    pub id: Id,
+    /// Ids of the grouped objects, in the order they were grouped.
+    pub members: Vec<Id>,
+}
+impl ObjectGroup {
+    fn valid(&self) -> bool {
+        self.members.len() >= 2 && self.members.len() <= 512 && {
+            let unique: BTreeSet<Id> = self.members.iter().copied().collect();
+            unique.len() == self.members.len()
         }
     }
 }
@@ -2601,6 +2928,13 @@ pub struct Project {
     /// Groups of drawn graphics that translate together, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub graphic_groups: Vec<GraphicGroup>,
+    /// Groups of objects of any kind that move together, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub object_groups: Vec<ObjectGroup>,
+    /// Ids of locked objects other than footprints (a footprint stores its own
+    /// lock in `Footprint::locked`); locked objects refuse moves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locked_objects: Vec<Id>,
     /// Named fabrication output recipes, ordered by name, re-runnable after
     /// any edit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2611,6 +2945,10 @@ pub struct Project {
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
+    /// Pin-type connection matrix overrides keyed `"<type_a>|<type_b>"` with
+    /// sorted types; values are `"ok"`, `"warning"` or `"error"`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pin_matrix: BTreeMap<String, String>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -2767,9 +3105,12 @@ impl Default for Project {
             output_jobs: vec![],
             panel: PanelSettings::default(),
             custom_checks: vec![],
+            pin_matrix: BTreeMap::new(),
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
+            object_groups: vec![],
+            locked_objects: vec![],
             reference_images: vec![],
             meta: Default::default(),
             parameters: Default::default(),
@@ -2801,6 +3142,7 @@ impl Default for Project {
                 rule_areas: vec![],
                 user_layers: vec![],
                 outline: None,
+                outline_arcs: vec![],
                 footprints: vec![],
                 tracks: vec![],
                 vias: vec![],
@@ -3026,6 +3368,66 @@ impl Project {
             .iter()
             .filter(|r| r.kind == "copper")
     }
+    /// Face a stack row belongs to: the stated side, else derived from where
+    /// the row sits relative to the copper rows. `None` when no row has that name.
+    pub fn layer_side(&self, name: &str) -> Option<String> {
+        let rows = &self.board.layer_records;
+        let i = rows.iter().position(|r| r.name == name)?;
+        if let Some(s) = &rows[i].side {
+            return Some(s.clone());
+        }
+        let first = rows.iter().position(|r| r.kind == "copper");
+        let last = rows.iter().rposition(|r| r.kind == "copper");
+        Some(
+            match (first, last) {
+                (Some(f), _) if i < f => "top",
+                (_, Some(l)) if i > l => "bottom",
+                _ => "internal",
+            }
+            .to_string(),
+        )
+    }
+    /// The copper row a mask, silk or paste row sits on: the stated link, else
+    /// the outermost copper row on its side of the stack.
+    pub fn linked_copper(&self, name: &str) -> Option<String> {
+        let rows = &self.board.layer_records;
+        let i = rows.iter().position(|r| r.name == name)?;
+        let rec = &rows[i];
+        if rec.kind == "copper" || rec.kind == "core" || rec.kind == "prepreg" {
+            return None;
+        }
+        if let Some(l) = &rec.linked_copper {
+            return Some(l.clone());
+        }
+        let first = rows.iter().position(|r| r.kind == "copper")?;
+        let last = rows.iter().rposition(|r| r.kind == "copper")?;
+        if i < first {
+            Some(rows[first].name.clone())
+        } else if i > last {
+            Some(rows[last].name.clone())
+        } else {
+            None
+        }
+    }
+    /// Height and relative permittivity of the dielectric next to a copper
+    /// row, for impedance estimates. Looks at the rows directly above and
+    /// below, takes the thinner one that carries a permittivity, and returns
+    /// `None` when neither does so callers fall back to `Board.er`.
+    pub fn dielectric_beside(&self, copper_name: &str) -> Option<(f64, f64)> {
+        let rows = &self.board.layer_records;
+        let i = rows.iter().position(|r| r.name == copper_name)?;
+        let neighbour = |j: Option<usize>| {
+            let r = rows.get(j?)?;
+            (r.is_dielectric() && r.thickness > 0.0).then_some(())?;
+            Some((r.thickness, r.dk()?))
+        };
+        let above = neighbour(i.checked_sub(1));
+        let below = neighbour(i.checked_add(1));
+        match (above, below) {
+            (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+            (a, b) => a.or(b),
+        }
+    }
     /// How many routable copper layers exist. With no copper rows recorded,
     /// a board is treated as two layers (top and bottom).
     pub fn copper_layer_count(&self) -> u8 {
@@ -3037,6 +3439,49 @@ impl Project {
         } else {
             n as u8
         }
+    }
+    /// True when `id` names a part, footprint, copper item, board text,
+    /// cutout, datum or drawn graphic, the kinds groups and locks cover.
+    pub fn is_groupable(&self, id: Id) -> bool {
+        self.components.iter().any(|c| c.id == id)
+            || self.graphics.iter().any(|g| g.id == id)
+            || self.board.footprints.iter().any(|f| f.id == id)
+            || self.board.tracks.iter().any(|t| t.id == id)
+            || self.board.vias.iter().any(|v| v.id == id)
+            || self.board.zones.iter().any(|z| z.id == id)
+            || self.board.cutouts.iter().any(|c| c.id == id)
+            || self.board.datums.iter().any(|d| d.id == id)
+            || self.board.texts.iter().any(|t| t.id == id)
+    }
+    /// True when the object is locked: a footprint by its own flag, any other
+    /// kind by an entry in `locked_objects`.
+    pub fn is_locked(&self, id: Id) -> bool {
+        self.locked_objects.contains(&id)
+            || self
+                .board
+                .footprints
+                .iter()
+                .any(|f| f.id == id && f.locked.unwrap_or(false))
+    }
+    /// Drop group members and lock entries whose object was deleted, and
+    /// dissolve groups left with fewer than two members. Runs after every
+    /// engine command so deletes never leave dangling ids.
+    pub fn prune_object_refs(&mut self) {
+        if self.object_groups.is_empty() && self.locked_objects.is_empty() {
+            return;
+        }
+        let alive = |p: &Project, id: Id| p.is_groupable(id);
+        let groups = std::mem::take(&mut self.object_groups);
+        self.object_groups = groups
+            .into_iter()
+            .map(|mut g| {
+                g.members.retain(|id| alive(self, *id));
+                g
+            })
+            .filter(|g| g.members.len() >= 2)
+            .collect();
+        let locked = std::mem::take(&mut self.locked_objects);
+        self.locked_objects = locked.into_iter().filter(|id| alive(self, *id)).collect();
     }
     /// The copper span of a via as (upper, lower) layers; an unset end is the
     /// outer layer on that side of this board.
@@ -3192,6 +3637,47 @@ impl Project {
     fn copper_layer_valid(&self, layer: Layer) -> bool {
         layer.index() < self.copper_layer_count()
     }
+    /// Rewrite the copper layer index of every board object that names one:
+    /// tracks, zones, board text, assembly marks, rule areas and the ends of
+    /// vias that stop short of the outer layers. Used when the stackup gains,
+    /// loses or reorders a copper layer, so copper keeps the layer it was on.
+    pub fn remap_copper_layers(&mut self, map: impl Fn(u8) -> u8) {
+        let to = |l: Layer| Layer(map(l.index()));
+        for t in &mut self.board.tracks {
+            t.layer = to(t.layer);
+        }
+        for z in &mut self.board.zones {
+            z.layer = to(z.layer);
+        }
+        for t in &mut self.board.texts {
+            t.layer = to(t.layer);
+        }
+        for f in &mut self.board.fiducials {
+            f.layer = to(f.layer);
+        }
+        for a in &mut self.board.rule_areas {
+            a.layer = a.layer.map(to);
+        }
+        for v in &mut self.board.vias {
+            v.from_layer = v.from_layer.map(to);
+            v.to_layer = v.to_layer.map(to);
+        }
+    }
+    /// True when any board object sits on copper layer `index`.
+    pub fn copper_layer_in_use(&self, index: u8) -> bool {
+        let b = &self.board;
+        b.tracks.iter().any(|t| t.layer.index() == index)
+            || b.zones.iter().any(|z| z.layer.index() == index)
+            || b.texts.iter().any(|t| t.layer.index() == index)
+            || b.fiducials.iter().any(|f| f.layer.index() == index)
+            || b.rule_areas
+                .iter()
+                .any(|a| a.layer.is_some_and(|l| l.index() == index))
+            || b.vias.iter().any(|v| {
+                v.from_layer.is_some_and(|l| l.index() == index)
+                    || v.to_layer.is_some_and(|l| l.index() == index)
+            })
+    }
     /// Highest copper index referenced by board objects, if any.
     pub fn max_copper_layer_index_used(&self) -> Option<u8> {
         let mut max: Option<u8> = None;
@@ -3257,6 +3743,131 @@ impl Project {
             None
         }
     }
+    /// Schematic pages that carry a net through a component pin or a hierarchy port.
+    pub fn net_pages(&self, net: Id) -> Vec<Id> {
+        if !self.nets.iter().any(|n| n.id == net) {
+            return vec![];
+        }
+        let mut pages = BTreeSet::new();
+        for component in &self.components {
+            if component
+                .pins
+                .iter()
+                .any(|pin| pin.net.is_some_and(|n| n == net))
+            {
+                pages.insert(component.sheet);
+            }
+        }
+        for port in &self.ports {
+            if port.net == net {
+                pages.insert(port.sheet);
+            }
+        }
+        pages.into_iter().collect()
+    }
+    fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
+        let from = self.component(wire.from.component)?.sheet;
+        let to = self.component(wire.to.component)?.sheet;
+        if from == to { Some(from) } else { None }
+    }
+    fn schematic_label_page(&self, label: &Label) -> Id {
+        if label.kind == "junction" {
+            for wire in &self.wires {
+                if wire.net != label.net {
+                    continue;
+                }
+                if let Some(path) = self.wire_path(wire)
+                    && path
+                        .iter()
+                        .any(|point| point.distance(label.position) < 0.05)
+                    && let Some(page) = self.schematic_wire_page(wire)
+                {
+                    return page;
+                }
+            }
+        }
+        let mut best = (f64::INFINITY, 0);
+        for component in &self.components {
+            for pin in &component.pins {
+                if pin.net.is_some_and(|n| n == label.net)
+                    && let Some(position) = component.pin_position(&pin.number)
+                {
+                    let reach = position.distance(label.position);
+                    if reach < best.0 {
+                        best = (reach, component.sheet);
+                    }
+                }
+            }
+        }
+        for port in &self.ports {
+            if port.net == label.net {
+                let reach = port.position.distance(label.position);
+                if reach < best.0 {
+                    best = (reach, port.sheet);
+                }
+            }
+        }
+        best.1
+    }
+    fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+        let Some(net) = wire.net else {
+            return 0;
+        };
+        let mut best = (f64::INFINITY, 0);
+        for anchor in [wire.points.first(), wire.points.last()]
+            .into_iter()
+            .flatten()
+        {
+            for component in &self.components {
+                for pin in &component.pins {
+                    if pin.net.is_some_and(|n| n == net)
+                        && let Some(position) = component.pin_position(&pin.number)
+                    {
+                        let reach = position.distance(*anchor);
+                        if reach < best.0 {
+                            best = (reach, component.sheet);
+                        }
+                    }
+                }
+            }
+            for port in &self.ports {
+                if port.net == net {
+                    let reach = port.position.distance(*anchor);
+                    if reach < best.0 {
+                        best = (reach, port.sheet);
+                    }
+                }
+            }
+        }
+        best.1
+    }
+    /// True when a schematic object should appear on the given page.
+    pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
+        if let Some(component) = self.components.iter().find(|c| c.id == object) {
+            return component.sheet == page;
+        }
+        if let Some(port) = self.ports.iter().find(|p| p.id == object) {
+            return port.sheet == page;
+        }
+        if let Some(wire) = self.wires.iter().find(|w| w.id == object) {
+            return self.schematic_wire_page(wire) == Some(page);
+        }
+        if let Some(wire) = self.drawn_wires.iter().find(|w| w.id == object) {
+            return self.schematic_drawn_wire_page(wire) == page;
+        }
+        if let Some(label) = self.labels.iter().find(|l| l.id == object) {
+            return self.schematic_label_page(label) == page;
+        }
+        if let Some(flag) = self.no_connects.iter().find(|f| f.id == object) {
+            return self
+                .component(flag.pin.component)
+                .is_some_and(|c| c.sheet == page);
+        }
+        if let Some(graphic) = self.graphics.iter().find(|g| g.id == object) {
+            return graphic.layer == "schematic" && page == 0;
+        }
+        false
+    }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
@@ -3276,6 +3887,17 @@ impl Project {
     /// True when a check code has been silenced for this design.
     pub fn rule_disabled(&self, code: &str) -> bool {
         self.rule_severity.get(code).is_some_and(|s| s == "off")
+    }
+    pub fn pin_electrical_type_valid(type_name: &str) -> bool {
+        PIN_ELECTRICAL_TYPES.contains(&type_name)
+    }
+    /// ERC level for a pin-type pair, including project overrides.
+    pub fn pin_matrix_level(&self, type_a: &str, type_b: &str) -> String {
+        let key = pin_matrix_key(type_a, type_b);
+        self.pin_matrix
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| default_pin_matrix_level(type_a, type_b).to_string())
     }
     /// True when a finding for `code` naming exactly these objects has been
     /// excluded: every named object must sit on that code's exclusion list.
@@ -3313,7 +3935,10 @@ impl Project {
     /// True when the point lies inside the board outline or rectangle.
     pub fn board_contains(&self, point: Point) -> bool {
         match &self.board.outline {
-            Some(ring) => pcbcraft_geom::point_in_polygon(point, ring),
+            Some(_) => pcbcraft_geom::point_in_polygon(
+                point,
+                &self.board.edge_ring(VALIDATION_CHORD_ERROR),
+            ),
             None => {
                 point.x >= 0.0
                     && point.y >= 0.0
@@ -3579,6 +4204,40 @@ impl Project {
             }
             if !sheet_names.insert(&s.name) {
                 return Err("duplicate sheet name".into());
+            }
+            if let Some(parent) = s.parent {
+                if parent == s.id {
+                    return Err("a sheet cannot be its own parent".into());
+                }
+                if parent != 0 && !self.sheets.iter().any(|other| other.id == parent) {
+                    return Err("sheet parent does not exist".into());
+                }
+                let mut depth = 0usize;
+                let mut walk = parent;
+                for _ in 0..=8 {
+                    if walk == 0 {
+                        break;
+                    }
+                    depth += 1;
+                    if depth > 8 {
+                        return Err("sheet hierarchy is too deep".into());
+                    }
+                    let Some(node) = self.sheets.iter().find(|other| other.id == walk) else {
+                        return Err("sheet parent does not exist".into());
+                    };
+                    if node.id == s.id {
+                        return Err("sheet hierarchy would cycle".into());
+                    }
+                    walk = node.parent.unwrap_or(0);
+                }
+            }
+            if s.entry.is_some() && s.parent.is_none() {
+                return Err("sheet entry needs a parent page".into());
+            }
+            if let Some(entry) = s.entry
+                && !entry.valid()
+            {
+                return Err("sheet entry position is out of range".into());
             }
         }
         if self.ids().count() > MAX_ITEMS {
@@ -3881,6 +4540,22 @@ impl Project {
                 );
             }
         }
+        if self.object_groups.len() > 256 {
+            return Err("a project defines at most 256 object groups".into());
+        }
+        let mut in_object_group = BTreeSet::new();
+        for g in &self.object_groups {
+            if !g.valid() || !g.members.iter().all(|id| in_object_group.insert(*id)) {
+                return Err(
+                    "object groups need two to 512 distinct members, each in at most one group"
+                        .into(),
+                );
+            }
+        }
+        let locked: BTreeSet<Id> = self.locked_objects.iter().copied().collect();
+        if self.locked_objects.len() > 4096 || locked.len() != self.locked_objects.len() {
+            return Err("a project locks at most 4096 distinct objects".into());
+        }
         if self.meta.len() > 16 {
             return Err("a project records at most 16 metadata entries".into());
         }
@@ -3909,6 +4584,23 @@ impl Project {
                      swaps or less"
                         .into(),
                 );
+            }
+        }
+        if self.pin_matrix.len() > 78 {
+            return Err("pin matrix overrides cover at most 78 cells".into());
+        }
+        for (key, level) in &self.pin_matrix {
+            let Some((a, b)) = key.split_once('|') else {
+                return Err("pin matrix key must name two types".into());
+            };
+            if a > b || !Self::pin_electrical_type_valid(a) || !Self::pin_electrical_type_valid(b) {
+                return Err("pin matrix key must be two sorted recognised types".into());
+            }
+            if !matches!(level.as_str(), "ok" | "warning" | "error") {
+                return Err("pin matrix level must be ok, warning or error".into());
+            }
+            if level == default_pin_matrix_level(a, b) {
+                return Err("pin matrix entry matches the default table".into());
             }
         }
         if self.rule_severity.len() > 64 {
@@ -4065,6 +4757,7 @@ impl Project {
                     || p.direction
                         .is_some_and(|angle| !angle.is_finite() || angle.abs() > 360_000.0)
                     || p.electrical_type.len() > 64
+                    || !Self::pin_electrical_type_valid(&p.electrical_type)
                     || p.net.is_some_and(|n| !nets.contains(&n))
                 {
                     return Err("invalid pin or net reference".into());
@@ -4201,6 +4894,13 @@ impl Project {
                 "a board defines at most {MAX_COPPER_LAYERS} copper layers"
             ));
         }
+        for rec in &self.board.layer_records {
+            if let Some(link) = &rec.linked_copper
+                && !copper_rows.iter().any(|c| &c.name == link)
+            {
+                return Err("a linked copper layer must name a copper row".into());
+            }
+        }
         let mut copper_names = BTreeSet::new();
         for rec in &copper_rows {
             if !copper_names.insert(rec.name.as_str()) {
@@ -4265,9 +4965,12 @@ impl Project {
                 .iter()
                 .map(|p| (p.x.to_bits(), p.y.to_bits()))
                 .collect();
-            let inside = points.iter().all(|p| {
-                p.valid() && p.x >= 0.0 && p.x <= b.width && p.y >= 0.0 && p.y <= b.height
-            });
+            let (lo, hi) = outline_extent(points, &b.outline_arcs).unwrap_or_default();
+            let inside = points.iter().all(|p| p.valid())
+                && lo.x >= -1e-6
+                && hi.x <= b.width + 1e-6
+                && lo.y >= -1e-6
+                && hi.y <= b.height + 1e-6;
             if points.len() < 3
                 || points.len() > 64
                 || distinct.len() != points.len()
@@ -4278,6 +4981,9 @@ impl Project {
                     "a board outline needs 3 to 64 distinct vertices inside the board".into(),
                 );
             }
+            validate_outline_arcs(points, &b.outline_arcs)?;
+        } else if !b.outline_arcs.is_empty() {
+            return Err("outline arcs need an outline".into());
         }
         let mut placed = BTreeSet::new();
         for f in &b.footprints {
@@ -4365,12 +5071,11 @@ impl Project {
                         .component(f.component)
                         .and_then(|c| c.library_footprint.as_ref())
                         .ok_or("pad geometry requires an embedded footprint definition")?;
-                    if !definition
-                        .definition
-                        .pads
-                        .iter()
-                        .any(|source| source == geometry)
-                    {
+                    if !definition.definition.pads.iter().any(|source| {
+                        source == geometry
+                            || (f.board_side() == Layer::Back
+                                && geometry == &mirrored_pad_for_bottom(source))
+                    }) {
                         return Err("pad geometry is not present in embedded definition".into());
                     }
                 }
@@ -5035,6 +5740,32 @@ mod drill_tests {
     }
 
     #[test]
+    fn default_pin_matrix_is_symmetric_and_covers_the_vocabulary() -> Result<(), String> {
+        for a in PIN_ELECTRICAL_TYPES {
+            for b in PIN_ELECTRICAL_TYPES {
+                assert_eq!(
+                    default_pin_matrix_level(a, b),
+                    default_pin_matrix_level(b, a),
+                    "{a}|{b} must be symmetric"
+                );
+            }
+        }
+        for &(a, b, level) in DEFAULT_PIN_MATRIX_OVERRIDES {
+            assert_eq!(
+                default_pin_matrix_level(a, b),
+                level,
+                "override slice must match default_pin_matrix_level for {a}|{b}"
+            );
+        }
+        for a in PIN_ELECTRICAL_TYPES {
+            for b in PIN_ELECTRICAL_TYPES {
+                let _ = default_pin_matrix_level(a, b);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn checks_written_by_the_designer_survive_a_save_and_reload() -> Result<(), String> {
         let mut p = Project::default();
         p.custom_checks.push(CustomCheck {
@@ -5179,24 +5910,28 @@ mod drill_tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: Some("signal".into()),
+                ..Default::default()
             },
             LayerRecord {
                 name: "In1.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.0175,
                 copper_role: Some("plane".into()),
+                ..Default::default()
             },
             LayerRecord {
                 name: "In2.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.0175,
                 copper_role: None,
+                ..Default::default()
             },
             LayerRecord {
                 name: "B.Cu".into(),
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: Some("signal".into()),
+                ..Default::default()
             },
         ];
         assert_eq!(p.copper_layer_count(), 4);
@@ -5358,6 +6093,7 @@ mod drill_tests {
             position: Point::new(10.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![
                 Pad {
                     number: "1".into(),

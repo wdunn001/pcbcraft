@@ -1252,8 +1252,7 @@ mod area_tests {
     #[test]
     fn every_key_used_by_board_layout_exists() -> Result<(), String> {
         keys_exist(&[
-            ("lib.rs", "layers_tab"),
-            ("lib.rs", "board_anatomy_section"),
+            ("layers_tree.rs", "layers_tab"),
             ("lib.rs", "stackup_section"),
             ("lib.rs", "holes_section"),
             ("lib.rs", "fiducials_section"),
@@ -1273,7 +1272,6 @@ mod area_tests {
     fn every_key_used_by_schematic_exists() -> Result<(), String> {
         keys_exist(&[
             ("lib.rs", "nets_tab"),
-            ("lib.rs", "part_card"),
             ("lib.rs", "object_detail_rows"),
             ("lib.rs", "type_note"),
             ("lib.rs", "empty_state"),

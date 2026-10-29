@@ -1,9 +1,13 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
+pub mod cad;
+pub mod cad_cache;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
+pub mod online_import;
+pub mod open_library;
 mod paths;
 mod reader;
 mod sexpr;
