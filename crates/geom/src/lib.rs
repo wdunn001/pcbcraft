@@ -1,6 +1,8 @@
 //! Small, bounded planar geometry. Units are millimetres.
 use serde::{Deserialize, Serialize};
 
+pub mod hull;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Point {
