@@ -8,6 +8,10 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod courtyard;
+mod silk;
+mod stub;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
     pub code: &'static str,
@@ -586,8 +590,7 @@ fn root(parent: &[usize], mut node: usize) -> usize {
     }
     node
 }
-pub fn airwires(project: &Project) -> Vec<Airwire> {
-    let items = copper(project);
+fn copper_components(items: &[Copper]) -> Vec<usize> {
     let mut parents: Vec<_> = (0..items.len()).collect();
     for (i, a) in items.iter().enumerate() {
         for (j, b) in items.iter().enumerate().skip(i + 1) {
@@ -600,6 +603,10 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
             }
         }
     }
+    parents
+}
+fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
+    let parents = copper_components(items);
     let mut groups: BTreeMap<Id, BTreeMap<usize, Vec<&Copper>>> = BTreeMap::new();
     for (i, item) in items
         .iter()
@@ -653,6 +660,9 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
         }
     }
     result
+}
+pub fn airwires(project: &Project) -> Vec<Airwire> {
+    airwires_from(&copper(project))
 }
 
 pub fn erc(project: &Project) -> Vec<Finding> {
@@ -1081,7 +1091,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
-    for wire in airwires(project) {
+    for wire in airwires_from(&items) {
         result.push(Finding {
             code: "unrouted",
             severity: project.rule_severity("unrouted", "warning"),
@@ -1264,6 +1274,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(panel_findings(project));
     result.extend(via_findings(project));
     result.extend(fab_findings(project, board));
+    result.extend(courtyard::courtyard_findings(project));
+    result.extend(silk::silk_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
@@ -1468,6 +1480,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![],
         }),
     }
+    result.extend(stub::stub_length_findings(project, &items));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
