@@ -477,7 +477,7 @@ impl PdfPage {
         self.subpath(points, true)?;
         self.op(if fill { "B" } else { "S" })
     }
-    /// A circle approximated by four cubic Bézier quarters.
+    /// A circle approximated by four cubic BÃ©zier quarters.
     fn circle(
         &mut self,
         center: Point,
@@ -4843,7 +4843,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 s.push_str("<rect x=\"-3\" y=\"-1.5\" width=\"6\" height=\"3\" fill=\"#1e2c40\" stroke=\"#dbe7f2\" stroke-width=\"0.15\"/><path d=\"M -5 0 H -3 M 3 0 H 5\" stroke=\"#dbe7f2\" stroke-width=\"0.2\"/>");
             }
             s.push_str(&format!(
-                "</g><text x=\"{}\" y=\"{}\" text-anchor=\"middle\">{} · {}</text>",
+                "</g><text x=\"{}\" y=\"{}\" text-anchor=\"middle\">{} Â· {}</text>",
                 c.position.x,
                 c.position.y - 3.0,
                 escape(&c.reference),
@@ -7684,7 +7684,7 @@ mod tests {
         assert!(schematic.contains("translate(40 20) rotate(-90)"));
         assert!(schematic.contains("translate(60 20)"));
         for view in views {
-            assert!(schematic.contains(&format!("{} ·", escape(&view.reference))));
+            assert!(schematic.contains(&format!("{} Â·", escape(&view.reference))));
         }
         assert!(!preview_png(&project, "schematic")?.is_empty());
         let pcb = svg(&project, "pcb")?;
@@ -9152,11 +9152,11 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
-            max_stub: None,
             via_diameter: None,
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            max_stub: None,
             nets: vec![5],
             profile: None,
         });

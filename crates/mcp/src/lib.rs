@@ -65,7 +65,7 @@ pub fn tool_list() -> Value {
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
         json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
-        json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
+        json!({"name":"batch","description":"Execute 1â€“128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"undo","description":"Undo one transaction","inputSchema":object(json!({}),&[])}),
         json!({"name":"redo","description":"Redo one transaction","inputSchema":object(json!({}),&[])}),
         json!({"name":"new_design","description":"Replace the project with a new empty one; replacement is undoable","inputSchema":object(json!({}),&[])}),
@@ -457,11 +457,10 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 6] = [
                     "clearance",
                     "copper_short",
                     "track_width",
-                    "stub_length",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
@@ -479,7 +478,7 @@ pub(crate) fn invoke_session(
                     "erc": keep("erc"),
                     "drc": keep("drc"),
                     "airwires": report["airwires"],
-                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
+                    "scope": "Quick copper-only pass: clearance, track width, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
                 })));
             }
             report
