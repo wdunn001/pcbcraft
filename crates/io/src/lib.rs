@@ -3894,10 +3894,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
         );
         for layer in p.copper_layers() {
             let name = quote(&p.layer_name(layer));
-            line.push_str(&format!(
-                " (layer {name} \"(c: {}))\")",
-                um(class.width)?
-            ));
+            line.push_str(&format!(" (layer {name} \"(c: {}))\")", um(class.width)?));
         }
         line.push('\n');
         out.push_str(&line);
@@ -9269,11 +9266,15 @@ mod tests {
             "structure lists every copper layer from the stackup"
         );
         assert!(
-            dsn.contains("(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"),
+            dsn.contains(
+                "(wire (path (net 1) (layer In1.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
             "inner tracks land on the stack layer name, not only on outer copper"
         );
         assert!(
-            !dsn.contains("(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"),
+            !dsn.contains(
+                "(wire (path (net 1) (layer F.Cu) (width 300) (11000 10000) (29000 10000)))"
+            ),
             "the inner track must not be forced onto the top layer"
         );
         Ok(())
@@ -9281,7 +9282,8 @@ mod tests {
 
     #[test]
     fn two_layer_example_exchange_exports_stay_byte_stable() -> Result<(), String> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/dual-amplifier.pcbcraft");
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/dual-amplifier.pcbcraft");
         let project = load(&path)?;
         project.validate().map_err(|e| e.to_string())?;
         assert_eq!(project.copper_layer_count(), 2);
