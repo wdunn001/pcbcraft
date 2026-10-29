@@ -41,6 +41,28 @@ pub(crate) fn name_control(response: &Response, name: &str, selected: Option<boo
     });
 }
 
+/// Make a painted line of text a polite live region, so a screen reader
+/// reads it when its words change without moving keyboard focus (WCAG
+/// 4.1.3 Status Messages). The node label is always the visible text, and
+/// the adapter only speaks when that label differs from the last frame, so
+/// an unchanged message is never read twice.
+///
+/// # Rules
+/// - Call it on the response of the label that paints `text`, every frame.
+/// - Does nothing while no screen reader is attached.
+///
+/// # Dependencies
+/// - `crates/ui-egui/src/lib.rs` status panel is the only caller.
+///
+/// # Do not
+/// - Use `Live::Assertive`; status messages must never interrupt speech.
+pub(crate) fn announce_status(ctx: &Context, response: &Response, text: &str) {
+    ctx.accesskit_node_builder(response.id, |node| {
+        node.set_live(egui::accesskit::Live::Polite);
+        node.set_label(text);
+    });
+}
+
 /// Keep the egui zoom factor and the saved scale in step. A change made
 /// with the keyboard zoom keys is adopted into the preference; a change
 /// made in Settings is pushed to egui.
@@ -89,19 +111,29 @@ pub(crate) mod audit {
     use super::*;
     use egui::accesskit::Role;
 
-    /// Roles a person can act on; each must carry a name. Combo boxes are
-    /// left out until each one gets a label (a child issue tracks them): egui
-    /// announces their value but not their purpose.
+    /// Roles a person can act on; each must carry a name.
     fn needs_name(role: Role) -> bool {
         matches!(
             role,
-            Role::Button | Role::CheckBox | Role::RadioButton | Role::Link | Role::Tab
+            Role::Button
+                | Role::CheckBox
+                | Role::RadioButton
+                | Role::ComboBox
+                | Role::TextInput
+                | Role::MultilineTextInput
+                | Role::Slider
+                | Role::SpinButton
+                | Role::Tab
+                | Role::MenuItem
+                | Role::Link
         )
     }
 
     /// Every interactive node in this frame's accessibility tree, as
-    /// (role, name). The name is empty when the control announces nothing.
-    pub(crate) fn interactive_nodes(output: &egui::FullOutput) -> Vec<(Role, String)> {
+    /// (node id, role, name). The name is empty when the control announces
+    /// nothing. The node id is egui's widget id, which stays the same from
+    /// run to run for the same screen.
+    pub(crate) fn nodes(output: &egui::FullOutput) -> Vec<(u64, Role, String)> {
         let Some(update) = &output.platform_output.accesskit_update else {
             return Vec::new();
         };
@@ -109,8 +141,9 @@ pub(crate) mod audit {
             .nodes
             .iter()
             .filter(|(_, node)| needs_name(node.role()))
-            .map(|(_, node)| {
+            .map(|(id, node)| {
                 (
+                    id.0,
                     node.role(),
                     node.label().unwrap_or_default().trim().to_owned(),
                 )
@@ -118,12 +151,12 @@ pub(crate) mod audit {
             .collect()
     }
 
-    /// Roles of interactive nodes with an empty name.
-    pub(crate) fn unnamed(output: &egui::FullOutput) -> Vec<Role> {
-        interactive_nodes(output)
+    /// Every interactive node in this frame's accessibility tree, as
+    /// (role, name).
+    pub(crate) fn interactive_nodes(output: &egui::FullOutput) -> Vec<(Role, String)> {
+        nodes(output)
             .into_iter()
-            .filter(|(_, name)| name.is_empty())
-            .map(|(role, _)| role)
+            .map(|(_, role, name)| (role, name))
             .collect()
     }
 
