@@ -262,6 +262,54 @@ fn copper(project: &Project) -> Vec<Copper> {
     }
     result
 }
+/// Copper a new track must keep clear of, seen exactly as the checks see it.
+#[derive(Clone, Debug)]
+pub struct Obstacle {
+    pub id: Id,
+    pub net: Id,
+    pub layer: Layer,
+    /// True only for straight track segments, the one kind a shove may move.
+    /// Pads, vias, drilled holes, net ties, zones and arc tracks stay put.
+    pub is_track: bool,
+    /// Support points: the true pad outline, or both ends of a segment.
+    pub points: Vec<Point>,
+    /// Grow the support points by this much to get the copper edge.
+    pub radius: f64,
+    /// Where `Project::required_clearance_at` is asked about this copper.
+    pub at: Point,
+    /// Extra clearance the owning footprint demands, if any.
+    pub clearance: Option<f64>,
+}
+
+/// Every copper item on `layer`, built from the same list that `drc` uses.
+pub fn obstacles(project: &Project, layer: Layer) -> Vec<Obstacle> {
+    copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer)
+        .map(|c| {
+            let at = Point::new((c.start.x + c.end.x) / 2.0, (c.start.y + c.end.y) / 2.0);
+            let straight = project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.id == c.id && t.arc.is_none());
+            let (points, radius, is_track) = match c.outline {
+                Some(points) => (points, c.outline_error, false),
+                None => (vec![c.start, c.end], c.radius, straight),
+            };
+            Obstacle {
+                id: c.id,
+                net: c.net,
+                layer: c.layer,
+                is_track,
+                points,
+                radius,
+                at,
+                clearance: c.clearance,
+            }
+        })
+        .collect()
+}
 fn hole_contains(hole: &Hole, other: &Copper) -> bool {
     // The distance-to-segment function is convex. Endpoint discs contained by
     // the hole guarantee containment of the complete track capsule. Retain
