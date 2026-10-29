@@ -58,6 +58,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
+        json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
         json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
@@ -423,6 +424,18 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
         }
         "inspect_design" => s.inspect(),
+        "board_mesh" => {
+            let layers: Option<Vec<String>> = match args.get("layers") {
+                Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| e.to_string())?),
+                None => None,
+            };
+            let geometry = args
+                .get("geometry")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            s.board_mesh(layers.as_deref(), geometry)
+                .map_err(|e| e.to_string())?
+        }
         "checks" => {
             let report = s.checks();
             if args
@@ -803,6 +816,25 @@ pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn board_mesh_tool_returns_triangles_without_editing() -> Result<(), String> {
+        let session = shared(Session::default());
+        let reply = call_tool(&session, "board_mesh", &json!({"layers":["board"]}));
+        assert_eq!(reply["isError"], false, "{reply}");
+        let mesh = &reply["structuredContent"];
+        assert_eq!(mesh["vertices"], 24);
+        assert_eq!(mesh["triangles"], 12);
+        assert_eq!(mesh["bounds"]["max"][2], 1.6);
+        let bad = call_tool(&session, "board_mesh", &json!({"layers":["wings"]}));
+        assert_eq!(bad["isError"], true);
+        let summary = call_tool(&session, "board_mesh", &json!({"geometry":false}));
+        assert!(
+            summary["structuredContent"]["parts"][0]
+                .get("indices")
+                .is_none()
+        );
+        Ok(())
+    }
     #[test]
     fn checks_copper_only_reports_the_quick_copper_subset() -> Result<(), String> {
         let session = shared(Session::default());

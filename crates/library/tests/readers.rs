@@ -191,7 +191,41 @@ fn footprint_models_are_recorded_and_bounded() -> Result<(), Box<dyn std::error:
          (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
     )?;
     let m = modern.model.as_ref().ok_or("at-form model missing")?;
-    assert_eq!(m.offset, [1.0, 2.0, 3.0], "newer files place with at");
+    assert_eq!(
+        m.offset,
+        [25.4, 50.8, 76.2],
+        "the legacy at form is inches, stored as millimetres"
+    );
+    let same = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (offset (xyz 25.4 50.8 76.2)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    assert_eq!(
+        same.model
+            .as_ref()
+            .ok_or("offset-form model missing")?
+            .offset,
+        m.offset,
+        "the legacy and modern forms read to the same millimetres"
+    );
+    let both = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (at (xyz 1 1 1)) (offset (xyz 2 3 4)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    assert_eq!(
+        both.model.as_ref().ok_or("both-form model missing")?.offset,
+        [2.0, 3.0, 4.0],
+        "offset wins over at"
+    );
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (at (xyz 99999 0 0))))"
+        )
+        .is_err(),
+        "a legacy offset that converts out of bounds is rejected"
+    );
     assert_eq!(m.scale, [1.0, 1.0, 1.0], "an absent scale is unit size");
     let plain = read_footprint(
         "(footprint M (at 0 0 0) (layer F.Cu) (model \"pkg.wrl\")\
