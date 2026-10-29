@@ -1,100 +1,204 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod a11y;
+mod assistant;
 mod authoring;
+mod board3d;
 mod canvas;
+mod contrast;
+mod datums;
+mod editing;
+mod footprint_wizard;
+mod impedance_panel;
 mod library;
+mod library_quality;
+mod motion;
+mod palette;
+mod plot_viewer;
+mod reference_panel;
+mod sources;
+#[cfg(test)]
+mod target_size;
+mod targets;
+mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use pcbcraft_text::t;
+#[cfg(test)]
+use std::collections::BTreeMap;
+use targets::TapButton;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
-/// staring at a blank list.
-const EMPTY_SYMBOLS: &str =
-    "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
-const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
-const EMPTY_BOARD: &str =
-    "No packages on the board yet. Run board.sync to place a package for every symbol.";
-const EMPTY_CHECKS: &str =
-    "Checks run automatically on every edit; findings are listed here as soon as one appears.";
+/// staring at a blank list. Each constant is a catalog key (en.txt), read
+/// through `empty_state`.
+#[cfg(test)]
+const EMPTY_SYMBOLS: &str = "empty.symbols";
+const EMPTY_NETS: &str = "empty.nets";
+#[cfg(test)]
+const EMPTY_BOARD: &str = "empty.board";
+const EMPTY_CHECKS: &str = "empty.checks";
 
-/// Render an empty-state line in the small muted style.
-fn empty_state(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
-    ui.label(egui::RichText::new(text).small().color(muted));
+/// Render the empty-state line for catalog key `key` in the small muted style.
+fn empty_state(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
+    ui.label(
+        egui::RichText::new(pcbcraft_text::lookup(key, &[]))
+            .small()
+            .color(muted),
+    );
 }
 
 /// Help copy shown under the inspector's editable fields. Each line names
 /// what the field is for and the limit the engine will enforce, so the
 /// requirement is visible before the first rejected edit.
-const FIELD_HELP_VALUE: &str = "Free text: a name or value, like R1 or 10k. It updates the symbol or package immediately when Apply is pressed.";
-const FIELD_HELP_POSITION: &str =
-    "Absolute millimetres from the design origin; Apply moves just this symbol or package.";
-const FIELD_HELP_BOARD: &str =
-    "Board outline size in millimetres; both values must be larger than zero.";
-const FIELD_HELP_CUTOUT: &str =
-    "Radius of the circle the cutout tool places; the whole circle must stay inside the board.";
+const FIELD_HELP_VALUE: &str = "field_help.value";
+const FIELD_HELP_POSITION: &str = "field_help.position";
+const FIELD_HELP_BOARD: &str = "field_help.board";
+const FIELD_HELP_CUTOUT: &str = "field_help.cutout";
 
-fn field_help(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
-    ui.label(egui::RichText::new(text).small().color(muted).weak());
+/// Show the help line for catalog key `key` under an inspector field.
+fn field_help(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
+    ui.label(
+        egui::RichText::new(pcbcraft_text::lookup(key, &[]))
+            .small()
+            .color(muted)
+            .weak(),
+    );
 }
 
 /// The complete input reference: every key binding the app installs, plus
 /// the canvas mouse gestures, with where each one applies. The overlay and
 /// the tests read this one table, so the list can never claim a key the
 /// handler does not install.
-fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
+fn shortcut_rows() -> Vec<(String, String, String)> {
     vec![
-        ("Ctrl+Z", "Undo the last action", "anywhere"),
-        ("Ctrl+Shift+Z", "Redo an undone action", "anywhere"),
-        ("Ctrl+Y", "Redo an undone action", "anywhere"),
-        ("Ctrl+S", "Save the design to its file", "anywhere"),
-        ("Ctrl+K", "Open the command palette", "anywhere"),
         (
-            "Up/Down",
-            "Move the highlight through the command list",
-            "command palette",
+            "Ctrl+Z".to_string(),
+            t!("shortcut.undo_the_last_action"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "Enter",
-            "Load the highlighted command, then run it from the parameters box",
-            "command palette",
-        ),
-        ("?", "Show or hide this shortcut list", "anywhere"),
-        ("A", "Open the symbol palette", "schematic tab"),
-        (
-            "W",
-            "Wire tool: click two pins to connect them",
-            "schematic tab",
+            "Ctrl+Shift+Z".to_string(),
+            t!("shortcut.redo_an_undone_action"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "X",
-            "Route tool: click two pads to start a track",
-            "pcb tab",
+            "Ctrl+Y".to_string(),
+            t!("shortcut.redo_an_undone_action"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "M",
-            "Move tool: drop the selection at the cursor",
-            "anywhere",
+            "Ctrl+S".to_string(),
+            t!("shortcut.save_the_design_to_its"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "R",
-            "Rotate the hovered or selected object by 90 degrees",
-            "anywhere",
+            "Ctrl+K".to_string(),
+            t!("shortcut.open_the_command_palette"),
+            t!("shortcut.context.anywhere"),
         ),
         (
-            "E",
-            "Load the hovered or selected object into the inspector",
-            "anywhere",
+            t!("shortcut.keys.up_down"),
+            t!("shortcut.move_the_highlight_through_the"),
+            t!("shortcut.context.command_palette"),
         ),
-        ("Home", "Zoom the view so the whole design fits", "anywhere"),
-        ("Delete", "Delete the selected object", "anywhere"),
         (
-            "Esc",
-            "Return to the select tool and close open palettes",
-            "anywhere",
+            "Enter".to_string(),
+            t!("shortcut.load_the_highlighted_command_then"),
+            t!("shortcut.context.command_palette"),
         ),
-        ("Middle-drag", "Pan the view", "canvas"),
-        ("Scroll", "Zoom the view", "canvas"),
+        (
+            "?".to_string(),
+            t!("shortcut.show_or_hide_this_shortcut"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Ctrl+C".to_string(),
+            t!("shortcut.copy_the_selected_objects_as"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            "Ctrl+V".to_string(),
+            t!("shortcut.paste_the_copied_objects_ready"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            "Ctrl+A".to_string(),
+            t!("shortcut.select_every_object_the_pick"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            t!("shortcut.keys.shift_click"),
+            t!("shortcut.add_an_object_to_the"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            t!("shortcut.keys.drag_on_empty_canvas"),
+            t!("shortcut.draw_a_box_and_select"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            "U".to_string(),
+            t!("shortcut.measure_tool_click_two_points"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            "A".to_string(),
+            t!("shortcut.open_the_symbol_palette"),
+            t!("shortcut.context.schematic_tab"),
+        ),
+        (
+            "W".to_string(),
+            t!("shortcut.wire_tool_click_two_pins"),
+            t!("shortcut.context.schematic_tab"),
+        ),
+        (
+            "X".to_string(),
+            t!("shortcut.route_tool_click_two_pads"),
+            t!("shortcut.context.pcb_tab"),
+        ),
+        (
+            "M".to_string(),
+            t!("shortcut.move_tool_drop_the_selection"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "R".to_string(),
+            t!("shortcut.rotate_the_hovered_or_selected"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "E".to_string(),
+            t!("shortcut.load_the_hovered_or_selected"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Home".to_string(),
+            t!("shortcut.zoom_the_view_so_the"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Delete".to_string(),
+            t!("shortcut.delete_every_selected_object"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            "Esc".to_string(),
+            t!("shortcut.return_to_the_select_tool"),
+            t!("shortcut.context.anywhere"),
+        ),
+        (
+            t!("shortcut.keys.middle_drag"),
+            t!("shortcut.pan_the_view"),
+            t!("shortcut.context.canvas"),
+        ),
+        (
+            t!("shortcut.keys.scroll"),
+            t!("shortcut.zoom_the_view"),
+            t!("shortcut.context.canvas"),
+        ),
     ]
 }
 
@@ -116,10 +220,10 @@ type StackShape = (
 type CheckGroup = (String, Vec<(String, Vec<Id>)>);
 type AnatGroup = (
     &'static str,
-    &'static str,
-    &'static str,
+    String,
+    String,
     Vec<(Option<Id>, String)>,
-    &'static str,
+    String,
 );
 /// One line, in plain words, describing a figure drawn on a machine layer.
 fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
@@ -156,6 +260,11 @@ fn art_shape_text(shape: &pcbcraft_doc::ArtShape) -> String {
 }
 
 fn human_code(code: &str) -> String {
+    let key = format!("check.{code}");
+    let named = pcbcraft_text::lookup(&key, &[]);
+    if named != key {
+        return named;
+    }
     let words = code.replace('_', " ");
     let mut chars = words.chars();
     match chars.next() {
@@ -168,14 +277,17 @@ fn human_code(code: &str) -> String {
         None => words,
     }
 }
-/// The plain measurements a designer can write a check about, with the
-/// token the engine stores for each.
+/// The plain measurements a designer can write a check about, as a catalog
+/// key for the words and the token the engine stores for each.
 const CUSTOM_MEASURES: [(&str, &str); 5] = [
-    ("A wire thinner than", "track width below"),
-    ("A wire longer than", "track length above"),
-    ("More parts than", "part count above"),
-    ("More vias than", "via count above"),
-    ("More wires on one net than", "net track count above"),
+    ("checks.measure.track_width_below", "track width below"),
+    ("checks.measure.track_length_above", "track length above"),
+    ("checks.measure.part_count_above", "part count above"),
+    ("checks.measure.via_count_above", "via count above"),
+    (
+        "checks.measure.net_track_count_above",
+        "net track count above",
+    ),
 ];
 /// One line in plain words for a check the designer wrote, e.g. "more than
 /// 5 parts" or "wires thinner than 0.20 mm".
@@ -184,19 +296,20 @@ fn custom_measure_line(measure: &str, limit: f64) -> String {
         limit as i64
     } else {
         // counts print whole; wire measures keep two decimals
-        return format!(
-            "{} {limit:.2} mm",
-            match measure {
-                "track width below" => "wires thinner than",
-                "track length above" => "wires longer than",
-                other => other,
-            }
+        return t!(
+            "checks.custom_measure_line.what_limit_mm",
+            what = match measure {
+                "track width below" => t!("checks.custom_measure_line.wires_thinner_than"),
+                "track length above" => t!("checks.custom_measure_line.wires_longer_than"),
+                other => other.to_owned(),
+            },
+            limit = format!("{:.2}", limit)
         );
     };
     match measure {
-        "part count above" => format!("more than {n} parts"),
-        "via count above" => format!("more than {n} vias"),
-        "net track count above" => format!("more than {n} wires on one net"),
+        "part count above" => t!("checks.custom_measure_line.more_than_n_parts", n = n),
+        "via count above" => t!("checks.custom_measure_line.more_than_n_vias", n = n),
+        "net track count above" => t!("checks.custom_measure_line.more_than_n_wires_on", n = n),
         other => format!("{other} {n}"),
     }
 }
@@ -207,7 +320,7 @@ fn custom_heading(project: &pcbcraft_doc::Project, code: &str) -> String {
         .strip_prefix("custom_")
         .and_then(|rest| rest.parse::<u64>().ok())
         .and_then(|id| project.custom_checks.iter().find(|c| c.id == id))
-        .map(|c| format!("Your check: {}", c.name));
+        .map(|c| t!("checks.custom_heading.your_check_name", name = c.name));
     written.unwrap_or_else(|| human_code(code))
 }
 fn role_label(kind: &str) -> String {
@@ -223,34 +336,69 @@ fn role_token(label: &str) -> Option<&'static str> {
         .map(|(token, _)| *token)
 }
 
+/// The words shown beside a layer checkbox. The English name is the stored
+/// id in the preferences, so only the label is translated.
+fn layer_row_label(name: &str) -> String {
+    match name {
+        "Grid" => t!("board.layers_tab.grid"),
+        "Symbols" => t!("board.layers_tab.symbols"),
+        "Wires" => t!("board.layers_tab.wires"),
+        "Net labels" => t!("board.layers_tab.net_labels"),
+        "Graphics" => t!("board.layers_tab.graphics"),
+        "Top copper" => t!("board.layers_tab.top_copper"),
+        "Bottom copper" => t!("board.layers_tab.bottom_copper"),
+        "Pads" => t!("board.layers_tab.pads"),
+        "Vias" => t!("board.layers_tab.vias"),
+        "Copper zones" => t!("board.layers_tab.copper_zones"),
+        "Cutouts" => t!("board.layers_tab.cutouts"),
+        "Package artwork" => t!("board.layers_tab.package_artwork"),
+        other => other.to_owned(),
+    }
+}
+
 /// What the mouse and keys will do next for the active tool. The strip is
 /// rendered under the toolbar so the next action is always visible instead
 /// of being something the user has to remember.
 fn tool_hint(tool: &Tool) -> String {
-    let common = " · middle-drag: pan · scroll: zoom · Esc: back to select";
+    let common = format!(" {}", t!("board.tool_hint.middle_drag_pan_scroll_zoom"));
     match tool {
-        Tool::Select => format!("LMB: select an object · drag: move the selected object{common}"),
-        Tool::Place(_) => format!("LMB: place the symbol at the cursor{common}"),
+        Tool::Select => t!("board.tool_hint.lmb_select_an_object_drag", common = common),
+        Tool::Place(_) => t!("board.tool_hint.lmb_place_the_symbol_at", common = common),
         Tool::LibraryPlace(..) | Tool::CustomPlace(..) => {
-            format!("LMB: place the symbol package at the cursor{common}")
+            t!(
+                "board.tool_hint.lmb_place_the_symbol_package",
+                common = common
+            )
         }
-        Tool::Wire(None) => format!("LMB: pick the first pin of the new wire{common}"),
+        Tool::Wire(None) => t!("board.tool_hint.lmb_pick_the_first_pin", common = common),
         Tool::Wire(Some(_)) => {
-            format!("LMB: pick the second pin to complete the wire{common}")
+            t!("board.tool_hint.lmb_pick_the_second_pin", common = common)
         }
-        Tool::Route(None) => format!("LMB: pick the first pad to start the track{common}"),
+        Tool::Route(None) => t!("board.tool_hint.lmb_pick_the_first_pad", common = common),
         Tool::Route(Some(_)) => {
-            format!("LMB: pick the second pad to complete the track{common}")
+            t!("board.tool_hint.lmb_pick_the_second_pad", common = common)
         }
-        Tool::Move => format!("LMB: drop the selected object at the cursor{common}"),
-        Tool::Cutout => format!("LMB: place a circular cutout at the cursor{common}"),
-        Tool::Hole => format!("LMB: drill a mounting hole at the cursor{common}"),
+        Tool::Move => t!(
+            "board.tool_hint.lmb_drop_the_selected_object",
+            common = common
+        ),
+        Tool::Cutout => t!(
+            "board.tool_hint.lmb_place_a_circular_cutout",
+            common = common
+        ),
+        Tool::Hole => t!("board.tool_hint.lmb_drill_a_mounting_hole", common = common),
         Tool::NoConnect => {
-            format!("LMB: click a pin to mark it unused, or again to undo{common}")
+            t!("board.tool_hint.lmb_click_a_pin_to", common = common)
         }
-        Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
+        Tool::Fiducial => t!(
+            "board.tool_hint.lmb_place_an_assembly_mark",
+            common = common
+        ),
         Tool::DrawLayer => {
-            format!("LMB: place the shape on the active layer{common}")
+            t!("board.tool_hint.lmb_place_the_shape_on", common = common)
+        }
+        Tool::Measure => {
+            t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
     }
 }
@@ -302,7 +450,7 @@ fn param_help(spec: &pcbcraft_engine::CommandSpec) -> Vec<String> {
                         let mut line = format!("{key} ({}):", type_note(field));
                         match field.get("description").and_then(Value::as_str) {
                             Some(text) => line.push_str(&format!(" {text}")),
-                            None => line.push_str(" required"),
+                            None => line.push_str(&format!(" {}", t!("rules.param_help.required"))),
                         }
                         line
                     })
@@ -322,7 +470,10 @@ fn type_note(field: &Value) -> String {
             .map(str::to_string)
             .collect();
         if !names.is_empty() {
-            return format!("one of {}", names.join(" or "));
+            return t!(
+                "schematic.type_note.one_of_list",
+                list = names.join(&format!(" {} ", t!("schematic.type_note.or")))
+            );
         }
     }
     match field.get("type").and_then(Value::as_str) {
@@ -333,17 +484,17 @@ fn type_note(field: &Value) -> String {
                 .and_then(Value::as_f64);
             let max = field.get("maximum").and_then(Value::as_f64);
             match (min, max) {
-                (Some(lo), Some(hi)) => format!("number {lo} to {hi}"),
-                (Some(lo), None) => format!("number from {lo}"),
-                (None, Some(hi)) => format!("number up to {hi}"),
-                (None, None) => "number".into(),
+                (Some(lo), Some(hi)) => t!("schematic.type_note.number_lo_to_hi", lo = lo, hi = hi),
+                (Some(lo), None) => t!("schematic.type_note.number_from_lo", lo = lo),
+                (None, Some(hi)) => t!("schematic.type_note.number_up_to_hi", hi = hi),
+                (None, None) => t!("schematic.type_note.number"),
             }
         }
-        Some("string") => "text".into(),
-        Some("boolean") => "true or false".into(),
-        Some("array") => "list".into(),
-        Some("object") => "object".into(),
-        _ => "value".into(),
+        Some("string") => t!("schematic.type_note.text"),
+        Some("boolean") => t!("schematic.type_note.true_or_false"),
+        Some("array") => t!("schematic.type_note.list"),
+        Some("object") => t!("schematic.type_note.object"),
+        _ => t!("schematic.type_note.value"),
     }
 }
 
@@ -404,15 +555,48 @@ fn sample_value(schema: &Value) -> Value {
     }
 }
 
+/// The catalog key that stands for one engine refusal: `error.` plus the
+/// refusal's words in lowercase, joined by underscores and cut at 60 characters.
+fn refusal_key(engine_text: &str) -> String {
+    let words: Vec<String> = engine_text
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect();
+    let joined = words.join("_");
+    let cut: String = joined.chars().take(60).collect();
+    format!("error.{cut}")
+}
+
+/// What the status strip shows for an engine refusal. The engine text is API
+/// text and stays English; a language that carries an `error.*` line for it
+/// shows that line instead, and every other refusal (or the same words with
+/// other spelling) falls back to the engine text unchanged.
+fn refusal_text(engine_text: &str) -> String {
+    let key = refusal_key(engine_text);
+    let known = pcbcraft_text::Catalog::english();
+    if known.defines(&key) && known.get(&key) == engine_text {
+        pcbcraft_text::lookup_known(&key).unwrap_or_else(|| engine_text.to_owned())
+    } else {
+        engine_text.to_owned()
+    }
+}
+
 /// Hover text for a control that runs an engine command: the command
 /// registry description is the single source of truth for what the control
 /// does, so the UI explanation and the command documentation never drift.
+/// A `command.<id>.tip` line in the catalog overrides it per language.
 fn command_tip(id: &str) -> String {
+    let key = format!("command.{id}.tip");
+    let translated = pcbcraft_text::lookup(&key, &[]);
+    if translated != key {
+        return translated;
+    }
     pcbcraft_engine::commands()
         .into_iter()
         .find(|spec| spec.id == id)
         .map_or_else(
-            || "This control runs an engine command.".into(),
+            || t!("command.unmapped.tip"),
             |spec| spec.description.to_string(),
         )
 }
@@ -421,12 +605,15 @@ use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
+    Files,
     Schematic,
     Pcb,
-    Libraries,
+    Board3d,
     Rules,
     Checks,
     Settings,
+    Libraries,
+    PlotFiles,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -440,11 +627,11 @@ enum PadLabels {
     Off,
 }
 impl PadLabels {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         match self {
-            Self::Number => "Pads: number",
-            Self::Net => "Pads: net",
-            Self::Off => "Pads: off",
+            Self::Number => t!("pad_labels.number"),
+            Self::Net => t!("pad_labels.net"),
+            Self::Off => t!("pad_labels.off"),
         }
     }
 }
@@ -456,6 +643,62 @@ struct Preferences {
     pad_labels: PadLabels,
     #[serde(default)]
     hidden_layers: Vec<String>,
+    /// Vertical split in the right aside: fraction for the Layers tree (top).
+    #[serde(default = "default_aside_split")]
+    aside_split: f32,
+    /// Lower right-aside tab: 0 = Properties, 1 = Assistant.
+    #[serde(default)]
+    aside_lower_tab: u8,
+    #[serde(default = "default_true")]
+    library_dock_open: bool,
+    /// Language tag of the text catalog, or `system` to follow the computer.
+    #[serde(default = "default_language")]
+    language: String,
+    /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
+    #[serde(default)]
+    reduced_motion: bool,
+    /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
+    #[serde(default = "default_ui_scale")]
+    ui_scale: f32,
+    /// Cut routed corners at 45 degrees; off allows right-angle corners.
+    #[serde(default = "default_true")]
+    chamfer_corners: bool,
+    /// Show the Assistant tab and its shortcut; off starts nothing.
+    #[serde(default = "default_true")]
+    assistant_enabled: bool,
+    /// Saved model connections. Keys are never kept here, only in the system keychain.
+    #[serde(default)]
+    assistant_connections: Vec<pcbcraft_assistant::Connection>,
+    /// Id of the connection used by default.
+    #[serde(default)]
+    assistant_default: String,
+    /// What the assistant may do without asking.
+    #[serde(default)]
+    assistant_mode: pcbcraft_assistant::Mode,
+    /// Per-connection override of the mode, by connection id.
+    #[serde(default)]
+    assistant_modes: std::collections::BTreeMap<String, pcbcraft_assistant::Mode>,
+    /// Tool keys the user chose to always allow, by connection id.
+    #[serde(default)]
+    assistant_always_allow: std::collections::BTreeMap<String, Vec<String>>,
+    /// Changes one message may make before the model is told to stop.
+    #[serde(default = "default_turn_limit")]
+    assistant_turn_limit: u32,
+}
+fn default_language() -> String {
+    pcbcraft_text::SYSTEM.into()
+}
+fn default_turn_limit() -> u32 {
+    pcbcraft_assistant::DEFAULT_TURN_LIMIT
+}
+fn default_ui_scale() -> f32 {
+    a11y::DEFAULT_UI_SCALE
+}
+fn default_aside_split() -> f32 {
+    0.45
+}
+fn default_true() -> bool {
+    true
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -465,8 +708,65 @@ impl Default for Preferences {
             accent: [91, 224, 188],
             pad_labels: PadLabels::Number,
             hidden_layers: Vec::new(),
+            aside_split: default_aside_split(),
+            aside_lower_tab: 0,
+            library_dock_open: true,
+            language: default_language(),
+            reduced_motion: motion::os_prefers_reduced_motion(),
+            ui_scale: a11y::DEFAULT_UI_SCALE,
+            chamfer_corners: true,
+            assistant_enabled: true,
+            assistant_connections: Vec::new(),
+            assistant_default: String::new(),
+            assistant_mode: pcbcraft_assistant::Mode::Ask,
+            assistant_modes: Default::default(),
+            assistant_always_allow: Default::default(),
+            assistant_turn_limit: default_turn_limit(),
         }
     }
+}
+/// Pair name, coupling gap, both routed lengths and their skew for a net that
+/// belongs to a declared differential pair; nothing for any other net.
+fn pair_rows(project: &Project, net: Id) -> Vec<(String, String)> {
+    let Some(pair) = project
+        .board
+        .diff_pairs
+        .iter()
+        .find(|d| d.net_p == net || d.net_n == net)
+    else {
+        return vec![];
+    };
+    let length = |n: Id| -> f64 {
+        project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == n)
+            .map(track_length)
+            .sum()
+    };
+    let (lp, ln) = (length(pair.net_p), length(pair.net_n));
+    vec![
+        ("Pair".into(), format!("{} · routed together", pair.name)),
+        (
+            "Pair gap".into(),
+            format!("{:.3} mm between the two sides", pair.gap),
+        ),
+        (
+            "Pair lengths".into(),
+            format!(
+                "{} {:.2} mm · {} {:.2} mm",
+                project.net_name(pair.net_p),
+                lp,
+                project.net_name(pair.net_n),
+                ln
+            ),
+        ),
+        (
+            "Pair skew".into(),
+            format!("{:.2} mm apart", (lp - ln).abs()),
+        ),
+    ]
 }
 /// The copper length of a track segment in millimetres, following the bow
 /// of an arc when the segment carries one.
@@ -519,6 +819,7 @@ enum Tool {
     NoConnect,
     Fiducial,
     DrawLayer,
+    Measure,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -549,22 +850,27 @@ impl Camera {
         )
     }
 }
+pub use assistant::Host;
 pub struct App {
     session: SharedSession,
+    assistant: assistant::State,
     project: Project,
     revision: u64,
     checks: Value,
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    edit: editing::EditState,
+    view3d: board3d::View3d,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
+    /// Text for the language chosen in Settings.
+    catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
-    left_tab: usize,
     tree_query: String,
     tree_hidden: Vec<String>,
     focus_layer: Option<String>,
@@ -582,11 +888,13 @@ pub struct App {
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
+    datum_ui: datums::DatumUi,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
     pair_a: Id,
     pair_b: Id,
@@ -632,6 +940,8 @@ pub struct App {
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
     anat_open: Vec<String>,
+    /// Optional workspace tabs the user closed; the + menu reopens them.
+    closed_tabs: Vec<Tab>,
     notes_thick: f64,
     notes_er: f64,
     net_editor: Option<pcbcraft_doc::Id>,
@@ -639,15 +949,22 @@ pub struct App {
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     palette: bool,
     part_search: String,
+    part_sources: sources::PartSources,
+    pending_source: Option<pcbcraft_library::sources::PartResult>,
     hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// Left edge of the central page, so tests can check text keeps its margin.
+    page_left: f32,
     schematic: Camera,
     pcb: Camera,
+    plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
+    canvas_rect: Rect,
+    canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
     value: String,
     x: f64,
@@ -668,6 +985,8 @@ pub struct App {
     capture: Option<String>,
     frames: u32,
     library: library::Browser,
+    #[cfg(test)]
+    icon_rects: BTreeMap<String, Rect>,
 }
 impl App {
     /// One library part offered as a small card: its name to pick, and a
@@ -675,7 +994,7 @@ impl App {
     fn part_card(&mut self, ui: &mut egui::Ui, definition: &pcbcraft_library::SymbolDefinition) {
         if ui
             .button(&definition.name)
-            .on_hover_text("Pick this saved part; the next click on the schematic places it.")
+            .on_hover_text(t!("schematic.part_card.pick_this_saved_part_the.tip"))
             .clicked()
         {
             self.change_tab(Tab::Schematic);
@@ -687,9 +1006,13 @@ impl App {
         let words = tags.join(" · ");
         let note = match (definition.description.trim(), words.as_str()) {
             ("", "") => String::new(),
-            ("", tags) => format!("search words: {tags}"),
+            ("", tags) => t!("schematic.part_card.search_words_tags", tags = tags),
             (what, "") => what.to_owned(),
-            (what, tags) => format!("{what} · search words: {tags}"),
+            (what, tags) => t!(
+                "schematic.part_card.what_search_words_tags",
+                what = what,
+                tags = tags
+            ),
         };
         if !note.is_empty() {
             ui.label(egui::RichText::new(note).small().color(self.muted()));
@@ -711,14 +1034,33 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         let base = project.board.clearance;
         let class = project.net_class(net);
         let (value, source) = match class {
-            Some(c) if c.clearance > base => (c.clearance, format!("the usual gap for {}", c.name)),
+            Some(c) if c.clearance > base => (
+                c.clearance,
+                t!(
+                    "schematic.object_detail_rows.the_usual_gap_for_name",
+                    name = c.name
+                ),
+            ),
             Some(c) => (
                 base,
-                format!("the board's usual gap, {} asks no more", c.name),
+                t!(
+                    "schematic.object_detail_rows.the_board_s_usual_gap",
+                    name = c.name
+                ),
             ),
-            None => (base, "the board's usual gap".to_string()),
+            None => (
+                base,
+                t!("schematic.object_detail_rows.the_board_s_usual_gap2"),
+            ),
         };
-        rows.push(("Clearance".into(), format!("{value:.3} mm · {source}")));
+        rows.push((
+            t!("schematic.object_detail_rows.clearance"),
+            t!(
+                "schematic.object_detail_rows.value_mm_source",
+                value = format!("{:.3}", value),
+                source = source
+            ),
+        ));
         let stricter: Vec<String> = project
             .board
             .pair_rules
@@ -726,97 +1068,197 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
             .filter(|r| (r.a == net || r.b == net) && r.clearance > value)
             .map(|r| {
                 let other = if r.a == net { r.b } else { r.a };
-                format!(
-                    "{:.3} mm away from {}",
-                    r.clearance,
-                    project.net_name(other)
+                t!(
+                    "schematic.object_detail_rows.clearance_mm_away_from_v1",
+                    clearance = format!("{:.3}", r.clearance),
+                    v1 = project.net_name(other)
                 )
             })
             .collect();
         if !stricter.is_empty() {
-            rows.push(("Special gaps".into(), stricter.join(" · ")));
+            rows.push((
+                t!("schematic.object_detail_rows.special_gaps"),
+                stricter.join(" · "),
+            ));
         }
     };
     let mut rows: Vec<(String, String)> = Vec::new();
     if let Some(t) = project.board.tracks.iter().find(|t| t.id == id) {
-        rows.push(("Net".into(), format!("{} · follows the wiring", net(t.net))));
-        rows.push(("Layer".into(), layer(&t.layer)));
+        rows.push((
+            t!("schematic.object_detail_rows.net"),
+            t!(
+                "schematic.object_detail_rows.v0_follows_the_wiring",
+                v0 = net(t.net)
+            ),
+        ));
+        rows.push((t!("schematic.object_detail_rows.layer"), layer(&t.layer)));
         let class = project.net_class(t.net);
         let width_note = match class {
             Some(c) if (t.width - c.width).abs() < 1e-6 => {
-                format!("{:.3} mm · the usual width for {}", t.width, c.name)
+                t!(
+                    "schematic.object_detail_rows.width_mm_the_usual_width",
+                    width = format!("{:.3}", t.width),
+                    name = c.name
+                )
             }
-            Some(c) => format!(
-                "{:.3} mm · chosen for this wire, not the usual {:.3} mm for {}",
-                t.width, c.width, c.name
+            Some(c) => t!(
+                "schematic.object_detail_rows.width_mm_chosen_for_this",
+                width = format!("{:.3}", t.width),
+                width2 = format!("{:.3}", c.width),
+                name = c.name
             ),
-            None => format!("{:.3} mm · chosen for this wire", t.width),
+            None => t!(
+                "schematic.object_detail_rows.width_mm_chosen_for_this2",
+                width = format!("{:.3}", t.width)
+            ),
         };
-        rows.push(("Width".into(), width_note));
+        rows.push((t!("schematic.object_detail_rows.width"), width_note));
         clearance_rows(t.net, &mut rows);
+        rows.extend(pair_rows(project, t.net));
         rows.push((
-            "From".into(),
-            format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
+            t!("schematic.object_detail_rows.from"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", t.start.x),
+                y = format!("{:.2}", t.start.y)
+            ),
         ));
-        rows.push(("To".into(), format!("{:.2}, {:.2} mm", t.end.x, t.end.y)));
+        rows.push((
+            t!("schematic.object_detail_rows.to"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", t.end.x),
+                y = format!("{:.2}", t.end.y)
+            ),
+        ));
         if t.arc.is_some() {
-            rows.push(("Shape".into(), "curved through a midpoint".into()));
+            rows.push((
+                t!("schematic.object_detail_rows.shape"),
+                t!("schematic.object_detail_rows.curved_through_a_midpoint"),
+            ));
         }
     } else if let Some(v) = project.board.vias.iter().find(|v| v.id == id) {
-        rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
-        rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
-        rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            t!("schematic.object_detail_rows.net"),
+            t!(
+                "schematic.object_detail_rows.v0_follows_the_wiring",
+                v0 = net(v.net)
+            ),
+        ));
+        rows.push((
+            t!("schematic.object_detail_rows.copper"),
+            t!(
+                "schematic.object_detail_rows.diameter_mm",
+                diameter = format!("{:.2}", v.diameter)
+            ),
+        ));
+        rows.push((
+            t!("schematic.object_detail_rows.drill"),
+            t!(
+                "schematic.object_detail_rows.drill_mm",
+                drill = format!("{:.2}", v.drill)
+            ),
+        ));
+        rows.extend(via_span::via_span_rows(project, v));
+        rows.push((
+            t!("schematic.object_detail_rows.protection"),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
-            "Position".into(),
-            format!("{:.2}, {:.2} mm", v.position.x, v.position.y),
+            t!("schematic.object_detail_rows.position"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", v.position.x),
+                y = format!("{:.2}", v.position.y)
+            ),
         ));
     } else if let Some(z) = project.board.zones.iter().find(|z| z.id == id) {
-        rows.push(("Net".into(), net(z.net)));
-        rows.push(("Layer".into(), layer(&z.layer)));
+        rows.push((t!("schematic.object_detail_rows.net"), net(z.net)));
+        rows.push((t!("schematic.object_detail_rows.layer"), layer(&z.layer)));
         clearance_rows(z.net, &mut rows);
         rows.push((
-            "Copper".into(),
+            t!("schematic.object_detail_rows.copper"),
             if z.filled {
                 "poured".into()
             } else {
-                "outline only".into()
+                t!("schematic.object_detail_rows.outline_only")
             },
         ));
-        rows.push(("Outline".into(), format!("{} vertices", z.outline.len())));
+        rows.push((
+            t!("schematic.object_detail_rows.outline"),
+            t!(
+                "schematic.object_detail_rows.len_vertices",
+                len = z.outline.len()
+            ),
+        ));
         if !z.cutouts.is_empty() {
-            rows.push(("Cutouts".into(), format!("{}", z.cutouts.len())));
+            rows.push((
+                t!("schematic.object_detail_rows.cutouts"),
+                format!("{}", z.cutouts.len()),
+            ));
         }
     } else if let Some(l) = project.labels.iter().find(|l| l.id == id) {
-        rows.push(("Kind".into(), l.kind.clone()));
-        rows.push(("Net".into(), net(l.net)));
+        rows.push((t!("schematic.object_detail_rows.kind"), l.kind.clone()));
+        rows.push((t!("schematic.object_detail_rows.net"), net(l.net)));
         rows.push((
-            "Position".into(),
-            format!("{:.2}, {:.2} mm", l.position.x, l.position.y),
+            t!("schematic.object_detail_rows.position"),
+            t!(
+                "schematic.object_detail_rows.x_y_mm",
+                x = format!("{:.2}", l.position.x),
+                y = format!("{:.2}", l.position.y)
+            ),
         ));
     } else if let Some(w) = project.drawn_wires.iter().find(|w| w.id == id) {
         rows.push((
-            "Net".into(),
+            t!("schematic.object_detail_rows.net"),
             w.net.map(net).unwrap_or_else(|| "unbound".into()),
         ));
-        rows.push(("Points".into(), format!("{}", w.points.len())));
+        rows.push((
+            t!("schematic.object_detail_rows.points"),
+            format!("{}", w.points.len()),
+        ));
     } else if let Some(t) = project.board.texts.iter().find(|t| t.id == id) {
-        rows.push(("Text".into(), t.text.clone()));
-        rows.push(("Size".into(), format!("{:.2} mm", t.size)));
-        rows.push(("Layer".into(), layer(&t.layer)));
-        rows.push(("Angle".into(), format!("{:.0} degrees", t.rotation)));
+        rows.push((t!("schematic.object_detail_rows.text"), t.text.clone()));
+        rows.push((
+            t!("schematic.object_detail_rows.size"),
+            t!(
+                "schematic.object_detail_rows.size_mm",
+                size = format!("{:.2}", t.size)
+            ),
+        ));
+        rows.push((t!("schematic.object_detail_rows.layer"), layer(&t.layer)));
+        rows.push((
+            t!("schematic.object_detail_rows.angle"),
+            t!(
+                "schematic.object_detail_rows.rotation_degrees",
+                rotation = format!("{:.0}", t.rotation)
+            ),
+        ));
     } else if let Some(g) = project.graphics.iter().find(|g| g.id == id) {
-        rows.push(("Shape".into(), g.shape.clone()));
-        rows.push(("Layer".into(), g.layer.clone()));
+        rows.push((t!("schematic.object_detail_rows.shape"), g.shape.clone()));
+        rows.push((t!("schematic.object_detail_rows.layer"), g.layer.clone()));
         if !g.text.is_empty() {
-            rows.push(("Text".into(), g.text.clone()));
+            rows.push((t!("schematic.object_detail_rows.text"), g.text.clone()));
         }
-        rows.push(("Stroke".into(), format!("{:.3} mm", g.width)));
-        rows.push(("Points".into(), format!("{}", g.points.len())));
+        rows.push((
+            t!("schematic.object_detail_rows.stroke"),
+            t!(
+                "schematic.object_detail_rows.width_mm",
+                width = format!("{:.3}", g.width)
+            ),
+        ));
+        rows.push((
+            t!("schematic.object_detail_rows.points"),
+            format!("{}", g.points.len()),
+        ));
     } else if let Some(gr) = project.graphic_groups.iter().find(|gr| gr.id == id) {
         rows.push((
-            "Group".into(),
-            format!("{} graphics move as one", gr.graphics.len()),
+            t!("schematic.object_detail_rows.group"),
+            t!(
+                "schematic.object_detail_rows.len_graphics_move_as_one",
+                len = gr.graphics.len()
+            ),
         ));
     }
     rows
@@ -827,6 +1269,7 @@ impl App {
         if let Some(path) = path {
             self.path = path;
             self.saved_revision = self.session.lock().ok().map(|s| s.revision);
+            self.assistant_load();
         }
         self
     }
@@ -879,12 +1322,15 @@ impl App {
         };
         Self {
             session,
+            assistant: assistant::State::default(),
             project,
             revision: u64::MAX,
             checks: json!({}),
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("plots") => Tab::PlotFiles,
+                Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -892,14 +1338,18 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            edit: editing::EditState::default(),
+            view3d: board3d::View3d::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
+            catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
+                &preferences.language,
+            )),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
             home_path_focus: false,
-            left_tab: 0,
             tree_query: String::new(),
             tree_hidden: Vec::new(),
             focus_layer: None,
@@ -917,11 +1367,13 @@ impl App {
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
+            datum_ui: datums::DatumUi::default(),
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
             pair_a: 0,
             pair_b: 0,
@@ -966,6 +1418,7 @@ impl App {
             stack_thickness: 1.2,
             stack_edit: None,
             anat_open: vec!["connections".to_owned()],
+            closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
             net_editor: None,
@@ -973,14 +1426,18 @@ impl App {
             net_draft: None,
             palette: false,
             part_search: String::new(),
+            part_sources: sources::PartSources::default(),
+            pending_source: None,
             hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
@@ -988,6 +1445,8 @@ impl App {
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
+            canvas_rect: Rect::NOTHING,
+            canvas_menu: None,
             message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
             value: String::new(),
             x: 0.0,
@@ -1008,6 +1467,8 @@ impl App {
             capture,
             frames: 0,
             library,
+            #[cfg(test)]
+            icon_rects: BTreeMap::new(),
         }
     }
     fn refresh(&mut self) {
@@ -1070,22 +1531,22 @@ impl App {
         let result = self
             .session
             .lock()
-            .map_err(|_| "Session unavailable".to_string())
+            .map_err(|_| t!("dialogs.run.session_unavailable"))
             .and_then(|mut s| {
                 s.execute(command, params, Some(self.revision))
                     .map_err(|e| e.to_string())
             });
         match result {
             Ok(v) => {
-                self.message = format!("{command} · committed");
+                self.message = t!("dialogs.run.command_committed", command = command);
                 if let Some(skipped) = v
                     .pointer("/result/unassigned_components")
                     .and_then(Value::as_array)
                     && !skipped.is_empty()
                 {
-                    self.message = format!(
-                        "{} library symbols need a footprint assignment in Libraries",
-                        skipped.len()
+                    self.message = t!(
+                        "dialogs.run.len_library_symbols_need_a",
+                        len = skipped.len()
                     );
                 }
                 if let Some(id) = v.pointer("/result/id").and_then(Value::as_u64) {
@@ -1093,6 +1554,11 @@ impl App {
                         self.selected_unit = 1;
                     }
                     self.selected = Some(id);
+                    if command == "component.add" {
+                        self.refresh();
+                        self.attach_pending_source(id);
+                        return;
+                    }
                 }
             }
             Err(e) => self.message = e,
@@ -1105,14 +1571,14 @@ impl App {
         let outcome = self
             .session
             .lock()
-            .map_err(|_| "Session unavailable".to_string())
+            .map_err(|_| t!("dialogs.run_and_keep.session_unavailable"))
             .and_then(|mut s| {
                 s.execute(command, params, Some(self.revision))
                     .map_err(|e| e.to_string())
             });
         match outcome {
             Ok(v) => {
-                self.message = format!("{command} · reported");
+                self.message = t!("dialogs.run_and_keep.command_reported", command = command);
                 v.pointer("/result").cloned().unwrap_or(Value::Null)
             }
             Err(e) => {
@@ -1125,59 +1591,47 @@ impl App {
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
-            format!("{name} · complete")
+            t!("dialogs.tool_call.name_complete", name = name)
         } else {
             result
                 .pointer("/content/0/text")
                 .and_then(Value::as_str)
-                .unwrap_or("operation failed")
-                .into()
+                .map_or_else(|| t!("dialogs.tool_call.operation_failed"), refusal_text)
         };
         self.refresh();
+        if success && name == "save" {
+            self.assistant_save();
+        }
         if success && (name == "save" || name == "open") {
             pcbcraft_engine::recents::record_recent_path(&self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
+            self.assistant_design_opened(name);
             self.needs_fit = true;
         }
         success
     }
 
+    fn colours(&self) -> palette::ThemeColours {
+        palette::palette(self.preferences.dark, self.preferences.accent)
+    }
     fn accent(&self) -> Color32 {
-        if !self.preferences.dark && self.preferences.accent == [91, 224, 188] {
-            return Color32::from_rgb(18, 135, 110);
-        }
-        Color32::from_rgb(
-            self.preferences.accent[0],
-            self.preferences.accent[1],
-            self.preferences.accent[2],
-        )
+        self.colours().accent
     }
     fn surface(&self) -> Color32 {
-        if self.preferences.dark {
-            Color32::from_rgb(20, 29, 43)
-        } else {
-            Color32::from_rgb(245, 247, 251)
-        }
+        self.colours().surface
     }
     fn muted(&self) -> Color32 {
-        if self.preferences.dark {
-            Color32::from_rgb(140, 157, 182)
-        } else {
-            Color32::from_rgb(88, 104, 128)
-        }
+        self.colours().muted
     }
     fn ink(&self) -> Color32 {
-        if self.preferences.dark {
-            Color32::from_rgb(225, 234, 247)
-        } else {
-            Color32::from_rgb(34, 48, 68)
-        }
+        self.colours().ink
     }
     fn select(&mut self, id: Option<Id>) {
         self.selected = id;
+        self.edit.extra.clear();
         self.selected_unit = 1;
         self.load_properties();
     }
@@ -1220,8 +1674,14 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        self.closed_tabs.retain(|t| *t != tab);
+        // Rules, Checks and Settings are pages, not canvases: going to one or
+        // coming back from one keeps the user's zoom and pan.
+        let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
+        if !page(tab) && !page(self.tab) {
+            self.needs_fit = true;
+        }
         self.tab = tab;
-        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -1235,27 +1695,25 @@ impl App {
     }
     fn stackup_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("BOARD STACKUP")
+            egui::RichText::new(t!("board.stackup_section.board_stackup"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "The physical board: copper, core and covering layers, recorded for the factory.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("board.stackup_section.the_physical_board_copper_core"))
+                .small()
+                .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new("START FROM A SHAPE")
+            egui::RichText::new(t!("board.stackup_section.start_from_a_shape"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.horizontal_wrapped(|ui| {
             const PRESETS: [StackShape; 3] = [
                 (
-                    "Two layers · 1.6 mm",
-                    "The usual starter board: copper on each side of a plain 1.6 mm core. Choose this unless the shop told you otherwise.",
+                    "board.stackup_section.two_layers_1_6_mm",
+                    "board.stackup_section.the_usual_starter_board_copper",
                     &[
                         ("Top copper", "copper", 0.035),
                         ("Core", "core", 1.53),
@@ -1263,8 +1721,8 @@ impl App {
                     ],
                 ),
                 (
-                    "Two layers · thin 1.0 mm",
-                    "A slimmer board for tight cases. Same two copper sides, thinner core.",
+                    "board.stackup_section.two_layers_thin_1_0",
+                    "board.stackup_section.a_slimmer_board_for_tight",
                     &[
                         ("Top copper", "copper", 0.035),
                         ("Core", "core", 0.93),
@@ -1272,8 +1730,8 @@ impl App {
                     ],
                 ),
                 (
-                    "Four layers",
-                    "Two extra inner copper layers for a solid ground plane and cleaner signals. Worth it once a board has more than a handful of parts.",
+                    "board.stackup_section.four_layers",
+                    "board.stackup_section.two_extra_inner_copper_layers",
                     &[
                         ("Top copper", "copper", 0.035),
                         ("Prepreg", "prepreg", 0.2),
@@ -1287,9 +1745,10 @@ impl App {
             ];
             for (title, help, layers) in PRESETS {
                 if ui
-                    .small_button(title)
-                    .on_hover_text(format!(
-                        "{help} Choosing it replaces whatever stackup is recorded now."
+                    .tap_button(pcbcraft_text::lookup(title, &[]))
+                    .on_hover_text(t!(
+                        "board.stackup_section.help_choosing_it_replaces_whatever.tip",
+                        help = pcbcraft_text::lookup(help, &[])
                     ))
                     .clicked()
                 {
@@ -1305,11 +1764,9 @@ impl App {
         });
         if self.project.board.layer_records.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "Nothing recorded yet: this board leaves the shop as two copper layers, 1.6 mm.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("board.stackup_section.nothing_recorded_yet_this_board"))
+                    .small()
+                    .color(self.muted()),
             );
         }
         for record in self.project.board.layer_records.clone() {
@@ -1320,16 +1777,16 @@ impl App {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&record.name).strong());
-                    ui.label(format!(
-                        "{} · {:.3} mm",
-                        role_label(&record.kind),
-                        record.thickness
+                    ui.label(t!(
+                        "board.stackup_section.v0_thickness_mm",
+                        v0 = role_label(&record.kind),
+                        thickness = format!("{:.3}", record.thickness)
                     ))
-                    .on_hover_text("What this layer is and how thick it is, as recorded.");
+                    .on_hover_text(t!("board.stackup_section.v0_thickness_mm.tip"));
                     if !editing
                         && ui
-                            .small_button("Tune")
-                            .on_hover_text("Change this layer's role or thickness.")
+                            .tap_button(t!("board.stackup_section.tune"))
+                            .on_hover_text(t!("board.stackup_section.tune.tip"))
                             .clicked()
                     {
                         self.stack_edit = Some((
@@ -1350,7 +1807,9 @@ impl App {
                                 for (_, words) in STACK_ROLES {
                                     if ui
                                         .selectable_label(label == words, words)
-                                        .on_hover_text("What this layer does in the board.")
+                                        .on_hover_text(t!(
+                                            "board.stackup_section.what_this_layer_does_in.tip"
+                                        ))
                                         .clicked()
                                     {
                                         *label = (*words).to_owned();
@@ -1359,22 +1818,22 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text("Pick what this layer is made of and does.");
+                            .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
                         ui.add(
                             egui::DragValue::new(thickness)
                                 .speed(0.01)
                                 .range(0.0..=100.0)
-                                .suffix(" mm"),
+                                .suffix(format!(" {}", t!("unit.mm"))),
                         )
-                        .on_hover_text("How thick this layer is, in millimetres.");
+                        .on_hover_text(t!("unit.mm.tip"));
                     });
                     let apply = ui
-                        .button("Apply")
-                        .on_hover_text("Keep these changes for this layer.")
+                        .button(t!("board.stackup_section.apply"))
+                        .on_hover_text(t!("board.stackup_section.apply.tip"))
                         .clicked();
                     let cancel = ui
-                        .small_button("Cancel")
-                        .on_hover_text("Leave this layer as it was.")
+                        .tap_button(t!("board.stackup_section.cancel"))
+                        .on_hover_text(t!("board.stackup_section.cancel.tip"))
                         .clicked();
                     if apply {
                         if let Some((name, label, thickness)) = self.stack_edit.take()
@@ -1400,25 +1859,28 @@ impl App {
                 .map(|r| r.thickness)
                 .sum();
             ui.label(
-                egui::RichText::new(format!("Recorded layers add up to {:.3} mm.", total))
-                    .small()
-                    .color(self.muted()),
+                egui::RichText::new(t!(
+                    "board.stackup_section.recorded_layers_add_up_to",
+                    total = format!("{:.3}", total)
+                ))
+                .small()
+                .color(self.muted()),
             );
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.stack_name)
+                crate::targets::text_field(&mut self.stack_name)
                     .desired_width(70.0)
-                    .hint_text("layer name"),
+                    .hint_text(t!("board.stackup_section.layer_name")),
             )
-            .on_hover_text("Name this layer, for example Core, Prepreg or L2.");
+            .on_hover_text(t!("board.stackup_section.layer_name.tip"));
             egui::ComboBox::from_id_salt("stack-add-kind")
                 .selected_text(self.stack_kind.clone())
                 .show_ui(ui, |ui| {
                     for (_, words) in STACK_ROLES {
                         if ui
                             .selectable_label(self.stack_kind == words, words)
-                            .on_hover_text("What this layer does in the board.")
+                            .on_hover_text(t!("board.stackup_section.what_this_layer_does_in.tip"))
                             .clicked()
                         {
                             self.stack_kind = (*words).to_owned();
@@ -1427,22 +1889,20 @@ impl App {
                     }
                 })
                 .response
-                .on_hover_text("Pick what this layer is made of and does.");
+                .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.stack_thickness)
                     .speed(0.01)
                     .range(0.0..=100.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("How thick this layer is, in millimetres.");
+            .on_hover_text(t!("unit.mm.tip"));
             if ui
                 .add_enabled(
                     !self.stack_name.trim().is_empty(),
-                    egui::Button::new("Add layer"),
+                    egui::Button::new(t!("board.stackup_section.add_layer")),
                 )
-                .on_hover_text(
-                    "Record this layer in the board stackup; the factory sheets list it.",
-                )
+                .on_hover_text(t!("board.stackup_section.add_layer.tip"))
                 .clicked()
                 && let Some(token) = role_token(&self.stack_kind.clone())
             {
@@ -1456,10 +1916,8 @@ impl App {
         });
         if !self.project.board.layer_records.is_empty()
             && ui
-                .button("Back to a plain two-layer board")
-                .on_hover_text(
-                    "Forget every recorded layer; the board itself and its wiring stay as they are.",
-                )
+                .button(t!("board.stackup_section.back_to_a_plain_two"))
+                .on_hover_text(t!("board.stackup_section.back_to_a_plain_two.tip"))
                 .clicked()
         {
             self.stack_edit = None;
@@ -1467,14 +1925,16 @@ impl App {
         }
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            ui.label("Finish");
+            ui.label(t!("board.stackup_section.finish"));
             egui::ComboBox::from_id_salt("board-finish")
                 .selected_text(self.project.board.finish.clone())
                 .show_ui(ui, |ui| {
                     for finish in ["HASL", "Lead-free HASL", "ENIG", "OSP", "Immersion silver"] {
                         if ui
                             .selectable_label(self.project.board.finish == finish, finish)
-                            .on_hover_text("A common coating for exposed copper.")
+                            .on_hover_text(t!(
+                                "board.stackup_section.a_common_coating_for_exposed.tip"
+                            ))
                             .clicked()
                         {
                             self.run("board.set_finish", json!({"finish": finish}));
@@ -1483,22 +1943,23 @@ impl App {
                     }
                 })
                 .response
-                .on_hover_text(
-                    "The coating on exposed copper; it goes on the factory notes and reports.",
-                );
+                .on_hover_text(t!(
+                    "board.stackup_section.the_coating_on_exposed_copper.tip"
+                ));
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
-            ui.label("Thickness");
+            ui.label(t!("board.stackup_section.thickness"));
             ui.add(
                 egui::DragValue::new(&mut self.notes_thick)
                     .speed(0.01)
                     .range(0.2..=100.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("How thick the whole board is; the factory uses this to pick bits.");
+            .on_hover_text(t!("unit.mm2.tip"));
             if ui
-                .button("Set thickness")
-                .on_hover_text("Record this board thickness.")
+                .button(t!("board.stackup_section.set_thickness"))
+                .on_hover_text(t!("board.stackup_section.set_thickness.tip"))
                 .clicked()
             {
                 let thickness = self.notes_thick;
@@ -1506,18 +1967,18 @@ impl App {
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Substrate");
+            ui.label(t!("board.stackup_section.substrate"));
             ui.add(
                 egui::DragValue::new(&mut self.notes_er)
                     .speed(0.05)
                     .range(1.0..=20.0),
             )
-            .on_hover_text(
-                "How the material between layers slows signals; it tunes impedance estimates.",
-            );
+            .on_hover_text(t!(
+                "board.stackup_section.how_the_material_between_layers.tip"
+            ));
             if ui
-                .button("Set substrate")
-                .on_hover_text("Record this substrate number.")
+                .button(t!("board.stackup_section.set_substrate"))
+                .on_hover_text(t!("board.stackup_section.set_substrate.tip"))
                 .clicked()
             {
                 let er = self.notes_er;
@@ -1532,10 +1993,8 @@ impl App {
             .and_then(|m| m.edge_plating)
             .unwrap_or(false);
         if ui
-            .checkbox(&mut plated, "Plated board edge")
-            .on_hover_text(
-                "Copper plating around the board's rim, for shielding and soldering to a frame.",
-            )
+            .checkbox(&mut plated, t!("board.stackup_section.plated_board_edge"))
+            .on_hover_text(t!("board.stackup_section.plated_board_edge.tip"))
             .clicked()
         {
             self.run("board.set_machining", json!({"edge_plating": plated}));
@@ -1543,35 +2002,33 @@ impl App {
     }
     fn holes_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("MOUNTING HOLES")
+            egui::RichText::new(t!("board.holes_section.mounting_holes"))
                 .size(10.0)
                 .color(self.muted()),
         );
         if self.project.board.holes.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "No drilled holes yet. Press Mounting hole at the top of the board, then click where a screw goes.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("board.holes_section.no_drilled_holes_yet_press"))
+                    .small()
+                    .color(self.muted()),
             );
             return;
         }
         for hole in self.project.board.holes.clone() {
             let edit = self.hole_edit.filter(|(id, _)| *id == hole.id);
             ui.horizontal(|ui| {
-                ui.label("· ");
+                ui.label(format!("{} ", t!("board.holes_section.text")));
                 if let Some((_, mut diameter)) = edit {
                     ui.add(
                         egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.05..=25.0)
-                            .suffix(" mm"),
+                            .suffix(format!(" {}", t!("unit.mm"))),
                     )
-                    .on_hover_text("How wide this hole is drilled.");
+                    .on_hover_text(t!("unit.mm3.tip"));
                     if ui
-                        .button("Apply")
-                        .on_hover_text("Resize this hole to that drill size.")
+                        .button(t!("board.holes_section.apply"))
+                        .on_hover_text(t!("board.holes_section.apply.tip"))
                         .clicked()
                     {
                         self.hole_edit = None;
@@ -1581,8 +2038,8 @@ impl App {
                         );
                     }
                     if ui
-                        .button("Cancel")
-                        .on_hover_text("Leave this hole the size it is.")
+                        .button(t!("board.holes_section.cancel"))
+                        .on_hover_text(t!("board.holes_section.cancel.tip"))
                         .clicked()
                     {
                         self.hole_edit = None;
@@ -1594,33 +2051,33 @@ impl App {
                     }
                 } else {
                     if hole.is_slot() {
-                        ui.label(format!(
-                            "{:.2} mm slot {:.2} mm long at {:.1}, {:.1}",
-                            hole.diameter,
-                            hole.length(),
-                            hole.position.x,
-                            hole.position.y
+                        ui.label(t!(
+                            "board.holes_section.diameter_mm_slot_length_mm",
+                            diameter = format!("{:.2}", hole.diameter),
+                            length = format!("{:.2}", hole.length()),
+                            x = format!("{:.1}", hole.position.x),
+                            y = format!("{:.1}", hole.position.y)
                         ))
-                        .on_hover_text(
-                            "A routed slot: its width, its overall length end to end, and where it starts.",
-                        );
+                        .on_hover_text(t!("board.holes_section.diameter_mm_slot_length_mm.tip"));
                     } else {
-                        ui.label(format!(
-                            "{:.2} mm at {:.1}, {:.1}",
-                            hole.diameter, hole.position.x, hole.position.y
+                        ui.label(t!(
+                            "board.holes_section.diameter_mm_at_x_y",
+                            diameter = format!("{:.2}", hole.diameter),
+                            x = format!("{:.1}", hole.position.x),
+                            y = format!("{:.1}", hole.position.y)
                         ));
                     }
                     if ui
-                        .small_button("Tune")
-                        .on_hover_text("Change this hole's drill size.")
+                        .tap_button(t!("board.holes_section.tune"))
+                        .on_hover_text(t!("board.holes_section.tune.tip"))
                         .clicked()
                     {
                         self.hole_edit = Some((hole.id, hole.diameter));
                     }
                 }
                 if ui
-                    .small_button("\u{d7}")
-                    .on_hover_text("Take this hole out of the board.")
+                    .tap_button(t!("board.holes_section.text2"))
+                    .on_hover_text(t!("board.holes_section.text2.tip"))
                     .clicked()
                 {
                     self.hole_edit = None;
@@ -1632,49 +2089,47 @@ impl App {
 
     fn fiducials_section(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("ASSEMBLY MARKS")
+            egui::RichText::new(t!("board.fiducials_section.assembly_marks"))
                 .size(10.0)
                 .color(self.muted()),
         );
         if self.project.board.fiducials.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "No assembly marks yet. Press Assembly mark at the top of the board, then click a clear corner the build camera can find.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("board.fiducials_section.no_assembly_marks_yet_press"))
+                    .small()
+                    .color(self.muted()),
             );
             return;
         }
         for fid in self.project.board.fiducials.clone() {
             let edit = self.fiducial_edit.filter(|(id, _, _)| *id == fid.id);
             ui.horizontal(|ui| {
-                ui.label("· ");
+                ui.label(format!("{} ", t!("board.fiducials_section.text")));
                 if let Some((_, mut diameter, mut front)) = edit {
                     ui.add(
                         egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.2..=10.0)
-                            .suffix(" mm"),
+                            .suffix(format!(" {}", t!("unit.mm"))),
                     )
-                    .on_hover_text("How wide the bare copper disc is.");
+                    .on_hover_text(t!("unit.mm4.tip"));
                     if ui
-                        .selectable_label(front, "Top")
-                        .on_hover_text("Put the mark on the top side of the board.")
+                        .selectable_label(front, t!("board.fiducials_section.top"))
+                        .on_hover_text(t!("board.fiducials_section.top.tip"))
                         .clicked()
                     {
                         front = true;
                     }
                     if ui
-                        .selectable_label(!front, "Bottom")
-                        .on_hover_text("Put the mark on the bottom side of the board.")
+                        .selectable_label(!front, t!("board.fiducials_section.bottom"))
+                        .on_hover_text(t!("board.fiducials_section.bottom.tip"))
                         .clicked()
                     {
                         front = false;
                     }
                     if ui
-                        .button("Apply")
-                        .on_hover_text("Resize this mark and move it to the chosen side.")
+                        .button(t!("board.fiducials_section.apply"))
+                        .on_hover_text(t!("board.fiducials_section.apply.tip"))
                         .clicked()
                     {
                         self.fiducial_edit = None;
@@ -1688,8 +2143,8 @@ impl App {
                         );
                     }
                     if ui
-                        .button("Cancel")
-                        .on_hover_text("Leave this mark as it is.")
+                        .button(t!("board.fiducials_section.cancel"))
+                        .on_hover_text(t!("board.fiducials_section.cancel.tip"))
                         .clicked()
                     {
                         self.fiducial_edit = None;
@@ -1701,20 +2156,20 @@ impl App {
                         *held_front = front;
                     }
                 } else {
-                    ui.label(format!(
-                        "{:.2} mm on {} at {:.1}, {:.1}",
-                        fid.diameter,
-                        if fid.layer == pcbcraft_doc::Layer::Front {
+                    ui.label(t!(
+                        "board.fiducials_section.diameter_mm_on_v1_at",
+                        diameter = format!("{:.2}", fid.diameter),
+                        v1 = if fid.layer == pcbcraft_doc::Layer::Front {
                             "Top"
                         } else {
                             "Bottom"
                         },
-                        fid.position.x,
-                        fid.position.y
+                        x = format!("{:.1}", fid.position.x),
+                        y = format!("{:.1}", fid.position.y)
                     ));
                     if ui
-                        .small_button("Tune")
-                        .on_hover_text("Change this mark's size or side.")
+                        .tap_button(t!("board.fiducials_section.tune"))
+                        .on_hover_text(t!("board.fiducials_section.tune.tip"))
                         .clicked()
                     {
                         self.fiducial_edit = Some((
@@ -1725,8 +2180,8 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("\u{d7}")
-                    .on_hover_text("Take this mark off the board.")
+                    .tap_button(t!("board.fiducials_section.text2"))
+                    .on_hover_text(t!("board.fiducials_section.text2.tip"))
                     .clicked()
                 {
                     self.fiducial_edit = None;
@@ -1747,47 +2202,90 @@ impl App {
         self.tree_hidden.iter().any(|hidden| hidden == kind)
     }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
+        self.stackup_section(ui);
+        ui.separator();
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.tree_query)
-                    .hint_text("Search the whole board")
+                crate::targets::text_field(&mut self.tree_query)
+                    .hint_text(t!("board.layers_tab.search_the_whole_board"))
                     .desired_width(150.0),
             )
-            .on_hover_text(
-                "Type a part reference, a net name or a layer name; the tree keeps only matching rows.",
-            );
+            .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
             if !self.tree_query.is_empty()
                 && ui
-                    .small_button("Clear")
-                    .on_hover_text("Show every row again.")
+                    .tap_button(t!("board.layers_tab.clear"))
+                    .on_hover_text(t!("board.layers_tab.clear.tip"))
                     .clicked()
             {
                 self.tree_query.clear();
             }
         });
+        self.board_anatomy_section(ui);
+        ui.separator();
         ui.label(
-            egui::RichText::new("SHOW IN THE TREE")
+            egui::RichText::new(t!("board.layers_tab.show_in_the_tree"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.horizontal_wrapped(|ui| {
             for (kind, label, tip) in [
-                ("wires", "Show wires", "Copper wires on each face of the board."),
-                ("vias", "Show vias", "Plated holes that carry a connection between the two faces."),
-                ("zones", "Show pours", "Solid copper poured over an area."),
-                ("holes", "Show holes", "Drilled holes and cut-outs."),
-                ("words", "Show words", "Silk text printed on the board."),
-                ("parts", "Show parts", "Every part on the board, with its pads."),
-                ("areas", "Show rule areas", "Stricter areas and watched pairs."),
-                ("art", "Show machine layers", "Your own layers for a laser, mill or printer."),
-                ("connections", "Show connections", "Every net by name: add, rename or spotlight one."),
-                ("notes", "Show notes", "Free-form notes stored with the project."),
+                (
+                    "wires",
+                    t!("board.layers_tab.show_wires"),
+                    t!("board.layers_tab.copper_wires_on_each_face"),
+                ),
+                (
+                    "vias",
+                    t!("board.layers_tab.show_vias"),
+                    t!("board.layers_tab.plated_holes_that_carry_a"),
+                ),
+                (
+                    "zones",
+                    t!("board.layers_tab.show_pours"),
+                    t!("board.layers_tab.solid_copper_poured_over_an"),
+                ),
+                (
+                    "holes",
+                    t!("board.layers_tab.show_holes"),
+                    t!("board.layers_tab.drilled_holes_and_cut_outs"),
+                ),
+                (
+                    "words",
+                    t!("board.layers_tab.show_words"),
+                    t!("board.layers_tab.silk_text_printed_on_the"),
+                ),
+                (
+                    "parts",
+                    t!("board.layers_tab.show_parts"),
+                    t!("board.layers_tab.every_part_on_the_board"),
+                ),
+                (
+                    "areas",
+                    t!("board.layers_tab.show_rule_areas"),
+                    t!("board.layers_tab.stricter_areas_and_watched_pairs"),
+                ),
+                (
+                    "art",
+                    t!("board.layers_tab.show_machine_layers"),
+                    t!("board.layers_tab.your_own_layers_for_a"),
+                ),
+                (
+                    "connections",
+                    t!("board.layers_tab.show_connections"),
+                    t!("board.layers_tab.every_net_by_name_add"),
+                ),
+                (
+                    "notes",
+                    t!("board.layers_tab.show_notes"),
+                    t!("board.layers_tab.free_form_notes_stored_with"),
+                ),
             ] {
                 let shown = !self.kind_hidden(kind);
                 if ui
                     .selectable_label(shown, egui::RichText::new(label).small())
-                    .on_hover_text(format!(
-                        "{tip} Untick to fold this group away; unticking changes the tree, never the design."
+                    .on_hover_text(t!(
+                        "board.layers_tab.tip_untick_to_fold_this.tip",
+                        tip = tip
                     ))
                     .clicked()
                 {
@@ -1800,78 +2298,79 @@ impl App {
             }
         });
         ui.add_space(8.0);
-        let board_header = egui::CollapsingHeader::new("This board")
+        let board_header = egui::CollapsingHeader::new(t!("board.layers_tab.this_board"))
             .id_salt("anat-board-root")
             .default_open(true)
             .show(ui, |ui| {
-            self.stackup_section(ui);
-            self.holes_section(ui);
-            self.fiducials_section(ui);
-            ui.add_space(16.0);
-            let rows: &[&str] = match self.tab {
-                Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
-                Tab::Pcb => &[
-                    "Grid",
-                    "Top copper",
-                    "Bottom copper",
-                    "Pads",
-                    "Vias",
-                    "Copper zones",
-                    "Cutouts",
-                    "Package artwork",
-                ],
-                _ => &[],
-            };
-            if rows.is_empty() {
-                ui.label(
-                    egui::RichText::new(
-                        "Switch to the schematic or the board to show or hide parts of the drawing.",
-                    )
-                    .small()
-                    .color(self.muted()),
-                );
-            } else {
-                ui.label(
-                    egui::RichText::new("WHAT THE DRAWING SHOWS")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                for name in rows {
-                    let mut shown = self.layer_shown(name);
-                    if ui
-                        .checkbox(&mut shown, *name)
-                        .on_hover_text(format!(
-                            "Show or hide {name} on the drawing. Hiding changes only the view, never the design."
-                        ))
-                        .clicked()
-                    {
-                        if shown {
-                            self.preferences.hidden_layers.retain(|hidden| hidden != name);
-                        } else {
-                            self.preferences.hidden_layers.push((*name).to_string());
+                self.holes_section(ui);
+                self.datums_section(ui);
+                self.fiducials_section(ui);
+                if self.tab == Tab::Pcb {
+                    self.via_spans_section(ui);
+                }
+                ui.add_space(16.0);
+                let rows: &[&str] = match self.tab {
+                    Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
+                    Tab::Pcb => &[
+                        "Grid",
+                        "Top copper",
+                        "Bottom copper",
+                        "Pads",
+                        "Vias",
+                        "Copper zones",
+                        "Cutouts",
+                        "Package artwork",
+                    ],
+                    _ => &[],
+                };
+                if rows.is_empty() {
+                    ui.label(
+                        egui::RichText::new(t!("board.layers_tab.switch_to_the_schematic_or"))
+                            .small()
+                            .color(self.muted()),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(t!("board.layers_tab.what_the_drawing_shows"))
+                            .size(10.0)
+                            .color(self.muted()),
+                    );
+                    for name in rows {
+                        let mut shown = self.layer_shown(name);
+                        if ui
+                            .checkbox(&mut shown, layer_row_label(name))
+                            .on_hover_text(t!(
+                                "board.layers_tab.show_or_hide_name_on.tip",
+                                name = name
+                            ))
+                            .clicked()
+                        {
+                            if shown {
+                                self.preferences
+                                    .hidden_layers
+                                    .retain(|hidden| hidden != name);
+                            } else {
+                                self.preferences.hidden_layers.push((*name).to_string());
+                            }
                         }
                     }
                 }
-            }
             });
-        board_header.header_response.on_hover_text(
-            "The board itself: shape, size, surface finish, holes and what the drawing shows.",
-        );
-        self.board_anatomy_section(ui);
+        board_header
+            .header_response
+            .on_hover_text(t!("board.layers_tab.the_board_itself_shape_size.tip"));
     }
     fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(16.0);
         ui.label(
-            egui::RichText::new("BOARD ANATOMY")
+            egui::RichText::new(t!("board.board_anatomy_section.board_anatomy"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Every piece on the board, sorted into its layer. Open a layer to see its pieces; pick one to select it on the drawing.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("board.board_anatomy_section.every_piece_on_the_board"))
+                .small()
+                .color(self.muted()),
         );
         let front: Vec<(Id, String)> = self
             .project
@@ -1882,12 +2381,12 @@ impl App {
             .map(|t| {
                 (
                     t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        self.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
+                    t!(
+                        "board.board_anatomy_section.wire_width_mm_v1_at",
+                        width = format!("{:.2}", t.width),
+                        v1 = self.project.net_name(t.net),
+                        round = t.start.x.round(),
+                        round2 = t.start.y.round()
                     ),
                 )
             })
@@ -1901,12 +2400,12 @@ impl App {
             .map(|t| {
                 (
                     t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        self.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
+                    t!(
+                        "board.board_anatomy_section.wire_width_mm_v1_at",
+                        width = format!("{:.2}", t.width),
+                        v1 = self.project.net_name(t.net),
+                        round = t.start.x.round(),
+                        round2 = t.start.y.round()
                     ),
                 )
             })
@@ -1919,12 +2418,13 @@ impl App {
             .map(|v| {
                 (
                     v.id,
-                    format!(
-                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
-                        v.position.x.round(),
-                        v.position.y.round(),
-                        v.drill,
-                        self.project.net_name(v.net)
+                    t!(
+                        "board.board_anatomy_section.via_at_round_round2_drill",
+                        round = v.position.x.round(),
+                        round2 = v.position.y.round(),
+                        drill = v.drill,
+                        v3 = via_span::via_tree_span(&self.project, v),
+                        v4 = self.project.net_name(v.net)
                     ),
                 )
             })
@@ -1937,10 +2437,10 @@ impl App {
             .map(|z| {
                 (
                     z.id,
-                    format!(
-                        "Copper zone · {} · {}",
-                        self.project.net_name(z.net),
-                        if z.layer == pcbcraft_doc::Layer::Front {
+                    t!(
+                        "board.board_anatomy_section.copper_zone_v0_v1",
+                        v0 = self.project.net_name(z.net),
+                        v1 = if z.layer == pcbcraft_doc::Layer::Front {
                             "top"
                         } else {
                             "bottom"
@@ -1957,11 +2457,11 @@ impl App {
             .map(|c| {
                 (
                     c.id,
-                    format!(
-                        "Hole at {}, {} · {} mm across",
-                        c.center.x.round(),
-                        c.center.y.round(),
-                        c.radius * 2.0
+                    t!(
+                        "board.board_anatomy_section.hole_at_round_round2_v2",
+                        round = c.center.x.round(),
+                        round2 = c.center.y.round(),
+                        v2 = c.radius * 2.0
                     ),
                 )
             })
@@ -1995,24 +2495,35 @@ impl App {
                 let name = self
                     .project
                     .component(f.component)
-                    .map_or("a part", |c| c.reference.as_str())
+                    .map_or_else(
+                        || t!("board.board_anatomy_section.a_part"),
+                        |c| c.reference.clone(),
+                    )
                     .to_owned();
                 let pads = f
                     .pads
                     .iter()
                     .map(|pad| {
-                        format!(
-                            "Pad {} · {} mm · {}",
-                            pad.number,
-                            pad.diameter,
-                            pad.net.map_or("no net".to_owned(), |n| self
+                        t!(
+                            "board.board_anatomy_section.pad_number_diameter_mm_v2",
+                            number = pad.number,
+                            diameter = pad.diameter,
+                            v2 = pad.net.map_or("no net".to_owned(), |n| self
                                 .project
                                 .net_name(n)
                                 .to_owned())
                         )
                     })
                     .collect();
-                (f.id, format!("{name} · {} pads", f.pads.len()), pads)
+                (
+                    f.id,
+                    t!(
+                        "board.board_anatomy_section.name_len_pads",
+                        name = name,
+                        len = f.pads.len()
+                    ),
+                    pads,
+                )
             })
             .filter(|(_, title, _)| self.tree_matches(title))
             .collect();
@@ -2022,12 +2533,13 @@ impl App {
             .rule_areas
             .iter()
             .map(|a| {
-                format!(
-                    "Stricter area at {}, {} · gap {} mm{}",
-                    a.region.x.round(),
-                    a.region.y.round(),
-                    a.clearance,
-                    a.max_height
+                t!(
+                    "board.board_anatomy_section.stricter_area_at_round_round2",
+                    round = a.region.x.round(),
+                    round2 = a.region.y.round(),
+                    clearance = a.clearance,
+                    v3 = a
+                        .max_height
                         .map_or(String::new(), |h| format!(" · up to {h} mm tall"))
                 )
             })
@@ -2038,12 +2550,12 @@ impl App {
             .diff_pairs
             .iter()
             .map(|d| {
-                format!(
-                    "{} · {} + {} · gap {} mm",
-                    d.name,
-                    self.project.net_name(d.net_p),
-                    self.project.net_name(d.net_n),
-                    d.gap
+                t!(
+                    "board.board_anatomy_section.name_v1_v2_gap_gap",
+                    name = d.name,
+                    v1 = self.project.net_name(d.net_p),
+                    v2 = self.project.net_name(d.net_n),
+                    gap = d.gap
                 )
             })
             .collect();
@@ -2052,89 +2564,89 @@ impl App {
         let groups: [AnatGroup; 8] = [
             (
                 "front",
-                "Top copper wires",
-                "Copper wires drawn on the top face of the board. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.top_copper_wires"),
+                t!("board.board_anatomy_section.copper_wires_drawn_on_the"),
                 front
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "Nothing drawn here yet.",
+                t!("board.board_anatomy_section.nothing_drawn_here_yet"),
             ),
             (
                 "back",
-                "Bottom copper wires",
-                "Copper wires drawn on the bottom face of the board. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.bottom_copper_wires"),
+                t!("board.board_anatomy_section.copper_wires_drawn_on_the2"),
                 back.into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "Nothing drawn here yet.",
+                t!("board.board_anatomy_section.nothing_drawn_here_yet"),
             ),
             (
                 "vias",
-                "Via holes",
-                "Small plated holes that carry a connection between the two copper faces. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.via_holes"),
+                t!("board.board_anatomy_section.small_plated_holes_that_carry"),
                 vias.into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No vias yet.",
+                t!("board.board_anatomy_section.no_vias_yet"),
             ),
             (
                 "zones",
-                "Poured copper",
-                "Solid copper poured over an area, usually ground or power. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.poured_copper"),
+                t!("board.board_anatomy_section.solid_copper_poured_over_an"),
                 zones
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No copper zones yet.",
+                t!("board.board_anatomy_section.no_copper_zones_yet"),
             ),
             (
                 "holes",
-                "Holes and cut-outs",
-                "Holes drilled through the board, such as mounting holes. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.holes_and_cut_outs"),
+                t!("board.board_anatomy_section.holes_drilled_through_the_board"),
                 holes
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No holes yet.",
+                t!("board.board_anatomy_section.no_holes_yet"),
             ),
             (
                 "words",
-                "Words on the board",
-                "Silk text printed on the board, such as names and labels. Pick one to select it on the drawing.",
+                t!("board.board_anatomy_section.words_on_the_board"),
+                t!("board.board_anatomy_section.silk_text_printed_on_the"),
                 words
                     .into_iter()
                     .map(|(id, text)| (Some(id), text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No words printed yet.",
+                t!("board.board_anatomy_section.no_words_printed_yet"),
             ),
             (
                 "areas",
-                "Stricter areas",
-                "Patches of the board where the rules are stricter than everywhere else.",
+                t!("board.board_anatomy_section.stricter_areas"),
+                t!("board.board_anatomy_section.patches_of_the_board_where"),
                 areas
                     .into_iter()
                     .map(|text| (None, text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "The whole board follows one set of rules.",
+                t!("board.board_anatomy_section.the_whole_board_follows_one"),
             ),
             (
                 "pairs",
-                "Watched pairs",
-                "Pairs of nets that must run side by side with a fixed gap between them.",
+                t!("board.board_anatomy_section.watched_pairs"),
+                t!("board.board_anatomy_section.pairs_of_nets_that_must"),
                 pairs
                     .into_iter()
                     .map(|text| (None, text))
                     .filter(|(_, text)| self.tree_matches(text))
                     .collect(),
-                "No pairs are being watched.",
+                t!("board.board_anatomy_section.no_pairs_are_being_watched"),
             ),
         ];
         for (key, title, tip, rows, empty) in groups {
@@ -2163,14 +2675,14 @@ impl App {
                         };
                         let focused = self.focus_layer.as_deref() == Some(focus_key);
                         if ui
-                            .small_button(if focused {
-                                "Stop fading"
+                            .tap_button(if focused {
+                                t!("board.board_anatomy_section.stop_fading")
                             } else {
-                                "Fade others"
+                                t!("board.board_anatomy_section.fade_others")
                             })
-                            .on_hover_text(
-                                "Everything not on this layer turns translucent on the drawing; click again to bring it back.",
-                            )
+                            .on_hover_text(t!(
+                                "board.board_anatomy_section.everything_not_on_this_layer.tip"
+                            ))
                             .clicked()
                         {
                             self.focus_layer = if focused {
@@ -2192,7 +2704,9 @@ impl App {
                         let clicked = match id {
                             Some(id) => ui
                                 .selectable_label(picked == Some(id), row)
-                                .on_hover_text("Select this on the drawing.")
+                                .on_hover_text(t!(
+                                    "board.board_anatomy_section.select_this_on_the_drawing.tip"
+                                ))
                                 .clicked(),
                             None => {
                                 ui.label(row);
@@ -2215,15 +2729,17 @@ impl App {
             }
         }
         let open = self.anat_open.iter().any(|k| k == "parts");
-        let header = egui::CollapsingHeader::new("Parts and pads")
+        let header = egui::CollapsingHeader::new(t!("board.board_anatomy_section.parts_and_pads"))
             .id_salt("anat-parts")
             .open(Some(open))
             .show(ui, |ui| {
                 if parts.is_empty() {
                     ui.label(
-                        egui::RichText::new("No parts on the board yet.")
-                            .small()
-                            .color(self.muted()),
+                        egui::RichText::new(t!(
+                            "board.board_anatomy_section.no_parts_on_the_board"
+                        ))
+                        .small()
+                        .color(self.muted()),
                     );
                 }
                 for (id, title, pads) in parts {
@@ -2232,10 +2748,10 @@ impl App {
                         .default_open(false)
                         .show(ui, |ui| {
                             if ui
-                                .button("Pick up this part")
-                                .on_hover_text(
-                                    "Select this part so its properties open on the right.",
-                                )
+                                .button(t!("board.board_anatomy_section.pick_up_this_part"))
+                                .on_hover_text(t!(
+                                    "board.board_anatomy_section.pick_up_this_part.tip"
+                                ))
                                 .clicked()
                             {
                                 chosen = Some(id);
@@ -2247,9 +2763,9 @@ impl App {
                 }
             });
         let clicked = header.header_response.clicked();
-        header
-            .header_response
-            .on_hover_text("Every part on the board. Open one to see its pads.");
+        header.header_response.on_hover_text(t!(
+            "board.board_anatomy_section.every_part_on_the_board.tip"
+        ));
         if clicked {
             if open {
                 self.anat_open.retain(|k| k != "parts");
@@ -2283,93 +2799,98 @@ impl App {
                 })
                 .collect();
             let open = self.anat_open.iter().any(|k| k == "art");
-            let header = egui::CollapsingHeader::new("Machine layers you draw")
-                .id_salt("anat-art")
-                .open(Some(open))
-                .show(ui, |ui| {
-                    if layers.is_empty() {
+            let header = egui::CollapsingHeader::new(t!(
+                "board.board_anatomy_section.machine_layers_you_draw"
+            ))
+            .id_salt("anat-art")
+            .open(Some(open))
+            .show(ui, |ui| {
+                if layers.is_empty() {
+                    ui.label(
+                        egui::RichText::new(t!(
+                            "board.board_anatomy_section.no_machine_layers_yet_add"
+                        ))
+                        .small()
+                        .color(self.muted()),
+                    );
+                }
+                for (id, name, kind, visible, shapes) in layers {
+                    let mut shown = visible;
+                    ui.horizontal(|ui| {
+                        if ui
+                            .checkbox(&mut shown, egui::RichText::new(&name).strong())
+                            .on_hover_text(t!(
+                                "board.board_anatomy_section.tick_to_show_this_layer.tip"
+                            ))
+                            .clicked()
+                        {
+                            self.run("board.layer_visible_set", json!({"layer": id, "on": shown}));
+                        }
+                        let focus_key = format!("art:{name}");
+                        let focused = self.focus_layer.as_deref() == Some(focus_key.as_str());
+                        if ui
+                            .tap_button(if focused {
+                                t!("board.board_anatomy_section.stop_fading")
+                            } else {
+                                t!("board.board_anatomy_section.fade_others")
+                            })
+                            .on_hover_text(t!(
+                                "board.board_anatomy_section.everything_not_on_this_layer.tip"
+                            ))
+                            .clicked()
+                        {
+                            self.focus_layer = if focused { None } else { Some(focus_key) };
+                        }
                         ui.label(
-                            egui::RichText::new(
-                                "No machine layers yet. Add one for your laser cutter, mill or printer, then draw on it with Draw shape.",
-                            )
+                            egui::RichText::new(t!(
+                                "board.board_anatomy_section.kind_layer_len_shapes",
+                                kind = kind,
+                                len = shapes.len()
+                            ))
                             .small()
                             .color(self.muted()),
                         );
-                    }
-                    for (id, name, kind, visible, shapes) in layers {
-                        let mut shown = visible;
-                        ui.horizontal(|ui| {
-                            if ui
-                                .checkbox(&mut shown, egui::RichText::new(&name).strong())
-                                .on_hover_text(
-                                    "Tick to show this layer on the drawing. Hiding changes only the view, never the design.",
-                                )
-                                .clicked()
-                            {
-                                self.run(
-                                    "board.layer_visible_set",
-                                    json!({"layer": id, "on": shown}),
-                                );
-                            }
-                            let focus_key = format!("art:{name}");
-                            let focused =
-                                self.focus_layer.as_deref() == Some(focus_key.as_str());
-                            if ui
-                                .small_button(if focused {
-                                    "Stop fading"
-                                } else {
-                                    "Fade others"
-                                })
-                                .on_hover_text(
-                                    "Everything not on this layer turns translucent on the drawing; click again to bring it back.",
-                                )
-                                .clicked()
-                            {
-                                self.focus_layer = if focused { None } else { Some(focus_key) };
-                            }
+                    });
+                    egui::CollapsingHeader::new(t!(
+                        "board.board_anatomy_section.name_shapes",
+                        name = name
+                    ))
+                    .id_salt(format!("anat-art-{id}"))
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if shapes.is_empty() {
                             ui.label(
-                                egui::RichText::new(format!(
-                                    "{kind} layer · {} shapes",
-                                    shapes.len()
+                                egui::RichText::new(t!(
+                                    "board.board_anatomy_section.nothing_drawn_on_this_layer"
                                 ))
                                 .small()
                                 .color(self.muted()),
                             );
-                        });
-                        egui::CollapsingHeader::new(format!("{name} shapes"))
-                            .id_salt(format!("anat-art-{id}"))
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                if shapes.is_empty() {
-                                    ui.label(
-                                        egui::RichText::new("Nothing drawn on this layer yet.")
-                                            .small()
-                                            .color(self.muted()),
-                                    );
-                                }
-                                for text in shapes {
-                                    ui.label(egui::RichText::new(text).small());
-                                }
-                            });
-                    }
-                    if ui
-                        .button("New layer")
-                        .on_hover_text(
-                            "Add a layer for a laser, mill or printer to follow; give it a real name any time.",
-                        )
-                        .clicked()
-                    {
-                        let name = format!("Art {}", self.project.board.user_layers.len() + 1);
-                        self.run("board.layer_add", json!({"name": name, "kind": "other"}));
-                        if self.message.starts_with("board.layer_add") {
-                            self.art_layer = self.selected;
                         }
+                        for text in shapes {
+                            ui.label(egui::RichText::new(text).small());
+                        }
+                    });
+                }
+                if ui
+                    .button(t!("board.board_anatomy_section.new_layer"))
+                    .on_hover_text(t!("board.board_anatomy_section.new_layer.tip"))
+                    .clicked()
+                {
+                    let name = t!(
+                        "board.board_anatomy_section.art_v0",
+                        v0 = self.project.board.user_layers.len() + 1
+                    );
+                    self.run("board.layer_add", json!({"name": name, "kind": "other"}));
+                    if self.message.starts_with("board.layer_add") {
+                        self.art_layer = self.selected;
                     }
-                });
+                }
+            });
             let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(
-                "Layers you draw yourself: cut lines, dotted perforations and printed marks for your own machines.",
-            );
+            header.header_response.on_hover_text(t!(
+                "board.board_anatomy_section.layers_you_draw_yourself_cut.tip"
+            ));
             if clicked {
                 if open {
                     self.anat_open.retain(|k| k != "art");
@@ -2381,16 +2902,17 @@ impl App {
         // Every connection by name, with room to add, rename and spotlight one.
         if !self.kind_hidden("connections") {
             let open = self.anat_open.iter().any(|k| k == "connections");
-            let header = egui::CollapsingHeader::new("Connections")
+            let header = egui::CollapsingHeader::new(t!("board.board_anatomy_section.connections"))
                 .id_salt("anat-connections")
+                .default_open(true)
                 .open(Some(open))
                 .show(ui, |ui| {
                     self.nets_tab(ui);
                 });
             let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(
-                "Every wire connection by name: add one, rename one, or light one up on the drawing.",
-            );
+            header.header_response.on_hover_text(t!(
+                "board.board_anatomy_section.every_wire_connection_by_name.tip"
+            ));
             if clicked {
                 if open {
                     self.anat_open.retain(|k| k != "connections");
@@ -2409,25 +2931,28 @@ impl App {
                 .filter(|text| self.tree_matches(text))
                 .collect();
             let open = self.anat_open.iter().any(|k| k == "notes");
-            let header = egui::CollapsingHeader::new("Project notes")
-                .id_salt("anat-notes")
-                .open(Some(open))
-                .show(ui, |ui| {
-                    if notes.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No notes are stored with this project yet.")
+            let header =
+                egui::CollapsingHeader::new(t!("board.board_anatomy_section.project_notes"))
+                    .id_salt("anat-notes")
+                    .open(Some(open))
+                    .show(ui, |ui| {
+                        if notes.is_empty() {
+                            ui.label(
+                                egui::RichText::new(t!(
+                                    "board.board_anatomy_section.no_notes_are_stored_with"
+                                ))
                                 .small()
                                 .color(self.muted()),
-                        );
-                    }
-                    for text in notes {
-                        ui.label(egui::RichText::new(text).small());
-                    }
-                });
+                            );
+                        }
+                        for text in notes {
+                            ui.label(egui::RichText::new(text).small());
+                        }
+                    });
             let clicked = header.header_response.clicked();
-            header.header_response.on_hover_text(
-                "Free-form notes kept inside the design file: title, revision, or anything a maker should know.",
-            );
+            header.header_response.on_hover_text(t!(
+                "board.board_anatomy_section.free_form_notes_kept_inside.tip"
+            ));
             if clicked {
                 if open {
                     self.anat_open.retain(|k| k != "notes");
@@ -2463,6 +2988,7 @@ impl App {
         if ctx.egui_wants_keyboard_input() || ctx.current_pass_index() > 0 {
             return;
         }
+        let mut delete_now = false;
         ctx.input(|i| {
             if i.modifiers.command {
                 if i.key_pressed(egui::Key::F) {
@@ -2476,6 +3002,9 @@ impl App {
                 }
                 if i.key_pressed(egui::Key::S) {
                     self.tool_call("save", json!({"path":self.path}));
+                }
+                if i.modifiers.shift && i.key_pressed(egui::Key::A) {
+                    self.assistant_toggle();
                 }
                 if i.key_pressed(egui::Key::K) {
                     self.command_open = !self.command_open;
@@ -2513,139 +3042,171 @@ impl App {
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
+                self.canvas_menu = None;
+                self.edit.measure = None;
+                self.edit.box_from = None;
+                self.edit.box_to = None;
             }
             if i.key_pressed(egui::Key::Slash) {
                 self.shortcuts_open = !self.shortcuts_open;
             }
-            if i.key_pressed(egui::Key::Delete)
-                && let Some(id) = self.selected
-            {
-                self.run("object.delete", json!({"id":id}));
-                self.select(None);
+            if i.key_pressed(egui::Key::Delete) && self.selected.is_some() {
+                delete_now = true;
             }
         });
+        if delete_now {
+            self.delete_selection();
+        }
     }
     fn style(&self, ctx: &egui::Context) {
-        let mut visuals = if self.preferences.dark {
-            egui::Visuals::dark()
-        } else {
-            egui::Visuals::light()
-        };
-        visuals.panel_fill = if self.preferences.dark {
-            Color32::from_rgb(17, 24, 36)
-        } else {
-            Color32::from_rgb(235, 239, 245)
-        };
-        visuals.window_fill = self.surface();
-        visuals.selection.bg_fill = self.accent().gamma_multiply(0.25);
-        visuals.selection.stroke = Stroke::new(1.0, self.accent());
-        craft_ui::theme::WidgetPalette {
-            noninteractive: self.surface(),
-            inactive: self.surface(),
-            hovered: if self.preferences.dark {
-                Color32::from_rgb(37, 53, 73)
-            } else {
-                Color32::from_rgb(215, 225, 236)
-            },
-            active: self.accent().gamma_multiply(0.25),
-            open: self.surface(),
-        }
-        .apply_to(
-            &mut visuals.widgets,
-            egui::CornerRadius::same(6),
-            Stroke::new(1.0, self.ink()),
-        );
+        let visuals = palette::visuals(&self.colours());
         ctx.set_visuals(visuals);
+        let reduced = self.preferences.reduced_motion;
         ctx.style_mut_of(ctx.theme(), |s| {
             s.spacing.item_spacing = Vec2::new(8.0, 8.0);
             s.spacing.button_padding = Vec2::new(10.0, 6.0);
+            s.spacing.interact_size = Vec2::new(40.0, Self::MIN_TARGET);
+            s.animation_time = if reduced { 0.0 } else { 1.0 / 12.0 };
+            s.spacing.window_margin = egui::Margin::same(12);
+            s.spacing.menu_margin = egui::Margin::same(12);
         });
     }
+    fn dock_frame(style: &egui::Style) -> egui::Frame {
+        egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
+    }
+    /// The smallest side of any control a pointer must hit (WCAG 2.5.8).
+    const MIN_TARGET: f32 = targets::MIN_TARGET;
+    const APP_BAR_HEIGHT: f32 = 34.0;
+    /// The slim top bar: the brand and the menus, nothing else. Save, Undo
+    /// and Redo, settings, bug reports and the version live in the menus.
     fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("header").exact_size(100.0).show(ui, |ui| {
-            ui.add_space(7.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                let brand = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new("PCBCraft")
-                            .size(20.0)
-                            .strong()
-                            .color(self.accent()),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                if brand
-                    .on_hover_text("Back to the start screen, where you open or begin a design.")
-                    .clicked()
-                {
-                    self.home_open = true;
-                }
-                if self.library.editor.mode == 0 {
-                    ui.separator();
-                    self.file_menu(ui);
-                    self.edit_menu(ui);
-                    self.settings_menu(ui);
-                    self.help_menu(ui);
-                }
+        egui::Panel::top("app-bar")
+            .exact_size(Self::APP_BAR_HEIGHT)
+            .frame(Self::dock_frame(ui.style()))
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let brand = ui.add(
+                        egui::Button::new(
+                            egui::RichText::new(t!("app.name"))
+                                .size(15.0)
+                                .strong()
+                                .color(self.accent()),
+                        )
+                        .frame(false)
+                        .min_size(Vec2::splat(Self::MIN_TARGET)),
+                    );
+                    a11y::name_control(&brand, "PCBCraft start screen", None);
+                    if brand.on_hover_text(t!("app.brand.tip")).clicked() {
+                        self.home_open = true;
+                    }
+                    if self.library.editor.mode == 0 {
+                        ui.separator();
+                        self.file_menu(ui);
+                        self.edit_menu(ui);
+                        self.help_menu(ui);
+                    }
+                });
             });
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                for (tab, label) in [
-                    (Tab::Schematic, "Schematic"),
-                    (Tab::Pcb, "PCB Layout"),
-                    (Tab::Libraries, "Libraries"),
-                    (Tab::Rules, "Rules"),
-                    (Tab::Checks, "Checks"),
-                    (Tab::Settings, "Settings"),
-                ] {
-                    let (_, rect) = ui.allocate_space(Vec2::new(132.0, 30.0));
-                    let selected = self.tab == tab;
-                    let accent = self.accent();
-                    let ink = self.ink();
-                    let muted = self.muted();
-                    let response = craft_ui::tabs::Tab::new(ui.id().with(label), label, selected)
-                        .show_at(ui, rect, |ui, response| {
-                            if selected || response.hovered() {
-                                ui.painter().rect_filled(
-                                    rect,
-                                    6.0,
-                                    accent.gamma_multiply(if selected { 0.16 } else { 0.08 }),
-                                );
-                            }
-                            ui.painter().text(
-                                rect.center(),
-                                Align2::CENTER_CENTER,
-                                label,
-                                FontId::proportional(13.0),
-                                if selected { ink } else { muted },
-                            );
-                            if selected {
-                                ui.painter().line_segment(
-                                    [rect.left_bottom(), rect.right_bottom()],
-                                    Stroke::new(2.0, accent),
-                                );
-                            }
-                        });
-                    if response.clicked() {
+    }
+    fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
+        let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
+        let mut shown: Vec<(Tab, String)> = vec![
+            (Tab::Files, t!("docks.workbench_tabs.files")),
+            (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
+            (Tab::Pcb, t!("docks.workbench_tabs.layout")),
+            (Tab::Board3d, t!("docks.workbench_tabs.3d_view")),
+        ];
+        if self.tab == Tab::Libraries {
+            shown.push((Tab::Libraries, t!("docks.workbench_tabs.libraries")));
+        }
+        for (tab, label) in [
+            (Tab::Rules, t!("docks.workbench_tabs.rules")),
+            (Tab::Checks, t!("docks.workbench_tabs.checks")),
+            (Tab::PlotFiles, t!("docks.workbench_tabs.plot_files")),
+            (Tab::Settings, t!("docks.workbench_tabs.settings")),
+        ] {
+            if !self.closed_tabs.contains(&tab) {
+                shown.push((tab, label));
+            }
+        }
+        let used = shown.len() as f32 * 90.0 + 40.0;
+        let mut close = None;
+        ui.horizontal(|ui| {
+            ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
+            for (tab, label) in shown.iter().cloned() {
+                let selected = self.tab == tab;
+                let response = ui.selectable_label(selected, label.clone()).on_hover_text(
+                    if optional.contains(&tab) {
+                        t!(
+                            "docks.workbench_tabs.switch_to_the_label_view",
+                            label = label
+                        )
+                    } else {
+                        t!(
+                            "docks.workbench_tabs.switch_to_the_label_view2",
+                            label = label
+                        )
+                    },
+                );
+                if response.clicked() {
+                    self.change_tab(tab);
+                }
+                if optional.contains(&tab) {
+                    response.context_menu(|ui| {
+                        if ui
+                            .button(t!("docks.workbench_tabs.close"))
+                            .on_hover_text(t!("docks.workbench_tabs.close.tip"))
+                            .clicked()
+                        {
+                            close = Some(tab);
+                            ui.close();
+                        }
+                    });
+                }
+            }
+            let closed = self.closed_tabs.clone();
+            ui.menu_button(t!("docks.workbench_tabs.text"), |ui| {
+                if closed.is_empty() {
+                    ui.add_enabled(
+                        false,
+                        egui::Label::new(t!("docks.workbench_tabs.every_view_is_open")),
+                    );
+                }
+                for tab in closed {
+                    let name = match tab {
+                        Tab::Rules => t!("docks.workbench_tabs.rules"),
+                        Tab::Checks => t!("docks.workbench_tabs.checks"),
+                        _ => t!("docks.workbench_tabs.settings"),
+                    };
+                    if ui
+                        .button(name)
+                        .on_hover_text(t!("docks.workbench_tabs.open_this_view_again.tip"))
+                        .clicked()
+                    {
                         self.change_tab(tab);
+                        ui.close();
                     }
                 }
-                ui.add_enabled(false, egui::Button::new("3D Board"))
-                    .on_hover_text("A real Rust 3D viewer is planned.");
-            });
-            if !matches!(self.tool, Tool::Select) {
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
-                    );
-                });
-            }
+            })
+            .response
+            .on_hover_text(t!("docks.workbench_tabs.open_a_view_you_closed.tip"));
         });
+        if let Some(tab) = close {
+            self.closed_tabs.push(tab);
+            if self.tab == tab {
+                self.change_tab(Tab::Schematic);
+            }
+        }
+        if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            });
+        }
     }
     fn start_home(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default()
@@ -2657,15 +3218,15 @@ impl App {
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
                             ui.label(
-                                egui::RichText::new("Welcome to PCBCraft")
+                                egui::RichText::new(t!("dialogs.start_home.welcome_to_pcbcraft"))
                                     .size(30.0)
                                     .strong()
                                     .color(self.accent()),
                             );
                             ui.label(
-                                egui::RichText::new(
-                                    "Draw a circuit, place the parts, and finish with a board ready to order.",
-                                )
+                                egui::RichText::new(t!(
+                                    "dialogs.start_home.draw_a_circuit_place_the"
+                                ))
                                 .size(14.0)
                                 .color(self.muted()),
                             );
@@ -2673,18 +3234,18 @@ impl App {
                             if ui
                                 .add_sized(
                                     [300.0, 64.0],
-                                    egui::Button::new(
-                                        (
-                                            egui::RichText::new("New design")
-                                                .size(16.0)
-                                                .strong(),
-                                            egui::RichText::new("Begin with a blank page.")
-                                                .small()
-                                                .color(self.muted()),
-                                        ),
-                                    ),
+                                    egui::Button::new((
+                                        egui::RichText::new(t!("dialogs.start_home.new_design"))
+                                            .size(16.0)
+                                            .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.begin_with_a_blank_page"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
                                 )
-                                .on_hover_text("Start a fresh empty design.")
+                                .on_hover_text(t!("dialogs.start_home.begin_with_a_blank_page.tip"))
                                 .clicked()
                             {
                                 self.tool_call("new_design", json!({}));
@@ -2695,22 +3256,22 @@ impl App {
                             if ui
                                 .add_sized(
                                     [300.0, 64.0],
-                                    egui::Button::new(
-                                        (
-                                            egui::RichText::new("Worked example")
-                                                .size(16.0)
-                                                .strong(),
-                                            egui::RichText::new(
-                                                "A small battery, resistor and LED to explore.",
-                                            )
-                                            .small()
-                                            .color(self.muted()),
-                                        ),
-                                    ),
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.worked_example"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.a_small_battery_resistor_and"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
                                 )
-                                .on_hover_text(
-                                    "Start from a small worked example: a battery, resistor and LED.",
-                                )
+                                .on_hover_text(t!(
+                                    "dialogs.start_home.a_small_battery_resistor_and.tip"
+                                ))
                                 .clicked()
                             {
                                 self.tool_call("sample_design", json!({}));
@@ -2720,22 +3281,20 @@ impl App {
                             if ui
                                 .add_sized(
                                     [300.0, 64.0],
-                                    egui::Button::new(
-                                        (
-                                            egui::RichText::new("Open a design file…")
-                                                .size(16.0)
-                                                .strong(),
-                                            egui::RichText::new(
-                                                "Type a path, or pick one from the list below.",
-                                            )
-                                            .small()
-                                            .color(self.muted()),
-                                        ),
-                                    ),
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.open_a_design_file"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.type_a_path_or_pick"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
                                 )
-                                .on_hover_text(
-                                    "Load a saved design file from the path beside this button.",
-                                )
+                                .on_hover_text(t!("dialogs.start_home.type_a_path_or_pick.tip"))
                                 .clicked()
                             {
                                 self.home_path_focus = true;
@@ -2744,22 +3303,18 @@ impl App {
                             ui.horizontal(|ui| {
                                 let path_box = ui
                                     .add(
-                                        egui::TextEdit::singleline(&mut self.path)
-                                            .hint_text("design file path")
+                                        crate::targets::text_field(&mut self.path)
+                                            .hint_text(t!("dialogs.start_home.design_file_path"))
                                             .desired_width(240.0),
                                     )
-                                    .on_hover_text(
-                                        "The file that Open on this page, and in the File menu, uses.",
-                                    );
+                                    .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
                                 if self.home_path_focus {
                                     path_box.request_focus();
                                     self.home_path_focus = false;
                                 }
                                 if ui
-                                    .button("Open")
-                                    .on_hover_text(
-                                        "Load the design file named in the box beside this button.",
-                                    )
+                                    .button(t!("dialogs.start_home.open"))
+                                    .on_hover_text(t!("dialogs.start_home.open.tip"))
                                     .clicked()
                                 {
                                     self.tool_call("open", json!({"path": self.path}));
@@ -2771,21 +3326,21 @@ impl App {
                             if !self.recent_designs.is_empty() {
                                 ui.add_space(18.0);
                                 ui.label(
-                                    egui::RichText::new("Open one you worked on recently")
-                                        .size(14.0)
-                                        .strong(),
+                                    egui::RichText::new(t!(
+                                        "dialogs.start_home.open_one_you_worked_on"
+                                    ))
+                                    .size(14.0)
+                                    .strong(),
                                 );
                                 for design in self.recent_designs.clone() {
                                     if ui
                                         .add(
-                                            egui::Button::new(
-                                                egui::RichText::new(&design).small(),
-                                            )
-                                            .min_size(egui::vec2(300.0, 28.0)),
+                                            egui::Button::new(egui::RichText::new(&design).small())
+                                                .min_size(egui::vec2(300.0, 28.0)),
                                         )
-                                        .on_hover_text(
-                                            "Open this design again where you left off.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "dialogs.start_home.open_this_design_again_where.tip"
+                                        ))
                                         .clicked()
                                     {
                                         self.path = design;
@@ -2798,9 +3353,9 @@ impl App {
                             }
                             ui.add_space(14.0);
                             ui.label(
-                                egui::RichText::new(
-                                    "Press Escape, or click PCBCraft in the corner, to return here any time.",
-                                )
+                                egui::RichText::new(t!(
+                                    "dialogs.start_home.press_escape_or_click_pcbcraft"
+                                ))
                                 .small()
                                 .color(self.muted()),
                             );
@@ -2813,35 +3368,33 @@ impl App {
         }
     }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("File", |ui| {
+        ui.menu_button(t!("menu.file"), |ui| {
             if ui
-                .button("New")
-                .on_hover_text("Start a fresh empty design.")
+                .button(t!("menu.file.new"))
+                .on_hover_text(t!("menu.file.new.tip"))
                 .clicked()
             {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
             }
             if ui
-                .button("Open")
-                .on_hover_text(
-                    "Choose a design to open; your recent designs are listed on the screen that appears.",
-                )
+                .button(t!("menu.file.open"))
+                .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
                 self.home_open = true;
             }
             if ui
-                .button("Save")
-                .on_hover_text("Write the design to its file on disk. (Ctrl+S works too.)")
+                .button(t!("menu.file.save"))
+                .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
             }
             ui.separator();
             if ui
-                .button("Export interchange board")
-                .on_hover_text("Write the board out so other design tools can open it.")
+                .button(t!("menu.file.export"))
+                .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
             {
                 let path = std::path::Path::new(&self.path)
@@ -2851,8 +3404,8 @@ impl App {
                 self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
             }
             if ui
-                .button("Copy view picture to clipboard")
-                .on_hover_text("Copy a PNG snapshot of the current view, the same picture a plotter would draw, so it can be pasted into a document.")
+                .button(t!("menu.file.copy_picture"))
+                .on_hover_text(t!("menu.file.copy_picture.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
@@ -2860,30 +3413,63 @@ impl App {
             }
         })
         .response
-        .on_hover_text("Start, open, save, export and share this design.");
+        .on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Edit", |ui| {
+        ui.menu_button(t!("menu.edit"), |ui| {
+            let (can_undo, can_redo) = self
+                .session
+                .lock()
+                .map(|s| (s.can_undo(), s.can_redo()))
+                .unwrap_or((false, false));
             if ui
-                .button("Undo")
-                .on_hover_text("Step back one action; every edit here is one undoable step.")
+                .add_enabled(can_undo, egui::Button::new(t!("menu.edit.undo")))
+                .on_hover_text(if can_undo {
+                    t!("menu.edit.undo.tip")
+                } else {
+                    t!("menu.edit.undo.none")
+                })
+                .on_disabled_hover_text(t!("menu.edit.undo.none"))
                 .clicked()
             {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .button("Redo")
-                .on_hover_text("Step forward to the action you undid.")
+                .add_enabled(can_redo, egui::Button::new(t!("menu.edit.redo")))
+                .on_hover_text(t!("menu.edit.redo.tip"))
+                .on_disabled_hover_text(t!("menu.edit.redo.none"))
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
             }
             ui.separator();
             if ui
-                .button("Update board from schematic")
-                .on_hover_text(
-                    "Copy every symbol, wire and net onto the board, then show the board.",
-                )
+                .button(t!("menu.edit.copy"))
+                .on_hover_text(t!("menu.edit.copy.tip"))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_selection(&ctx);
+            }
+            if ui
+                .button(t!("menu.edit.paste"))
+                .on_hover_text(t!("menu.edit.paste.tip"))
+                .clicked()
+            {
+                self.paste_last_copy();
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .button(t!("menu.edit.cleanup"))
+                    .on_hover_text(t!("menu.edit.cleanup.tip"))
+                    .clicked()
+            {
+                self.cleanup_tracks();
+            }
+            ui.separator();
+            if ui
+                .button(t!("menu.edit.sync"))
+                .on_hover_text(t!("menu.edit.sync.tip"))
                 .clicked()
             {
                 self.run("board.sync", json!({}));
@@ -2895,213 +3481,228 @@ impl App {
             {
                 let name = net.name.clone();
                 if ui
-                    .button(format!("Clear wiring on {name}"))
-                    .on_hover_text(
-                        "Lift every piece of copper drawn for the lit connection. The connection itself stays.",
-                    )
+                    .button(t!("menu.edit.clear_net", name = name))
+                    .on_hover_text(t!("menu.edit.clear_net.tip"))
                     .clicked()
                 {
                     self.run("net.unroute", json!({"net": lit}));
                 }
             }
             if ui
-                .button("Clear all wiring")
-                .on_hover_text(
-                    "Start the copper over on the whole board. Parts, connections and copper zones stay.",
-                )
+                .button(t!("menu.edit.clear_all"))
+                .on_hover_text(t!("menu.edit.clear_all.tip"))
                 .clicked()
             {
                 self.run("board.unroute", json!({}));
             }
         })
         .response
-        .on_hover_text(
-            "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
-        );
+        .on_hover_text(t!("menu.edit.tip"));
     }
-    fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Settings", |ui| {
+    /// Switch the app's language; the next frame paints in it.
+    fn set_language(&mut self, tag: &str) {
+        self.preferences.language = tag.to_string();
+        self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
+        pcbcraft_text::activate(&self.catalog);
+    }
+    fn language_menu(&mut self, ui: &mut egui::Ui) {
+        let mut picked = None;
+        ui.menu_button(t!("menu.settings.language"), |ui| {
+            let current = self.preferences.language.clone();
             if ui
-                .button("Appearance & settings…")
-                .on_hover_text(
-                    "Open the settings page: theme, accent colour and everything for the project.",
+                .selectable_label(
+                    current == pcbcraft_text::SYSTEM,
+                    t!("menu.settings.language.system"),
                 )
+                .on_hover_text(t!("menu.settings.language.system.tip"))
                 .clicked()
             {
-                self.change_tab(Tab::Settings);
+                picked = Some(pcbcraft_text::SYSTEM.to_string());
             }
-            if ui
-                .button(if self.preferences.dark {
-                    "Switch to the light theme"
-                } else {
-                    "Switch to the dark theme"
-                })
-                .on_hover_text("Change between the dark and light look.")
-                .clicked()
-            {
-                self.preferences.dark = !self.preferences.dark;
-            }
-            if ui
-                .button(if self.preferences.grid {
-                    "Hide the grid"
-                } else {
-                    "Show the grid"
-                })
-                .on_hover_text("Show or hide the placement grid in the work area.")
-                .clicked()
-            {
-                self.preferences.grid = !self.preferences.grid;
-            }
-            ui.menu_button("Route on", |ui| {
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
-            })
-            .response
-            .on_hover_text("Choose which copper layer new tracks are drawn on.");
-            ui.menu_button("Pad labels", |ui| {
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Number,
-                    PadLabels::Number.name(),
-                )
-                .on_hover_text("Draw each pad's own number on the board.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Net,
-                    PadLabels::Net.name(),
-                )
-                .on_hover_text("Draw the net name on each pad, useful when debugging.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Off,
-                    PadLabels::Off.name(),
-                )
-                .on_hover_text("Hide the pad labels for a clean picture.");
-            })
-            .response
-            .on_hover_text(
-                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
-            );
-            ui.separator();
-            if ui
-                .button("Library sources…")
-                .on_hover_text("Manage the folders that feed the component list.")
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
+            for language in pcbcraft_text::shipped_languages() {
+                if ui
+                    .selectable_label(current == language.tag, language.name)
+                    .on_hover_text(t!("menu.settings.language.pick.tip"))
+                    .clicked()
+                {
+                    picked = Some(language.tag);
+                }
             }
         })
         .response
-        .on_hover_text("Theme, grid and library folders.");
+        .on_hover_text(t!("menu.settings.language.tip"));
+        if let Some(tag) = picked {
+            self.set_language(&tag);
+            ui.ctx().request_repaint();
+        }
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Help", |ui| {
+        ui.menu_button(t!("menu.help"), |ui| {
             if ui
-                .button("Keyboard shortcuts")
-                .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                .button(t!("menu.help.shortcuts"))
+                .on_hover_text(t!("menu.help.shortcuts.tip"))
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands  Ctrl+K")
-                .on_hover_text(
-                    "Search every command by name and run it, with its parameters explained.",
-                )
+                .button(t!("menu.help.commands"))
+                .on_hover_text(t!("menu.help.commands.tip"))
                 .clicked()
             {
                 self.command_open = !self.command_open;
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.separator();
+            if ui
+                .button(t!("app.report_bug"))
+                .on_hover_text(t!("app.report_bug.tip"))
+                .clicked()
+            {
+                let url = format!(
+                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    env!("CARGO_PKG_VERSION")
+                );
+                ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            }
+            ui.label(
+                egui::RichText::new(t!("app.version", version = env!("CARGO_PKG_VERSION")))
+                    .small()
+                    .color(self.muted()),
+            )
+            .on_hover_text(t!("app.version.tip"));
         })
         .response
-        .on_hover_text("Shortcuts list and the command search.");
+        .on_hover_text(t!("menu.help.tip"));
+    }
+    /// The datasheet address when the field holds a plain web link.
+    fn datasheet_url(field: Option<&str>) -> Option<String> {
+        let url = field?.trim();
+        let lower = url.to_ascii_lowercase();
+        ((lower.starts_with("http://") || lower.starts_with("https://"))
+            && url.len() <= 2048
+            && !url.chars().any(char::is_whitespace))
+        .then(|| url.to_owned())
+    }
+    /// How many check findings are errors, warnings and notes.
+    fn finding_counts(checks: &Value) -> (usize, usize, usize) {
+        let mut counts = (0, 0, 0);
+        for key in ["erc", "drc"] {
+            let Some(findings) = checks.get(key).and_then(Value::as_array) else {
+                continue;
+            };
+            for f in findings {
+                match f.get("severity").and_then(Value::as_str) {
+                    Some("error") => counts.0 += 1,
+                    Some("warning") => counts.1 += 1,
+                    _ => counts.2 += 1,
+                }
+            }
+        }
+        counts
     }
     fn browser(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("browser")
-            .default_size(210.0)
-            .min_size(170.0)
+        egui::Panel::left("left-rail")
+            .exact_size(44.0)
+            .resizable(false)
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(4, 12)),
+            )
             .show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("PROJECT")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                ui.label(egui::RichText::new(&self.project.name).strong());
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
                     if ui
-                        .selectable_label(self.left_tab == 0, "Parts")
-                        .on_hover_text(
-                            "Everything placed in this design, and quick ways to add more.",
+                        .selectable_label(
+                            self.preferences.library_dock_open,
+                            t!("library.browser.lib"),
                         )
+                        .on_hover_text(t!("library.browser.lib.tip"))
                         .clicked()
                     {
-                        self.left_tab = 0;
+                        self.preferences.library_dock_open = !self.preferences.library_dock_open;
                     }
-                    if ui
-                        .selectable_label(self.left_tab == 1, "Layers")
-                        .on_hover_text(
-                            "The whole board in one tree: the board itself, its layers, every connection and every part. Pick any row to find it on the drawing.",
-                        )
-                        .clicked()
-                    {
-                        self.left_tab = 1;
-                    }
-                    if ui
-                        .selectable_label(self.left_tab == 2, "Builds")
-                        .on_hover_text(
-                            "Extra versions of this board: parts left off or swapped for another package.",
-                        )
-                        .clicked()
-                    {
-                        self.left_tab = 2;
+                    ui.add_space(8.0);
+                    let counts = Self::finding_counts(&self.checks);
+                    for (count, name, help) in [
+                        (
+                            counts.0,
+                            "errors",
+                            t!("library.browser.mistakes_the_checks_say_you"),
+                        ),
+                        (
+                            counts.1,
+                            "warnings",
+                            t!("library.browser.warnings_worth_a_look_but"),
+                        ),
+                        (
+                            counts.2,
+                            "notes",
+                            t!("library.browser.notes_from_the_checks_that"),
+                        ),
+                    ] {
+                        if ui
+                            .button(t!("library.browser.count", count = count))
+                            .on_hover_text(t!(
+                                "library.browser.count.tip",
+                                count = count,
+                                name = name,
+                                help = help
+                            ))
+                            .clicked()
+                        {
+                            self.change_tab(Tab::Checks);
+                        }
                     }
                 });
-                ui.separator();
-                let dock = self.left_tab;
-                if dock > 0 {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| match dock {
-                            1 => self.layers_tab(ui),
-                            _ => self.builds_tab(ui),
-                        });
-                    return;
-                }
+            });
+        if !self.preferences.library_dock_open {
+            return;
+        }
+        egui::Panel::left("library-dock")
+            .default_size(280.0)
+            .min_size(260.0)
+            .frame(Self::dock_frame(ui.style()))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(t!("library.browser.library")).strong());
+                    if ui
+                        .tap_button(t!("library.browser.hide"))
+                        .on_hover_text(t!("library.browser.hide.tip"))
+                        .clicked()
+                    {
+                        self.preferences.library_dock_open = false;
+                    }
+                });
+                ui.add_space(8.0);
                 if ui
-                    .button("Add part")
-                    .on_hover_text("Search for a part to place on the schematic.")
+                    .button(t!("library.browser.add_part"))
+                    .on_hover_text(t!("library.browser.add_part.tip"))
                     .clicked()
                 {
                     self.palette = true;
                     self.part_search_focus = true;
                 }
                 if self.palette {
-                    ui.label(egui::RichText::new("Add a part").strong());
+                    ui.label(egui::RichText::new(t!("library.browser.add_a_part")).strong());
                     let query_box = ui
                         .add(
-                            egui::TextEdit::singleline(&mut self.part_search)
-                                .hint_text("Search parts by name")
-                                .desired_width(190.0),
+                            crate::targets::text_field(&mut self.part_search)
+                                .hint_text(t!("library.browser.search_parts_by_name"))
+                                .desired_width(f32::INFINITY),
                         )
-                        .on_hover_text(
-                            "Type any part name; the list below narrows as you type.",
-                        );
+                        .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
                     if self.part_search_focus {
                         query_box.request_focus();
                         self.part_search_focus = false;
                     }
                     if ui
-                        .button("Browse component libraries →")
-                        .on_hover_text(
-                            "Open the library panel to browse installed symbol and footprint collections.",
-                        )
+                        .button(t!("library.browser.browse_component_libraries"))
+                        .on_hover_text(t!("library.browser.browse_component_libraries.tip"))
                         .clicked()
                     {
-                        self.change_tab(Tab::Libraries);
+                        self.change_tab(Tab::Settings);
                         self.palette = false;
                     }
                     let query = self.part_search.trim().to_lowercase();
@@ -3127,100 +3728,96 @@ impl App {
                         })
                         .cloned()
                         .collect();
-                    if built_in.is_empty() && saved.is_empty() {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Nothing here matches \"{}\" yet.",
-                                self.part_search.trim()
-                            ))
-                            .small()
-                            .color(self.muted()),
-                        );
-                    }
-                    if !built_in.is_empty() {
-                        ui.label(
-                            egui::RichText::new("Common parts")
-                                .size(10.0)
-                                .color(self.muted()),
-                        );
-                        for (kind, label) in built_in {
-                            if ui
-                                .button(label)
-                                .on_hover_text(
-                                    "Pick this part; the next click on the schematic places it.",
-                                )
-                                .clicked()
-                            {
-                                self.change_tab(Tab::Schematic);
-                                self.tool = Tool::Place(kind.into());
-                                self.palette = false;
-                                self.part_search.clear();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if built_in.is_empty() && saved.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(t!(
+                                        "library.browser.nothing_here_matches_trim_yet",
+                                        trim = self.part_search.trim()
+                                    ))
+                                    .small()
+                                    .color(self.muted()),
+                                );
                             }
-                        }
-                    }
-                    if !saved.is_empty() {
-                        ui.label(
-                            egui::RichText::new("From this project's library")
-                                .size(10.0)
-                                .color(self.muted()),
-                        );
-                        let mut sets: std::collections::BTreeMap<
-                            String,
-                            Vec<pcbcraft_library::SymbolDefinition>,
-                        > = std::collections::BTreeMap::new();
-                        for definition in saved {
-                            sets.entry(definition.set.trim().to_owned())
-                                .or_default()
-                                .push(definition);
-                        }
-                        let loose = sets.remove("");
-                        for (set, definitions) in &sets {
-                            let mut shown = !self.hidden_sets.iter().any(|h| h == set);
-                            let row = ui.checkbox(
-                                &mut shown,
-                                egui::RichText::new(format!(
-                                    "{set} ({} part{})",
-                                    definitions.len(),
-                                    if definitions.len() == 1 {
-                                        ""
-                                    } else {
-                                        "s"
+                            if !built_in.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(t!("library.browser.common_parts"))
+                                        .size(10.0)
+                                        .color(self.muted()),
+                                );
+                                for (kind, label) in built_in {
+                                    if ui
+                                        .button(label)
+                                        .on_hover_text(t!(
+                                            "library.browser.pick_this_part_the_next.tip"
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.change_tab(Tab::Schematic);
+                                        self.tool = Tool::Place(kind.into());
+                                        self.palette = false;
+                                        self.part_search.clear();
                                     }
-                                ))
-                                .strong(),
-                            )
-                            .on_hover_text(
-                                "Parts grouped under this name. Untick to hide the whole group while you add parts.",
-                            );
-                            if row.changed() {
-                                if shown {
-                                    self.hidden_sets.retain(|h| h != set);
-                                } else {
-                                    self.hidden_sets.push(set.clone());
                                 }
                             }
-                            if !shown {
-                                continue;
+                            if !saved.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(t!(
+                                        "library.browser.from_this_project_s_library"
+                                    ))
+                                    .size(10.0)
+                                    .color(self.muted()),
+                                );
+                                let mut sets: std::collections::BTreeMap<
+                                    String,
+                                    Vec<pcbcraft_library::SymbolDefinition>,
+                                > = std::collections::BTreeMap::new();
+                                for definition in saved {
+                                    sets.entry(definition.set.trim().to_owned())
+                                        .or_default()
+                                        .push(definition);
+                                }
+                                let loose = sets.remove("");
+                                for (set, definitions) in &sets {
+                                    let mut shown = !self.hidden_sets.iter().any(|h| h == set);
+                                    let row = ui
+                                        .checkbox(
+                                            &mut shown,
+                                            egui::RichText::new(t!(
+                                                "library.browser.set_len_part_v1",
+                                                set = set,
+                                                len = definitions.len(),
+                                                v1 = if definitions.len() == 1 { "" } else { "s" }
+                                            ))
+                                            .strong(),
+                                        )
+                                        .on_hover_text(t!("library.browser.set_len_part_v1.tip"));
+                                    if row.changed() {
+                                        if shown {
+                                            self.hidden_sets.retain(|h| h != set);
+                                        } else {
+                                            self.hidden_sets.push(set.clone());
+                                        }
+                                    }
+                                    if !shown {
+                                        continue;
+                                    }
+                                    for definition in definitions {
+                                        self.part_card(ui, definition);
+                                    }
+                                }
+                                for definition in loose.unwrap_or_default() {
+                                    self.part_card(ui, &definition);
+                                }
                             }
-                            for definition in definitions {
-                                self.part_card(ui, definition);
-                            }
-                        }
-                        for definition in loose.unwrap_or_default() {
-                            self.part_card(ui, &definition);
-                        }
-                    }
-                    if ui
-                        .small_button("Close")
-                        .on_hover_text("Hide the part search without changing anything.")
-                        .clicked()
-                    {
-                        self.palette = false;
-                    }
-                    ui.separator();
+                            self.source_section(ui);
+                        });
                 }
+                ui.add_space(12.0);
                 ui.label(
-                    egui::RichText::new("COMPONENTS")
+                    egui::RichText::new(t!("library.browser.components"))
                         .size(10.0)
                         .color(self.muted()),
                 );
@@ -3239,30 +3836,34 @@ impl App {
                     if ui
                         .selectable_label(
                             self.selected == Some(id),
-                            format!("{}   {}", c.reference, c.value),
+                            t!(
+                                "library.browser.reference_value",
+                                reference = c.reference,
+                                value = c.value
+                            ),
                         )
-                        .on_hover_text("Select this component and show its properties.")
+                        .on_hover_text(t!("library.browser.reference_value.tip"))
                         .clicked()
                     {
                         self.select(Some(id));
                     }
                     let what = c
-                        .field("Description")
+                        .field(&t!("library.browser.description"))
                         .map(str::to_owned)
                         .or_else(|| {
-                            c.library_symbol.as_ref().map(|ls| {
-                                ls.definition.description.clone()
-                            })
+                            c.library_symbol
+                                .as_ref()
+                                .map(|ls| ls.definition.description.clone())
                         })
                         .map(|d| d.trim().to_owned())
                         .filter(|d| !d.is_empty());
                     let origin = c.library_symbol.as_ref().map_or_else(
-                        || "built in".to_string(),
-                        |ls| format!("from {}", ls.definition.name),
+                        || t!("library.browser.built_in"),
+                        |ls| t!("library.browser.from_name", name = ls.definition.name),
                     );
                     let note = what.map_or_else(
                         || origin.clone(),
-                        |d| format!("{d} · {origin}"),
+                        |d| t!("library.browser.item_origin", item = d, origin = origin),
                     );
                     ui.label(
                         egui::RichText::new(format!("    {note}"))
@@ -3270,13 +3871,10 @@ impl App {
                             .color(self.muted()),
                     );
                 }
-                if self.project.components.is_empty() {
-                    empty_state(ui, EMPTY_SYMBOLS, self.muted());
-                }
                 if self.project.components.len() >= 2 {
-                    ui.add_space(20.0);
+                    ui.add_space(12.0);
                     ui.label(
-                        egui::RichText::new("RENUMBER PARTS")
+                        egui::RichText::new(t!("library.browser.renumber_parts"))
                             .size(10.0)
                             .color(self.muted()),
                     );
@@ -3294,19 +3892,23 @@ impl App {
                         .collect();
                     prefixes.sort();
                     prefixes.dedup();
-                    let mut pick = self.renumber_plan.clone().map_or_else(
-                        || self.renumber_prefix.clone(),
-                        |(prefix, _)| prefix,
-                    );
+                    let mut pick = self
+                        .renumber_plan
+                        .clone()
+                        .map_or_else(|| self.renumber_prefix.clone(), |(prefix, _)| prefix);
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt("renumber-prefix")
-                            .selected_text(pick.clone().unwrap_or_else(|| "all letters".into()))
+                            .selected_text(
+                                pick.clone()
+                                    .unwrap_or_else(|| t!("library.browser.all_letters")),
+                            )
                             .show_ui(ui, |ui| {
                                 if ui
-                                    .selectable_label(pick.is_none(), "all letters")
-                                    .on_hover_text(
-                                        "Number every kind of part again, one run of numbers per letter.",
+                                    .selectable_label(
+                                        pick.is_none(),
+                                        t!("library.browser.all_letters"),
                                     )
+                                    .on_hover_text(t!("library.browser.all_letters.tip"))
                                     .clicked()
                                 {
                                     pick = None;
@@ -3318,9 +3920,9 @@ impl App {
                                             pick.as_deref() == Some(prefix.as_str()),
                                             prefix,
                                         )
-                                        .on_hover_text(
-                                            "Only renumber the parts that start with this letter.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "library.browser.only_renumber_the_parts_that.tip"
+                                        ))
                                         .clicked()
                                     {
                                         pick = Some(prefix.clone());
@@ -3329,30 +3931,23 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text(
-                                "Renumber one kind of part, or every part at once.",
-                            );
+                            .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
                         if ui
-                            .button("Preview")
-                            .on_hover_text(
-                                "Show the new numbers, in placement order, before anything changes.",
-                            )
+                            .button(t!("library.browser.preview"))
+                            .on_hover_text(t!("library.browser.preview.tip"))
                             .clicked()
                         {
                             let out = self.run_and_keep(
                                 "components.reannotate",
                                 json!({"dry_run": true, "prefix": pick}),
                             );
-                            self.renumber_plan = out
-                                .get("renamed")
-                                .and_then(Value::as_array)
-                                .map(|rows| {
+                            self.renumber_plan =
+                                out.get("renamed").and_then(Value::as_array).map(|rows| {
                                     (
                                         pick.clone(),
                                         rows.iter()
                                             .filter_map(|row| {
-                                                let from =
-                                                    row.get("from")?.as_str()?.to_owned();
+                                                let from = row.get("from")?.as_str()?.to_owned();
                                                 let to = row.get("to")?.as_str()?.to_owned();
                                                 Some((from, to))
                                             })
@@ -3367,35 +3962,27 @@ impl App {
                     if let Some((_, plan)) = self.renumber_plan.clone() {
                         for (from, to) in plan.iter().take(12) {
                             ui.label(
-                                egui::RichText::new(format!("{from}  →  {to}"))
-                                    .small()
-                                    .color(self.muted()),
-                            );
-                        }
-                        if plan.len() > 12 {
-                            ui.label(
-                                egui::RichText::new(format!("… and {} more", plan.len() - 12))
-                                    .small()
-                                    .color(self.muted()),
+                                egui::RichText::new(t!(
+                                    "library.browser.from_to",
+                                    from = from,
+                                    to = to
+                                ))
+                                .small()
+                                .color(self.muted()),
                             );
                         }
                         ui.horizontal(|ui| {
                             if ui
-                                .button("Renumber")
-                                .on_hover_text(
-                                    "Write these numbers now; Undo puts the old ones back.",
-                                )
+                                .button(t!("library.browser.renumber"))
+                                .on_hover_text(t!("library.browser.renumber.tip"))
                                 .clicked()
                             {
                                 self.renumber_plan = None;
-                                self.run(
-                                    "components.reannotate",
-                                    json!({"prefix": pick}),
-                                );
+                                self.run("components.reannotate", json!({"prefix": pick}));
                             }
                             if ui
-                                .button("Cancel")
-                                .on_hover_text("Drop this plan; nothing changes.")
+                                .button(t!("library.browser.cancel"))
+                                .on_hover_text(t!("library.browser.cancel.tip"))
                                 .clicked()
                             {
                                 self.renumber_plan = None;
@@ -3403,21 +3990,6 @@ impl App {
                         });
                     }
                 }
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
-                self.board_body(ui);
-                ui.add_space(20.0);
-                ui.separator();
-                ui.label(
-                    egui::RichText::new("One project. One window.")
-                        .small()
-                        .color(self.muted()),
-                );
-                ui.label(
-                    egui::RichText::new("Scroll to zoom · middle-drag to pan")
-                        .small()
-                        .color(self.muted()),
-                );
             });
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
@@ -3442,11 +4014,14 @@ impl App {
             self.pin_pick = None;
         }
         if ui
-            .button("New net")
-            .on_hover_text("Add a blank connection you can name and draw wires onto.")
+            .button(t!("schematic.nets_tab.new_net"))
+            .on_hover_text(t!("schematic.nets_tab.new_net.tip"))
             .clicked()
         {
-            let name = format!("Net {}", self.project.nets.len() + 1);
+            let name = t!(
+                "schematic.nets_tab.net_v0",
+                v0 = self.project.nets.len() + 1
+            );
             self.tool_call("net.create", json!({"name": name}));
             self.net_editor = self
                 .project
@@ -3470,16 +4045,16 @@ impl App {
             let total: f64 = lengths.values().map(|(length, _)| *length).sum();
             let routed = lengths.len();
             ui.label(
-                egui::RichText::new(format!(
-                    "{total:.1} mm of copper \u{b7} {routed} of {} nets routed",
-                    self.project.nets.len()
+                egui::RichText::new(t!(
+                    "schematic.nets_tab.total_mm_of_copper_routed",
+                    total = format!("{:.1}", total),
+                    routed = routed,
+                    len = self.project.nets.len()
                 ))
                 .small()
                 .color(self.muted()),
             )
-            .on_hover_text(
-                "Total routed copper on the board, and how many connections still need tracks.",
-            );
+            .on_hover_text(t!("schematic.nets_tab.total_mm_of_copper_routed.tip"));
         }
         for net in self.project.nets.clone() {
             if !self.tree_matches(&net.name) {
@@ -3489,12 +4064,11 @@ impl App {
             let renaming = self.net_draft.as_ref().is_some_and(|(id, _)| *id == net.id);
             ui.horizontal(|ui| {
                 if ui
-                    .add(egui::Label::new(if lit { "\u{25cf}" } else { "\u{25cb}" }).sense(
-                        egui::Sense::click(),
-                    ))
-                    .on_hover_text(
-                        "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
+                    .add(
+                        egui::Label::new(if lit { "\u{25cf}" } else { "\u{25cb}" })
+                            .sense(egui::Sense::click()),
                     )
+                    .on_hover_text(t!("schematic.nets_tab.spotlight_this_net_its_copper.tip"))
                     .clicked()
                 {
                     self.highlight_net = if lit { None } else { Some(net.id) };
@@ -3504,14 +4078,14 @@ impl App {
                         return;
                     };
                     ui.add(
-                        egui::TextEdit::singleline(draft)
+                        crate::targets::text_field(draft)
                             .desired_width(120.0)
-                            .hint_text("net name"),
+                            .hint_text(t!("schematic.nets_tab.net_name")),
                     )
-                    .on_hover_text("1 to 128 characters; every net needs its own name.");
+                    .on_hover_text(t!("schematic.nets_tab.net_name.tip"));
                     if ui
-                        .button("Use name")
-                        .on_hover_text("Keep this name for the connection.")
+                        .button(t!("schematic.nets_tab.use_name"))
+                        .on_hover_text(t!("schematic.nets_tab.use_name.tip"))
                         .clicked()
                     {
                         let name = draft.clone();
@@ -3519,8 +4093,8 @@ impl App {
                         self.tool_call("net.rename", json!({"id": net.id, "name": name}));
                     }
                     if ui
-                        .button("Cancel")
-                        .on_hover_text("Leave the name as it was.")
+                        .button(t!("schematic.nets_tab.cancel"))
+                        .on_hover_text(t!("schematic.nets_tab.cancel.tip"))
                         .clicked()
                     {
                         self.net_draft = None;
@@ -3528,24 +4102,26 @@ impl App {
                 } else {
                     if ui
                         .selectable_label(lit, &net.name)
-                        .on_hover_text(
-                            "Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.",
-                        )
+                        .on_hover_text(t!("schematic.nets_tab.spotlight_this_net_its_copper.tip"))
                         .clicked()
                     {
                         self.highlight_net = if lit { None } else { Some(net.id) };
                     }
                     if ui
-                        .small_button("Rename")
-                        .on_hover_text("Type a new name for this connection.")
+                        .tap_button(t!("schematic.nets_tab.rename"))
+                        .on_hover_text(t!("schematic.nets_tab.rename.tip"))
                         .clicked()
                     {
                         self.net_draft = Some((net.id, net.name.clone()));
                     }
                     let open = self.net_editor == Some(net.id);
                     if ui
-                        .small_button(if open { "Hide pins" } else { "Pins" })
-                        .on_hover_text("Show or hide the list of pins on this connection.")
+                        .tap_button(if open {
+                            t!("schematic.nets_tab.hide_pins")
+                        } else {
+                            t!("schematic.nets_tab.pins")
+                        })
+                        .on_hover_text(t!("schematic.nets_tab.show_or_hide_the_list.tip"))
                         .clicked()
                     {
                         self.net_editor = if open { None } else { Some(net.id) };
@@ -3553,22 +4129,22 @@ impl App {
                     }
                     if let Some((length, vias)) = lengths.get(&net.id) {
                         ui.label(
-                            egui::RichText::new(format!("{length:.1} mm \u{b7} {vias} vias"))
-                                .small()
-                                .color(self.muted()),
+                            egui::RichText::new(t!(
+                                "schematic.nets_tab.length_mm_vias_vias",
+                                length = format!("{:.1}", length),
+                                vias = vias
+                            ))
+                            .small()
+                            .color(self.muted()),
                         )
-                        .on_hover_text(
-                            "Copper already routed for this net on the board.",
-                        );
+                        .on_hover_text(t!("schematic.nets_tab.length_mm_vias_vias.tip"));
                     } else {
                         ui.label(
-                            egui::RichText::new("not routed yet")
+                            egui::RichText::new(t!("schematic.nets_tab.not_routed_yet"))
                                 .small()
                                 .color(self.muted()),
                         )
-                        .on_hover_text(
-                            "This connection has no copper on the board yet; the dashed lines on the sheet show where it needs to go.",
-                        );
+                        .on_hover_text(t!("schematic.nets_tab.not_routed_yet.tip"));
                     }
                 }
             });
@@ -3578,9 +4154,18 @@ impl App {
                 for comp in &self.project.components {
                     for pin in &comp.pins {
                         let label = if pin.name.is_empty() || pin.name == pin.number {
-                            format!("{} pin {}", comp.reference, pin.number)
+                            t!(
+                                "schematic.nets_tab.reference_pin_number",
+                                reference = comp.reference,
+                                number = pin.number
+                            )
                         } else {
-                            format!("{} pin {} ({})", comp.reference, pin.number, pin.name)
+                            t!(
+                                "schematic.nets_tab.reference_pin_number_name",
+                                reference = comp.reference,
+                                number = pin.number,
+                                name = pin.name
+                            )
                         };
                         let r = PinRef {
                             component: comp.id,
@@ -3598,19 +4183,19 @@ impl App {
                 ui.indent(("net-pins", net.id), |ui| {
                     if members.is_empty() {
                         ui.label(
-                            egui::RichText::new("No pins on this connection yet.")
-                                .size(10.0)
-                                .color(self.muted()),
+                            egui::RichText::new(t!(
+                                "schematic.nets_tab.no_pins_on_this_connection"
+                            ))
+                            .size(10.0)
+                            .color(self.muted()),
                         );
                     } else {
                         for (label, r) in &members {
                             ui.horizontal(|ui| {
                                 ui.label(label);
                                 if ui
-                                    .small_button("\u{d7}")
-                                    .on_hover_text(
-                                        "Take this pin off the connection. Nothing moves on the board.",
-                                    )
+                                    .tap_button(t!("schematic.nets_tab.text"))
+                                    .on_hover_text(t!("schematic.nets_tab.text.tip"))
                                     .clicked()
                                 {
                                     self.tool_call(
@@ -3625,7 +4210,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("pin-pick", net.id))
                             .selected_text(if pick.is_empty() {
-                                "choose a spare pin".to_owned()
+                                t!("schematic.nets_tab.choose_a_spare_pin")
                             } else {
                                 pick.clone()
                             })
@@ -3633,9 +4218,9 @@ impl App {
                                 for (label, _) in &spares {
                                     if ui
                                         .selectable_label(&pick == label, label)
-                                        .on_hover_text(
-                                            "A pin that is not on any connection yet.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "schematic.nets_tab.a_pin_that_is_not.tip"
+                                        ))
                                         .clicked()
                                     {
                                         pick = label.clone();
@@ -3644,16 +4229,15 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text("Pick a pin to add to this connection.");
+                            .on_hover_text(t!("schematic.nets_tab.pick_a_pin_to_add.tip"));
                         if ui
                             .add_enabled(
                                 !pick.is_empty(),
-                                egui::Button::new("Connect"),
+                                egui::Button::new(t!("schematic.nets_tab.connect")),
                             )
-                            .on_hover_text("Add the pin chosen above to this connection.")
+                            .on_hover_text(t!("schematic.nets_tab.connect.tip"))
                             .clicked()
-                            && let Some((_, r)) =
-                                spares.iter().find(|(label, _)| *label == pick)
+                            && let Some((_, r)) = spares.iter().find(|(label, _)| *label == pick)
                         {
                             self.tool_call("net.connect", json!({"net": net.id, "pins": [r]}));
                             self.pin_pick = None;
@@ -3661,11 +4245,9 @@ impl App {
                     });
                     if spares.is_empty() {
                         ui.label(
-                            egui::RichText::new(
-                                "Every pin in this design is already on a connection.",
-                            )
-                            .size(10.0)
-                            .color(self.muted()),
+                            egui::RichText::new(t!("schematic.nets_tab.every_pin_in_this_design"))
+                                .size(10.0)
+                                .color(self.muted()),
                         );
                     }
                 });
@@ -3679,14 +4261,35 @@ impl App {
             && let Some(net) = self.project.nets.iter().find(|n| n.id == lit)
         {
             ui.label(
-                egui::RichText::new(format!("Spotlighting {} on the board.", net.name))
-                    .size(10.0)
-                    .color(self.accent()),
+                egui::RichText::new(t!(
+                    "schematic.nets_tab.spotlighting_name_on_the_board",
+                    name = net.name
+                ))
+                .size(10.0)
+                .color(self.accent()),
             );
         }
     }
     /// Room for a full-page panel to breathe: wide side margins and one
     /// readable column, so nothing sits flush against the window edge.
+    /// Padding for a full-width tab body: 16 px at the sides, 12 above.
+    fn padded<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin {
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: 12,
+            })
+            .show(ui, add)
+            .inner
+    }
+    /// A dock section title: 8 px of air above and 4 below.
+    fn section_heading(&self, ui: &mut egui::Ui, text: &str) {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(text).strong().color(self.ink()));
+        ui.add_space(4.0);
+    }
     fn margined<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(28, 20))
@@ -3700,53 +4303,123 @@ impl App {
     /// Everything that used to crowd the right-hand aside: how the app looks
     /// and every setting for the project as a whole.
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Settings");
-        ui.label("How the app looks, and everything that applies to the whole project.");
+        ui.heading(t!("settings.settings_tab.settings"));
+        ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("APPEARANCE")
+            egui::RichText::new(t!("settings.settings_tab.appearance"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.preferences.dark, true, "Dark")
-                .on_hover_text("Dark canvas and panels, the usual working look.");
-            ui.selectable_value(&mut self.preferences.dark, false, "Light")
-                .on_hover_text("Light canvas and panels, easier on printed previews.");
+            ui.selectable_value(
+                &mut self.preferences.dark,
+                true,
+                t!("settings.settings_tab.dark"),
+            )
+            .on_hover_text(t!("settings.settings_tab.dark.tip"));
+            ui.selectable_value(
+                &mut self.preferences.dark,
+                false,
+                t!("settings.settings_tab.light"),
+            )
+            .on_hover_text(t!("settings.settings_tab.light.tip"));
         });
-        ui.checkbox(&mut self.preferences.grid, "Show grid");
-        ui.label("Accent color");
-        ui.color_edit_button_srgb(&mut self.preferences.accent);
-        ui.label(
-            egui::RichText::new("Appearance is saved automatically.")
-                .small()
-                .color(self.muted()),
+        ui.checkbox(
+            &mut self.preferences.grid,
+            t!("settings.settings_tab.show_grid"),
         );
+        ui.label(t!("settings.settings_tab.interface_size"));
+        ui.horizontal(|ui| {
+            for (label, scale) in a11y::UI_SCALE_STEPS {
+                let on = (self.preferences.ui_scale - scale).abs() < 0.01;
+                if ui
+                    .selectable_label(on, label)
+                    .on_hover_text(t!(
+                        "settings.settings_tab.make_text_and_controls_label.tip",
+                        label = label
+                    ))
+                    .clicked()
+                {
+                    self.preferences.ui_scale = scale;
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label(t!("settings.settings_tab.route_on"));
+            ui.selectable_value(
+                &mut self.route_layer,
+                pcbcraft_doc::Layer::Front,
+                t!("settings.settings_tab.top"),
+            )
+            .on_hover_text(t!("settings.settings_tab.top.tip"));
+            ui.selectable_value(
+                &mut self.route_layer,
+                pcbcraft_doc::Layer::Back,
+                t!("settings.settings_tab.bottom"),
+            )
+            .on_hover_text(t!("settings.settings_tab.bottom.tip"));
+        });
+        ui.horizontal(|ui| {
+            ui.label(t!("settings.settings_tab.pad_labels"));
+            for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
+                ui.selectable_value(&mut self.preferences.pad_labels, labels, labels.name())
+                    .on_hover_text(t!("settings.settings_tab.choose_what_is_drawn_at.tip"));
+            }
+        });
+        ui.label(t!("settings.settings_tab.accent_color"));
+        ui.color_edit_button_srgb(&mut self.preferences.accent);
+        ui.checkbox(
+            &mut self.preferences.reduced_motion,
+            t!("settings.settings_tab.reduce_motion"),
+        )
+        .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
+        self.language_menu(ui);
+        ui.label(
+            egui::RichText::new(t!(
+                "settings.settings_tab.appearance_is_saved_automatically"
+            ))
+            .small()
+            .color(self.muted()),
+        );
+        ui.add_space(8.0);
+        assistant::settings::section(self, ui);
         ui.add_space(16.0);
         ui.label(
-            egui::RichText::new("BOARD GEOMETRY")
+            egui::RichText::new(t!("settings.settings_tab.routing"))
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.checkbox(
+            &mut self.preferences.chamfer_corners,
+            t!("settings.settings_tab.chamfer_corners"),
+        )
+        .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.settings_tab.board_geometry"))
                 .size(10.0)
                 .color(self.muted()),
         );
         field_help(ui, FIELD_HELP_BOARD, self.muted());
         ui.horizontal(|ui| {
-            ui.label("W");
+            ui.label(t!("settings.settings_tab.w"));
             ui.add(
                 egui::DragValue::new(&mut self.width)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         ui.horizontal(|ui| {
-            ui.label("H");
+            ui.label(t!("settings.settings_tab.h"));
             ui.add(
                 egui::DragValue::new(&mut self.height)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         if ui
-            .button("Apply board dimensions")
+            .button(t!("settings.settings_tab.apply_board_dimensions"))
             .on_hover_text(command_tip("board.resize"))
             .clicked()
         {
@@ -3757,45 +4430,41 @@ impl App {
         }
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("CUT-OUT HOLE")
+            egui::RichText::new(t!("settings.settings_tab.cut_out_hole"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "A round hole anywhere inside the board, for a sensor, a cable or a screw bigger than a drill bit.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("settings.settings_tab.a_round_hole_anywhere_inside"))
+                .small()
+                .color(self.muted()),
         );
         ui.horizontal(|ui| {
-            ui.label("X");
+            ui.label(t!("settings.settings_tab.x"));
             ui.add(
                 egui::DragValue::new(&mut self.cut_x)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
-            ui.label("Y");
+            ui.label(t!("settings.settings_tab.y"));
             ui.add(
                 egui::DragValue::new(&mut self.cut_y)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Radius");
+            ui.label(t!("settings.settings_tab.radius"));
             ui.add(
                 egui::DragValue::new(&mut self.cut_r)
                     .speed(0.1)
                     .range(0.1..=50.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         if ui
-            .button("Add hole")
-            .on_hover_text(
-                "Cuts this round hole into the board. The checks keep copper and other holes clear of it, and undo takes the hole out again.",
-            )
+            .button(t!("settings.settings_tab.add_hole"))
+            .on_hover_text(t!("settings.settings_tab.add_hole.tip"))
             .clicked()
         {
             self.run(
@@ -3805,49 +4474,47 @@ impl App {
         }
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("COPPER POUR")
+            egui::RichText::new(t!("settings.settings_tab.copper_pour"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "A solid rectangle of copper that joins every wire and pad inside it to one connection.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("settings.settings_tab.a_solid_rectangle_of_copper"))
+                .small()
+                .color(self.muted()),
         );
         if !self.project.nets.is_empty() && !self.project.nets.iter().any(|n| n.id == self.pour_net)
         {
             self.pour_net = self.project.nets[0].id;
         }
         ui.horizontal(|ui| {
-            ui.label("X");
+            ui.label(t!("settings.settings_tab.x"));
             ui.add(
                 egui::DragValue::new(&mut self.pour_x)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
-            ui.label("Y");
+            ui.label(t!("settings.settings_tab.y"));
             ui.add(
                 egui::DragValue::new(&mut self.pour_y)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         ui.horizontal(|ui| {
-            ui.label("W");
+            ui.label(t!("settings.settings_tab.w"));
             ui.add(
                 egui::DragValue::new(&mut self.pour_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
-            ui.label("H");
+            ui.label(t!("settings.settings_tab.h"));
             ui.add(
                 egui::DragValue::new(&mut self.pour_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         let pour_net = self.pour_net;
@@ -3859,17 +4526,18 @@ impl App {
             .map(|n| (n.id, self.project.net_name(n.id).to_owned()))
             .collect();
         egui::ComboBox::from_id_salt("pour_net")
-            .selected_text(format!("Copper for: {}", self.project.net_name(pour_net)))
+            .selected_text(t!(
+                "settings.settings_tab.copper_for_v0",
+                v0 = self.project.net_name(pour_net)
+            ))
             .show_ui(ui, |ui| {
                 for (id, name) in net_choices {
                     ui.selectable_value(&mut self.pour_net, id, name);
                 }
             });
         if ui
-            .button("Pour copper")
-            .on_hover_text(
-                "Pours this rectangle of copper onto the board. It joins every wire and pad it touches to the chosen connection, and undo pours it away again.",
-            )
+            .button(t!("settings.settings_tab.pour_copper"))
+            .on_hover_text(t!("settings.settings_tab.pour_copper.tip"))
             .clicked()
         {
             self.run(
@@ -3885,53 +4553,55 @@ impl App {
         }
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("BOARD LABELS")
+            egui::RichText::new(t!("settings.settings_tab.board_labels"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new("Words printed on the board: a version tag, a name, a warning.")
+            egui::RichText::new(t!("settings.settings_tab.words_printed_on_the_board"))
                 .small()
                 .color(self.muted()),
         );
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.label_text)
+                crate::targets::text_field(&mut self.label_text)
                     .desired_width(110.0)
-                    .hint_text("what to print"),
+                    .hint_text(t!("settings.settings_tab.what_to_print")),
             )
-            .on_hover_text("The words to print on the board.");
+            .on_hover_text(t!("settings.settings_tab.what_to_print.tip"));
         });
         ui.horizontal(|ui| {
-            ui.label("At");
+            ui.label(t!("settings.settings_tab.at"));
             ui.add(
                 egui::DragValue::new(&mut self.label_x)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
             ui.add(
                 egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
             ui.add(
                 egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
                     .speed(0.1)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text("How tall the letters are.");
+            .on_hover_text(t!("unit.mm15.tip"));
         });
         ui.horizontal(|ui| {
-            ui.label("Side");
-            ui.selectable_value(&mut self.label_front, true, "Top");
-            ui.selectable_value(&mut self.label_front, false, "Bottom");
+            ui.label(t!("settings.settings_tab.side"));
+            ui.selectable_value(&mut self.label_front, true, t!("settings.settings_tab.top"));
+            ui.selectable_value(
+                &mut self.label_front,
+                false,
+                t!("settings.settings_tab.bottom"),
+            );
         });
         if ui
-            .button("Add label")
-            .on_hover_text(
-                "Prints these words on the board at the chosen spot. Undo erases it again.",
-            )
+            .button(t!("settings.settings_tab.add_label"))
+            .on_hover_text(t!("settings.settings_tab.add_label.tip"))
             .clicked()
         {
             let text = self.label_text.trim().to_owned();
@@ -3956,16 +4626,20 @@ impl App {
             .collect();
         if !labels.is_empty() {
             ui.label(
-                egui::RichText::new("Words on the board")
+                egui::RichText::new(t!("settings.settings_tab.words_on_the_board"))
                     .small()
                     .color(self.muted()),
             );
             for (id, text, front) in labels {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{text} · {}", if front { "Top" } else { "Bottom" }));
+                    ui.label(t!(
+                        "settings.settings_tab.text_v0",
+                        text = text,
+                        v0 = if front { "Top" } else { "Bottom" }
+                    ));
                     if ui
-                        .small_button("Erase")
-                        .on_hover_text("Wipe this word off the board.")
+                        .tap_button(t!("settings.settings_tab.erase"))
+                        .on_hover_text(t!("settings.settings_tab.erase.tip"))
                         .clicked()
                     {
                         self.run("object.delete", json!({"id": id}));
@@ -3975,22 +4649,23 @@ impl App {
         }
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("BOARD EDGE")
+            egui::RichText::new(t!("settings.settings_tab.board_edge"))
                 .size(10.0)
                 .color(self.muted()),
         );
         let corners = self.project.board.outline.as_ref().map_or(0, |o| o.len());
         if corners >= 3 {
             ui.label(
-                egui::RichText::new(format!("A free shape with {corners} corners."))
-                    .small()
-                    .color(self.muted()),
+                egui::RichText::new(t!(
+                    "settings.settings_tab.a_free_shape_with_corners",
+                    corners = corners
+                ))
+                .small()
+                .color(self.muted()),
             );
             if ui
-                .button("Back to a plain rectangle")
-                .on_hover_text(
-                    "Trade the drawn board edge for the simple rectangle sized by W and H above.",
-                )
+                .button(t!("settings.settings_tab.back_to_a_plain_rectangle"))
+                .on_hover_text(t!("settings.settings_tab.back_to_a_plain_rectangle.tip"))
                 .clicked()
             {
                 self.run("board.clear_outline", json!({}));
@@ -3998,19 +4673,15 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.svg_path)
-                    .hint_text("drawing file path (.svg)")
+                crate::targets::text_field(&mut self.svg_path)
+                    .hint_text(t!("settings.settings_tab.drawing_file_path_svg"))
                     .desired_width(150.0),
             )
-            .on_hover_text(
-                "A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.",
-            );
+            .on_hover_text(t!("settings.settings_tab.drawing_file_path_svg.tip"));
         });
         if ui
-            .button("Import drawing")
-            .on_hover_text(
-                "Lay the shapes from the drawing file onto the board as editable artwork.",
-            )
+            .button(t!("settings.settings_tab.import_drawing"))
+            .on_hover_text(t!("settings.settings_tab.import_drawing.tip"))
             .clicked()
         {
             self.run(
@@ -4019,8 +4690,8 @@ impl App {
             );
         }
         if ui
-            .button("Import as board edge")
-            .on_hover_text("Trace the closed shape in the drawing file into the board outline.")
+            .button(t!("settings.settings_tab.import_as_board_edge"))
+            .on_hover_text(t!("settings.settings_tab.import_as_board_edge.tip"))
             .clicked()
         {
             self.run(
@@ -4029,16 +4700,22 @@ impl App {
             );
         }
         ui.horizontal(|ui| {
-            ui.label("Cutout radius");
+            ui.label(t!("settings.settings_tab.cutout_radius"));
             ui.add(
                 egui::DragValue::new(&mut self.cutout_radius)
                     .speed(0.1)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
+        self.reference_image_section(ui);
+        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new(t!("settings.settings_tab.checks"))
+                .size(10.0)
+                .color(self.muted()),
+        );
         let erc = self
             .checks
             .get("erc")
@@ -4052,193 +4729,189 @@ impl App {
             .map(Vec::len)
             .unwrap_or(0);
         if ui
-            .button(format!("{erc} electrical · {drc} board >"))
-            .on_hover_text("Open the checks tab for the full list of findings.")
+            .button(t!(
+                "settings.settings_tab.erc_electrical_drc_board",
+                erc = erc,
+                drc = drc
+            ))
+            .on_hover_text(t!("settings.settings_tab.erc_electrical_drc_board.tip"))
             .clicked()
         {
             self.change_tab(Tab::Checks);
         }
         ui.label(
-            egui::RichText::new("Initial checks; full ERC/DRC is in development.")
+            egui::RichText::new(t!("settings.settings_tab.initial_checks_full_erc_drc"))
                 .small()
                 .color(self.muted()),
         );
         ui.add_space(12.0);
         ui.label(
-            egui::RichText::new("MAKE FILES")
+            egui::RichText::new(t!("settings.settings_tab.make_files"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Plain files for the board factory, written beside your design unless you name another folder.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("settings.settings_tab.plain_files_for_the_board"))
+                .small()
+                .color(self.muted()),
         );
         ui.add(
-            egui::TextEdit::singleline(&mut self.make_dir)
-                .hint_text("folder for the files (blank means \"outputs\" beside the design)")
+            crate::targets::text_field(&mut self.make_dir)
+                .hint_text(t!("settings.settings_tab.folder_for_the_files_blank"))
                 .desired_width(220.0),
         )
-        .on_hover_text(
-            "Where the make files land. Leave blank to use a folder named outputs next to the design file.",
-        );
+        .on_hover_text(t!("settings.settings_tab.folder_for_the_files_blank.tip"));
         if ui
-            .button("Copper & drill files")
-            .on_hover_text(
-                "The Gerber copper layers, board outline and drill file a board house asks for.",
-            )
+            .button(t!("settings.settings_tab.copper_drill_files"))
+            .on_hover_text(t!("settings.settings_tab.copper_drill_files.tip"))
             .clicked()
         {
             self.write_make_files("gerber.export");
         }
         if ui
-            .button("Parts list (CSV)")
-            .on_hover_text(
-                "A spreadsheet of every part: one row per unique part with all its references.",
-            )
+            .button(t!("settings.settings_tab.parts_list_csv"))
+            .on_hover_text(t!("settings.settings_tab.parts_list_csv.tip"))
             .clicked()
         {
             self.write_make_files("bom.write");
         }
         if ui
-            .button("Net list")
-            .on_hover_text("A plain text list of every connection and the pins on it.")
+            .button(t!("settings.settings_tab.net_list"))
+            .on_hover_text(t!("settings.settings_tab.net_list.tip"))
             .clicked()
         {
             self.write_make_files("netlist.write");
         }
         if ui
-            .button("Pick and place file")
-            .on_hover_text(
-                "Where every part sits, which way it faces and which side it goes on, for the assembly machine.",
-            )
+            .button(t!("settings.settings_tab.pick_and_place_file"))
+            .on_hover_text(t!("settings.settings_tab.pick_and_place_file.tip"))
             .clicked()
         {
             self.write_make_files("placement.write");
         }
         if ui
-            .button("Design report")
-            .on_hover_text(
-                "A readable summary of the whole design: board, every part and every connection.",
-            )
+            .button(t!("settings.settings_tab.design_report"))
+            .on_hover_text(t!("settings.settings_tab.design_report.tip"))
             .clicked()
         {
             self.write_make_files("report.write");
         }
         if ui
-            .button("Drill map (CSV)")
-            .on_hover_text(
-                "Every hole on the board counted and grouped by size, so you can sanity-check the drill sizes before the board goes away.",
-            )
+            .button(t!("settings.settings_tab.drill_map_csv"))
+            .on_hover_text(t!("settings.settings_tab.drill_map_csv.tip"))
             .clicked()
         {
-            self.write_job_file("drillmap", "drill_chart", "Drill map");
+            self.write_job_file(
+                "drillmap",
+                "drill_chart",
+                &t!("settings.settings_tab.drill_map"),
+            );
         }
         ui.add_space(6.0);
         ui.label(
-            egui::RichText::new("BOARD DRAWINGS")
+            egui::RichText::new(t!("settings.settings_tab.board_drawings"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Flat drawings and 3D models, for your records, your fab or a web page.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("settings.settings_tab.flat_drawings_and_3d_models"))
+                .small()
+                .color(self.muted()),
         );
         if ui
-            .button("3D model (Step)")
-            .on_hover_text(
-                "The standard 3D file for mechanical programs and free viewers. It lands in the make folder.",
-            )
+            .button(t!("settings.settings_tab.3d_model_step"))
+            .on_hover_text(t!("settings.settings_tab.3d_model_step.tip"))
             .clicked()
         {
-            self.write_job_file("step3d", "step", "3D model");
+            self.write_job_file("step3d", "step", &t!("settings.settings_tab.3d_model"));
         }
         if ui
-            .button("3D viewer file")
-            .on_hover_text(
-                "A lighter 3D file that simple viewers open quickly. It lands in the make folder.",
-            )
+            .button(t!("settings.settings_tab.3d_viewer_file"))
+            .on_hover_text(t!("settings.settings_tab.3d_viewer_file.tip"))
             .clicked()
         {
-            self.write_job_file("wrl3d", "vrml", "3D viewer file");
+            self.write_job_file("wrl3d", "vrml", &t!("settings.settings_tab.3d_viewer_file"));
         }
         if ui
-            .button("Printable drawing (PDF)")
-            .on_hover_text(
-                "A one-page drawing of the finished board you can print or email. It lands in the make folder.",
-            )
+            .button(t!("settings.settings_tab.printable_drawing_pdf"))
+            .on_hover_text(t!("settings.settings_tab.printable_drawing_pdf.tip"))
             .clicked()
         {
-            self.write_job_file("pdfdraw", "pdf", "Printable drawing");
+            self.write_job_file(
+                "pdfdraw",
+                "pdf",
+                &t!("settings.settings_tab.printable_drawing"),
+            );
         }
         if ui
-            .button("Web drawing (SVG)")
-            .on_hover_text(
-                "A crisp picture of the board that any web browser can show, at any size. It lands in the make folder.",
-            )
+            .button(t!("settings.settings_tab.web_drawing_svg"))
+            .on_hover_text(t!("settings.settings_tab.web_drawing_svg.tip"))
             .clicked()
         {
-            self.write_job_file("svgdraw", "svg", "Web drawing");
+            self.write_job_file("svgdraw", "svg", &t!("settings.settings_tab.web_drawing"));
+        }
+        for (side, label, tip) in [
+            (
+                "top",
+                t!("settings.settings_tab.print_art_top_silkscreen"),
+                t!("settings.settings_tab.writes_the_top_silkscreen_as"),
+            ),
+            (
+                "bottom",
+                t!("settings.settings_tab.print_art_bottom_silkscreen"),
+                t!("settings.settings_tab.writes_the_bottom_silkscreen_as"),
+            ),
+        ] {
+            if ui.button(label.clone()).on_hover_text(tip).clicked() {
+                self.write_uv_print_files(side, &label);
+            }
         }
         ui.add_space(6.0);
         ui.label(
-            egui::RichText::new("PANEL PLAN")
+            egui::RichText::new(t!("settings.settings_tab.panel_plan"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "See how your board would sit repeated on a bigger manufacturing panel.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("settings.settings_tab.see_how_your_board_would"))
+                .small()
+                .color(self.muted()),
         );
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.panel_columns)
                     .range(1..=32)
-                    .suffix(" across")
+                    .suffix(format!(" {}", t!("settings.settings_tab.across")))
                     .speed(1.0),
             )
-            .on_hover_text("How many copies of the board sit side by side.");
+            .on_hover_text(t!("settings.settings_tab.across.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.panel_rows)
                     .range(1..=32)
-                    .suffix(" down")
+                    .suffix(format!(" {}", t!("settings.settings_tab.down")))
                     .speed(1.0),
             )
-            .on_hover_text("How many copies of the board sit top to bottom.");
+            .on_hover_text(t!("settings.settings_tab.down.tip"));
         });
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.panel_gap)
                     .range(0.0..=25.0)
                     .speed(0.5)
-                    .suffix(" mm gap"),
+                    .suffix(format!(" {}", t!("settings.settings_tab.mm_gap"))),
             )
-            .on_hover_text(
-                "Empty space between neighbouring copies, room for cutting them apart later.",
-            );
+            .on_hover_text(t!("settings.settings_tab.mm_gap.tip"));
             ui.add(
                 egui::DragValue::new(&mut self.panel_rail)
                     .range(0.0..=25.0)
                     .speed(0.5)
-                    .suffix(" mm rail"),
+                    .suffix(format!(" {}", t!("settings.settings_tab.mm_rail"))),
             )
-            .on_hover_text(
-                "Solid border left around the edge of the panel, where the factory grips it.",
-            );
+            .on_hover_text(t!("settings.settings_tab.mm_rail.tip"));
         });
         if ui
-            .button("Preview panel")
-            .on_hover_text(
-                "Work out the panel size and where every copy lands, using the board's own measurements. The design itself is left alone.",
-            )
+            .button(t!("settings.settings_tab.preview_panel"))
+            .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
             .clicked()
         {
             self.panel_plan = self.run_and_keep(
@@ -4261,21 +4934,27 @@ impl App {
             let width = plan.get("width").and_then(Value::as_f64).unwrap_or(0.0);
             let height = plan.get("height").and_then(Value::as_f64).unwrap_or(0.0);
             ui.label(
-                egui::RichText::new(format!(
-                    "{copies} copies \u{b7} panel {width:.1} \u{d7} {height:.1} mm"
+                egui::RichText::new(t!(
+                    "settings.settings_tab.copies_copies_panel_width_height",
+                    copies = copies,
+                    width = format!("{:.1}", width),
+                    height = format!("{:.1}", height)
                 ))
                 .small()
                 .color(self.muted()),
             )
-            .on_hover_text("The finished panel: its overall size and how many boards fit on it.");
+            .on_hover_text(t!(
+                "settings.settings_tab.copies_copies_panel_width_height.tip"
+            ));
         }
         ui.label(
-            egui::RichText::new("Writing these files changes nothing in the design.")
-                .small()
-                .color(self.muted()),
+            egui::RichText::new(t!(
+                "settings.settings_tab.writing_these_files_changes_nothing"
+            ))
+            .small()
+            .color(self.muted()),
         );
     }
-
     fn rules_tab(&mut self, ui: &mut egui::Ui) {
         if self
             .rule_draft
@@ -4284,11 +4963,9 @@ impl App {
             self.rule_draft = None;
         }
         ui.label(
-            egui::RichText::new(
-                "Design rules travel with the design and steer the checks and any new wiring.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.design_rules_travel_with_the"))
+                .small()
+                .color(self.muted()),
         );
         if let Some(pick) = &self.class_pick
             && !self.project.nets.iter().any(|n| n.name == *pick)
@@ -4296,13 +4973,14 @@ impl App {
             self.class_pick = None;
         }
         if ui
-            .button("New class")
-            .on_hover_text(
-                "Add a rule set with a starting gap and wire width; rename and tune it from its row.",
-            )
+            .button(t!("rules.rules_tab.new_class"))
+            .on_hover_text(t!("rules.rules_tab.new_class.tip"))
             .clicked()
         {
-            let name = format!("Class {}", self.project.net_classes.len() + 1);
+            let name = t!(
+                "rules.rules_tab.class_v0",
+                v0 = self.project.net_classes.len() + 1
+            );
             self.run(
                 "netclass.add",
                 json!({"name": name, "clearance": 0.2, "width": 0.25}),
@@ -4314,23 +4992,19 @@ impl App {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&class.name).strong());
-                    ui.label(format!("{} nets", class.nets.len())).on_hover_text(
-                        "Connections that follow this rule set. Put them there with the box below.",
-                    );
+                    ui.label(t!("rules.rules_tab.len_nets", len = class.nets.len()))
+                        .on_hover_text(t!("rules.rules_tab.len_nets.tip"));
                     if !editing {
                         if ui
-                            .small_button("Tune")
-                            .on_hover_text("Change this rule set's gap and wire width.")
+                            .tap_button(t!("rules.rules_tab.tune"))
+                            .on_hover_text(t!("rules.rules_tab.tune.tip"))
                             .clicked()
                         {
-                            self.rule_draft =
-                                Some((class.id, class.clearance, class.width));
+                            self.rule_draft = Some((class.id, class.clearance, class.width));
                         }
                         if ui
-                            .small_button("Remove")
-                            .on_hover_text(
-                                "Delete this rule set; its connections fall back to the default rules.",
-                            )
+                            .tap_button(t!("rules.rules_tab.remove"))
+                            .on_hover_text(t!("rules.rules_tab.remove.tip"))
                             .clicked()
                         {
                             self.run("netclass.remove", json!({"class": class.id}));
@@ -4342,33 +5016,29 @@ impl App {
                         return;
                     };
                     ui.horizontal(|ui| {
-                        ui.label("Gap");
+                        ui.label(t!("rules.rules_tab.gap"));
                         ui.add(
                             egui::DragValue::new(clearance)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
-                                .suffix(" mm"),
+                                .suffix(format!(" {}", t!("unit.mm"))),
                         )
-                        .on_hover_text(
-                            "Smallest allowed clear space between this group's copper and everything else.",
-                        );
+                        .on_hover_text(t!("unit.mm10.tip"));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Wire width");
+                        ui.label(t!("rules.rules_tab.wire_width"));
                         ui.add(
                             egui::DragValue::new(width)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
-                                .suffix(" mm"),
+                                .suffix(format!(" {}", t!("unit.mm"))),
                         )
-                        .on_hover_text(
-                            "Width new tracks on these connections start with.",
-                        );
+                        .on_hover_text(t!("unit.mm11.tip"));
                     });
                     ui.horizontal(|ui| {
                         if ui
-                            .button("Apply")
-                            .on_hover_text("Keep these numbers for this rule set.")
+                            .button(t!("rules.rules_tab.apply"))
+                            .on_hover_text(t!("rules.rules_tab.apply.tip"))
                             .clicked()
                             && let Some((id, clearance, width)) = self.rule_draft.take()
                         {
@@ -4379,8 +5049,8 @@ impl App {
                             self.run("netclass.set", json!({"class": id, "width": width}));
                         }
                         if ui
-                            .small_button("Cancel")
-                            .on_hover_text("Leave this rule set as it was.")
+                            .tap_button(t!("rules.rules_tab.cancel"))
+                            .on_hover_text(t!("rules.rules_tab.cancel.tip"))
                             .clicked()
                         {
                             self.rule_draft = None;
@@ -4388,9 +5058,10 @@ impl App {
                     });
                 } else {
                     ui.label(
-                        egui::RichText::new(format!(
-                            "Gap {:.3} mm · wire {:.3} mm",
-                            class.clearance, class.width
+                        egui::RichText::new(t!(
+                            "rules.rules_tab.gap_clearance_mm_wire_width",
+                            clearance = format!("{:.3}", class.clearance),
+                            width = format!("{:.3}", class.width)
                         ))
                         .small()
                         .color(self.muted()),
@@ -4412,7 +5083,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("class-pick", class.id))
                             .selected_text(if pick.is_empty() {
-                                "choose a connection to put here".to_owned()
+                                t!("rules.rules_tab.choose_a_connection_to_put")
                             } else {
                                 pick.clone()
                             })
@@ -4420,9 +5091,9 @@ impl App {
                                 for (name, _) in &free {
                                     if ui
                                         .selectable_label(&pick == name, name)
-                                        .on_hover_text(
-                                            "A connection that follows no rule set yet.",
-                                        )
+                                        .on_hover_text(t!(
+                                            "rules.rules_tab.a_connection_that_follows_no.tip"
+                                        ))
                                         .clicked()
                                     {
                                         pick = name.clone();
@@ -4431,17 +5102,13 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text(
-                                "Pick a connection, then Assign: its wiring follows this rule set.",
-                            );
+                            .on_hover_text(t!("rules.rules_tab.pick_a_connection_then_assign.tip"));
                         if ui
                             .add_enabled(
                                 !pick.is_empty(),
-                                egui::Button::new("Assign"),
+                                egui::Button::new(t!("rules.rules_tab.assign")),
                             )
-                            .on_hover_text(
-                                "Put the chosen connection under this rule set.",
-                            )
+                            .on_hover_text(t!("rules.rules_tab.assign.tip"))
                             .clicked()
                             && let Some((_, id)) = free.iter().find(|(name, _)| *name == pick)
                         {
@@ -4449,16 +5116,14 @@ impl App {
                             self.class_pick = None;
                         }
                     });
-                    self.class_pick = if pick.is_empty() {
-                        None
-                    } else {
-                        Some(pick)
-                    };
+                    self.class_pick = if pick.is_empty() { None } else { Some(pick) };
                     if free.is_empty() && class.nets.is_empty() {
                         ui.label(
-                            egui::RichText::new("Every connection already follows a rule set.")
-                                .small()
-                                .color(self.muted()),
+                            egui::RichText::new(t!(
+                                "rules.rules_tab.every_connection_already_follows_a"
+                            ))
+                            .small()
+                            .color(self.muted()),
                         );
                     }
                     for net_id in &class.nets {
@@ -4472,13 +5137,11 @@ impl App {
                             continue;
                         };
                         ui.horizontal(|ui| {
-                            ui.label("· ");
+                            ui.label(format!("{} ", t!("rules.rules_tab.text")));
                             ui.label(&name);
                             if ui
-                                .small_button("\u{d7}")
-                                .on_hover_text(
-                                    "Let this connection follow the default rules again.",
-                                )
+                                .tap_button(t!("rules.rules_tab.text2"))
+                                .on_hover_text(t!("rules.rules_tab.text2.tip"))
                                 .clicked()
                             {
                                 self.run("netclass.assign", json!({"net": net_id, "class": null}));
@@ -4490,50 +5153,40 @@ impl App {
         }
         if self.project.net_classes.is_empty() {
             ui.label(
-                egui::RichText::new(
-                    "No rule sets yet; the default rules apply to every connection.",
-                )
-                .small()
-                .color(self.muted()),
+                egui::RichText::new(t!("rules.rules_tab.no_rule_sets_yet_the"))
+                    .small()
+                    .color(self.muted()),
             );
         }
         ui.add_space(8.0);
         ui.label(
-            egui::RichText::new("TEARDROPS")
+            egui::RichText::new(t!("rules.rules_tab.teardrops"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Stem-shaped copper where wires meet pads and vias, so the joints survive etching and soldering.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.stem_shaped_copper_where_wires"))
+                .small()
+                .color(self.muted()),
         );
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.teardrop_depth)
                     .range(0.05..=5.0)
                     .speed(0.05)
-                    .suffix(" mm deep"),
+                    .suffix(format!(" {}", t!("rules.rules_tab.mm_deep"))),
             )
-            .on_hover_text(
-                "How far each teardrop runs along the wire from the joint. Bigger stems are sturdier but eat board space.",
-            );
+            .on_hover_text(t!("rules.rules_tab.mm_deep.tip"));
             if ui
-                .button("Harden junctions")
-                .on_hover_text(
-                    "Grow a teardrop at every pad and via junction in one go. Undo brings the plain wires back.",
-                )
+                .button(t!("rules.rules_tab.harden_junctions"))
+                .on_hover_text(t!("rules.rules_tab.harden_junctions.tip"))
                 .clicked()
             {
                 self.run("teardrop.add", json!({"depth": self.teardrop_depth}));
             }
             if ui
-                .small_button("Remove teardrops")
-                .on_hover_text(
-                    "Take the teardrop copper away again, leaving the ordinary wires exactly as they were.",
-                )
+                .tap_button(t!("rules.rules_tab.remove_teardrops"))
+                .on_hover_text(t!("rules.rules_tab.remove_teardrops.tip"))
                 .clicked()
             {
                 self.run("teardrop.remove", json!({}));
@@ -4541,25 +5194,23 @@ impl App {
         });
         ui.add_space(12.0);
         ui.label(
-            egui::RichText::new("CHECKS YOU WRITE")
+            egui::RichText::new(t!("rules.rules_tab.checks_you_write"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Rules only you know about: pick one plain measurement, set one limit, and it runs with the other checks after every edit. It travels inside the design, so anyone who opens it is covered too.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.rules_only_you_know_about"))
+                .small()
+                .color(self.muted()),
         );
         for c in self.project.custom_checks.clone() {
             ui.horizontal(|ui| {
                 ui.label(
-                    egui::RichText::new(format!(
-                        "{} · {} · {}",
-                        c.name,
-                        custom_measure_line(&c.measure, c.limit),
-                        if c.severity == "error" {
+                    egui::RichText::new(t!(
+                        "rules.rules_tab.name_v1_v2",
+                        name = c.name,
+                        v1 = custom_measure_line(&c.measure, c.limit),
+                        v2 = if c.severity == "error" {
                             "must fix"
                         } else {
                             "a nudge"
@@ -4567,14 +5218,10 @@ impl App {
                     ))
                     .small(),
                 )
-                .on_hover_text(
-                    "A check you wrote. It is saved with the design and re-run after every edit.",
-                );
+                .on_hover_text(t!("rules.rules_tab.name_v1_v2.tip"));
                 if ui
-                    .small_button("Remove this check")
-                    .on_hover_text(
-                        "Stop running this check. Nothing about the design itself changes.",
-                    )
+                    .tap_button(t!("rules.rules_tab.remove_this_check"))
+                    .on_hover_text(t!("rules.rules_tab.remove_this_check.tip"))
                     .clicked()
                 {
                     self.run("checks.custom_remove", json!({"id": c.id}));
@@ -4584,23 +5231,27 @@ impl App {
         if self.project.custom_checks.len() < 32 {
             ui.horizontal(|ui| {
                 let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.custom_name)
-                        .hint_text("What this check means, in your words")
+                    crate::targets::text_field(&mut self.custom_name)
+                        .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
                         .desired_width(150.0),
                 );
-                response
-                    .on_hover_text("The name this check reports under, e.g. \"keep power wires meaty\".");
+                response.on_hover_text(t!("rules.rules_tab.the_name_this_check_reports.tip"));
                 egui::ComboBox::from_id_salt("custom-measure")
-                    .selected_text(CUSTOM_MEASURES[self.custom_measure.min(4)].0)
+                    .selected_text(pcbcraft_text::lookup(
+                        CUSTOM_MEASURES[self.custom_measure.min(4)].0,
+                        &[],
+                    ))
                     .show_ui(ui, |ui| {
                         for (i, (label, _)) in CUSTOM_MEASURES.iter().enumerate() {
-                            ui.selectable_value(&mut self.custom_measure, i, *label);
+                            ui.selectable_value(
+                                &mut self.custom_measure,
+                                i,
+                                pcbcraft_text::lookup(label, &[]),
+                            );
                         }
                     })
                     .response
-                    .on_hover_text(
-                        "The one thing this check measures. Every check stays a plain sentence, never a puzzle.",
-                    );
+                    .on_hover_text(t!("rules.rules_tab.the_one_thing_this_check.tip"));
                 let unit = if CUSTOM_MEASURES[self.custom_measure.min(4)]
                     .1
                     .contains("count")
@@ -4615,29 +5266,25 @@ impl App {
                         .speed(0.05)
                         .suffix(unit),
                 )
-                .on_hover_text(
-                    "The limit: millimetres for wire measures, a plain number of things otherwise.",
-                );
+                .on_hover_text(t!("rules.rules_tab.the_limit_millimetres_for_wire.tip"));
                 if ui
-                    .selectable_label(self.custom_loud, "must fix")
-                    .on_hover_text("Treat a breach as a real problem, counted under \"to fix\".")
+                    .selectable_label(self.custom_loud, t!("rules.rules_tab.must_fix"))
+                    .on_hover_text(t!("rules.rules_tab.must_fix.tip"))
                     .clicked()
                 {
                     self.custom_loud = true;
                 }
                 if ui
-                    .selectable_label(!self.custom_loud, "a nudge")
-                    .on_hover_text("Mention a breach, but do not call the board a failure.")
+                    .selectable_label(!self.custom_loud, t!("rules.rules_tab.a_nudge"))
+                    .on_hover_text(t!("rules.rules_tab.a_nudge.tip"))
                     .clicked()
                 {
                     self.custom_loud = false;
                 }
             });
             if ui
-                .button("Add this check")
-                .on_hover_text(
-                    "Start running this rule after every edit. It lives inside the design; Undo takes it away again.",
-                )
+                .button(t!("rules.rules_tab.add_this_check"))
+                .on_hover_text(t!("rules.rules_tab.add_this_check.tip"))
                 .clicked()
                 && !self.custom_name.trim().is_empty()
             {
@@ -4656,16 +5303,14 @@ impl App {
         }
         ui.add_space(12.0);
         ui.label(
-            egui::RichText::new("HOW STRICT TO BE")
+            egui::RichText::new(t!("rules.rules_tab.how_strict_to_be"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Choose what each automatic check does when it spots something: stop you, warn you, or stay quiet.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.choose_what_each_automatic_check"))
+                .small()
+                .color(self.muted()),
         );
         for code in [
             "unassigned_pin",
@@ -4685,10 +5330,10 @@ impl App {
                 for level in ["error", "warning", "off"] {
                     let tip = match level {
                         "error" => {
-                            "Treat this as a real problem to fix before the board goes away."
+                            t!("rules.rules_tab.treat_this_as_a_real")
                         }
-                        "warning" => "Mention it, but do not call the board a failure.",
-                        _ => "Stop reporting this check at all.",
+                        "warning" => t!("rules.rules_tab.mention_it_but_do_not"),
+                        _ => t!("rules.rules_tab.stop_reporting_this_check_at"),
                     };
                     if ui
                         .selectable_label(current == level, level)
@@ -4699,8 +5344,8 @@ impl App {
                     }
                 }
                 if ui
-                    .small_button("Auto")
-                    .on_hover_text("Go back to what this check does out of the box.")
+                    .tap_button(t!("rules.rules_tab.auto"))
+                    .on_hover_text(t!("rules.rules_tab.auto.tip"))
                     .clicked()
                 {
                     self.run("rules.severity", json!({"code": code, "severity": null}));
@@ -4709,16 +5354,14 @@ impl App {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("PAIR CLEARANCES")
+            egui::RichText::new(t!("rules.rules_tab.pair_clearances"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Extra room between two connections that must keep their distance, like a noisy one next to a sensitive one.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.extra_room_between_two_connections"))
+                .small()
+                .color(self.muted()),
         );
         let nets: Vec<(Id, String)> = self
             .project
@@ -4731,7 +5374,7 @@ impl App {
             nets.iter()
                 .find(|(id, _)| *id == wanted)
                 .map(|(_, name)| name.clone())
-                .unwrap_or_else(|| format!("net {wanted}"))
+                .unwrap_or_else(|| t!("rules.rules_tab.net_wanted", wanted = wanted))
         };
         if nets.len() >= 2 {
             if !nets.iter().any(|(id, _)| *id == self.pair_a) {
@@ -4750,36 +5393,32 @@ impl App {
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.pair_a, *id, name)
-                                .on_hover_text("Pick the first net of the pair.");
+                                .on_hover_text(t!("rules.rules_tab.pick_the_first_net_of.tip"));
                         }
                     });
-                ui.label("away from");
+                ui.label(t!("rules.rules_tab.away_from"));
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.pair_b, *id, name)
-                                .on_hover_text("Pick the second net of the pair.");
+                                .on_hover_text(t!("rules.rules_tab.pick_the_second_net_of.tip"));
                         }
                     });
             });
             ui.horizontal(|ui| {
-                ui.label("Keep apart by");
+                ui.label(t!("rules.rules_tab.keep_apart_by"));
                 ui.add(
                     egui::DragValue::new(&mut self.pair_clearance)
                         .range(0.05..=25.0)
                         .speed(0.05)
-                        .suffix(" mm"),
+                        .suffix(format!(" {}", t!("unit.mm"))),
                 )
-                .on_hover_text(
-                    "The least distance the two connections' copper may sit from each other.",
-                );
+                .on_hover_text(t!("unit.mm12.tip"));
             });
             if ui
-                .button("Set spacing")
-                .on_hover_text(
-                    "Tell the checks these two connections must stay this far apart everywhere on the board. Undo takes the rule away.",
-                )
+                .button(t!("rules.rules_tab.set_spacing"))
+                .on_hover_text(t!("rules.rules_tab.set_spacing.tip"))
                 .clicked()
             {
                 self.run(
@@ -4797,22 +5436,21 @@ impl App {
             .collect();
         if !pairs.is_empty() {
             ui.label(
-                egui::RichText::new("Spacing rules you have set between connections")
+                egui::RichText::new(t!("rules.rules_tab.spacing_rules_you_have_set"))
                     .small()
                     .color(self.muted()),
             );
             for (a, b, clearance) in pairs {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "{} away from {} · {clearance} mm",
-                        name_of(a),
-                        name_of(b)
+                    ui.label(t!(
+                        "rules.rules_tab.v0_away_from_v1_clearance",
+                        v0 = name_of(a),
+                        v1 = name_of(b),
+                        clearance = clearance
                     ));
                     if ui
-                        .small_button("Clear")
-                        .on_hover_text(
-                            "Let these two connections fall back to the normal spacing rules.",
-                        )
+                        .tap_button(t!("rules.rules_tab.clear"))
+                        .on_hover_text(t!("rules.rules_tab.clear.tip"))
                         .clicked()
                     {
                         self.run("board.remove_pair_rule", json!({"net_a": a, "net_b": b}));
@@ -4822,16 +5460,14 @@ impl App {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("DIFFERENTIAL PAIRS")
+            egui::RichText::new(t!("rules.rules_tab.differential_pairs"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "Two connections that should run side by side as a team, like the data lines of a socket.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.two_connections_that_should_run"))
+                .small()
+                .color(self.muted()),
         );
         if nets.len() >= 2 {
             if !nets.iter().any(|(id, _)| *id == self.dp_p) {
@@ -4845,13 +5481,13 @@ impl App {
                     .unwrap_or(self.dp_n);
             }
             ui.horizontal(|ui| {
-                ui.label("Name");
+                ui.label(t!("rules.rules_tab.name"));
                 ui.add(
-                    egui::TextEdit::singleline(&mut self.dp_name)
-                        .hint_text("USB")
+                    crate::targets::text_field(&mut self.dp_name)
+                        .hint_text(t!("rules.rules_tab.usb"))
                         .desired_width(90.0),
                 )
-                .on_hover_text("A name you will recognise, like USB or HDMI.");
+                .on_hover_text(t!("rules.rules_tab.usb.tip"));
             });
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt("dp_p")
@@ -4859,36 +5495,34 @@ impl App {
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.dp_p, *id, name)
-                                .on_hover_text("Pick the net that carries the positive side.");
+                                .on_hover_text(t!("rules.rules_tab.pick_the_net_that_carries.tip"));
                         }
                     });
-                ui.label("+");
+                ui.label(t!("rules.rules_tab.text3"));
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
                     .show_ui(ui, |ui| {
                         for (id, name) in &nets {
                             ui.selectable_value(&mut self.dp_n, *id, name)
-                                .on_hover_text("Pick the net that carries the negative side.");
+                                .on_hover_text(t!(
+                                    "rules.rules_tab.pick_the_net_that_carries2.tip"
+                                ));
                         }
                     });
             });
             ui.horizontal(|ui| {
-                ui.label("Run together with a gap of");
+                ui.label(t!("rules.rules_tab.run_together_with_a_gap"));
                 ui.add(
                     egui::DragValue::new(&mut self.dp_gap)
                         .range(0.02..=10.0)
                         .speed(0.02)
-                        .suffix(" mm"),
+                        .suffix(format!(" {}", t!("unit.mm"))),
                 )
-                .on_hover_text(
-                    "How closely the two sides should hug each other; copper nearer than this gets reported.",
-                );
+                .on_hover_text(t!("unit.mm13.tip"));
             });
             if ui
-                .button("Declare pair")
-                .on_hover_text(
-                    "Tell the checks these two connections are a team: they watch the gap between them. Reusing the name updates the same pair, and undo takes it away.",
-                )
+                .button(t!("rules.rules_tab.declare_pair"))
+                .on_hover_text(t!("rules.rules_tab.declare_pair.tip"))
                 .clicked()
             {
                 self.run(
@@ -4906,20 +5540,22 @@ impl App {
             .collect();
         if !pairs.is_empty() {
             ui.label(
-                egui::RichText::new("Pairs you have declared")
+                egui::RichText::new(t!("rules.rules_tab.pairs_you_have_declared"))
                     .small()
                     .color(self.muted()),
             );
             for (id, name, p, n, gap) in pairs {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "{name} · {} + {} · gap {gap} mm",
-                        name_of(p),
-                        name_of(n)
+                    ui.label(t!(
+                        "rules.rules_tab.name_v0_v1_gap_gap",
+                        name = name,
+                        v0 = name_of(p),
+                        v1 = name_of(n),
+                        gap = gap
                     ));
                     if ui
-                        .small_button("Remove")
-                        .on_hover_text("Stop watching this pair; the lines stay as they are.")
+                        .tap_button(t!("rules.rules_tab.remove"))
+                        .on_hover_text(t!("rules.rules_tab.remove2.tip"))
                         .clicked()
                     {
                         self.run("board.remove_diffpair", json!({"id": id}));
@@ -4929,74 +5565,69 @@ impl App {
         }
         ui.add_space(10.0);
         ui.label(
-            egui::RichText::new("BOARD AREAS")
+            egui::RichText::new(t!("rules.rules_tab.board_areas"))
                 .size(10.0)
                 .color(self.muted()),
         );
         ui.label(
-            egui::RichText::new(
-                "A corner of the board that plays by stricter rules: wider gaps, and optionally a height limit for what fits under a cover.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("rules.rules_tab.a_corner_of_the_board"))
+                .small()
+                .color(self.muted()),
         );
         ui.horizontal(|ui| {
-            ui.label("Corner");
+            ui.label(t!("rules.rules_tab.corner"));
             ui.add(
                 egui::DragValue::new(&mut self.area_x)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
             ui.add(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
-            ui.label("Size");
+            ui.label(t!("rules.rules_tab.size"));
             ui.add(
                 egui::DragValue::new(&mut self.area_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
             ui.add(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             );
         });
         ui.horizontal(|ui| {
-            ui.label("Copper stays apart by at least");
+            ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
             ui.add(
                 egui::DragValue::new(&mut self.area_gap)
                     .range(0.05..=25.0)
                     .speed(0.05)
-                    .suffix(" mm"),
+                    .suffix(format!(" {}", t!("unit.mm"))),
             )
-            .on_hover_text(
-                "The minimum separation demanded between copper pieces inside this area.",
-            );
+            .on_hover_text(t!("unit.mm14.tip"));
         });
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.area_limited, "Parts here stand no taller than")
-                .on_hover_text(
-                    "For boards that must fit under a cover: anything placed here taller than the limit is reported.",
-                );
+            ui.checkbox(
+                &mut self.area_limited,
+                t!("rules.rules_tab.parts_here_stand_no_taller"),
+            )
+            .on_hover_text(t!("rules.rules_tab.parts_here_stand_no_taller.tip"));
             if self.area_limited {
                 ui.add(
                     egui::DragValue::new(&mut self.area_height)
                         .range(0.1..=100.0)
                         .speed(0.5)
-                        .suffix(" mm"),
+                        .suffix(format!(" {}", t!("unit.mm"))),
                 );
             }
         });
         if ui
-            .button("Add area")
-            .on_hover_text(
-                "Marks this rectangle on the board with its own stricter rules. The checks watch it from now on, and undo erases the mark.",
-            )
+            .button(t!("rules.rules_tab.add_area"))
+            .on_hover_text(t!("rules.rules_tab.add_area.tip"))
             .clicked()
         {
             let mut args = json!({
@@ -5020,7 +5651,11 @@ impl App {
                 (
                     a.id,
                     a.name.clone().unwrap_or_else(|| {
-                        format!("area at {}, {}", a.region.x.round(), a.region.y.round())
+                        t!(
+                            "rules.rules_tab.area_at_round_round2",
+                            round = a.region.x.round(),
+                            round2 = a.region.y.round()
+                        )
                     }),
                     a.clearance,
                     a.max_height,
@@ -5029,21 +5664,21 @@ impl App {
             .collect();
         if !areas.is_empty() {
             ui.label(
-                egui::RichText::new("Stricter areas on the board")
+                egui::RichText::new(t!("rules.rules_tab.stricter_areas_on_the_board"))
                     .small()
                     .color(self.muted()),
             );
             for (id, name, clearance, max_height) in areas {
                 ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "{name} · gap {clearance} mm{}",
-                        max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
+                    ui.label(t!(
+                        "rules.rules_tab.name_gap_clearance_mm_v0",
+                        name = name,
+                        clearance = clearance,
+                        v0 = max_height.map_or(String::new(), |h| format!(" · up to {h} mm tall"))
                     ));
                     if ui
-                        .small_button("Erase area")
-                        .on_hover_text(
-                            "This corner goes back to the board's normal rules; the copper stays as it is.",
-                        )
+                        .tap_button(t!("rules.rules_tab.erase_area"))
+                        .on_hover_text(t!("rules.rules_tab.erase_area.tip"))
                         .clicked()
                     {
                         self.run("rules.area_remove", json!({"id": id}));
@@ -5069,20 +5704,19 @@ impl App {
             self.swap_pick = None;
         }
         ui.label(
-            egui::RichText::new(
-                "One design, several builds: each extra build lists parts it leaves off the board.",
-            )
-            .small()
-            .color(self.muted()),
+            egui::RichText::new(t!("docks.builds_tab.one_design_several_builds_each"))
+                .small()
+                .color(self.muted()),
         );
         if ui
-            .button("New build")
-            .on_hover_text(
-                "Start an extra version of this board; say which parts to leave off from its row.",
-            )
+            .button(t!("docks.builds_tab.new_build"))
+            .on_hover_text(t!("docks.builds_tab.new_build.tip"))
             .clicked()
         {
-            let name = format!("Build {}", self.project.variants.len() + 1);
+            let name = t!(
+                "docks.builds_tab.build_v0",
+                v0 = self.project.variants.len() + 1
+            );
             self.run("variant.create", json!({"name": name}));
         }
         ui.add_space(4.0);
@@ -5094,19 +5728,19 @@ impl App {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&variant.name).strong());
-                    ui.label(format!("{} left off", variant.dnp.len())).on_hover_text(
-                        "Parts this build skips; the bill of materials leaves them out too.",
+                    ui.label(t!("docks.builds_tab.len_left_off", len = variant.dnp.len())).on_hover_text(
+                        t!("docks.builds_tab.len_left_off.tip"),
                     );
                     if !variant.footprints.is_empty() {
-                        ui.label(format!("{} swapped", variant.footprints.len())).on_hover_text(
-                            "Parts this build fits in a different package.",
+                        ui.label(t!("docks.builds_tab.len_swapped", len = variant.footprints.len())).on_hover_text(
+                            t!("docks.builds_tab.len_swapped.tip"),
                         );
                     }
                     if !editing {
                         if ui
-                            .small_button("Note")
+                            .tap_button(t!("docks.builds_tab.note"))
                             .on_hover_text(
-                                "Write a short reminder of what makes this build different.",
+                                t!("docks.builds_tab.note.tip"),
                             )
                             .clicked()
                         {
@@ -5114,9 +5748,9 @@ impl App {
                                 Some((variant.name.clone(), variant.note.clone().unwrap_or_default()));
                         }
                         if ui
-                            .small_button("Remove")
+                            .tap_button(t!("docks.builds_tab.remove"))
                             .on_hover_text(
-                                "Delete this extra build; the design itself does not change.",
+                                t!("docks.builds_tab.remove.tip"),
                             )
                             .clicked()
                         {
@@ -5140,16 +5774,16 @@ impl App {
                     ui.add(
                         egui::TextEdit::multiline(&mut text)
                             .desired_width(200.0)
-                            .hint_text("what this build changes"),
+                            .hint_text(t!("docks.builds_tab.what_this_build_changes")),
                     )
-                    .on_hover_text("A sentence or two, saved with the design.");
+                    .on_hover_text(t!("docks.builds_tab.what_this_build_changes.tip"));
                     let save = ui
-                        .button("Save note")
-                        .on_hover_text("Keep this reminder on the build.")
+                        .button(t!("docks.builds_tab.save_note"))
+                        .on_hover_text(t!("docks.builds_tab.save_note.tip"))
                         .clicked();
                     let cancel = ui
-                        .small_button("Cancel")
-                        .on_hover_text("Leave the build's reminder as it was.")
+                        .tap_button(t!("docks.builds_tab.cancel"))
+                        .on_hover_text(t!("docks.builds_tab.cancel.tip"))
                         .clicked();
                     if save {
                         self.build_note = None;
@@ -5176,12 +5810,12 @@ impl App {
                             continue;
                         };
                         ui.horizontal(|ui| {
-                            ui.label("· ");
+                            ui.label(format!("{} ", t!("docks.builds_tab.text")));
                             ui.label(&reference);
                             if ui
-                                .small_button("\u{d7}")
+                                .tap_button(t!("docks.builds_tab.text2"))
                                 .on_hover_text(
-                                    "Put this part back on for this build.",
+                                    t!("docks.builds_tab.text2.tip"),
                                 )
                                 .clicked()
                             {
@@ -5203,7 +5837,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("build-pick", variant.name.clone()))
                             .selected_text(if pick.is_empty() {
-                                "choose a part to leave off".to_owned()
+                                t!("docks.builds_tab.choose_a_part_to_leave")
                             } else {
                                 pick.clone()
                             })
@@ -5211,7 +5845,7 @@ impl App {
                                 for reference in &free {
                                     if ui
                                         .selectable_label(&pick == reference, reference)
-                                        .on_hover_text("A part this build still populates.")
+                                        .on_hover_text(t!("docks.builds_tab.a_part_this_build_still.tip"))
                                         .clicked()
                                     {
                                         pick = reference.clone();
@@ -5221,12 +5855,12 @@ impl App {
                             })
                             .response
                             .on_hover_text(
-                                "Pick a part, then Leave off: this build skips it and its parts list leaves it out.",
+                                t!("docks.builds_tab.pick_a_part_then_leave.tip"),
                             );
                         if ui
-                            .add_enabled(!pick.is_empty(), egui::Button::new("Leave off"))
+                            .add_enabled(!pick.is_empty(), egui::Button::new(t!("docks.builds_tab.leave_off")))
                             .on_hover_text(
-                                "This build skips the chosen part; nothing is deleted.",
+                                t!("docks.builds_tab.leave_off.tip"),
                             )
                             .clicked()
                             && let Some(component) = self
@@ -5251,7 +5885,7 @@ impl App {
                     };
                     if free.is_empty() {
                         ui.label(
-                            egui::RichText::new("Every part in this design is left off.")
+                            egui::RichText::new(t!("docks.builds_tab.every_part_in_this_design"))
                                 .small()
                                 .color(self.muted()),
                         );
@@ -5267,11 +5901,11 @@ impl App {
                             continue;
                         };
                         ui.horizontal(|ui| {
-                            ui.label("· ");
-                            ui.label(format!("{reference} fits {}", swap.footprint));
+                            ui.label(format!("{} ", t!("docks.builds_tab.text")));
+                            ui.label(t!("docks.builds_tab.reference_fits_footprint", reference = reference, footprint = swap.footprint));
                             if ui
-                                .small_button("\u{d7}")
-                                .on_hover_text("Fit this part in its original package again.")
+                                .tap_button(t!("docks.builds_tab.text2"))
+                                .on_hover_text(t!("docks.builds_tab.text22.tip"))
                                 .clicked()
                             {
                                 self.run(
@@ -5285,7 +5919,7 @@ impl App {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(("build-swap", variant.name.clone()))
                             .selected_text(if swap.is_empty() {
-                                "choose a part to swap".to_owned()
+                                t!("docks.builds_tab.choose_a_part_to_swap")
                             } else {
                                 swap.clone()
                             })
@@ -5293,7 +5927,7 @@ impl App {
                                 for c in &self.project.components {
                                     if ui
                                         .selectable_label(swap == c.reference, &c.reference)
-                                        .on_hover_text("A part in this design.")
+                                        .on_hover_text(t!("docks.builds_tab.a_part_in_this_design.tip"))
                                         .clicked()
                                     {
                                         swap = c.reference.clone();
@@ -5303,23 +5937,23 @@ impl App {
                             })
                             .response
                             .on_hover_text(
-                                "Pick a part, name its other package, then Swap package.",
+                                t!("docks.builds_tab.pick_a_part_name_its.tip"),
                             );
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.swap_name)
+                            crate::targets::text_field(&mut self.swap_name)
                                 .desired_width(80.0)
-                                .hint_text("package name"),
+                                .hint_text(t!("docks.builds_tab.package_name")),
                         )
                         .on_hover_text(
-                            "The package this build uses instead, for example a smaller size.",
+                            t!("docks.builds_tab.package_name.tip"),
                         );
                         if ui
                             .add_enabled(
                                 !swap.is_empty() && !self.swap_name.trim().is_empty(),
-                                egui::Button::new("Swap package"),
+                                egui::Button::new(t!("docks.builds_tab.swap_package")),
                             )
                             .on_hover_text(
-                                "This build fits the chosen part in that package; the design keeps its own.",
+                                t!("docks.builds_tab.swap_package.tip"),
                             )
                             .clicked()
                             && let Some(component) = self
@@ -5349,7 +5983,7 @@ impl App {
         }
         if self.project.variants.is_empty() {
             ui.label(
-                egui::RichText::new("No extra builds; this board is built exactly as designed.")
+                egui::RichText::new(t!("docks.builds_tab.no_extra_builds_this_board"))
                     .small()
                     .color(self.muted()),
             );
@@ -5369,15 +6003,38 @@ impl App {
     fn write_make_files(&mut self, tool: &str) {
         let directory = self.make_directory();
         if std::fs::create_dir_all(&directory).is_err() {
-            self.message = "that folder could not be created".into();
+            self.message = t!("status.write_make_files.that_folder_could_not_be");
             return;
         }
         self.tool_call(tool, json!({"path": directory}));
     }
+    /// Write the UV print artwork for one side into the make folder.
+    fn write_uv_print_files(&mut self, side: &str, label: &str) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(&directory).is_err() {
+            self.message = t!("status.write_uv_print_files.that_folder_could_not_be");
+            return;
+        }
+        let job = format!("uvprint-{side}");
+        let _ = self.tool_call(
+            "output_job.add",
+            json!({"name": &job, "kinds": ["uv_print"]}),
+        );
+        if self.tool_call(
+            "output_job.run",
+            json!({"name": &job, "directory": &directory, "uv_print": {"side": side}}),
+        ) {
+            self.message = t!(
+                "status.write_uv_print_files.label_saved_in_directory",
+                label = label,
+                directory = directory
+            );
+        }
+    }
     fn write_job_file(&mut self, job: &str, kind: &str, label: &str) {
         let directory = self.make_directory();
         if std::fs::create_dir_all(&directory).is_err() {
-            self.message = "that folder could not be created".into();
+            self.message = t!("status.write_job_file.that_folder_could_not_be");
             return;
         }
         let _ = self.tool_call("output_job.add", json!({"name": job, "kinds": [kind]}));
@@ -5385,373 +6042,470 @@ impl App {
             "output_job.run",
             json!({"name": job, "directory": &directory}),
         ) {
-            self.message = format!("{label} saved in {directory}");
-        }
-    }
-    fn board_body(&mut self, ui: &mut egui::Ui) {
-        if self.project.board.footprints.is_empty() {
-            empty_state(ui, EMPTY_BOARD, self.muted());
+            self.message = t!(
+                "status.write_job_file.label_saved_in_directory",
+                label = label,
+                directory = directory
+            );
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("inspector")
-            .default_size(250.0)
-            .min_size(220.0)
+            .default_size(280.0)
+            .min_size(280.0)
+            .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
+                let split = self.preferences.aside_split.clamp(0.25, 0.75);
+                let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), top_h),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        self.section_heading(ui, &t!("board.inspector.layers"));
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| self.layers_tab(ui));
+                    },
+                );
+                ui.add(
+                    egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
+                        .show_value(false)
+                        .text(t!("board.inspector.resize")),
+                )
+                .on_hover_text(t!("board.inspector.resize.tip"));
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.preferences.aside_lower_tab,
+                        0,
+                        t!("board.inspector.properties"),
+                    )
+                    .on_hover_text(t!("board.inspector.properties.tip"));
+                    if assistant::shown(self) {
+                        ui.selectable_value(
+                            &mut self.preferences.aside_lower_tab,
+                            1,
+                            assistant::tab_label(self.assistant.waiting()),
+                        )
+                        .on_hover_text(assistant::tab_tip());
+                    }
+                });
+                if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
+                    assistant::pane::show(self, ui);
+                    return;
+                }
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("PROPERTIES")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                if let Some(id) = self.selected {
-                    let c = self.project.component(id).cloned().or_else(|| {
-                        self.project
-                            .footprint(id)
-                            .and_then(|f| self.project.component(f.component))
-                            .cloned()
-                    });
-                    if let Some(c) = c {
-                        ui.heading(&c.reference);
-                        if !c.units.is_empty() && self.project.component(id).is_some() {
-                            let before = self.selected_unit;
-                            egui::ComboBox::from_id_salt("selected-symbol-unit")
-                                .selected_text(format!("Unit {}", self.selected_unit))
-                                .show_ui(ui, |ui| {
-                                    for unit in
-                                        std::iter::once(1).chain(c.units.iter().map(|u| u.unit))
-                                    {
-                                        ui.selectable_value(
-                                            &mut self.selected_unit,
-                                            unit,
-                                            format!("Unit {unit}"),
-                                        )
-                                        .on_hover_text("Edit or move this half of the part on its own.");
-                                    }
-                                });
-                            if before != self.selected_unit {
-                                self.load_properties();
-                            }
-                        }
-                        ui.label(&c.kind);
-                        ui.label(
-                            egui::RichText::new(format!("Stable ID {id}"))
-                                .small()
-                                .color(self.muted()),
-                        );
-                        ui.add_space(10.0);
-                        ui.label("Value");
-                        ui.text_edit_singleline(&mut self.value);
-                        field_help(ui, FIELD_HELP_VALUE, self.muted());
-                        if ui.button("Apply value").on_hover_text(command_tip("component.value")).clicked() {
-                            self.run("component.value", json!({"id":c.id,"value":self.value}));
-                        }
-                        ui.add_space(12.0);
-                        ui.label("Position · mm");
-                        field_help(ui, FIELD_HELP_POSITION, self.muted());
-                        ui.horizontal(|ui| {
-                            ui.label("X");
-                            ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
-                            ui.label("Y");
-                            ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
-                        });
-                        if ui.button("Apply position").on_hover_text("Move the selected symbol or footprint to the position typed above.").clicked() {
-                            let mut params = json!({"id":id,"position":{"x":self.x,"y":self.y}});
-                            if self.project.component(id).is_some() {
-                                params["unit"] = json!(self.selected_unit);
-                            }
-                            self.run(
-                                if self.project.footprint(id).is_some() {
-                                    "footprint.move"
-                                } else {
-                                    "component.move"
-                                },
-                                params,
-                            );
-                        }
-                        if ui.button("Rotate 90°  R").on_hover_text(command_tip("component.rotate")).clicked() {
-                            self.rotate();
-                        }
-                        if ui
-                            .button("Duplicate")
-                            .on_hover_text(
-                                "Places a copy of this part nearby, with its own new reference number. Undo removes the copy.",
-                            )
-                            .clicked()
+                        self.draw_tool_options(ui);
+                        self.section_heading(ui, &t!("board.inspector.details"));
+                        if let Some(id) = self
+                            .selected
+                            .filter(|id| datums::is_datum(&self.project, *id))
                         {
-                            let target =
-                                self.project.footprint(id).map_or(id, |fp| fp.component);
-                            self.run(
-                                "object.duplicate",
-                                json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
-                            );
-                        }
-                        if self.project.footprint(id).is_some() {
-                            ui.label("Dock to board edge");
-                            field_help(
-                                ui,
-                                "For an edge connector: the part slides until its copper just touches that edge, and keeps facing the way it faces.",
-                                self.muted(),
-                            );
-                            ui.horizontal(|ui| {
-                                for edge in ["left", "right", "top", "bottom"] {
+                            self.datum_inspector(ui, id);
+                        } else if let Some(id) = self.selected {
+                            let c = self.project.component(id).cloned().or_else(|| {
+                                self.project
+                                    .footprint(id)
+                                    .and_then(|f| self.project.component(f.component))
+                                    .cloned()
+                            });
+                            if let Some(c) = c {
+                                ui.heading(&c.reference);
+                                if !c.units.is_empty() && self.project.component(id).is_some() {
+                                    let before = self.selected_unit;
+                                    egui::ComboBox::from_id_salt("selected-symbol-unit")
+                                        .selected_text(t!(
+                                            "board.inspector.unit_selected_unit",
+                                            selected_unit = self.selected_unit
+                                        ))
+                                        .show_ui(ui, |ui| {
+                                            for unit in std::iter::once(1)
+                                                .chain(c.units.iter().map(|u| u.unit))
+                                            {
+                                                ui.selectable_value(
+                                                    &mut self.selected_unit,
+                                                    unit,
+                                                    t!("board.inspector.unit_unit", unit = unit),
+                                                )
+                                                .on_hover_text(t!("board.inspector.unit_unit.tip"));
+                                            }
+                                        });
+                                    if before != self.selected_unit {
+                                        self.load_properties();
+                                    }
+                                }
+                                ui.label(&c.kind);
+                                ui.label(
+                                    egui::RichText::new(t!(
+                                        "board.inspector.stable_id_id",
+                                        id = id
+                                    ))
+                                    .small()
+                                    .color(self.muted()),
+                                );
+                                ui.add_space(10.0);
+                                ui.label(t!("board.inspector.value"));
+                                ui.add(crate::targets::text_field(&mut self.value));
+                                field_help(ui, FIELD_HELP_VALUE, self.muted());
+                                if ui
+                                    .button(t!("board.inspector.apply_value"))
+                                    .on_hover_text(command_tip("component.value"))
+                                    .clicked()
+                                {
+                                    self.run(
+                                        "component.value",
+                                        json!({"id":c.id,"value":self.value}),
+                                    );
+                                }
+                                ui.add_space(12.0);
+                                ui.label(t!("board.inspector.position_mm"));
+                                field_help(ui, FIELD_HELP_POSITION, self.muted());
+                                ui.horizontal(|ui| {
+                                    ui.label(t!("board.inspector.x"));
+                                    ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
+                                    ui.label(t!("board.inspector.y"));
+                                    ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
+                                });
+                                if ui
+                                    .button(t!("board.inspector.apply_position"))
+                                    .on_hover_text(t!("board.inspector.apply_position.tip"))
+                                    .clicked()
+                                {
+                                    let mut params =
+                                        json!({"id":id,"position":{"x":self.x,"y":self.y}});
+                                    if self.project.component(id).is_some() {
+                                        params["unit"] = json!(self.selected_unit);
+                                    }
+                                    self.run(
+                                        if self.project.footprint(id).is_some() {
+                                            "footprint.move"
+                                        } else {
+                                            "component.move"
+                                        },
+                                        params,
+                                    );
+                                }
+                                if ui
+                                    .button(t!("board.inspector.rotate_90_r"))
+                                    .on_hover_text(command_tip("component.rotate"))
+                                    .clicked()
+                                {
+                                    self.rotate();
+                                }
+                                if ui
+                                    .button(t!("board.inspector.duplicate"))
+                                    .on_hover_text(t!("board.inspector.duplicate.tip"))
+                                    .clicked()
+                                {
+                                    self.duplicate_selection();
+                                }
+                                let sheet =
+                                    Self::datasheet_url(c.field(&t!("board.inspector.datasheet")));
+                                if ui
+                                    .add_enabled(
+                                        sheet.is_some(),
+                                        egui::Button::new(t!("board.inspector.view_datasheet")),
+                                    )
+                                    .on_hover_text(if sheet.is_some() {
+                                        t!("board.inspector.open_this_part_s_datasheet")
+                                    } else {
+                                        t!("board.inspector.this_part_has_no_web")
+                                    })
+                                    .clicked()
+                                    && let Some(url) = sheet
+                                {
+                                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                                }
+                                if self.project.footprint(id).is_some() {
+                                    ui.label(t!("board.inspector.dock_to_board_edge"));
+                                    field_help(
+                                        ui,
+                                        &t!("board.inspector.for_an_edge_connector_the"),
+                                        self.muted(),
+                                    );
+                                    ui.horizontal(|ui| {
+                                        for edge in ["left", "right", "top", "bottom"] {
+                                            if ui
+                                                .button(t!(
+                                                    "board.inspector.dock_edge",
+                                                    edge = edge
+                                                ))
+                                                .on_hover_text(t!(
+                                                    "board.inspector.dock_edge.tip",
+                                                    edge = edge
+                                                ))
+                                                .clicked()
+                                            {
+                                                self.run(
+                                                    "footprint.dock_edge",
+                                                    json!({"id": id, "edge": edge}),
+                                                );
+                                            }
+                                        }
+                                    });
+                                    let locked = self
+                                        .project
+                                        .footprint(id)
+                                        .is_some_and(|fp| fp.locked == Some(true));
                                     if ui
-                                        .button(format!("Dock {}", edge))
-                                        .on_hover_text(format!(
-                                            "Slide this part until its copper sits flush against the {edge} board edge. Undo slides it back."
+                                        .button(if locked {
+                                            t!("board.inspector.unlock")
+                                        } else {
+                                            t!("board.inspector.lock_in_place")
+                                        })
+                                        .on_hover_text(if locked {
+                                            t!("board.inspector.let_this_part_move_rotate")
+                                        } else {
+                                            t!("board.inspector.freeze_this_part_so_no")
+                                        })
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "footprint.set_locked",
+                                            json!({"id": id, "locked": !locked}),
+                                        );
+                                    }
+                                }
+                                ui.label(
+                                    c.library_footprint
+                                        .as_ref()
+                                        .map(|f| {
+                                            t!(
+                                                "board.inspector.footprint_name",
+                                                name = f.definition.name
+                                            )
+                                        })
+                                        .unwrap_or_else(|| {
+                                            if c.library_symbol.is_some() {
+                                                t!("board.inspector.footprint_unassigned")
+                                            } else {
+                                                t!("board.inspector.footprint_starter_package")
+                                            }
+                                        }),
+                                );
+                                if ui
+                                    .button(t!("board.inspector.assign_footprint_in_libraries"))
+                                    .on_hover_text(t!(
+                                        "board.inspector.assign_footprint_in_libraries.tip"
+                                    ))
+                                    .clicked()
+                                {
+                                    self.change_tab(Tab::Libraries);
+                                    self.library.kind = true;
+                                    self.library.pending = None;
+                                    self.library.path.clear();
+                                    self.library.results = None;
+                                    self.library.preview = None;
+                                    self.library.query.clear();
+                                }
+                                ui.add_space(12.0);
+                                ui.label(t!("board.inspector.pin_net"));
+                                for pin in &c.pins {
+                                    ui.label(t!(
+                                        "board.inspector.number_v1",
+                                        number = pin.number,
+                                        v1 = pin
+                                            .net
+                                            .map(|n| self.project.net_name(n))
+                                            .unwrap_or("unassigned")
+                                    ));
+                                }
+                            } else {
+                                ui.heading(t!("board.inspector.selected_object"));
+                                ui.label(t!("board.inspector.stable_id_id", id = id));
+                                for (name, value) in object_detail_rows(&self.project, id) {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(name).small().color(self.muted()),
+                                        );
+                                        ui.label(value);
+                                    });
+                                }
+                                self.via_span_controls(ui, id);
+                                self.via_covering_controls(ui, id);
+                                if let Some(track) =
+                                    self.project.board.tracks.iter().find(|t| t.id == id)
+                                {
+                                    let curved = track.arc.is_some();
+                                    let net = track.net;
+                                    let mid = (
+                                        (track.start.x + track.end.x) / 2.0,
+                                        (track.start.y + track.end.y) / 2.0,
+                                    );
+                                    let near = |a: Point, b: Point| {
+                                        (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                                    };
+                                    let span = |a: Point, b: Point| {
+                                        ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                                    };
+                                    let own_len = span(track.start, track.end);
+                                    let mate = self
+                                        .project
+                                        .board
+                                        .tracks
+                                        .iter()
+                                        .filter(|o| o.id != id && o.net == track.net)
+                                        .filter_map(|o| {
+                                            let joined = near(o.start, track.start)
+                                                || near(o.start, track.end)
+                                                || near(o.end, track.start)
+                                                || near(o.end, track.end);
+                                            joined.then(|| (o.id, span(o.start, o.end)))
+                                        })
+                                        .min_by(|a, b| a.1.total_cmp(&b.1));
+                                    let max_cut =
+                                        mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
+                                    ui.add_space(10.0);
+                                    ui.label(t!("board.inspector.wire_width"));
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.track_width)
+                                            .range(0.05..=10.0)
+                                            .speed(0.05)
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                    )
+                                    .on_hover_text(t!("unit.mm7.tip"));
+                                    if ui
+                                        .button(t!("board.inspector.set_width"))
+                                        .on_hover_text(command_tip("track.set_width"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "track.set_width",
+                                            json!({"id": id, "width": self.track_width}),
+                                        );
+                                    }
+                                    if ui
+                                        .button(t!("board.inspector.thicken_whole_connection"))
+                                        .on_hover_text(t!(
+                                            "board.inspector.thicken_whole_connection.tip"
                                         ))
                                         .clicked()
                                     {
                                         self.run(
-                                            "footprint.dock_edge",
-                                            json!({"id": id, "edge": edge}),
+                                            "track.set_width_net",
+                                            json!({"net": net, "width": self.track_width}),
+                                        );
+                                    }
+                                    if ui
+                                        .add_enabled(
+                                            curved,
+                                            egui::Button::new(t!("board.inspector.straighten")),
+                                        )
+                                        .on_hover_text(if curved {
+                                            t!("board.inspector.pull_this_curved_wire_into")
+                                        } else {
+                                            t!("board.inspector.this_wire_is_already_straight")
+                                        })
+                                        .clicked()
+                                    {
+                                        self.run("track.straighten", json!({"id": id}));
+                                    }
+                                    let corner_ready = mate.is_some();
+                                    ui.horizontal(|ui| {
+                                        ui.add_enabled(
+                                            corner_ready,
+                                            egui::DragValue::new(&mut self.chamfer_size)
+                                                .range(0.05..=1.5)
+                                                .speed(0.05)
+                                                .suffix(format!(" {}", t!("unit.mm"))),
+                                        )
+                                        .on_hover_text(t!("unit.mm8.tip"));
+                                        if ui
+                                            .add_enabled(
+                                                corner_ready,
+                                                egui::Button::new(t!("board.inspector.cut_corner")),
+                                            )
+                                            .on_hover_text(if corner_ready {
+                                                t!("board.inspector.trade_the_sharp_angle_where")
+                                            } else {
+                                                t!("board.inspector.this_wire_does_not_meet")
+                                            })
+                                            .clicked()
+                                            && let Some((other, _)) = mate
+                                        {
+                                            let size = self.chamfer_size.min(max_cut);
+                                            self.run(
+                                                "track.chamfer",
+                                                json!({"a": id, "b": other, "size": size}),
+                                            );
+                                        }
+                                    });
+                                    if ui
+                                        .button(t!("board.inspector.cut_in_half"))
+                                        .on_hover_text(t!("board.inspector.cut_in_half.tip"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "track.split",
+                                            json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
+                                        );
+                                    }
+                                    self.impedance_section(ui, id, net);
+                                }
+                                if let Some(zone) = self
+                                    .project
+                                    .board
+                                    .zones
+                                    .iter()
+                                    .find(|z| z.id == id)
+                                    .filter(|z| z.kind.as_deref() != Some("teardrop"))
+                                {
+                                    let net = zone.net;
+                                    let (mut min_x, mut max_x, mut min_y, mut max_y) =
+                                        (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                                    for p in &zone.outline {
+                                        min_x = min_x.min(p.x);
+                                        max_x = max_x.max(p.x);
+                                        min_y = min_y.min(p.y);
+                                        max_y = max_y.max(p.y);
+                                    }
+                                    ui.add_space(10.0);
+                                    ui.label(t!("board.inspector.ground_stitching"));
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.stitch_spacing)
+                                            .range(0.5..=50.0)
+                                            .speed(0.5)
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                    )
+                                    .on_hover_text(t!("unit.mm9.tip"));
+                                    if ui
+                                        .button(t!("board.inspector.fill_with_vias"))
+                                        .on_hover_text(t!("board.inspector.fill_with_vias.tip"))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "via.stitch",
+                                            json!({
+                                                "net": net,
+                                                "bounds": {
+                                                    "x": min_x,
+                                                    "y": min_y,
+                                                    "width": max_x - min_x,
+                                                    "height": max_y - min_y,
+                                                },
+                                                "spacing": self.stitch_spacing,
+                                                "diameter": 0.6,
+                                                "drill": 0.3,
+                                            }),
                                         );
                                     }
                                 }
-                            });
-                            let locked =
-                                self.project.footprint(id).is_some_and(|fp| fp.locked == Some(true));
-                            if ui
-                                .button(if locked { "Unlock" } else { "Lock in place" })
-                                .on_hover_text(if locked {
-                                    "Let this part move, rotate and dock again."
-                                } else {
-                                    "Freeze this part so no accidental click, key or dock can nudge it off where you placed it."
-                                })
-                                .clicked()
-                            {
-                                self.run(
-                                    "footprint.set_locked",
-                                    json!({"id": id, "locked": !locked}),
-                                );
-                            }
-                        }
-                        ui.label(
-                            c.library_footprint
-                                .as_ref()
-                                .map(|f| format!("Footprint: {}", f.definition.name))
-                                .unwrap_or_else(|| {
-                                    if c.library_symbol.is_some() {
-                                        "Footprint: unassigned".into()
-                                    } else {
-                                        "Footprint: starter package".into()
-                                    }
-                                }),
-                        );
-                        if ui.button("Assign footprint in Libraries →").on_hover_text("Jump to the library panel to bind a footprint package to this component.").clicked() {
-                            self.change_tab(Tab::Libraries);
-                            self.library.kind = true;
-                            self.library.pending = None;
-                            self.library.path.clear();
-                            self.library.results = None;
-                            self.library.preview = None;
-                            self.library.query.clear();
-                        }
-                        ui.add_space(12.0);
-                        ui.label("Pin / net");
-                        for pin in &c.pins {
-                            ui.label(format!(
-                                "{} · {}",
-                                pin.number,
-                                pin.net
-                                    .map(|n| self.project.net_name(n))
-                                    .unwrap_or("unassigned")
-                            ));
-                        }
-                    } else {
-                        ui.heading("Selected object");
-                        ui.label(format!("Stable ID {id}"));
-                        for (name, value) in object_detail_rows(&self.project, id) {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new(name).small().color(self.muted()));
-                                ui.label(value);
-                            });
-                        }
-                        if let Some(track) =
-                            self.project.board.tracks.iter().find(|t| t.id == id)
-                        {
-                            let curved = track.arc.is_some();
-                            let net = track.net;
-                            let mid = (
-                                (track.start.x + track.end.x) / 2.0,
-                                (track.start.y + track.end.y) / 2.0,
-                            );
-                            let near = |a: Point, b: Point| {
-                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
-                            };
-                            let span = |a: Point, b: Point| {
-                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
-                            };
-                            let own_len = span(track.start, track.end);
-                            let mate = self
-                                .project
-                                .board
-                                .tracks
-                                .iter()
-                                .filter(|o| o.id != id && o.net == track.net)
-                                .filter_map(|o| {
-                                    let joined = near(o.start, track.start)
-                                        || near(o.start, track.end)
-                                        || near(o.end, track.start)
-                                        || near(o.end, track.end);
-                                    joined.then(|| (o.id, span(o.start, o.end)))
-                                })
-                                .min_by(|a, b| a.1.total_cmp(&b.1));
-                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
-                            ui.add_space(10.0);
-                            ui.label("Wire width");
-                            ui.add(
-                                egui::DragValue::new(&mut self.track_width)
-                                    .range(0.05..=10.0)
-                                    .speed(0.05)
-                                    .suffix(" mm"),
-                            )
-                            .on_hover_text(
-                                "How wide this stretch of copper is. Thicker wires carry more current.",
-                            );
-                            if ui
-                                .button("Set width")
-                                .on_hover_text(command_tip("track.set_width"))
-                                .clicked()
-                            {
-                                self.run(
-                                    "track.set_width",
-                                    json!({"id": id, "width": self.track_width}),
-                                );
-                            }
-                            if ui
-                                .button("Thicken whole connection")
-                                .on_hover_text(
-                                    "Make every stretch of this connection the width above, in one step, for a run that has to carry real current.",
-                                )
-                                .clicked()
-                            {
-                                self.run(
-                                    "track.set_width_net",
-                                    json!({"net": net, "width": self.track_width}),
-                                );
-                            }
-                            if ui
-                                .add_enabled(
-                                    curved,
-                                    egui::Button::new("Straighten"),
-                                )
-                                .on_hover_text(if curved {
-                                "Pull this curved wire into a straight line. Undo brings the curve back."
-                            } else {
-                                "This wire is already straight; there is nothing to pull."
-                            })
-                            .clicked()
-                            {
-                                self.run("track.straighten", json!({"id": id}));
-                            }
-                            let corner_ready = mate.is_some();
-                            ui.horizontal(|ui| {
-                                ui.add_enabled(
-                                    corner_ready,
-                                    egui::DragValue::new(&mut self.chamfer_size)
-                                        .range(0.05..=1.5)
-                                        .speed(0.05)
-                                        .suffix(" mm"),
-                                )
-                                .on_hover_text(
-                                    "How far back from the sharp corner the diagonal cut starts.",
-                                );
-                                if ui
-                                    .add_enabled(corner_ready, egui::Button::new("Cut corner"))
-                                    .on_hover_text(if corner_ready {
-                                        "Trade the sharp angle where two wires meet for a diagonal, so the etch comes out cleaner. Undo brings the corner back."
-                                    } else {
-                                        "This wire does not meet another wire of the same connection end to end, so there is no corner to cut."
-                                    })
-                                    .clicked()
-                                    && let Some((other, _)) = mate
-                                {
-                                    let size = self.chamfer_size.min(max_cut);
-                                    self.run(
-                                        "track.chamfer",
-                                        json!({"a": id, "b": other, "size": size}),
-                                    );
-                                }
-                            });
-                            if ui
-                                .button("Cut in half")
-                                .on_hover_text(
-                                    "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
-                                )
-                                .clicked()
-                            {
-                                self.run(
-                                    "track.split",
-                                    json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
-                                );
-                            }
-                        }
-                        if let Some(zone) =
-                            self.project.board.zones.iter().find(|z| z.id == id)
-                                .filter(|z| z.kind.as_deref() != Some("teardrop"))
-                        {
-                            let net = zone.net;
-                            let (mut min_x, mut max_x, mut min_y, mut max_y) =
-                                (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-                            for p in &zone.outline {
-                                min_x = min_x.min(p.x);
-                                max_x = max_x.max(p.x);
-                                min_y = min_y.min(p.y);
-                                max_y = max_y.max(p.y);
                             }
                             ui.add_space(10.0);
-                            ui.label("Ground stitching");
-                            ui.add(
-                                egui::DragValue::new(&mut self.stitch_spacing)
-                                    .range(0.5..=50.0)
-                                    .speed(0.5)
-                                    .suffix(" mm"),
-                            )
-                            .on_hover_text(
-                                "How far apart the little connecting holes sit. Smaller numbers pack more in.",
-                            );
                             if ui
-                                .button("Fill with vias")
-                                .on_hover_text(
-                                    "Drops a grid of small plated holes across this copper so it stays at one potential from every corner. Undo sweeps them up.",
-                                )
+                                .button(t!("board.inspector.delete_del"))
+                                .on_hover_text(command_tip("object.delete"))
                                 .clicked()
                             {
-                                self.run(
-                                    "via.stitch",
-                                    json!({
-                                        "net": net,
-                                        "bounds": {
-                                            "x": min_x,
-                                            "y": min_y,
-                                            "width": max_x - min_x,
-                                            "height": max_y - min_y,
-                                        },
-                                        "spacing": self.stitch_spacing,
-                                        "diameter": 0.6,
-                                        "drill": 0.3,
-                                    }),
-                                );
+                                self.delete_selection();
                             }
+                            ui.separator();
+                        } else {
+                            ui.heading(t!("board.inspector.nothing_selected"));
+                            ui.label(t!("board.inspector.select_an_item_on_the"));
+                            ui.add_space(12.0);
                         }
-                    }
-                    ui.add_space(10.0);
-                    if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
-                        self.run("object.delete", json!({"id":id}));
-                        self.select(None);
-                    }
-                    ui.separator();
-                } else {
-                    ui.heading("Nothing selected");
-                    ui.label(
-                        "Select an item on the drawing to inspect and edit it. Everything for the whole project lives in the Settings tab up top.",
-                    );
-                    ui.add_space(12.0);
-                }
                     });
             });
     }
@@ -5780,73 +6534,88 @@ impl App {
         };
         let zoom_pct = (zoom / base * 100.0).round() as i32;
         let tool_words: String = match &self.tool {
-            Tool::Select => "Pick".to_owned(),
+            Tool::Select => t!("board.footer.pick").to_owned(),
             Tool::Place(kind) | Tool::LibraryPlace(_, kind, _) | Tool::CustomPlace(kind, _) => {
-                format!("Place {kind}")
+                t!("board.footer.place_kind", kind = kind)
             }
-            Tool::Wire(_) => "Draw wire".to_owned(),
-            Tool::Route(_) => "Route".to_owned(),
-            Tool::Move => "Move".to_owned(),
-            Tool::Cutout => "Cut hole".to_owned(),
-            Tool::Hole => "Drill hole".to_owned(),
-            Tool::NoConnect => "No connection".to_owned(),
-            Tool::Fiducial => "Fiducial mark".to_owned(),
-            Tool::DrawLayer => "Draw on a layer".to_owned(),
+            Tool::Wire(_) => t!("board.footer.draw_wire").to_owned(),
+            Tool::Route(_) => t!("board.footer.route").to_owned(),
+            Tool::Move => t!("board.footer.move").to_owned(),
+            Tool::Cutout => t!("board.footer.cut_hole").to_owned(),
+            Tool::Hole => t!("board.footer.drill_hole").to_owned(),
+            Tool::NoConnect => t!("board.footer.no_connection").to_owned(),
+            Tool::Fiducial => t!("board.footer.fiducial_mark").to_owned(),
+            Tool::DrawLayer => t!("board.footer.draw_on_a_layer").to_owned(),
+            Tool::Measure => t!("board.footer.measure").to_owned(),
         };
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(&self.message)
-                        .small()
-                        .color(self.muted()),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(format!("rev {}", self.revision))
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(16, 4)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let status = ui.label(
+                        egui::RichText::new(&self.message)
                             .small()
                             .color(self.muted()),
-                    )
-                    .on_hover_text(
-                        "Every edit raises this number; undo and redo step it back and forth.",
                     );
-                    if let Some(p) = self.cursor {
+                    a11y::announce_status(ui.ctx(), &status, &self.message);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
-                            egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
+                            egui::RichText::new(t!(
+                                "board.footer.rev_revision",
+                                revision = self.revision
+                            ))
+                            .small()
+                            .color(self.muted()),
+                        )
+                        .on_hover_text(t!("board.footer.rev_revision.tip"));
+                        if let Some(reading) = self.measure_readout() {
+                            ui.label(egui::RichText::new(reading).small().strong())
+                                .on_hover_text(t!(
+                                    "board.footer.the_last_measurement_press_esc.tip"
+                                ));
+                        }
+                        if let Some(p) = self.cursor {
+                            ui.label(
+                                egui::RichText::new(t!(
+                                    "board.footer.x_y_mm",
+                                    x = format!("{:.2}", p.x),
+                                    y = format!("{:.2}", p.y)
+                                ))
+                                .small()
+                                .color(self.muted()),
+                            )
+                            .on_hover_text(t!("board.footer.x_y_mm.tip"));
+                        }
+                        ui.label(
+                            egui::RichText::new(t!("board.footer.zoom_pct", zoom_pct = zoom_pct))
                                 .small()
                                 .color(self.muted()),
                         )
-                        .on_hover_text("Where the mouse points on the board, in millimetres.");
-                    }
-                    ui.label(
-                        egui::RichText::new(format!("{zoom_pct}%"))
-                            .small()
-                            .color(self.muted()),
-                    )
-                    .on_hover_text("How close the drawing is zoomed in. Scroll to change it.");
-                    let tool_btn = ui
-                        .small_button(format!("Tool: {tool_words}"))
-                        .on_hover_text(
-                            "What a click on the drawing does right now. Click here to go back to picking things, or press Esc.",
-                        );
-                    if tool_btn.clicked() {
-                        self.tool = Tool::Select;
-                    }
-                    let fix_btn = ui
-                        .small_button(format!("{fix} to fix"))
-                        .on_hover_text("Mistakes the checks say you must fix. Click to see the list.");
-                    let mind_btn = ui
-                        .small_button(format!("{mind} to mind"))
-                        .on_hover_text(
-                            "Warnings worth a look, but not blockers. Click to see the list.",
-                        );
-                    if fix_btn.clicked() || mind_btn.clicked() {
-                        self.change_tab(Tab::Checks);
-                    }
+                        .on_hover_text(t!("board.footer.zoom_pct.tip"));
+                        let tool_btn = ui
+                            .tap_button(t!("board.footer.tool_tool_words", tool_words = tool_words))
+                            .on_hover_text(t!("board.footer.tool_tool_words.tip"));
+                        if tool_btn.clicked() {
+                            self.tool = Tool::Select;
+                        }
+                        let fix_btn = ui
+                            .tap_button(t!("board.footer.fix_to_fix", fix = fix))
+                            .on_hover_text(t!("board.footer.fix_to_fix.tip"));
+                        let mind_btn = ui
+                            .tap_button(t!("board.footer.mind_to_mind", mind = mind))
+                            .on_hover_text(t!("board.footer.mind_to_mind.tip"));
+                        if fix_btn.clicked() || mind_btn.clicked() {
+                            self.change_tab(Tab::Checks);
+                        }
+                    });
                 });
             });
-        });
         if self.command_open {
             egui::Panel::bottom("commands")
+                .frame(Self::dock_frame(ui.style()))
                 .resizable(true)
                 .default_size(220.0)
                 .show(ui, |ui| {
@@ -5861,13 +6630,13 @@ impl App {
                         .collect();
                     ui.horizontal(|ui| {
                         ui.label(
-                            egui::RichText::new("SEARCH")
+                            egui::RichText::new(t!("board.footer.search"))
                                 .small()
                                 .color(self.accent()),
                         );
                         let search = ui.add(
-                            egui::TextEdit::singleline(&mut self.command_query)
-                                .hint_text("filter command names and descriptions")
+                            crate::targets::text_field(&mut self.command_query)
+                                .hint_text(t!("board.footer.filter_command_names_and_descriptions"))
                                 .desired_width(300.0),
                         );
                         if self.command_focus {
@@ -5875,25 +6644,22 @@ impl App {
                             self.command_focus = false;
                         }
                         ui.label(
-                            egui::RichText::new("PARAMETERS")
+                            egui::RichText::new(t!("board.footer.parameters"))
                                 .small()
                                 .color(self.accent()),
                         );
-                        let fields = ui.add(
-                            egui::TextEdit::multiline(&mut self.params)
-                                .hint_text("parameters as JSON, one line per value reads easiest")
-                                .desired_width(380.0)
-                                .desired_rows(3)
-                                .interactive(true),
-                        )
-                        .on_hover_text(
-                            "Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.",
-                        );
-                        if ui
-                            .button("Execute")
-                            .on_hover_text(
-                                "Run the command with the parameters you typed; selecting a command fills a starter parameter set.",
+                        let fields = ui
+                            .add(
+                                egui::TextEdit::multiline(&mut self.params)
+                                    .hint_text(t!("board.footer.parameters_as_json_one_line"))
+                                    .desired_width(380.0)
+                                    .desired_rows(3)
+                                    .interactive(true),
                             )
+                            .on_hover_text(t!("board.footer.parameters_as_json_one_line.tip"));
+                        if ui
+                            .button(t!("board.footer.execute"))
+                            .on_hover_text(t!("board.footer.execute.tip"))
                             .clicked()
                         {
                             self.execute_palette_params();
@@ -5931,10 +6697,10 @@ impl App {
                         }
                     });
                     ui.label(
-                        egui::RichText::new(format!(
-                            "{} of {} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it. In the parameter box, Enter writes a new line and Ctrl+Enter runs the command.",
-                            matches.len(),
-                            pcbcraft_engine::commands().len()
+                        egui::RichText::new(t!(
+                            "board.footer.len_of_len2_commands_match",
+                            len = matches.len(),
+                            len2 = pcbcraft_engine::commands().len()
                         ))
                         .small()
                         .color(self.muted()),
@@ -5947,25 +6713,20 @@ impl App {
                                 .find(|spec| spec.id == self.command)
                             {
                                 for line in param_help(&spec) {
-                                    ui.label(
-                                        egui::RichText::new(line)
-                                            .small()
-                                            .color(self.muted()),
-                                    );
+                                    ui.label(egui::RichText::new(line).small().color(self.muted()));
                                 }
                             }
                             for (row, spec) in matches.iter().enumerate() {
+                                let row_text = t!(
+                                    "board.footer.id_description",
+                                    id = spec.id,
+                                    description = spec.description
+                                );
+                                let on_row = self.command == spec.id
+                                    || row == step_index(self.command_index, matches.len(), 0);
                                 let response = ui
-                                    .selectable_label(
-                                        self.command == spec.id
-                                            || row == step_index(
-                                                self.command_index,
-                                                matches.len(),
-                                                0,
-                                            ),
-                                        format!("{}   {}", spec.id, spec.description),
-                                    )
-                                    .on_hover_text("Load this command with a starter parameter set.");
+                                    .selectable_label(on_row, row_text)
+                                    .on_hover_text(t!("board.footer.id_description.tip"));
                                 if row == self.command_index && self.command_scroll {
                                     response.scroll_to_me(Some(egui::Align::Center));
                                 }
@@ -5981,7 +6742,7 @@ impl App {
         }
         if self.shortcuts_open {
             let muted = self.muted();
-            egui::Window::new("Keyboard shortcuts")
+            egui::Window::new(t!("board.footer.keyboard_shortcuts"))
                 .open(&mut self.shortcuts_open)
                 .show(ui, |ui| {
                     egui::Grid::new("shortcut-list")
@@ -6000,7 +6761,7 @@ impl App {
     }
     fn library(&mut self, ui: &mut egui::Ui) {
         self.library_workspaces(ui);
-        ui.collapsing("Original starter symbols", |ui| {
+        ui.collapsing(t!("library.library.original_starter_symbols"), |ui| {
             for t in TEMPLATES {
                 egui::Frame::group(ui.style())
                     .inner_margin(18.0)
@@ -6008,13 +6769,17 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new(t.label).size(18.0).strong());
-                                ui.label(format!("{} · {} · 2 pins", t.prefix, t.value));
+                                ui.label(t!(
+                                    "library.library.prefix_value_2_pins",
+                                    prefix = t.prefix,
+                                    value = t.value
+                                ));
                             });
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     if ui
-                                        .button("Place in schematic >")
+                                        .button(t!("library.library.place_in_schematic"))
                                         .on_hover_text(command_tip("component.place_library"))
                                         .clicked()
                                     {
@@ -6031,8 +6796,8 @@ impl App {
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(24.0);
-        ui.heading("Design checks");
-        ui.label("Select a finding to inspect its affected object in the editor.");
+        ui.heading(t!("checks.checks_view.design_checks"));
+        ui.label(t!("checks.checks_view.select_a_finding_to_inspect"));
         if self
             .checks
             .get("erc")
@@ -6051,13 +6816,13 @@ impl App {
         for (key, label, blurb) in [
             (
                 "erc",
-                "Electrical",
-                "Whether the wiring makes electrical sense: pins with no connection, parts missing footprints, and power pins left floating.",
+                t!("checks.checks_view.electrical"),
+                t!("checks.checks_view.whether_the_wiring_makes_electrical"),
             ),
             (
                 "drc",
-                "Board",
-                "Whether the copper can actually be made: gaps too small, wires not joined, and widths the factory cannot etch.",
+                t!("checks.checks_view.board"),
+                t!("checks.checks_view.whether_the_copper_can_actually"),
             ),
         ] {
             ui.label(egui::RichText::new(label).size(18.0).strong());
@@ -6065,8 +6830,10 @@ impl App {
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 if findings.is_empty() {
                     ui.label(
-                        egui::RichText::new("No findings in the implemented checks")
-                            .color(self.accent()),
+                        egui::RichText::new(t!(
+                            "checks.checks_view.no_findings_in_the_implemented"
+                        ))
+                        .color(self.accent()),
                     );
                 }
                 let mut groups: Vec<CheckGroup> = Vec::new();
@@ -6122,12 +6889,13 @@ impl App {
                     };
                     ui.add_space(6.0);
                     let whose = if code.starts_with("custom_") {
-                        "A check you wrote. "
+                        format!("{} ", t!("checks.checks_view.a_check_you_wrote"))
                     } else {
-                        "The board is checked against this rule after every edit. "
+                        format!("{} ", t!("checks.checks_view.the_board_is_checked_against"))
                     };
-                    ui.label(title_text).on_hover_text(format!(
-                        "{whose}{who}The list below shows every place it fired; click one to jump to it.",
+                    ui.label(title_text).on_hover_text(t!(
+                        "checks.checks_view.whose_who_the_list_below.tip",
+                        whose = whose,
                         who = if loud {
                             "It must be fixed before the board is built. "
                         } else {
@@ -6139,7 +6907,9 @@ impl App {
                             ui.add_space(14.0);
                             if ui
                                 .button(message)
-                                .on_hover_text("Select this on the drawing.")
+                                .on_hover_text(t!(
+                                    "checks.checks_view.select_this_on_the_drawing.tip"
+                                ))
                                 .clicked()
                                 && let Some(id) = objects.first().copied()
                             {
@@ -6152,10 +6922,8 @@ impl App {
                             }
                             if !objects.is_empty()
                                 && ui
-                                    .small_button("Hide this")
-                                    .on_hover_text(
-                                        "You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.",
-                                    )
+                                    .tap_button(t!("checks.checks_view.hide_this"))
+                                    .on_hover_text(t!("checks.checks_view.hide_this.tip"))
                                     .clicked()
                             {
                                 self.run(
@@ -6178,10 +6946,8 @@ impl App {
                                 {
                                     let pad = 2.0;
                                     if ui
-                                        .small_button("Quiet this area")
-                                        .on_hover_text(
-                                            "This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.",
-                                        )
+                                        .tap_button(t!("checks.checks_view.quiet_this_area"))
+                                        .on_hover_text(t!("checks.checks_view.quiet_this_area.tip"))
                                         .clicked()
                                     {
                                         self.run(
@@ -6203,6 +6969,7 @@ impl App {
             }
             ui.add_space(20.0);
         }
+        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -6211,18 +6978,20 @@ impl App {
             .collect();
         if !silenced.is_empty() {
             ui.label(
-                egui::RichText::new("Things you asked not to be told about")
+                egui::RichText::new(t!("checks.checks_view.things_you_asked_not_to"))
                     .small()
                     .color(self.muted()),
             );
             for (code, count) in silenced {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{code} · {count} hidden"));
+                    ui.label(t!(
+                        "checks.checks_view.code_count_hidden",
+                        code = code,
+                        count = count
+                    ));
                     if ui
-                        .small_button(format!("Bring back {code}"))
-                        .on_hover_text(
-                            "Show every hidden finding from this check again; each one can be hidden afresh.",
-                        )
+                        .tap_button(t!("checks.checks_view.bring_back_code", code = code))
+                        .on_hover_text(t!("checks.checks_view.bring_back_code.tip"))
                         .clicked()
                     {
                         self.run("rules.include", json!({"code": code}));
@@ -6239,18 +7008,20 @@ impl App {
             .collect();
         if !zones.is_empty() {
             ui.label(
-                egui::RichText::new("Quiet zones: checks that leave these corners alone")
+                egui::RichText::new(t!("checks.checks_view.quiet_zones_checks_that_leave"))
                     .small()
                     .color(self.muted()),
             );
             for (code, count) in zones {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{code} · {count} zone(s)"));
+                    ui.label(t!(
+                        "checks.checks_view.code_count_zone_s",
+                        code = code,
+                        count = count
+                    ));
                     if ui
-                        .small_button(format!("Clear {code} zones"))
-                        .on_hover_text(
-                            "Remove every quiet box for this check, so it reports the whole board again.",
-                        )
+                        .tap_button(t!("checks.checks_view.clear_code_zones", code = code))
+                        .on_hover_text(t!("checks.checks_view.clear_code_zones.tip"))
                         .clicked()
                     {
                         self.run("rules.include_region", json!({"code": code}));
@@ -6298,7 +7069,7 @@ impl App {
                     image.size[1] as u32,
                     image::ColorType::Rgba8,
                 ) {
-                    self.message = format!("capture failed: {e}");
+                    self.message = t!("status.capture.capture_failed_e", e = e);
                     eprintln!("{}", self.message);
                 }
                 self.capture = None;
@@ -6332,17 +7103,368 @@ impl App {
                     [image.width() as usize, image.height() as usize],
                     image.as_raw(),
                 ));
-                self.message = "plot copied to the clipboard".into();
+                self.message = t!("status.copy_plot_to_clipboard.plot_copied_to_the_clipboard");
             }
-            None => self.message = "copy failed: no plot to copy".into(),
+            None => self.message = t!("status.copy_plot_to_clipboard.copy_failed_no_plot_to"),
+        }
+    }
+
+    fn record_icon(&mut self, _id: &str, _rect: Rect) {
+        #[cfg(test)]
+        self.icon_rects.insert(_id.to_owned(), _rect);
+    }
+
+    fn tool_strip_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        label: String,
+        tip: String,
+        selected: bool,
+    ) -> egui::Response {
+        let response = ui
+            .selectable_label(selected, label.clone())
+            .on_hover_text(tip);
+        self.record_icon(id, response.rect);
+        response
+    }
+
+    fn draw_tool_options(&mut self, ui: &mut egui::Ui) {
+        if self.tab != Tab::Pcb {
+            return;
+        }
+        if matches!(self.tool, Tool::DrawLayer) {
+            ui.label(
+                egui::RichText::new(t!("board.draw_tool_options.draw_on_layer"))
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            let names: Vec<(Id, String)> = self
+                .project
+                .board
+                .user_layers
+                .iter()
+                .map(|l| (l.id, l.name.clone()))
+                .collect();
+            let current = self
+                .art_layer
+                .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
+                .unwrap_or_else(|| t!("board.draw_tool_options.no_layer_yet"));
+            egui::ComboBox::from_id_salt("art-layer-pick")
+                .selected_text(current)
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for (id, name) in &names {
+                        ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
+                            .on_hover_text(t!(
+                                "board.draw_tool_options.new_figures_land_on_this.tip"
+                            ));
+                    }
+                });
+            if ui
+                .button(t!("board.draw_tool_options.new_layer"))
+                .on_hover_text(t!("board.draw_tool_options.new_layer.tip"))
+                .clicked()
+            {
+                let name = t!("board.draw_tool_options.art_v0", v0 = names.len() + 1);
+                self.run("board.layer_add", json!({"name": name, "kind": "other"}));
+                if self.message.starts_with("board.layer_add") {
+                    self.art_layer = self.selected;
+                }
+            }
+            ui.horizontal(|ui| {
+                for (shape, label, tip) in [
+                    (
+                        DrawShape::Line,
+                        t!("board.draw_tool_options.line"),
+                        t!("board.draw_tool_options.two_clicks_start_and_end"),
+                    ),
+                    (
+                        DrawShape::Rect,
+                        t!("board.draw_tool_options.box"),
+                        t!("board.draw_tool_options.two_clicks_on_opposite_corners"),
+                    ),
+                    (
+                        DrawShape::Circle,
+                        t!("board.draw_tool_options.circle"),
+                        t!("board.draw_tool_options.centre_then_edge"),
+                    ),
+                    (
+                        DrawShape::Poly,
+                        t!("board.draw_tool_options.outline"),
+                        t!("board.draw_tool_options.corners_enter_to_close"),
+                    ),
+                    (
+                        DrawShape::Words,
+                        t!("board.draw_tool_options.words"),
+                        t!("board.draw_tool_options.type_below_then_click_once"),
+                    ),
+                ] {
+                    if ui
+                        .selectable_label(self.art_shape == shape, label)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.art_shape = shape;
+                        self.art_start = None;
+                        self.art_points.clear();
+                    }
+                }
+            });
+            if self.art_shape == DrawShape::Words {
+                ui.add(
+                    crate::targets::text_field(&mut self.art_text)
+                        .hint_text(t!("board.draw_tool_options.words_to_print"))
+                        .desired_width(f32::INFINITY),
+                )
+                .on_hover_text(t!("board.draw_tool_options.words_to_print.tip"));
+            }
+            ui.separator();
+        }
+        if matches!(self.tool, Tool::Hole) {
+            ui.label(t!("board.draw_tool_options.mounting_hole_size"));
+            ui.add(
+                egui::DragValue::new(&mut self.hole_diameter)
+                    .speed(0.05)
+                    .range(0.05..=25.0)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+            )
+            .on_hover_text(t!("unit.mm5.tip"));
+            ui.separator();
+        }
+        if matches!(self.tool, Tool::Fiducial) {
+            ui.label(t!("board.draw_tool_options.assembly_mark_size"));
+            ui.add(
+                egui::DragValue::new(&mut self.fiducial_diameter)
+                    .speed(0.05)
+                    .range(0.2..=10.0)
+                    .suffix(format!(" {}", t!("unit.mm"))),
+            )
+            .on_hover_text(t!("unit.mm6.tip"));
+            ui.separator();
+        }
+    }
+
+    fn tool_strip(&mut self, ui: &mut egui::Ui) {
+        if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+            return;
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(8.0);
+            let select = |app: &mut App| {
+                app.tool = Tool::Select;
+            };
+            if self
+                .tool_strip_button(
+                    ui,
+                    "tool-select",
+                    t!("board.tool_strip.select"),
+                    t!("board.tool_strip.select_objects_on_the_drawing"),
+                    matches!(self.tool, Tool::Select),
+                )
+                .clicked()
+            {
+                select(self);
+            }
+            if self
+                .tool_strip_button(
+                    ui,
+                    "tool-move",
+                    t!("board.tool_strip.move"),
+                    t!("board.tool_strip.move_tool_drop_the_selection"),
+                    matches!(self.tool, Tool::Move),
+                )
+                .clicked()
+            {
+                self.tool = Tool::Move;
+            }
+            if self.tab == Tab::Schematic {
+                if self
+                    .tool_strip_button(
+                        ui,
+                        "tool-wire",
+                        t!("board.tool_strip.wire"),
+                        t!("board.tool_strip.wire_tool_click_two_pins"),
+                        matches!(self.tool, Tool::Wire(_)),
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::Wire(None);
+                }
+                if self
+                    .tool_strip_button(
+                        ui,
+                        "tool-noconnect",
+                        t!("board.tool_strip.no_connect"),
+                        t!("board.tool_strip.mark_a_pin_deliberately_unconnected"),
+                        matches!(self.tool, Tool::NoConnect),
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::NoConnect;
+                }
+            }
+            if self.tab == Tab::Pcb {
+                if self
+                    .tool_strip_button(
+                        ui,
+                        "tool-route",
+                        t!("board.tool_strip.route"),
+                        t!("board.tool_strip.route_tool_click_two_pads"),
+                        matches!(self.tool, Tool::Route(_)),
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::Route(None);
+                }
+                for (shape, id, glyph, tip) in [
+                    (
+                        DrawShape::Line,
+                        "tool-line",
+                        t!("board.tool_strip.line"),
+                        t!("board.tool_strip.draw_a_straight_line_on"),
+                    ),
+                    (
+                        DrawShape::Rect,
+                        "tool-box",
+                        t!("board.tool_strip.box"),
+                        t!("board.tool_strip.draw_a_box_on_a"),
+                    ),
+                    (
+                        DrawShape::Circle,
+                        "tool-circle",
+                        t!("board.tool_strip.circle"),
+                        t!("board.tool_strip.draw_a_circle_on_a"),
+                    ),
+                    (
+                        DrawShape::Poly,
+                        "tool-outline",
+                        t!("board.tool_strip.outline"),
+                        t!("board.tool_strip.draw_an_outline_on_a"),
+                    ),
+                    (
+                        DrawShape::Words,
+                        "tool-words",
+                        t!("board.tool_strip.text"),
+                        t!("board.tool_strip.print_words_on_a_user"),
+                    ),
+                ] {
+                    let armed = matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
+                    if self.tool_strip_button(ui, id, glyph, tip, armed).clicked() {
+                        self.tool = Tool::DrawLayer;
+                        self.art_shape = shape;
+                        self.art_start = None;
+                        self.art_points.clear();
+                    }
+                }
+                if ui
+                    .selectable_label(
+                        matches!(self.tool, Tool::DrawLayer),
+                        t!("board.tool_strip.draw_shape"),
+                    )
+                    .on_hover_text(t!("board.tool_strip.draw_shape.tip"))
+                    .clicked()
+                {
+                    self.tool = Tool::DrawLayer;
+                    self.art_shape = DrawShape::Line;
+                    self.art_start = None;
+                    self.art_points.clear();
+                }
+                if ui
+                    .selectable_label(
+                        matches!(self.tool, Tool::Cutout),
+                        t!("board.tool_strip.cutout"),
+                    )
+                    .on_hover_text(command_tip("board.cutout.add"))
+                    .clicked()
+                {
+                    self.tool = Tool::Cutout;
+                }
+                if ui
+                    .selectable_label(
+                        matches!(self.tool, Tool::Hole),
+                        t!("board.tool_strip.mounting_hole"),
+                    )
+                    .on_hover_text(t!("board.tool_strip.mounting_hole.tip"))
+                    .clicked()
+                {
+                    self.tool = Tool::Hole;
+                }
+                if ui
+                    .selectable_label(
+                        matches!(self.tool, Tool::Fiducial),
+                        t!("board.tool_strip.assembly_mark"),
+                    )
+                    .on_hover_text(t!("board.tool_strip.assembly_mark.tip"))
+                    .clicked()
+                {
+                    self.tool = Tool::Fiducial;
+                }
+            }
+            ui.separator();
+            self.editing_controls(ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if !matches!(self.tool, Tool::Select) {
+                    ui.label(
+                        egui::RichText::new(tool_hint(&self.tool))
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+            });
+        });
+        ui.separator();
+    }
+
+    fn files_tab(&mut self, ui: &mut egui::Ui) {
+        Self::margined(ui, |ui| {
+            ui.heading(t!("library.files_tab.project_files"));
+            ui.label(t!(
+                "library.files_tab.design_file_trim",
+                trim = self.path.trim()
+            ));
+            ui.add_space(8.0);
+            if ui
+                .button(t!("library.files_tab.library_sources"))
+                .on_hover_text(t!("library.files_tab.library_sources.tip"))
+                .clicked()
+            {
+                self.change_tab(Tab::Libraries);
+            }
+            ui.add_space(12.0);
+            ui.label(
+                egui::RichText::new(t!("library.files_tab.builds"))
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            self.builds_tab(ui);
+        });
+    }
+    fn board3d_tab(&mut self, ui: &mut egui::Ui) {
+        let env = board3d::Env {
+            project: &self.project,
+            revision: self.revision,
+            selected: self.selected,
+            dark: self.preferences.dark,
+            bg: self.surface(),
+            muted: self.muted(),
+        };
+        if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
+            self.select(Some(id));
         }
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        pcbcraft_text::activate(&self.catalog);
+        #[cfg(test)]
+        self.icon_rects.clear();
         self.refresh();
+        a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
+        self.assistant_frame(&ctx);
         self.style(&ctx);
         self.shortcuts(&ctx);
+        self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
         if self.home_open {
@@ -6352,28 +7474,57 @@ impl App {
             self.inspector(ui);
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(self.surface()))
-                .show(ui, |ui| match self.tab {
-                    Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                    Tab::Libraries => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.library(ui))
-                            .inner
-                    }
-                    Tab::Rules => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
-                    }
-                    Tab::Checks => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.checks_view(ui))
-                            .inner
-                    }
-                    Tab::Settings => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                .show(ui, |ui| {
+                    self.workbench_tabs(ui);
+                    self.tool_strip(ui);
+                    self.page_left = ui.max_rect().left();
+                    match self.tab {
+                        Tab::Schematic | Tab::Pcb => self.canvas(ui),
+                        Tab::Files => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::padded(ui, |ui| self.files_tab(ui)))
+                                .inner
+                        }
+                        Tab::Board3d => self.board3d_tab(ui),
+                        Tab::Libraries => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
+                                .inner
+                        }
+                        Tab::Rules => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
+                        }
+                        Tab::Checks => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
+                        }
+                        Tab::Settings => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                        }
+                        Tab::PlotFiles => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                Self::margined(ui, |ui| {
+                                    let theme = plot_viewer::Theme {
+                                        surface: self.surface(),
+                                        muted: self.muted(),
+                                        accent: self.accent(),
+                                    };
+                                    plot_viewer::ui(
+                                        &mut self.plot_viewer,
+                                        ui,
+                                        theme,
+                                        &mut self.message,
+                                        self.make_dir.trim(),
+                                    );
+                                });
+                            });
+                        }
                     }
                 });
         }
+        a11y::paint_focus_ring(&ctx, self.accent());
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -6384,6 +7535,7 @@ impl eframe::App for App {
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
             && text.len() <= pcbcraft_io_limit()
@@ -6397,7 +7549,13 @@ fn pcbcraft_io_limit() -> usize {
 }
 
 #[cfg(test)]
+fn pcb_screen(app: &App, world: Point) -> egui::Pos2 {
+    app.pcb.screen(world, app.canvas_rect)
+}
+
+#[cfg(test)]
 mod tests {
+    use super::e2e::support::*;
     use super::*;
 
     #[test]
@@ -6679,72 +7837,6 @@ mod tests {
         let _ = std::fs::remove_file(&file);
         Ok(())
     }
-    /// True when the named words appear anywhere on screen this frame or the
-    /// next two, so tests can assert what a person actually sees.
-    fn paints_text(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        for _ in 0..3 {
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            if output.shapes.iter().any(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape {
-                    return text.galley.text().contains(needle);
-                }
-                false
-            }) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Scroll the left dock until `needle` appears, then turn the wheel a
-    /// little further so the rows just below it are on screen too.
-    fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        scrolled_to_at(ctx, app, needle, 150.0)
-    }
-
-    /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
-    /// left dock, 300 the middle page (Rules, Settings, Checks).
-    fn scrolled_to_at(
-        ctx: &egui::Context,
-        app: &mut App,
-        needle: &str,
-        x: f32,
-    ) -> Result<bool, String> {
-        // One fixed pointer can land on a text field, which swallows the
-        // wheel; step down the same column so the scroll always finds a gap.
-        let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
-        for step in 0..80 {
-            let (lane_x, lane_y) = lanes[step % lanes.len()];
-            // Small point-sized steps: a line-sized jump can sail a short
-            // button clean past the viewport between two polls.
-            let wheel = egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::vec2(0.0, -60.0),
-                phase: egui::TouchPhase::Move,
-                modifiers: egui::Modifiers::NONE,
-            };
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            let clickable = output.shapes.iter().any(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape
-                    && text.galley.text().contains(needle)
-                {
-                    let center = text.pos + text.galley.size() / 2.0;
-                    return shape.clip_rect.contains(center);
-                }
-                false
-            });
-            if clickable {
-                return Ok(true);
-            }
-            frame(
-                ctx,
-                app,
-                vec![egui::Event::PointerMoved(egui::pos2(lane_x, lane_y)), wheel],
-                egui::Modifiers::NONE,
-            );
-        }
-        Ok(false)
-    }
 
     #[test]
     fn a_drawn_shape_from_a_file_becomes_the_board_edge_and_back_again() -> Result<(), String> {
@@ -6762,7 +7854,7 @@ mod tests {
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 700.0)?,
             "the board's edge lives in its own plain-language section"
         );
         app.svg_path = file.to_string_lossy().into_owned();
@@ -6858,57 +7950,6 @@ mod tests {
     }
 
     #[test]
-    fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add part")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Search parts by name")?,
-            "the part search opens with a box that says what to type"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
-        for letter in "resistor".chars() {
-            frame(
-                &ctx,
-                &mut app,
-                vec![egui::Event::Text(letter.into())],
-                egui::Modifiers::NONE,
-            );
-        }
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.part_search, "resistor",
-            "typing in the search box arrives letter by letter"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Resistor")?,
-            "the matching part stays in the list"
-        );
-        assert!(
-            !paints_text(&ctx, &mut app, "Capacitor")?,
-            "parts that do not match the search disappear from the list"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Resistor")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            matches!(&app.tool, Tool::Place(kind) if kind == "resistor"),
-            "picking the part arms the schematic to place it, got {:?}",
-            app.tool
-        );
-        assert_eq!(
-            app.tab,
-            Tab::Schematic,
-            "the sheet comes forward to receive it"
-        );
-        Ok(())
-    }
-
-    #[test]
     fn selection_grows_handles_and_the_old_button_bar_is_gone() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -6924,19 +7965,30 @@ mod tests {
             !paints_text(&ctx, &mut app, "Sync to PCB >")?,
             "sync moved into the Edit menu"
         );
+        let fit = app
+            .icon_rects
+            .get("canvas-fit")
+            .copied()
+            .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            paints_text(&ctx, &mut app, "Fit")?,
-            "a floating Fit control sits in the work area"
+            fit.max.x <= 1440.0 - 280.0 && fit.min.y > 60.0,
+            "the Fit icon stays inside the canvas, left of the right aside: {fit:?}"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
         app.select(Some(first));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let handle = app
+            .icon_rects
+            .get("handle-rotate")
+            .copied()
+            .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            paints_text(&ctx, &mut app, "Rotate")?,
-            "a selected part grows a Rotate handle beside it"
+            handle.max.x <= 1440.0 - 280.0,
+            "the handle stays inside the canvas: {handle:?}"
         );
-        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+        authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let after = app
             .project
@@ -6973,6 +8025,10 @@ mod tests {
         );
         let added = app.project.nets.len() - 1;
         let fresh = app.project.nets[added].name.clone();
+        assert!(
+            scrolled_to(&ctx, &mut app, &fresh)?,
+            "the new connection appears in the tree: {fresh}"
+        );
         authoring::tests::tap(&ctx, &mut app, &fresh)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
@@ -6991,72 +8047,6 @@ mod tests {
                 .iter()
                 .any(|n| n.id == fresh_id && n.name == "Flashlight"),
             "the rename sticks: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call(
-            "component.add",
-            json!({"kind":"resistor","reference":"R1","value":"330","position":{"x":40.0,"y":14.0}}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "New net")?,
-            "the layers tree offers a way to add a connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New net")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
-        assert!(
-            paints_text(&ctx, &mut app, "No pins on this connection yet.")?,
-            "a fresh connection says so plainly: {}",
-            app.message
-        );
-        assert!(
-            scrolled_to(&ctx, &mut app, "choose a spare pin")?,
-            "the new connection offers a pin picker: {}",
-            app.message
-        );
-        let net_id = app.project.nets[0].id;
-        let on_net = |app: &App| -> usize {
-            app.project
-                .components
-                .iter()
-                .flat_map(|c| c.pins.iter())
-                .filter(|p| p.net == Some(net_id))
-                .count()
-        };
-        assert_eq!(on_net(&app), 0, "the resistor starts unconnected");
-        authoring::tests::tap(&ctx, &mut app, "choose a spare pin")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1 pin 1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Connect")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            on_net(&app),
-            1,
-            "the chosen pin joins the connection: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "R1 pin 1")?,
-            "the pin is listed on the connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            on_net(&app),
-            0,
-            "one click takes the pin back off: {}",
             app.message
         );
         Ok(())
@@ -7092,7 +8082,7 @@ mod tests {
         }
         authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 700.0)?,
             "the settings page should offer the factory files"
         );
         authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
@@ -7131,163 +8121,6 @@ mod tests {
             "writing files leaves the design itself untouched"
         );
         let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let routed = app.project.board.tracks.len();
-        assert!(
-            routed > 0,
-            "routing a pad to pad should draw copper: {}",
-            app.message
-        );
-        let vcc = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.name == "VCC")
-            .map(|n| n.id)
-            .ok_or("the sample should have a VCC connection")?;
-        app.highlight_net = Some(vcc);
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Clear wiring on VCC")?,
-            "the lit connection gets its own clear item"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Clear wiring on VCC")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.tracks.len() < routed,
-            "the connection's copper lifts: {}",
-            app.message
-        );
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let routed = app.project.board.tracks.len();
-        assert!(
-            routed > 0,
-            "the copper should be back for the whole-board clear"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Clear all wiring")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.tracks.len(),
-            0,
-            "the board starts over clean: {}",
-            app.message
-        );
-        assert_eq!(app.project.nets.len(), 3, "the connections themselves stay");
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_adds_a_rule_set_and_tunes_its_numbers() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No rule sets yet")?,
-            "a design without rule sets says so"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New class")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.net_classes.len(),
-            1,
-            "one click adds one rule set: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Gap 0.200 mm")?,
-            "the new rule set shows its starting numbers"
-        );
-        let id = app.project.net_classes[0].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.rule_draft = Some((id, 0.5, 0.6));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let class = &app.project.net_classes[0];
-        assert!(
-            (class.clearance - 0.5).abs() < 1e-9 && (class.width - 0.6).abs() < 1e-9,
-            "the tuned numbers stick: {} {} · {}",
-            class.clearance,
-            class.width,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes.is_empty(),
-            "the rule set is removed: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_puts_a_connection_under_a_rule_set_and_lets_it_go() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New class")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let vcc = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.name == "VCC")
-            .map(|n| n.id)
-            .ok_or("the sample should have a VCC connection")?;
-        authoring::tests::tap(&ctx, &mut app, "choose a connection to put here")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "VCC")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Assign")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes[0].nets.contains(&vcc),
-            "the connection joins the rule set: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 nets")?,
-            "the row counts its connections"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes[0].nets.is_empty(),
-            "the connection is released to the defaults: {}",
-            app.message
-        );
         Ok(())
     }
 
@@ -7452,6 +8285,39 @@ mod tests {
         assert!(!library::entry_matches(&led, "9"));
     }
     #[test]
+    fn an_engine_refusal_shows_in_the_language_that_names_it() {
+        let english = std::sync::Arc::new(pcbcraft_text::Catalog::english());
+        pcbcraft_text::activate(&english);
+        assert_eq!(
+            refusal_key("Nothing to undo!"),
+            "error.nothing_to_undo",
+            "the key is the refusal's words"
+        );
+        assert_eq!(
+            refusal_text("Nothing to undo!"),
+            "Nothing to undo!",
+            "other spelling keeps the engine text"
+        );
+        assert_eq!(
+            refusal_text("nothing to undo"),
+            "nothing to undo",
+            "a refusal English lists shows its own words in English"
+        );
+        let spanish = std::sync::Arc::new(
+            pcbcraft_text::Catalog::english()
+                .with_language("zz", "error.nothing_to_undo = Nada que deshacer"),
+        );
+        pcbcraft_text::activate(&spanish);
+        assert_eq!(refusal_text("nothing to undo"), "Nada que deshacer");
+        assert_eq!(
+            refusal_text("Another refusal"),
+            "Another refusal",
+            "an unmapped refusal keeps the engine words"
+        );
+        pcbcraft_text::activate(&english);
+    }
+
+    #[test]
     fn control_tooltips_come_from_the_command_registry() -> Result<(), String> {
         let registry = pcbcraft_engine::commands();
         for id in [
@@ -7486,7 +8352,9 @@ mod tests {
             .iter()
             .map(|spec| spec.id)
             .collect();
-        for copy in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
+        for key in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
+            let copy = pcbcraft_text::lookup(key, &[]);
+            let copy = copy.as_str();
             for name in ["component.add", "netlist.import", "board.sync"] {
                 if copy.contains(name) {
                     assert!(registry.contains(&name), "{name} must exist");
@@ -7499,7 +8367,7 @@ mod tests {
                 "empty guidance must name a filling command: {copy}"
             );
         }
-        assert!(EMPTY_CHECKS.contains("automatically"));
+        assert!(pcbcraft_text::lookup(EMPTY_CHECKS, &[]).contains("automatically"));
     }
 
     #[test]
@@ -7646,16 +8514,16 @@ mod tests {
         // The help copy for the inspector's free-form fields must state the
         // same limits the engine enforces, so a novice never has to guess
         // why a value was refused.
-        assert!(FIELD_HELP_VALUE.contains("name or value"));
-        assert!(FIELD_HELP_POSITION.contains("origin"));
-        assert!(FIELD_HELP_BOARD.contains("larger than zero"));
-        assert!(FIELD_HELP_CUTOUT.contains("inside the board"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_VALUE, &[]).contains("name or value"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_POSITION, &[]).contains("origin"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_BOARD, &[]).contains("larger than zero"));
+        assert!(pcbcraft_text::lookup(FIELD_HELP_CUTOUT, &[]).contains("inside the board"));
     }
 
     #[test]
     fn shortcut_list_documents_every_binding_the_app_installs() {
         let rows = shortcut_rows();
-        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| *keys).collect();
+        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| keys.as_str()).collect();
         for wanted in ["Ctrl+Z", "Ctrl+K", "?", "W", "X", "Delete", "Esc"] {
             assert!(
                 keys.contains(&wanted),
@@ -7680,7 +8548,7 @@ mod tests {
                     "canvas",
                     "command palette",
                 ]
-                .contains(context),
+                .contains(&context.as_str()),
                 "{keys} claims an unknown context {context}"
             );
         }
@@ -7717,1878 +8585,6 @@ mod tests {
     }
 
     #[test]
-    fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Builds")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No extra builds")?,
-            "a plain design says so: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "New build")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants.len(),
-            1,
-            "one click adds one build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the sample should have an R1")?;
-        assert!(
-            app.project.variants[0].dnp.contains(&r1),
-            "the build leaves R1 off: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 left off")?,
-            "the row counts what it skips"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Save note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants[0].note.as_deref(),
-            Some("no blue LED"),
-            "the reminder is kept: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "no blue LED")?,
-            "the reminder shows on the row"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants[0].dnp.is_empty(),
-            "the part is back on the build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants.is_empty(),
-            "the build is gone: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "HASL")?,
-            "the board shows the finish it ships with"
-        );
-        authoring::tests::tap(&ctx, &mut app, "HASL")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "ENIG")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.finish, "ENIG",
-            "the finish is recorded: {}",
-            app.message
-        );
-        app.notes_thick = 1.2;
-        app.notes_er = 4.2;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Set thickness")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Set substrate")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            (app.project.board.thickness - 1.2).abs() < 1e-9
-                && (app.project.board.er - 4.2).abs() < 1e-9,
-            "thickness and substrate are recorded: {} {} · {}",
-            app.project.board.thickness,
-            app.project.board.er,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Plated board edge")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .board
-                .machining
-                .as_ref()
-                .and_then(|m| m.edge_plating)
-                == Some(true),
-            "the edge plating note is kept: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
-            "a plain board says what it is: {}",
-            app.message
-        );
-        app.stack_name = "Core".into();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.layer_records.len(),
-            1,
-            "one layer is recorded: {}",
-            app.message
-        );
-        app.stack_name = "L2".into();
-        app.stack_kind = "copper".into();
-        app.stack_thickness = 0.035;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.layer_records.len(),
-            2,
-            "the stackup grows layer by layer: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "add up to 1.235 mm")?,
-            "the sheet totals the board: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.stack_edit = Some(("L2".into(), "copper".into(), 0.05));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let l2 = app
-            .project
-            .board
-            .layer_records
-            .iter()
-            .find(|r| r.name == "L2")
-            .ok_or("L2 should still be in the stackup")?;
-        assert!(
-            (l2.thickness - 0.05).abs() < 1e-9 && l2.kind == "copper",
-            "the tuned layer keeps its new numbers: {} {} · {}",
-            l2.kind,
-            l2.thickness,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Back to a plain two-layer board")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.layer_records.is_empty(),
-            "the stackup notes are forgotten: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                )
-            })
-            .ok_or("routing should have left a wire on the board")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "clicking the middle of a wire picks it up: {}",
-            app.message
-        );
-        app.track_width = 0.6;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Wire width")?,
-            "the picked wire's width is editable in the inspector: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Set width")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .tracks
-                .iter()
-                .any(|t| t.id == id && (t.width - 0.6).abs() < 1e-9),
-            "the wire is now half a millimetre across: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        app.refresh();
-        let teardrops = |app: &App| -> usize {
-            app.project
-                .board
-                .zones
-                .iter()
-                .filter(|zone| zone.kind.as_deref() == Some("teardrop"))
-                .count()
-        };
-        assert_eq!(
-            teardrops(&app),
-            0,
-            "a fresh route has no teardrops yet: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            teardrops(&app) > 0,
-            "one click grows teardrop copper at every joint: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove teardrops")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            teardrops(&app),
-            0,
-            "removing teardrops leaves the plain wires exactly as they were: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_learns_where_a_wire_s_size_comes_from() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (track, net, width) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| (t.id, t.net, t.width))
-            .ok_or("the practice board should have copper to inspect")?;
-        app.tool_call(
-            "netclass.add",
-            json!({"name": "Power", "clearance": 0.2, "width": width, "nets": [net]}),
-        );
-        app.select(Some(track));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let usual = format!("{width:.3} mm · the usual width for Power");
-        assert!(
-            paints_text(&ctx, &mut app, &usual)?,
-            "the properties panel should say the width came from the net class ({usual}): {}",
-            app.message
-        );
-        app.tool_call(
-            "track.set_width",
-            json!({"id": track, "width": width + 0.1}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let own = format!(
-            "{:.3} mm · chosen for this wire, not the usual {:.3} mm for Power",
-            width + 0.1,
-            width
-        );
-        assert!(
-            paints_text(&ctx, &mut app, &own)?,
-            "after widening one wire the panel should say it is no longer the class default ({own}): {}",
-            app.message
-        );
-        let equal = "0.200 mm · the board's usual gap, Power asks no more".to_string();
-        assert!(
-            paints_text(&ctx, &mut app, &equal)?,
-            "a class that asks no more than the board should say the gap is the board's ({equal}): {}",
-            app.message
-        );
-        let class_id = app
-            .project
-            .net_classes
-            .iter()
-            .find(|c| c.name == "Power")
-            .map(|c| c.id)
-            .ok_or("the class should still exist")?;
-        app.tool_call(
-            "netclass.clearance",
-            json!({"class": class_id, "clearance": 0.35}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let usual_gap = "0.350 mm · the usual gap for Power".to_string();
-        assert!(
-            paints_text(&ctx, &mut app, &usual_gap)?,
-            "a stricter class should own the gap note ({usual_gap}): {}",
-            app.message
-        );
-        let (other_id, other_name) = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.id != net)
-            .map(|n| (n.id, n.name.clone()))
-            .ok_or("the practice board should have another net")?;
-        app.tool_call(
-            "board.set_pair_rule",
-            json!({"net_a": net, "net_b": other_id, "clearance": 0.5}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let special = format!("0.500 mm away from {other_name}");
-        assert!(
-            paints_text(&ctx, &mut app, &special)?,
-            "a rule between two named nets should be listed beside the wire ({special}): {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let mut best: Option<(String, usize)> = None;
-        for key in ["erc", "drc"] {
-            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-                let mut counts: Vec<(String, usize)> = Vec::new();
-                for finding in findings {
-                    let code = finding
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("finding")
-                        .to_owned();
-                    if let Some(row) = counts.iter_mut().find(|(c, _)| *c == code) {
-                        row.1 += 1;
-                    } else {
-                        counts.push((code, 1));
-                    }
-                }
-                if let Some(top) = counts.iter().max_by_key(|(_, n)| *n)
-                    && best.as_ref().is_none_or(|(_, n)| top.1 > *n)
-                {
-                    best = Some(top.clone());
-                }
-            }
-        }
-        let (code, count) = best.ok_or("the practice board should have findings")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        let words = code.replace('_', " ");
-        let mut chars = words.chars();
-        let human = match chars.next() {
-            Some(first) => first
-                .to_uppercase()
-                .next()
-                .into_iter()
-                .chain(chars)
-                .collect::<String>(),
-            None => words,
-        };
-        let title = format!("{human} · {count} places");
-        let mut shown = false;
-        for _ in 0..10 {
-            if paints_text(&ctx, &mut app, &title)? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the checks list should group every place one check fired under one heading ({title}): {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Whether the wiring makes electrical sense")?,
-            "each checks group should say in plain words what it looks at: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Tool: Pick")?,
-            "the status strip should say what a click does: {}",
-            app.message
-        );
-        let pct = (app.schematic.zoom / 15.0 * 100.0).round() as i32;
-        let zoom_label = format!("{pct}%");
-        assert!(
-            paints_text(&ctx, &mut app, &zoom_label)?,
-            "the status strip should show the zoom level ({zoom_label}): {}",
-            app.message
-        );
-        let mut mind = 0usize;
-        for key in ["erc", "drc"] {
-            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-                for finding in findings {
-                    let code = finding
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("finding");
-                    if app.project.rule_severity(code, "warning") != "error" {
-                        mind += 1;
-                    }
-                }
-            }
-        }
-        assert!(
-            mind > 0,
-            "the practice board should leave something to mind"
-        );
-        let mind_label = format!("{mind} to mind");
-        assert!(
-            paints_text(&ctx, &mut app, &mind_label)?,
-            "the status strip should count the warnings ({mind_label}): {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &mind_label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.tab,
-            Tab::Checks,
-            "tapping the warning count should open the checks list: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        let mut shown = false;
-        for _ in 0..8 {
-            if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the layers dock should offer ready-made board shapes: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Four layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names: Vec<String> = self_names(&app);
-        assert_eq!(
-            names.len(),
-            7,
-            "the four-layer shape should record seven layers: {names:?}"
-        );
-        assert!(
-            names.iter().any(|n| n == "Inner 1"),
-            "the four-layer shape should add inner copper planes: {names:?}"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Two layers · 1.6 mm")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names = self_names(&app);
-        assert_eq!(
-            names.len(),
-            3,
-            "the starter shape should replace the four-layer stack with three layers: {names:?}"
-        );
-        Ok(())
-    }
-
-    fn self_names(app: &App) -> Vec<String> {
-        app.project
-            .board
-            .layer_records
-            .iter()
-            .map(|r| r.name.clone())
-            .collect()
-    }
-
-    #[test]
-    fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, label) = app
-            .project
-            .board
-            .tracks
-            .iter()
-            .rev()
-            .find(|t| t.layer == pcbcraft_doc::Layer::Front)
-            .map(|t| {
-                (
-                    t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        app.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
-                    ),
-                )
-            })
-            .ok_or("routing should leave a wire on the top layer")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        let mut shown = false;
-        for _ in 0..14 {
-            if paints_text(&ctx, &mut app, "BOARD ANATOMY")? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the layers dock should list every piece of the board: {}",
-            app.message
-        );
-        let mut seen = false;
-        for _ in 0..12 {
-            if paints_text(&ctx, &mut app, "Top copper wires")? {
-                seen = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            seen,
-            "the anatomy list should show the top copper wires layer: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-        let mut row = false;
-        for _ in 0..18 {
-            if paints_text(&ctx, &mut app, &label)? {
-                row = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            row,
-            "the top copper layer should show the drawn wire {label}: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "picking the wire in the tree selects it on the drawing: {}",
-            app.message
-        );
-        assert_eq!(
-            app.tab,
-            Tab::Pcb,
-            "the drawing jumps to the board so the pick is visible"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.texts.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
-            "the board panel should offer printed words: {}",
-            app.message
-        );
-        app.label_text = "Widget One".into();
-        app.label_x = 3.0;
-        app.label_y = 2.0;
-        app.label_size = 1.2;
-        app.label_front = false;
-        scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Add label")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.texts.len(),
-            before + 1,
-            "one line of words lands on the board: {}",
-            app.message
-        );
-        let label = app
-            .project
-            .board
-            .texts
-            .last()
-            .ok_or("the label should be on the board")?;
-        assert!(
-            label.text == "Widget One"
-                && label.layer == pcbcraft_doc::Layer::Back
-                && (label.position.x - 3.0).abs() < 1e-9
-                && (label.size - 1.2).abs() < 1e-9,
-            "the label carries the words, side, spot and letter height that were set"
-        );
-        for _ in 0..3 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "Widget One · Bottom")?,
-            "the printed words are listed so they can be wiped: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Erase")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.texts.len(),
-            before,
-            "erasing wipes exactly that line of words: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.rule_areas.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..22 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
-            "the rules page should offer stricter corners: {}",
-            app.message
-        );
-        app.area_x = 1.0;
-        app.area_y = 1.0;
-        app.area_w = 4.0;
-        app.area_h = 4.0;
-        app.area_gap = 0.5;
-        app.area_limited = true;
-        app.area_height = 3.0;
-        authoring::tests::tap(&ctx, &mut app, "Add area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.rule_areas.len(),
-            before + 1,
-            "one stricter corner is marked on the board: {}",
-            app.message
-        );
-        let area = app
-            .project
-            .board
-            .rule_areas
-            .last()
-            .ok_or("the area should be on the board")?;
-        assert!(
-            (area.clearance - 0.5).abs() < 1e-9 && area.max_height == Some(3.0),
-            "the area carries the gap and height limit that were typed"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Stricter areas on the board")?,
-            "the area is listed so it can be erased: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Erase area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.rule_areas.len(),
-            before,
-            "erasing hands the corner back to the normal rules: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..18 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 300.0)?,
-            "the rules page should offer team lines: {}",
-            app.message
-        );
-        app.dp_gap = 0.3;
-        authoring::tests::tap(&ctx, &mut app, "Declare pair")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .diff_pairs
-                .iter()
-                .any(|d| d.name == "USB" && (d.gap - 0.3).abs() < 1e-9 && d.net_p != d.net_n),
-            "one click declares the pair with the typed gap: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Pairs you have declared")?,
-            "the pair is listed so it can be taken away: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.diff_pairs.is_empty(),
-            "removing stops the checks watching the pair: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        assert!(
-            app.project.nets.len() >= 2,
-            "the practice design has more than one connection"
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..14 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "PAIR CLEARANCES")?,
-            "the rules dock should offer pair spacing: {}",
-            app.message
-        );
-        app.pair_clearance = 0.9;
-        authoring::tests::tap(&ctx, &mut app, "Set spacing")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .pair_rules
-                .iter()
-                .any(|r| r.clearance > 0.89 && r.a != r.b),
-            "one click sets a spacing rule between two different connections: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "away from")?,
-            "the rule is listed in plain words: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Clear")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.pair_rules.is_empty(),
-            "clearing hands the pair back to the normal rules: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..2 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "HOW STRICT TO BE")?,
-            "the rules dock should also say how loud each check is: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.rule_disabled("missing_footprint"),
-            "the bottom check is silenced by one click: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Auto")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            !app.project.rule_severity.contains_key("missing_footprint"),
-            "Auto hands the choice back to the built-in default: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let total = |app: &App| -> usize {
-            ["erc", "drc"]
-                .iter()
-                .map(|k| {
-                    app.checks
-                        .get(*k)
-                        .and_then(Value::as_array)
-                        .map_or(0, |v| v.len())
-                })
-                .sum()
-        };
-        let before = total(&app);
-        assert!(
-            before > 0,
-            "the practice board has findings to quiet: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Quiet this area")?,
-            "every finding offers to quiet its corner of the board: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Quiet this area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let code = app
-            .project
-            .rule_regions
-            .keys()
-            .next()
-            .cloned()
-            .ok_or("one click should draw a quiet zone")?;
-        assert!(
-            total(&app) < before,
-            "the finding inside that zone stops nagging: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Quiet zones")?,
-            "the quiet zones are listed so they can be cleared: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &format!("Clear {code} zones"))?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .rule_regions
-                .get(&code)
-                .is_none_or(|v| v.is_empty()),
-            "clearing hands the whole board back to the check: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "component.add",
-            json!({"kind":"resistor","position":{"x":20.0,"y":20.0},"reference":"R9"}),
-        );
-        let r9 = |app: &App| -> usize {
-            app.checks
-                .get("erc")
-                .and_then(Value::as_array)
-                .map(|rows| {
-                    rows.iter()
-                        .filter(|r| {
-                            r.get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .contains("R9")
-                        })
-                        .count()
-                })
-                .unwrap_or(0)
-        };
-        let total = |app: &App| -> usize {
-            ["erc", "drc"]
-                .iter()
-                .map(|k| {
-                    app.checks
-                        .get(*k)
-                        .and_then(Value::as_array)
-                        .map_or(0, |v| v.len())
-                })
-                .sum()
-        };
-        assert!(
-            r9(&app) == 2 && total(&app) > 2,
-            "the stray part adds two findings to a board that already has some copper to flag: {}",
-            app.message
-        );
-        let before = total(&app);
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Hide this")?,
-            "every finding offers to be hidden: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Hide this")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            total(&app) < before,
-            "hiding one finding takes it out of the list: {}",
-            app.message
-        );
-        let code = app
-            .project
-            .rule_exclusions
-            .keys()
-            .next()
-            .cloned()
-            .ok_or("a hidden finding should be remembered by its check")?;
-        let label = format!("Bring back {code}");
-        assert!(
-            paints_text(&ctx, &mut app, &label)?,
-            "the app keeps a way back for everything hidden: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            total(&app),
-            before,
-            "bringing it back shows every hidden finding again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
-            "the board geometry section should offer a hole: {}",
-            app.message
-        );
-        let before = app.project.board.cutouts.len();
-        app.cut_x = 25.0;
-        app.cut_y = 20.0;
-        app.cut_r = 1.5;
-        authoring::tests::tap(&ctx, &mut app, "Add hole")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.cutouts.len(),
-            before + 1,
-            "one more hole is cut into the board: {}",
-            app.message
-        );
-        let hole = app
-            .project
-            .board
-            .cutouts
-            .iter()
-            .find(|h| (h.center.x - 25.0).abs() < 1e-9 && (h.center.y - 20.0).abs() < 1e-9)
-            .ok_or("the hole should sit exactly where it was placed")?;
-        assert!(
-            (hole.radius - 1.5).abs() < 1e-9,
-            "the hole should be exactly the size that was typed"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "hole.slot",
-            json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
-        );
-        let slot = app
-            .project
-            .board
-            .holes
-            .iter()
-            .find(|h| h.is_slot())
-            .map(|h| h.id)
-            .ok_or("the slot should be on the board")?;
-        app.change_tab(Tab::Pcb);
-        app.refresh();
-        let ctx = egui::Context::default();
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
-            "the hole list is the place a slot is read: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
-            "a slot reads as its width and its overall length: {}",
-            app.message
-        );
-        // The canvas paints the slot without complaint; the drawing is the
-        // only place a capsule outline shows up.
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.select(Some(slot));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.holes.iter().any(|h| h.id == slot),
-            "looking at the slot leaves it on the board"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let resistor = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference.starts_with('R'))
-            .map(|c| c.id)
-            .ok_or("the practice design should carry a resistor")?;
-        app.select(Some(resistor));
-        app.refresh();
-        let refs: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Duplicate")?,
-            "a chosen part offers to be copied: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let after: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        assert_eq!(
-            after.len(),
-            refs.len() + 1,
-            "one more part sits on the board: {refs:?} -> {after:?}"
-        );
-        assert_eq!(
-            after.iter().filter(|r| r.starts_with('R')).count(),
-            refs.iter().filter(|r| r.starts_with('R')).count() + 1,
-            "the copy got its own new reference: {after:?}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.select(Some(10));
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Lock in place")?,
-            "a chosen footprint offers to be frozen: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Lock in place")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let frozen = |app: &App| {
-            app.project
-                .board
-                .footprints
-                .iter()
-                .find(|f| f.id == 10)
-                .and_then(|f| f.locked)
-                == Some(true)
-        };
-        assert!(frozen(&app), "one click freezes the part: {}", app.message);
-        assert!(
-            !app.tool_call(
-                "footprint.move",
-                json!({"id":10,"position":{"x":20.0,"y":20.0}})
-            ),
-            "a frozen part refuses to be shoved: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Unlock")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            !frozen(&app),
-            "unlocking lets the part move freely again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.select(Some(10));
-        app.refresh();
-        let before = app
-            .project
-            .board
-            .footprints
-            .iter()
-            .find(|f| f.id == 10)
-            .map(|f| f.position.x)
-            .ok_or("the practice board should carry J1's footprint")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Dock left")?,
-            "a chosen footprint offers to sit flush to an edge: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Dock left")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let after = app
-            .project
-            .board
-            .footprints
-            .iter()
-            .find(|f| f.id == 10)
-            .map(|f| f.position.x)
-            .ok_or("the practice board should still carry J1's footprint")?;
-        assert!(
-            after < before && after > 0.0,
-            "the part slid in to kiss the left edge: {before} -> {after}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, net, middle) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    t.net,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                )
-            })
-            .ok_or("routing should leave a connection to thicken")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "one leg is picked up: {}",
-            app.message
-        );
-        app.track_width = 0.6;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Thicken whole connection")?,
-            "the inspector offers to widen the entire run, not just the picked leg: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Thicken whole connection")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let legs: Vec<f64> = app
-            .project
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.net == net)
-            .map(|t| t.width)
-            .collect();
-        assert!(
-            legs.len() > 1 && legs.iter().all(|w| (w - 0.6).abs() < 1e-9),
-            "every stretch of the connection is now half a millimetre across: {:?}",
-            legs
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle, before) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                    app.project.board.tracks.len(),
-                )
-            })
-            .ok_or("routing should leave a wire to cut")?;
-        app.select(Some(id));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Cut in half")?,
-            "a chosen wire offers to be cut in half: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Cut in half")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.tracks.len(),
-            before + 1,
-            "one wire becomes two: {}",
-            app.message
-        );
-        let on_mid = |p: Point| (p.x - middle.x).abs() < 1e-6 && (p.y - middle.y).abs() < 1e-6;
-        assert!(
-            app.project
-                .board
-                .tracks
-                .iter()
-                .any(|t| on_mid(t.start) || on_mid(t.end)),
-            "the two halves meet exactly at the middle of the original wire"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle, before) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                    app.project.board.tracks.len(),
-                )
-            })
-            .ok_or("routing should leave a corner to smooth")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "the first leg of the route is picked up: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Cut corner")?,
-            "a wire that meets another offers a corner cut: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Cut corner")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.tracks.len() > before,
-            "the cut adds a diagonal so the run turns gently: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let folder = std::env::temp_dir().join(format!("pcbcraftdraw-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        app.make_dir = folder.to_string_lossy().into_owned();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..6 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.pdf").is_file(),
-            "one click leaves a printable drawing on disk: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Web drawing (SVG)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.svg").is_file(),
-            "the web drawing lands next to the printable one: {}",
-            app.message
-        );
-        assert!(
-            app.message.contains("Web drawing saved"),
-            "the app says where the drawing went: {}",
-            app.message
-        );
-        let _ = std::fs::remove_dir_all(&folder);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.zones.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
-            "the board geometry section should offer a copper pour: {}",
-            app.message
-        );
-        app.pour_x = 2.0;
-        app.pour_y = 2.0;
-        app.pour_w = 6.0;
-        app.pour_h = 4.0;
-        authoring::tests::tap(&ctx, &mut app, "Pour copper")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.zones.len(),
-            before + 1,
-            "one rectangle of copper is poured: {}",
-            app.message
-        );
-        let zone = app
-            .project
-            .board
-            .zones
-            .last()
-            .ok_or("the pour should be on the board")?;
-        assert_eq!(
-            zone.net, app.pour_net,
-            "the pour went to the connection picked in the box"
-        );
-        assert!(
-            zone.outline
-                .iter()
-                .all(|p| p.x >= 2.0 && p.x <= 8.0 && p.y >= 2.0 && p.y <= 6.0)
-                && zone.outline.iter().any(|p| (p.x - 8.0).abs() < 1e-9),
-            "the copper covers exactly the rectangle that was typed"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let net = app
-            .project
-            .nets
-            .first()
-            .map(|n| n.id)
-            .ok_or("the practice design should have a net")?;
-        app.tool_call(
-            "zone.place",
-            json!({"net": net, "layer":"F.Cu","outline":[
-                {"x":2.0,"y":2.0},{"x":8.0,"y":2.0},{"x":8.0,"y":6.0},{"x":2.0,"y":6.0},{"x":2.0,"y":2.0}
-            ]}),
-        );
-        let zone_id = app
-            .project
-            .board
-            .zones
-            .last()
-            .map(|z| z.id)
-            .ok_or("the poured area should be on the board")?;
-        let vias_before = app.project.board.vias.len();
-        app.select(Some(zone_id));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Fill with vias")?,
-            "a chosen copper area offers to be stitched: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Fill with vias")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let stitched = app.project.board.vias.len() - vias_before;
-        assert!(
-            stitched >= 4,
-            "a grid of connecting holes lands inside the area: {}",
-            app.message
-        );
-        assert!(
-            app.project
-                .board
-                .vias
-                .iter()
-                .rev()
-                .take(stitched)
-                .all(|v| v.net == net),
-            "every new hole belongs to the area's connection"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let folder = std::env::temp_dir().join(format!("pcbcraft-drill-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        app.make_dir = folder.to_string_lossy().into_owned();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
-            "the make files should include a drill map: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Drill map (CSV)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let map = folder.join("board-drill-tools.csv");
-        let text = std::fs::read_to_string(&map)
-            .map_err(|e| format!("the drill map should land in the make folder: {e}"))?;
-        assert!(
-            !text.is_empty(),
-            "the drill map counts the holes on the board"
-        );
-        let _ = std::fs::remove_dir_all(&folder);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let folder = std::env::temp_dir().join(format!("pcbcraft3d-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        app.make_dir = folder.to_string_lossy().into_owned();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..6 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
-            "the factory folder section should also offer a 3D look: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "3D model (Step)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.step").is_file(),
-            "one click leaves a Step model on disk: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "3D viewer file")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.wrl").is_file(),
-            "the viewer file lands next to the model: {}",
-            app.message
-        );
-        assert!(
-            app.message.contains("3D viewer file saved"),
-            "the app says where the file went: {}",
-            app.message
-        );
-        let _ = std::fs::remove_dir_all(&folder);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..8 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
-            "the factory folder section should also plan panels: {}",
-            app.message
-        );
-        let width = app.project.board.width;
-        authoring::tests::tap(&ctx, &mut app, "Preview panel")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "4 copies")?,
-            "a two by two preview counts four boards: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "panel")?,
-            "the panel's finished size is spelled out: {}",
-            app.message
-        );
-        app.refresh();
-        assert_eq!(
-            app.project.board.width, width,
-            "planning a panel never touches the design"
-        );
-        Ok(())
-    }
-
-    #[test]
     fn the_nets_tab_reports_the_copper_each_net_carries() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -9614,307 +8610,6 @@ mod tests {
         assert!(
             paints_text(&ctx, &mut app, "mm")?,
             "routed lengths are spelled out in millimetres: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "component.add",
-            json!({"kind":"resistor","reference":"R7","value":"1 k","position":{"x":50.0,"y":40.0}}),
-        );
-        app.run(
-            "component.add",
-            json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Preview")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "R7  →  R3")?,
-            "the plan spells out a new number before anything changes: {}",
-            app.message
-        );
-        let untouched = app.project.components.iter().any(|c| c.reference == "R9");
-        assert!(untouched, "a preview never touches the design");
-        authoring::tests::tap(&ctx, &mut app, "Renumber")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let mut references: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        references.sort();
-        assert_eq!(
-            references,
-            ["D1", "J1", "R1", "R2", "R3"],
-            "the numbers follow placement order: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tab = Tab::Pcb;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.canvas_click(Point::new(-27.0, -17.0), 1.0);
-        assert_eq!(
-            app.project.board.fiducials.len(),
-            1,
-            "one click lays one mark: {}",
-            app.message
-        );
-        app.canvas_click(Point::new(27.0, 17.0), 1.0);
-        assert_eq!(
-            app.project.board.fiducials.len(),
-            2,
-            "the tool stays ready for the next corner: {}",
-            app.message
-        );
-        assert!(
-            app.project
-                .board
-                .fiducials
-                .iter()
-                .all(|fid| (fid.diameter - 1.0).abs() < 1e-9),
-            "both marks are the usual 1 mm disc: {}",
-            app.message
-        );
-        app.tool = Tool::Select;
-        app.tab = Tab::Schematic;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
-            "the marks are listed with their size and side"
-        );
-        let last = app.project.board.fiducials[1].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.fiducial_edit = Some((last, 1.2, false));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.fiducials.iter().any(|fid| {
-                fid.id == last
-                    && (fid.diameter - 1.2).abs() < 1e-9
-                    && fid.layer == pcbcraft_doc::Layer::Back
-            }),
-            "the mark is resized and moved to the bottom: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.fiducials.len(),
-            1,
-            "the other mark comes off the board: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "component.add",
-            json!({"kind":"resistor","reference":"R9","value":"1 k","position":{"x":20.0,"y":40.0}}),
-        );
-        app.refresh();
-        app.tab = Tab::Schematic;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "No connect")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let spare = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R9")
-            .and_then(|c| c.pin_position("1"))
-            .ok_or("the spare resistor should have a pin 1")?;
-        let before = app.project.no_connects.len();
-        app.canvas_click(spare, 1.0);
-        assert_eq!(
-            app.project.no_connects.len(),
-            before + 1,
-            "clicking the pin marks it unused: {}",
-            app.message
-        );
-        assert!(
-            app.project.no_connects.iter().any(|f| {
-                f.pin.component
-                    == app
-                        .project
-                        .components
-                        .iter()
-                        .find(|c| c.reference == "R9")
-                        .map(|c| c.id)
-                        .unwrap_or_default()
-                    && f.pin.pin == "1"
-            }),
-            "the mark lands on the pin that was clicked: {}",
-            app.message
-        );
-        app.canvas_click(spare, 1.0);
-        assert_eq!(
-            app.project.no_connects.len(),
-            before,
-            "clicking the mark again clears it: {}",
-            app.message
-        );
-        app.canvas_click(spare, 1.0);
-        assert_eq!(
-            app.project.no_connects.len(),
-            before + 1,
-            "the tool stays ready for the next unused pin: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tab = Tab::Pcb;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.canvas_click(Point::new(-25.0, -17.0), 1.0);
-        assert_eq!(
-            app.project.board.holes.len(),
-            1,
-            "one click drills one hole: {}",
-            app.message
-        );
-        app.canvas_click(Point::new(25.0, -17.0), 1.0);
-        assert_eq!(
-            app.project.board.holes.len(),
-            2,
-            "the tool stays ready for the next corner: {}",
-            app.message
-        );
-        assert!(
-            app.project
-                .board
-                .holes
-                .iter()
-                .all(|h| (h.diameter - 3.2).abs() < 1e-9),
-            "both holes use the drill size on show: {}",
-            app.message
-        );
-        app.tool = Tool::Select;
-        app.tab = Tab::Schematic;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "3.20 mm")?,
-            "the holes are listed with their drill size"
-        );
-        let id = app.project.board.holes[0].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.hole_edit = Some((id, 3.0));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .board
-                .holes
-                .iter()
-                .any(|h| h.id == id && (h.diameter - 3.0).abs() < 1e-9),
-            "the hole is resized: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.holes.len(),
-            1,
-            "the other hole is drilled back out: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Builds")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New build")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "choose a part to swap")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.swap_name = "0603".into();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Swap package")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the sample should have an R1")?;
-        assert_eq!(
-            app.project.variants[0]
-                .footprints
-                .iter()
-                .find(|o| o.component == r1)
-                .map(|o| o.footprint.as_str()),
-            Some("0603"),
-            "the build swaps R1 into 0603: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 swapped")?,
-            "the row counts the swap"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "R1 fits 0603")?,
-            "the swap is spelled out in plain words"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants[0].footprints.is_empty(),
-            "the part goes back to its own package: {}",
             app.message
         );
         Ok(())
@@ -10122,273 +8817,7 @@ mod tests {
         assert!(checked >= 150, "the sweep covered the whole registry");
         Ok(())
     }
-    #[test]
-    fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.change_tab(Tab::Pcb);
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.user_layers.len(),
-            1,
-            "the new layer button should add a layer: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Line")?;
-        let click = |p: egui::Pos2| {
-            vec![
-                egui::Event::PointerMoved(p),
-                egui::Event::PointerButton {
-                    pos: p,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::NONE,
-                },
-                egui::Event::PointerButton {
-                    pos: p,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ]
-        };
-        frame(
-            &ctx,
-            &mut app,
-            click(egui::pos2(660.0, 460.0)),
-            egui::Modifiers::NONE,
-        );
-        frame(
-            &ctx,
-            &mut app,
-            click(egui::pos2(760.0, 540.0)),
-            egui::Modifiers::NONE,
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.user_layers[0].shapes.len(),
-            1,
-            "two clicks should leave one straight cut line: {}",
-            app.message
-        );
-        app.art_text = "HELLO LASER".into();
-        authoring::tests::tap(&ctx, &mut app, "Words")?;
-        frame(
-            &ctx,
-            &mut app,
-            click(egui::pos2(700.0, 600.0)),
-            egui::Modifiers::NONE,
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let layer = &app.project.board.user_layers[0];
-        assert_eq!(
-            layer.shapes.len(),
-            2,
-            "one click with words armed should print them: {}",
-            app.message
-        );
-        assert!(
-            layer.shapes.iter().any(|sh| matches!(
-                sh,
-                pcbcraft_doc::ArtShape::Text { text, .. } if text == "HELLO LASER"
-            )),
-            "the printed words should be exactly what was typed"
-        );
-        Ok(())
-    }
-    #[test]
-    fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        // The sample board has no vias, so the story places one in the middle
-        // of the board and then draws a cut line straight across it.
-        app.tool_call(
-            "via.place",
-            json!({"net":4,"position":{"x":20.0,"y":30.0},"diameter":0.8,"drill":0.4}),
-        );
-        assert_eq!(
-            app.project.board.vias.len(),
-            1,
-            "the via should be placed: {}",
-            app.message
-        );
-        app.tool_call(
-            "board.layer_add",
-            json!({"name":"Card Outline","kind":"cut"}),
-        );
-        let layer = app
-            .project
-            .board
-            .user_layers
-            .iter()
-            .find(|l| l.name == "Card Outline")
-            .map(|l| l.id)
-            .ok_or("the cut layer should be added")?;
-        app.tool_call(
-            "board.layer_line_add",
-            json!({"layer":layer,"x1":18.0,"y1":30.0,"x2":22.0,"y2":30.0}),
-        );
-        app.refresh();
-        let conflict = app
-            .checks
-            .get("drc")
-            .and_then(Value::as_array)
-            .is_some_and(|rows| {
-                rows.iter()
-                    .any(|r| r.get("code").and_then(Value::as_str) == Some("cut_hits_via"))
-            });
-        assert!(
-            conflict,
-            "the cut across the via is reported: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Cut hits via")?,
-            "the review names the conflict in plain words: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 to fix")?,
-            "a cut through a via lands in the footer count: {}",
-            app.message
-        );
-        Ok(())
-    }
-    #[test]
-    fn a_newcomer_opens_rules_and_settings_from_the_top() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        assert!(
-            paints_text(&ctx, &mut app, "Design rules travel with the design")?,
-            "the Rules tab explains what rules are for: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "New class")?,
-            "the Rules tab offers a way to add a rule set"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            paints_text(&ctx, &mut app, "APPEARANCE")?,
-            "the Settings tab opens with the look of the app"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "BOARD GEOMETRY")?,
-            "the board settings that used to crowd the aside now live on the Settings tab"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Nothing selected")?,
-            "the aside no longer holds the project settings"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Dark")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(app.preferences.dark, "the theme switch on the tab works");
-        Ok(())
-    }
 
-    #[test]
-    fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.change_tab(Tab::Pcb);
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            paints_text(&ctx, &mut app, "This board")?,
-            "the tree starts at the board itself: {}",
-            app.message
-        );
-        let net = app.project.nets[0].name.clone();
-        app.tree_query = net.clone();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, &net)?,
-            "a search keeps the matching connection in the tree: {}",
-            app.message
-        );
-        app.tree_query.clear();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Top copper wires")?,
-            "the copper layers are rows of the tree: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Fade others")?,
-            "a copper layer offers a way to fade the rest: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Fade others")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.focus_layer.as_deref(),
-            Some("copper:front"),
-            "fading starts from the top copper layer: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "FOCUSED ON Top copper")?,
-            "the drawing says what is focused: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Stop fading")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.focus_layer, None,
-            "one more tap brings everything back: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    fn frame(
-        ctx: &egui::Context,
-        app: &mut App,
-        mut events: Vec<egui::Event>,
-        modifiers: egui::Modifiers,
-    ) -> egui::FullOutput {
-        events.insert(0, egui::Event::ModifiersChanged(modifiers));
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1440.0, 940.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        // This input test has no GPU renderer; intentionally discard texture uploads.
-        output.textures_delta.clear();
-        output
-    }
     #[test]
     fn a_beginners_first_session_places_two_parts_and_walks_every_tab() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -10539,23 +8968,8 @@ mod tests {
             1,
             "editor must have only its root window"
         );
-        let pos = egui::Pos2::new(220.0, 64.0);
-        for pressed in [true, false] {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        authoring::tests::tap(&ctx, &mut app, "Layout")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(matches!(app.tab, Tab::Pcb));
         assert_eq!(app.selected, Some(11));
         let key = |key, modifiers| egui::Event::Key {
@@ -10685,153 +9099,7 @@ mod tests {
         );
         Ok(())
     }
-
-    #[test]
-    fn a_newcomer_writes_their_own_check() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..1 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "CHECKS YOU WRITE")?,
-            "the rules dock invites a check of your own: {}",
-            app.message
-        );
-        app.custom_name = "keep it small".into();
-        app.custom_measure = 2;
-        app.custom_limit = 2.0;
-        app.custom_loud = true;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add this check")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .custom_checks
-                .iter()
-                .any(|c| c.name == "keep it small"),
-            "the check is written into the design: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
-            "the review shows the check under the name it was given: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 to fix")?,
-            "a breach of a must-fix check lands in the footer count: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        scrolled_to_at(&ctx, &mut app, "Remove this check", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.custom_checks.is_empty(),
-            "one click takes the check away again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the practice board should have a resistor")?;
-        app.tool_call(
-            "component.field",
-            json!({"id": r1, "key": "Description", "value": "blinky red"}),
-        );
-        app.tool_call(
-            "library.symbol.upsert",
-            json!({"definition": {
-                "name": "SetR",
-                "reference": "R",
-                "value": "10k",
-                "description": "thin film",
-                "keywords": "resistor trim",
-                "footprint": "",
-                "set": "Power bits",
-                "pins": [{"number": "1", "name": "", "position": {"x": -5.0, "y": 0.0},
-                    "angle": 0.0, "length": 2.5, "electrical_type": "passive",
-                    "unit": 1, "body_style": 0}],
-                "graphics": [],
-                "extends": null,
-                "raw_source": "",
-                "unsupported": []
-            }}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "    blinky red · built in")?,
-            "a part row says what the part is and where it came from: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Add part")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Power bits (1 part)")?,
-            "library parts are grouped under their set name: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "thin film · search words: resistor · trim")?,
-            "each library part is a card that says what it is: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "SetR")?,
-            "the part itself is offered under its set: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            !paints_text(&ctx, &mut app, "SetR")?,
-            "unticking the set hides every part inside it: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "SetR")?,
-            "ticking it again brings the group back: {}",
-            app.message
-        );
-        Ok(())
-    }
 }
+
+#[cfg(test)]
+mod e2e;

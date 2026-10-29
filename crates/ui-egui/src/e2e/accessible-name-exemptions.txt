@@ -1,0 +1,10 @@
+# Interactive controls that still have no accessible name, counted per role. One per line:
+#   role | count | #issue | reason
+# Counts, not widget ids, because ids move whenever another change adds a control.
+# The gate in shell.rs fails when a role has more unnamed controls than listed, and
+# when it has fewer (lower the count or delete the line). Name the control instead of
+# raising a count.
+SpinButton | 27 | #646 | number fields show a value but not their label; follow-up issue to be filed
+ComboBox | 11 | #646 | drop-down lists show a value but not their label; follow-up issue to be filed
+TextInput | 10 | #646 | text fields have no label of their own; follow-up issue to be filed
+MultilineTextInput | 1 | #646 | the assistant message box has no label of its own; follow-up to name it

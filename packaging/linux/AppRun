@@ -1,0 +1,84 @@
+#!/bin/sh
+# PCBCraft AppImage entry point (packaging/linux/AppRun).
+# Adapted from SolidCraft AppRun (bherbruck/solidcraft; MIT OR Apache-2.0; see ATTRIBUTION.md).
+#
+# Installs the .desktop entry and hicolor icons into $XDG_DATA_HOME on first run so
+# Wayland compositors can resolve the window app_id to our icon. Opt out with
+# PCBCRAFT_NO_DESKTOP_INTEGRATION=1 or a marker file
+# $XDG_DATA_HOME/pcbcraft/no-desktop-integration.
+
+set -u
+
+APPDIR="$(dirname "$(readlink -f "$0")")"
+DESK_ID=io.github.tangency-labs.pcbcraft
+
+integrate() {
+  case "${PCBCRAFT_NO_DESKTOP_INTEGRATION:-}" in
+    1 | true | yes) return 0 ;;
+  esac
+  appimage="${APPIMAGE:-}"
+  [ -n "$appimage" ] && [ -f "$appimage" ] || return 0
+  appimage="$(readlink -f "$appimage")" || return 0
+  case "$appimage" in
+    *[\"\`\$\\%]* | *'
+'*) return 0 ;;
+  esac
+  home="${HOME:-}"
+  [ -n "$home" ] || return 0
+  data="${XDG_DATA_HOME:-$home/.local/share}"
+  [ -e "$data/pcbcraft/no-desktop-integration" ] && return 0
+  src_desktop="$APPDIR/usr/share/applications/$DESK_ID.desktop"
+  [ -f "$src_desktop" ] || return 0
+
+  apps="$data/applications"
+  if [ -n "${DESKTOPINTEGRATION:-}" ]; then
+    mine="$apps/$DESK_ID.desktop"
+    if [ -f "$mine" ] && grep -q '^Exec="' "$mine"; then
+      rm -f "$mine"
+      command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1
+    fi
+    return 0
+  fi
+  for other in "$apps"/appimagekit_*.desktop; do
+    if ! { [ -f "$other" ] && grep -qF "$appimage" "$other" 2>/dev/null; }; then
+      continue
+    fi
+    mine="$apps/$DESK_ID.desktop"
+    if [ -f "$mine" ] && grep -q '^Exec="' "$mine"; then
+      rm -f "$mine"
+      command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1
+    fi
+    return 0
+  done
+
+  mkdir -p "$apps" 2>/dev/null || return 0
+  tmp="$apps/.$DESK_ID.tmp.$$"
+  esc="$(printf '%s' "$appimage" | sed 's/[\\&|]/\\&/g')"
+  if sed -e "s|^Exec=.*|Exec=\"$esc\" %F|" -e '/^TryExec=/d' "$src_desktop" 2>/dev/null >"$tmp"; then
+    if cmp -s "$tmp" "$apps/$DESK_ID.desktop"; then
+      rm -f "$tmp"
+    else
+      if mv -f "$tmp" "$apps/$DESK_ID.desktop" 2>/dev/null; then
+        command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1
+      else
+        rm -f "$tmp"
+      fi
+    fi
+  else
+    rm -f "$tmp"
+    return 0
+  fi
+
+  src_icons="$APPDIR/usr/share/icons/hicolor"
+  [ -d "$src_icons" ] || return 0
+  icons="$data/icons/hicolor"
+  (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
+    mkdir -p "$icons/$(dirname "$rel")" 2>/dev/null || continue
+    if ! cmp -s "$src_icons/$rel" "$icons/$rel"; then
+      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null || true
+    fi
+  done
+}
+
+integrate
+exec "$APPDIR/usr/bin/pcbcraft" "$@"

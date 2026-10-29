@@ -94,6 +94,19 @@ pub fn layer_raster(p: &Project, opts: &RasterOptions) -> Result<Raster, String>
         ));
     }
     let collected = layer_shapes(p, opts.layer)?;
+    rasterize_shapes(p, &collected.shapes, opts)
+}
+
+/// Rasterize an already collected shape list with the same pipeline as
+/// [`layer_raster`], so other artwork writers share the pixel path.
+pub fn rasterize_shapes(
+    p: &Project,
+    shapes: &[Shape],
+    opts: &RasterOptions,
+) -> Result<Raster, String> {
+    opts.validate()?;
+    let w_px = pixel_extent(p.board.width, opts.margin_mm, opts.dpi);
+    let h_px = pixel_extent(p.board.height, opts.margin_mm, opts.dpi);
     let mut grey = GrayImage::from_pixel(w_px, h_px, Luma([255]));
     if opts.outline {
         let edge = profile_edge(p);
@@ -107,7 +120,7 @@ pub fn layer_raster(p: &Project, opts: &RasterOptions) -> Result<Raster, String>
             ShapePolarity::Positive,
         );
     }
-    for shape in &collected.shapes {
+    for shape in shapes {
         draw_shape(&mut grey, shape, opts, p);
     }
     if let Some(reg) = opts.registration {
