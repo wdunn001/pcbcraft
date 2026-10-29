@@ -22,6 +22,47 @@ pub(crate) fn paints_text(
     }
     Ok(false)
 }
+/// Open a page tab that moved out of the workbench row into the menus.
+pub(crate) fn go_to_tab(
+    ctx: &egui::Context,
+    app: &mut App,
+    tab: Tab,
+) -> Result<(), String> {
+    match tab {
+        Tab::Checks => {
+            authoring::tests::tap(ctx, app, "View")?;
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            authoring::tests::tap(ctx, app, "Checks")?;
+        }
+        Tab::Rules => {
+            authoring::tests::tap(ctx, app, "View")?;
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            authoring::tests::tap(ctx, app, "Rules")?;
+        }
+        Tab::Settings => {
+            authoring::tests::tap(ctx, app, "Edit")?;
+            frame(ctx, app, vec![], egui::Modifiers::NONE);
+            authoring::tests::tap(ctx, app, "Preferences")?;
+        }
+        Tab::Pcb => authoring::tests::tap(ctx, app, "Layout")?,
+        other => app.change_tab(other),
+    }
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+/// The left aside tab that shows the unified Layers tree.
+pub(crate) fn show_layers_tab(ctx: &egui::Context, app: &mut App) {
+    app.preferences.left_tab = 0;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
+/// The left aside tab that shows the library browser.
+pub(crate) fn show_library_tab(ctx: &egui::Context, app: &mut App) {
+    app.preferences.left_tab = 1;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+}
+
 /// Scroll the right-aside layers tree until `needle` appears, then nudge
 /// the wheel so rows just below it are visible too.
 pub(crate) fn scrolled_to(
@@ -313,9 +354,11 @@ pub(crate) fn key(ctx: &egui::Context, app: &mut App, key: egui::Key) {
 
 /// Reach a tree row with the keyboard cursor, then press one key on it.
 pub(crate) fn press_on(ctx: &egui::Context, app: &mut App, row: &str, k: egui::Key) {
+    app.preferences.left_tab = 0;
     app.tree.focus_row(row);
-    for _ in 0..4 {
+    for _ in 0..8 {
         frame(ctx, app, vec![], egui::Modifiers::NONE);
     }
     key(ctx, app, k);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
 }

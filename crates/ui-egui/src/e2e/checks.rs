@@ -33,7 +33,7 @@ fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
     let (code, count) = best.ok_or("the practice board should have findings")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    go_to_tab(&ctx, &mut app, Tab::Checks)?;
     let words = code.replace('_', " ");
     let mut chars = words.chars();
     let human = match chars.next() {
@@ -87,7 +87,7 @@ fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for _ in 0..2 {
         frame(
@@ -153,7 +153,7 @@ fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    go_to_tab(&ctx, &mut app, Tab::Checks)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Quiet this area")?,
@@ -238,7 +238,7 @@ fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
     let before = total(&app);
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    go_to_tab(&ctx, &mut app, Tab::Checks)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Hide this")?,
@@ -285,7 +285,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for _ in 0..1 {
         frame(
@@ -324,7 +324,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         "the check is written into the design: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    go_to_tab(&ctx, &mut app, Tab::Checks)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
@@ -336,7 +336,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         "a breach of a must-fix check lands in the footer count: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
     scrolled_to_at(&ctx, &mut app, "Remove this check", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);

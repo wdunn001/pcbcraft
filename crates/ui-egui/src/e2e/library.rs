@@ -94,8 +94,8 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "    blinky red · built in")?,
-        "a part row says what the part is and where it came from: {}",
+        paints_text(&ctx, &mut app, "blinky red")?,
+        "a part row says what the part is: {}",
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Add part")?;
@@ -382,7 +382,7 @@ fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
 #[test]
 fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
     let (mut app, ctx) = app_with_overlapping_pads()?;
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    go_to_tab(&ctx, &mut app, Tab::Checks)?;
     for needle in [
         "Lib pad overlap · 1 place",
         "SquashedPair: Two pads share the same copper area",

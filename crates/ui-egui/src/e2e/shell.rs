@@ -39,7 +39,7 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
         mind > 0,
         "the practice board should leave something to mind"
     );
-    let mind_label = format!("{mind} to mind");
+    let mind_label = app.catalog.plural("board.footer.warnings", mind as u64);
     assert!(
         paints_text(&ctx, &mut app, &mind_label)?,
         "the status strip should count the warnings ({mind_label}): {}",
@@ -134,13 +134,13 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Library")?,
-        "the left dock is the library browser: {}",
+        paints_text(&ctx, &mut app, "Layers")?,
+        "the left aside leads with the layers tree: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Layers")?,
-        "the right dock leads with the layers tree: {}",
+        paints_text(&ctx, &mut app, "Library")?,
+        "the left aside also offers the library browser: {}",
         app.message
     );
     assert!(
@@ -154,8 +154,7 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
         "build outputs moved under Files: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    go_to_tab(&ctx, &mut app, Tab::Pcb)?;
     assert!(
         paints_text(&ctx, &mut app, "Mounting hole")?,
         "board tools sit in the strip under the tabs: {}",
@@ -542,9 +541,14 @@ fn a_newcomer_sees_a_slim_bar_with_only_the_brand_and_the_menus() -> Result<(), 
         assert!(paints_text(&ctx, &mut app, needle)?, "Help lists {needle}");
     }
     authoring::tests::tap(&ctx, &mut app, "File")?;
-    for needle in ["New", "Open", "Save", "Settings", "Export", "Copy picture"] {
+    for needle in ["New", "Open", "Save", "Export", "Copy picture"] {
         assert!(paints_text(&ctx, &mut app, needle)?, "File lists {needle}");
     }
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Preferences")?,
+        "project settings live under Edit"
+    );
     Ok(())
 }
 
@@ -572,7 +576,7 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.refresh();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
-    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    go_to_tab(&ctx, &mut app, Tab::Pcb)?;
     for word in [
         "Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text",
     ] {
@@ -581,43 +585,11 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
-    app.closed_tabs.push(Tab::Rules);
-    assert!(
-        text_row(&ctx, &mut app, "Rules").is_none(),
-        "a closed view leaves the row"
-    );
-    // Other panels carry a "+" too; the one in the tab row is the highest.
-    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let plus = output
-        .shapes
-        .iter()
-        .filter_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.text() == "+" => {
-                Some(text.pos + text.galley.size() / 2.0)
-            }
-            _ => None,
-        })
-        .min_by(|a, b| a.y.total_cmp(&b.y))
-        .ok_or("the tab row has a + menu")?;
-    for pressed in [true, false] {
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(plus),
-                egui::Event::PointerButton {
-                    pos: plus,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
-    assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
+    assert!(matches!(app.tab, Tab::Rules), "View opens Rules");
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
+    assert!(matches!(app.tab, Tab::Rules), "View opens Rules again");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
@@ -731,7 +703,7 @@ fn tab_to(ctx: &egui::Context, app: &mut App, name: &str) -> Result<Vec<String>,
 #[test]
 fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result<(), String> {
     let (ctx, mut app) = practice_app();
-    let seen = tab_to(&ctx, &mut app, "Settings")?;
+    let seen = tab_to(&ctx, &mut app, "Edit")?;
     assert_eq!(
         seen.first().map(String::as_str),
         Some("PCBCraft start screen"),
@@ -753,7 +725,13 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
         vec![key(egui::Key::Enter)],
         egui::Modifiers::NONE,
     );
-    assert_eq!(app.tab, Tab::Settings, "Enter presses it: {}", app.message);
+    authoring::tests::tap(&ctx, &mut app, "Preferences")?;
+    assert_eq!(
+        app.tab,
+        Tab::Settings,
+        "Preferences opens the settings page: {}",
+        app.message
+    );
     Ok(())
 }
 

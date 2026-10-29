@@ -9,7 +9,7 @@ fn a_newcomer_adds_a_rule_set_and_tunes_its_numbers() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "No rule sets yet")?,
@@ -59,7 +59,7 @@ fn a_newcomer_puts_a_connection_under_a_rule_set_and_lets_it_go() -> Result<(), 
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "New class")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -101,7 +101,7 @@ fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
+    go_to_tab(&ctx, &mut app, Tab::Rules)?;
     assert!(
         paints_text(&ctx, &mut app, "Design rules travel with the design")?,
         "the Rules tab explains what rules are for: {}",
@@ -111,7 +111,7 @@ fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
         paints_text(&ctx, &mut app, "New class")?,
         "the Rules tab offers a way to add a rule set"
     );
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    go_to_tab(&ctx, &mut app, Tab::Settings)?;
     assert!(
         paints_text(&ctx, &mut app, "APPEARANCE")?,
         "the Settings tab opens with the look of the app"

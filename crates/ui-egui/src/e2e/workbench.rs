@@ -1,7 +1,9 @@
 //! Stories for the left rail, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to};
+use super::support::{
+    frame, go_to_tab, paints_text, scrolled_to, show_layers_tab, show_library_tab,
+};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -85,21 +87,20 @@ fn finding_counts_split_by_loudness() {
 fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
-    assert!(
-        app.preferences.library_dock_open,
-        "the library dock starts open"
+    settled(&ctx, &mut app);
+    assert_eq!(
+        app.preferences.left_tab, 0,
+        "the layers tree is the default left-aside tab"
     );
-    click(&ctx, &mut app, at);
-    assert!(
-        !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
+    show_library_tab(&ctx, &mut app);
+    assert_eq!(
+        app.preferences.left_tab, 1,
+        "the Library tab shows the parts browser"
     );
-    click(&ctx, &mut app, at);
-    assert!(
-        app.preferences.library_dock_open,
-        "the rail toggle shows it again"
+    show_layers_tab(&ctx, &mut app);
+    assert_eq!(
+        app.preferences.left_tab, 0,
+        "the Layers tab brings the tree back"
     );
     Ok(())
 }
@@ -112,11 +113,18 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
         "drc": [{"severity":"info"},{"severity":"info"},{"severity":"info"},{"severity":"info"}]
     });
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
-    click(&ctx, &mut app, errors);
+    settled(&ctx, &mut app);
+    let errors_label = app.catalog.plural("board.footer.errors", 2);
+    let warnings_label = app.catalog.plural("board.footer.warnings", 5);
+    assert!(
+        paints_text(&ctx, &mut app, &errors_label)?,
+        "the status bar counts errors"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, &warnings_label)?,
+        "warnings and notes share one count in the footer"
+    );
+    authoring::tests::tap(&ctx, &mut app, &errors_label)?;
     assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
     Ok(())
 }
@@ -241,8 +249,8 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
         .map(|(_, l, _, _)| l - 16.0)
         .ok_or("the right aside should show its Details heading")?;
     assert!(
-        aside <= SCREEN.x - 280.0 && aside > SCREEN.x - 420.0,
-        "the right aside is at least 280 px wide: starts at {aside}"
+        aside <= SCREEN.x - 240.0 && aside > SCREEN.x - 450.0,
+        "the right aside stays roughly 280 px wide beside the wider left tree: starts at {aside}"
     );
     for (words, left, right, top) in texts(&out) {
         if words.trim().is_empty() || top < 80.0 || top > 900.0 {

@@ -12,12 +12,11 @@ fn fresh() -> App {
 fn a_newcomer_visits_settings_and_comes_back_to_the_same_zoom() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    go_to_tab(&ctx, &mut app, Tab::Pcb)?;
     app.pcb.zoom = 33.0;
+    app.needs_fit = false;
     for tab in [Tab::Settings, Tab::Rules, Tab::Checks, Tab::Pcb] {
-        app.change_tab(tab);
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        go_to_tab(&ctx, &mut app, tab)?;
     }
     assert_eq!(app.pcb.zoom, 33.0, "the board stays as the user left it");
     Ok(())
@@ -96,7 +95,7 @@ fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
     app.set_language("de");
-    app.change_tab(Tab::Settings);
+    go_to_tab(&ctx, &mut app, Tab::Settings)?;
     app.width = 12.5;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(

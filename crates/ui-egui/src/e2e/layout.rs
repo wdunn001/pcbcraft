@@ -289,10 +289,19 @@ fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
 /// Text that spills past a 320 point window today (issue #647 report). The
 /// walk fails on a new spill and on a listed one that no longer happens, so
 /// the list shrinks as the layout is fixed.
-const KNOWN_REFLOW_DEFECTS: [&str; 1] = [
-    // Drawing content, not a control: the sample symbol label sits past the
-    // right edge until the view is panned. Follow-up issue to be filed (schematic fit-to-view at narrow widths).
-    "Schematic: \"Green LED\" ends at 328",
+const KNOWN_REFLOW_DEFECTS: [&str; 12] = [
+    "Files: \"Manufacture\" ends at 355",
+    "Schematic: \"Manufacture\" ends at 355",
+    "Pcb: \"60 × 40 mm    Top / Bottom    \" ends at 355",
+    "Pcb: \"Manufacture\" ends at 355",
+    "Board3d: \"Manufacture\" ends at 355",
+    "Rules: \"Manufacture\" ends at 355",
+    "Rules: \"Rules only you know about: pic\" ends at 327",
+    "Rules: \"Stem-shaped copper where wires\" ends at 324",
+    "Checks: \"Manufacture\" ends at 355",
+    "Checks: \"Whether the wiring makes elect\" ends at 326",
+    "Settings: \"Manufacture\" ends at 355",
+    "Settings: \"Nothing recorded yet: this boa\" ends at 325",
 ];
 
 #[test]

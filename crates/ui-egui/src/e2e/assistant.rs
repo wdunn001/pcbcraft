@@ -285,10 +285,12 @@ fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
     let ctx = egui::Context::default();
     settle(&ctx, &mut app);
     // Fold the section away and open it again, as a first-time visitor would.
+    scrolled_to_at(&ctx, &mut app, "v Assistant settings", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "v Assistant settings")?;
     settle(&ctx, &mut app);
     authoring::tests::tap(&ctx, &mut app, "> Assistant settings")?;
     settle(&ctx, &mut app);
+    scrolled_to_at(&ctx, &mut app, "Add connection", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Add connection")?;
     settle(&ctx, &mut app);
     authoring::tests::tap(&ctx, &mut app, "Test")?;
@@ -321,6 +323,7 @@ fn a_newcomer_cannot_type_a_key_for_a_plain_http_server_on_another_computer() ->
     let mut app = settings_app(calls, std::sync::Arc::new(FakeKeychain::default()));
     let ctx = egui::Context::default();
     settle(&ctx, &mut app);
+    scrolled_to_at(&ctx, &mut app, "Add connection", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Add connection")?;
     settle(&ctx, &mut app);
     if let Some(d) = app.assistant.dialog.as_mut() {
