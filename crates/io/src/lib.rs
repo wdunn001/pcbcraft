@@ -17,6 +17,8 @@ mod gerber_job;
 mod laser;
 mod layers;
 mod library_render;
+mod machine_profile;
+mod neoden_yy1;
 mod package;
 mod panel_export;
 mod plot_read;
@@ -44,6 +46,11 @@ pub use layers::{
     fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
 };
 use library_render::*;
+pub use machine_profile::{
+    builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
+    machine_profile_to_toml,
+};
+pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 pub use package::{
     MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
     package_zip,
