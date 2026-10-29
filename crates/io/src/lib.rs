@@ -1204,7 +1204,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         if !z.filled {
             continue;
         }
-        let back = z.layer == pcbcraft_doc::Layer::Back;
+        let back = p.is_bottom(z.layer);
         let file = if back { &mut bottom } else { &mut top };
         let outline: Vec<(f64, f64)> = z.outline.iter().map(|q| (mirror(q.x, back), q.y)).collect();
         let holes: Vec<Vec<(f64, f64)>> = z
@@ -1215,7 +1215,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         file.surface(&outline, &holes)?;
     }
     for t in &p.board.tracks {
-        let back = t.layer == pcbcraft_doc::Layer::Back;
+        let back = p.is_bottom(t.layer);
         let file = if back { &mut bottom } else { &mut top };
         let (x1, y1) = (mirror(t.start.x, back), t.start.y);
         let (x2, y2) = (mirror(t.end.x, back), t.end.y);
@@ -2404,7 +2404,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         if !z.filled {
             continue;
         }
-        let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let is_back = p.is_bottom(z.layer);
         let fill = pcbcraft_doc::zone_fill(p, z)?;
         let file = if is_back { &mut back } else { &mut front };
         let code = file.code(Ap::Circle(1))?;
@@ -2427,7 +2427,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         }
     }
     for t in &p.board.tracks {
-        let is_back = t.layer == pcbcraft_doc::Layer::Back;
+        let is_back = p.is_bottom(t.layer);
         let file = if is_back { &mut back } else { &mut front };
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
@@ -2902,7 +2902,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
             "<LAYER name=\"{name}\" copper=\"{layer_name}\">\n"
         ));
         count(1)?;
-        for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
+        for track in p.board.tracks.iter().filter(|t| t.layer == p.face_layer(layer)) {
             out.push_str(&format!(
                 "<TRACK start_x=\"{:.3}\" start_y=\"{:.3}\" end_x=\"{:.3}\" end_y=\"{:.3}\" width=\"{:.3}\" net=\"{}\"/>\n",
                 track.start.x,
@@ -2916,7 +2916,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         }
         for f in &p.board.footprints {
             for pad in &f.pads {
-                if !f.pad_on_copper(pad, layer) {
+                if !p.pad_on_copper(f, pad, layer) {
                     continue;
                 }
                 let position = f.position.offset(pad.offset.rotate(f.rotation));
@@ -3512,7 +3512,7 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
             i + 1,
             f.position.x,
             f.position.y,
-            if f.layer == pcbcraft_doc::Layer::Back {
+            if p.is_bottom(f.layer) {
                 "B"
             } else {
                 "T"
@@ -4041,7 +4041,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for t in &p.board.tracks {
         bump(&mut count)?;
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+        let layer = if p.is_bottom(t.layer) {
             "B.Cu"
         } else {
             "F.Cu"
@@ -4080,7 +4080,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for z in &p.board.zones {
         bump(&mut count)?;
-        let layer = if z.layer == pcbcraft_doc::Layer::Back {
+        let layer = if p.is_bottom(z.layer) {
             "B.Cu"
         } else {
             "F.Cu"
@@ -4095,7 +4095,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     for area in &p.board.rule_areas {
         bump(&mut count)?;
         let layers: Vec<&str> = match area.layer {
-            Some(l) => vec![if l == pcbcraft_doc::Layer::Back {
+            Some(l) => vec![if p.is_bottom(l) {
                 "B.Cu"
             } else {
                 "F.Cu"
@@ -4300,7 +4300,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
     }
     for t in &p.board.tracks {
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+        let layer = if p.is_bottom(t.layer) {
             "B_Cu"
         } else {
             "F_Cu"
@@ -4375,7 +4375,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for z in &p.board.zones {
-        let layer = if z.layer == pcbcraft_doc::Layer::Back {
+        let layer = if p.is_bottom(z.layer) {
             "B_Cu"
         } else {
             "F_Cu"
@@ -4426,7 +4426,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for t in &p.board.texts {
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+        let layer = if p.is_bottom(t.layer) {
             "B_Silk"
         } else {
             "F_Silk"

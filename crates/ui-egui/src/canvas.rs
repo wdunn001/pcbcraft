@@ -982,6 +982,7 @@ impl App {
     /// Keep only what a focused tree row points at: one copper face or one
     /// drawn machine layer. Everything else falls back to plain board colour.
     fn apply_layer_focus(p: &mut Project, focus: &str) {
+        let bottom = p.bottom_layer();
         let board = &mut p.board;
         match focus.strip_prefix("copper:") {
             Some("front") => {
@@ -991,9 +992,9 @@ impl App {
                 board.vias.clear();
             }
             Some("back") => {
-                board.tracks.retain(|t| t.layer == Layer::Back);
-                board.zones.retain(|z| z.layer == Layer::Back);
-                board.texts.retain(|t| t.layer == Layer::Back);
+                board.tracks.retain(|t| t.layer == bottom);
+                board.zones.retain(|z| z.layer == bottom);
+                board.texts.retain(|t| t.layer == bottom);
                 board.vias.clear();
             }
             _ => {}
@@ -1450,6 +1451,7 @@ impl App {
             return false;
         };
         let mut done = false;
+        let bottom = self.project.bottom_layer();
         ui.menu_button("Assign layer", |ui| {
             for (layer, label, name, tip) in [
                 (
@@ -1459,7 +1461,7 @@ impl App {
                     "Move this wire to the front copper layer.",
                 ),
                 (
-                    Layer::Back,
+                    bottom,
                     "Back",
                     "B.Cu",
                     "Move this wire to the back copper layer.",

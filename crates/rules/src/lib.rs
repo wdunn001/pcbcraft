@@ -116,10 +116,11 @@ fn copper(project: &Project) -> Vec<Copper> {
                     hole: None,
                     cutouts: vec![],
                 };
-                let mut back = item.clone();
-                back.layer = Layer::Back;
-                result.push(back);
-                result.push(item);
+                for layer in project.copper_layers() {
+                    let mut copy = item.clone();
+                    copy.layer = layer;
+                    result.push(copy);
+                }
                 continue;
             }
             if let Some(position) = f.pad_position(&pad.number) {
@@ -167,7 +168,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                                 .collect()
                         }),
                     outline_error: pad.outline_error(),
-                    layer: f.pad_layer(pad),
+                    layer: project.face_layer(f.pad_layer(pad)),
                     pad: true,
                     clearance: local,
                     bridge: if plated {
@@ -179,9 +180,14 @@ fn copper(project: &Project) -> Vec<Copper> {
                     cutouts: vec![],
                 };
                 if plated {
-                    let mut back = item.clone();
-                    back.layer = Layer::Back;
-                    result.push(back);
+                    // Plating joins every copper layer, inner ones included.
+                    for layer in project.copper_layers() {
+                        if layer != item.layer {
+                            let mut copy = item.clone();
+                            copy.layer = layer;
+                            result.push(copy);
+                        }
+                    }
                 }
                 result.push(item);
             }
@@ -297,10 +303,11 @@ fn copper(project: &Project) -> Vec<Copper> {
             hole: None,
             cutouts: vec![],
         };
-        let mut back = item.clone();
-        back.layer = Layer::Back;
-        result.push(back);
-        result.push(item);
+        for layer in project.copper_layers() {
+            let mut copy = item.clone();
+            copy.layer = layer;
+            result.push(copy);
+        }
     }
     for z in &project.board.zones {
         if !z.filled {

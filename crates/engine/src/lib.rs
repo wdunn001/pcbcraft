@@ -905,14 +905,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "hole.slot",
-            "Route an unplated mounting slot between two centres: width is the drill diameter, length runs centre to centre plus that width",
-            schema(
-                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-                &["start", "end", "width"],
-            ),
-        ),
-        (
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
@@ -6133,18 +6125,10 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .find(|pad| pad.number == r.pad)
         .ok_or_else(missing)?;
     let layer_name = p.layer_name(layer);
-    let on_layer = pad
-        .geometry
-        .as_ref()
-        .map(|_| {
-            f.pad_geometry_layers(pad).iter().any(|l| {
-                l == "*.Cu"
-                    || l == &layer_name
-                    || l == layer.name()
-                    || p.resolve_copper_layer(l).ok() == Some(layer)
-            })
-        })
-        .unwrap_or(layer == f.board_side());
+    let on_layer = match pad.geometry {
+        None => layer == p.face_layer(f.board_side()),
+        Some(_) => p.pad_on_copper(f, pad, layer),
+    };
     if !on_layer {
         return Err(Error::Invalid(format!(
             "pad {} has no copper on {}",
@@ -6177,11 +6161,7 @@ fn pad_touches_track_point(p: &Project, point: Point, net: Id, layer: Layer) -> 
             if pad.net != Some(net) {
                 continue;
             }
-            let on_layer = pad
-                .geometry
-                .as_ref()
-                .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
-                .unwrap_or(layer == Layer::Front);
+            let on_layer = p.pad_on_copper(footprint, pad, layer);
             if !on_layer {
                 continue;
             }
@@ -6258,11 +6238,8 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
         CopperNode::Via(i) => p.board.vias[i].net,
         CopperNode::Pad(..) => return Err(missing()),
     };
-    let pad_layers = |pad: &Pad, layer: Layer| -> bool {
-        pad.geometry
-            .as_ref()
-            .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
-            .unwrap_or(layer == Layer::Front)
+    let pad_layers = |f: usize, pad: &Pad, layer: Layer| -> bool {
+        p.pad_on_copper(&p.board.footprints[f], pad, layer)
     };
     let mut nodes: Vec<CopperNode> = Vec::new();
     for (i, t) in p.board.tracks.iter().enumerate() {
@@ -6306,14 +6283,14 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Track(x), Pad(f, q)) | (Pad(f, q), Track(x)) => {
                 let (t, pad) = (&p.board.tracks[x], &p.board.footprints[f].pads[q]);
-                pad_layers(pad, t.layer)
+                pad_layers(f, pad, t.layer)
                     && [t.start, t.end].iter().any(|e| {
                         e.distance(pad_anchor(f, q)) <= pad.bounding_radius() + TRACK_ENDPOINT_EPS
                     })
             }
             (Via(y), Pad(f, q)) | (Pad(f, q), Via(y)) => {
                 let (v, pad) = (&p.board.vias[y], &p.board.footprints[f].pads[q]);
-                p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
+                p.via_span_layers(v).iter().any(|l| pad_layers(f, pad, *l))
                     && v.position.distance(pad_anchor(f, q))
                         <= v.diameter / 2.0 + pad.bounding_radius() + TRACK_ENDPOINT_EPS
             }
@@ -12498,7 +12475,7 @@ fn run_command(
                 return Err(Error::Invalid("that zone is already on the layer".into()));
             }
             zone.layer = layer;
-            Ok(json!({"id":a.id,"layer":zone.layer}))
+            Ok(json!({"id":a.id,"layer":p.layer_name(zone.layer)}))
         }
         "zone.set_net" => {
             let a: ZoneSetNetParams = parse(params)?;
@@ -12522,7 +12499,7 @@ fn run_command(
                 "id": zone.id,
                 "net": zone.net,
                 "net_name": name,
-                "layer": zone.layer,
+                "layer": p.layer_name(zone.layer),
                 "filled": zone.filled,
                 "outline_vertices": zone.outline.len(),
                 "cutouts": zone.cutouts.len(),
@@ -12656,7 +12633,7 @@ fn run_command(
             Ok(json!({
                 "id": a.id,
                 "net": zone.net,
-                "layer": zone.layer,
+                "layer": p.layer_name(zone.layer),
                 "filled": zone.filled,
                 "area": (fill.area() * 1e6).round() / 1e6,
                 "pieces": fill.pieces.len(),
@@ -13217,7 +13194,7 @@ fn run_command(
                         if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "net": t.net, "layer": t.layer}));
+                        found.push(json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}));
                     }
                 }
                 "via" => {
@@ -13234,7 +13211,7 @@ fn run_command(
                             continue;
                         }
                         found.push(
-                            json!({"id": z.id, "net": z.net, "layer": z.layer, "filled": z.filled}),
+                            json!({"id": z.id, "net": z.net, "layer": p.layer_name(z.layer), "filled": z.filled}),
                         );
                     }
                 }
@@ -13265,7 +13242,7 @@ fn run_command(
                         if !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "text": t.text, "layer": t.layer}));
+                        found.push(json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}));
                     }
                 }
                 "component" => {
@@ -17181,7 +17158,7 @@ fn run_command(
                 return Err(Error::Invalid("that track is already on the layer".into()));
             }
             track.layer = layer;
-            Ok(json!({"id":a.id,"layer":track.layer}))
+            Ok(json!({"id":a.id,"layer":p.layer_name(track.layer)}))
         }
         "track.set_width_net" => {
             let a: TrackNetWidthParams = parse(params)?;
@@ -17421,7 +17398,7 @@ fn run_command(
                 text.rotation = rotation;
             }
             Ok(
-                json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer,"rotation":text.rotation}),
+                json!({"id":text.id,"text":text.text,"size":text.size,"layer":p.layer_name(text.layer),"rotation":text.rotation}),
             )
         }
         "text.rotate" => {
@@ -35988,6 +35965,57 @@ mod tests {
         )?;
         s.execute("via.place", buried, None)?;
         assert_eq!(s.project.board.vias.len(), 2);
+        Ok(())
+    }
+    /// A four-layer session with the stackup rows a designer would add.
+    fn four_layer_session() -> Result<(Session, u64), Error> {
+        let mut s = Session::default();
+        for name in ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"] {
+            s.project
+                .board
+                .layer_records
+                .push(pcbcraft_doc::LayerRecord {
+                    name: name.into(),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    ..Default::default()
+                });
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, net))
+    }
+    #[test]
+    fn every_command_name_is_registered_once() {
+        let mut seen = std::collections::BTreeSet::new();
+        for spec in commands() {
+            assert!(seen.insert(spec.id), "command {} is listed twice", spec.id);
+        }
+    }
+    #[test]
+    fn a_bottom_track_on_four_layers_is_the_bottom_layer_not_in3() -> Result<(), Error> {
+        let (mut s, net) = four_layer_session()?;
+        let added = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?;
+        let track = s.project.board.tracks.last().ok_or_else(missing)?.clone();
+        assert_eq!(track.layer, s.project.bottom_layer());
+        assert_eq!(track.layer.index(), 3);
+        assert!(s.project.is_bottom(track.layer));
+        assert_eq!(s.project.layer_name(track.layer), "B.Cu");
+        let found = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?;
+        assert_eq!(found["result"][0]["layer"], "B.Cu", "{found} after {added}");
+        // The layer it lands on in fabrication output is the last copper file.
+        let bottom = pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())
+            .map_err(Error::Invalid)?;
+        assert!(bottom.contains("Copper,L4,Bot"), "{bottom}");
+        assert!(bottom.contains("D01*"), "the track is drawn on the bottom file");
+        let inner = pcbcraft_io::gerber_copper(&s.project, Layer::Back).map_err(Error::Invalid)?;
+        assert!(inner.contains("Copper,L2,Inr"), "{inner}");
+        assert!(!inner.contains("D01*"), "inner copper carries no bottom track");
         Ok(())
     }
     #[test]
