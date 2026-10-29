@@ -30,11 +30,25 @@ pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
+mod cam;
+mod cam_drill;
+mod cam_shapes;
+mod snapmaker;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
     with_models,
 };
+pub use cam::{
+    CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
+    MirrorAxis as CamMirrorAxis, Side, Spindle, Tool, isolation_gcode, isolation_paths,
+};
+pub use cam_drill::{
+    CamProfile, CutDirection, Dialect as DrillDialect, DrillHit, DrillOptions, DrillOrder,
+    DrillTool, OutlineCompensation, OutlineOptions, Tabs, Tool as DrillMillTool, ToolChange,
+    drill_gcode, drill_tools, outline_gcode,
+};
+pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};
@@ -72,6 +86,10 @@ pub use plot_read::{
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
+};
+pub use snapmaker::{
+    SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
+    snapmaker_settings, spindle_percent, spindle_percent_for_tool,
 };
 pub use uv_print::{
     UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,

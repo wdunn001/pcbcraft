@@ -10,6 +10,7 @@ pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
+mod snapmaker;
 mod summary;
 mod tuning;
 use pcbcraft_doc::*;
@@ -2232,6 +2233,20 @@ pub fn commands() -> Vec<CommandSpec> {
             "Write a bound component's values into one board text's ${...} tokens, or every bound text when no id is given; unknown tokens stay",
             schema(json!({"id":{"type":"integer","minimum":1}}), &[]),
         ),
+        (
+            "cam.isolation",
+            "Generate isolation milling G-code for one copper side without editing the project; returns named file bodies and a time estimate",
+            schema(
+                json!({
+                    "side":{"type":"string","enum":["top","bottom"]},
+                    "tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},
+                    "overlap_pct":{"type":"integer","minimum":0,"maximum":90,"default":50},
+                    "mirror_axis":{"type":"string","enum":["x","y"],"default":"y"},
+                    "alignment_holes":{"type":"boolean","default":false}
+                }),
+                &["side", "tool"],
+            ),
+        ),
     ];
     entries
         .into_iter()
@@ -2240,6 +2255,7 @@ pub fn commands() -> Vec<CommandSpec> {
             description,
             input_schema,
         })
+        .chain(snapmaker::commands())
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
@@ -2300,6 +2316,20 @@ impl Session {
         self.check_revision(expected)?;
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
+        }
+        if commands
+            .iter()
+            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
+        {
+            let mut results = vec![];
+            for command in commands {
+                results.push(run_read_only(
+                    &self.project,
+                    &command.command,
+                    &command.params,
+                )?);
+            }
+            return Ok(json!({"revision":self.revision,"results":results}));
         }
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
@@ -6717,12 +6747,110 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
     }
     Ok(result)
 }
+fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
+    match command {
+        "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
+        c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
+        _ => Err(Error::Invalid(format!(
+            "unknown read-only command: {command}"
+        ))),
+    }
+}
+
+fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
+    let side = match params.get("side").and_then(Value::as_str) {
+        Some("top") => pcbcraft_io::Side::Top,
+        Some("bottom") => pcbcraft_io::Side::Bottom,
+        _ => return Err("side must be top or bottom".into()),
+    };
+    let tool_val = params
+        .get("tool")
+        .ok_or_else(|| "missing tool".to_string())?;
+    let diameter_mm = tool_val
+        .get("diameter_mm")
+        .and_then(Value::as_f64)
+        .filter(|v| *v > 0.0)
+        .ok_or_else(|| "tool.diameter_mm must be positive".to_string())?;
+    let feed_mm_min = tool_val
+        .get("feed_mm_min")
+        .and_then(Value::as_f64)
+        .filter(|v| *v > 0.0)
+        .ok_or_else(|| "tool.feed_mm_min must be positive".to_string())?;
+    let plunge_mm_min = tool_val
+        .get("plunge_mm_min")
+        .and_then(Value::as_f64)
+        .filter(|v| *v > 0.0)
+        .ok_or_else(|| "tool.plunge_mm_min must be positive".to_string())?;
+    let depth_mm = tool_val
+        .get("depth_mm")
+        .and_then(Value::as_f64)
+        .filter(|v| *v > 0.0)
+        .ok_or_else(|| "tool.depth_mm must be positive".to_string())?;
+    let passes = tool_val
+        .get("passes")
+        .and_then(Value::as_u64)
+        .filter(|v| (1..=8).contains(v))
+        .ok_or_else(|| "tool.passes must be 1 to 8".to_string())? as u8;
+    let spindle_rpm = tool_val
+        .get("spindle_rpm")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0)
+        .ok_or_else(|| "tool.spindle_rpm must be positive".to_string())?
+        as u32;
+    let overlap_pct = params
+        .get("overlap_pct")
+        .and_then(Value::as_u64)
+        .unwrap_or(50) as u8;
+    let mirror_axis = match params
+        .get("mirror_axis")
+        .and_then(Value::as_str)
+        .unwrap_or("y")
+    {
+        "x" => pcbcraft_io::CamMirrorAxis::X,
+        "y" => pcbcraft_io::CamMirrorAxis::Y,
+        _ => return Err("mirror_axis must be x or y".into()),
+    };
+    let alignment_holes = params
+        .get("alignment_holes")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let opts = pcbcraft_io::IsolationOptions {
+        side,
+        tool: pcbcraft_io::Tool {
+            diameter_mm,
+            feed_mm_min,
+            plunge_mm_min,
+            depth_mm,
+            passes,
+            spindle: pcbcraft_io::Spindle::Rpm(spindle_rpm),
+        },
+        overlap_pct,
+        rubout: None,
+        mirror_axis,
+        alignment_holes,
+    };
+    let out = pcbcraft_io::isolation_gcode(p, &opts, &pcbcraft_io::CncProfile::default())?;
+    let files: Vec<Value> = out
+        .files
+        .into_iter()
+        .map(|(name, body)| json!({"name":name,"body":body}))
+        .collect();
+    Ok(json!({
+        "files":files,
+        "estimate_s":out.estimate_s,
+        "alignment":out.alignment,
+    }))
+}
+
 fn run_command(
     p: &mut Project,
     next: &mut Id,
     command: &str,
     params: &Value,
 ) -> Result<Value, Error> {
+    if command == "cam.isolation" || snapmaker::handles(command) {
+        return run_read_only(p, command, params);
+    }
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
     }
@@ -35131,6 +35259,39 @@ mod tests {
         );
         let back = s.execute("via.set_span", json!({"id":id,"to_layer":"B.Cu"}), None);
         assert!(back.is_ok(), "bottom layer is the through span");
+        Ok(())
+    }
+    #[test]
+    fn cam_isolation_returns_files_without_editing_history() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":[5.0,5.0],"end":[15.0,5.0],"width":0.3,"layer":"F.Cu"}),
+            None,
+        )?;
+        let before = s.revision;
+        let out = s.execute(
+            "cam.isolation",
+            json!({
+                "side":"top",
+                "tool":{"diameter_mm":0.1,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+            }),
+            None,
+        )?;
+        assert_eq!(s.revision, before);
+        assert!(
+            out["result"]["files"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty())
+        );
+        assert!(
+            out["result"]["estimate_s"]
+                .as_f64()
+                .is_some_and(|v| v > 0.0)
+        );
         Ok(())
     }
 }

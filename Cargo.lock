@@ -2982,6 +2982,7 @@ dependencies = [
 name = "pcbcraft-geom"
 version = "0.1.0"
 dependencies = [
+ "i_float",
  "i_overlay",
  "serde",
  "thiserror 2.0.21",
