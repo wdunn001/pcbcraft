@@ -1,12 +1,16 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
 mod canvas;
+mod datums;
+mod editing;
+mod impedance_panel;
 mod keymap;
 mod library;
 mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -203,6 +207,9 @@ fn tool_hint(tool: &Tool) -> String {
             format!("LMB: place the shape on the active layer{common}")
         }
         Tool::Via => format!("LMB: place a via at the cursor{common}"),
+        Tool::Measure => {
+            format!("LMB: click two points to read the distance between them{common}")
+        }
     }
 }
 
@@ -559,6 +566,7 @@ enum Tool {
     Fiducial,
     DrawLayer,
     Via,
+    Measure,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -597,6 +605,7 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    edit: editing::EditState,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
@@ -621,11 +630,13 @@ pub struct App {
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
+    datum_ui: datums::DatumUi,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
     pair_a: Id,
     pair_b: Id,
@@ -828,6 +839,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.extend(via_span::via_span_rows(project, v));
         rows.push((
             "Protection".into(),
             via_covering::covering_name(v.effective_covering(&project.board)).into(),
@@ -960,6 +972,7 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            edit: editing::EditState::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
@@ -984,11 +997,13 @@ impl App {
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
+            datum_ui: datums::DatumUi::default(),
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
             pair_a: 0,
             pair_b: 0,
@@ -1276,6 +1291,7 @@ impl App {
     }
     fn select(&mut self, id: Option<Id>) {
         self.selected = id;
+        self.edit.extra.clear();
         self.selected_unit = 1;
         self.load_properties();
     }
@@ -1918,7 +1934,11 @@ impl App {
             .default_open(true)
             .show(ui, |ui| {
             self.holes_section(ui);
+            self.datums_section(ui);
             self.fiducials_section(ui);
+            if self.tab == Tab::Pcb {
+                self.via_spans_section(ui);
+            }
             ui.add_space(16.0);
             let rows: &[&str] = match self.tab {
                 Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -2031,10 +2051,11 @@ impl App {
                 (
                     v.id,
                     format!(
-                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
+                        "Via at {}, {} · {} mm hole · {} · {}",
                         v.position.x.round(),
                         v.position.y.round(),
                         v.drill,
+                        via_span::via_tree_span(&self.project, v),
                         self.project.net_name(v.net)
                     ),
                 )
@@ -2643,6 +2664,9 @@ impl App {
                 self.palette = false;
                 self.shortcuts_open = false;
                 self.binding_capture = None;
+                self.edit.measure = None;
+                self.edit.box_from = None;
+                self.edit.box_to = None;
             }
             KeyAction::ViaTool => {
                 self.tool = Tool::Via;
@@ -3389,6 +3413,30 @@ impl App {
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
+            }
+            ui.separator();
+            if ui
+                .button("Copy  Ctrl+C")
+                .on_hover_text("Copy the selected objects as text; paste them here or in another window.")
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_selection(&ctx);
+            }
+            if ui
+                .button("Paste  Ctrl+V")
+                .on_hover_text("Paste the last copy a little to the side, with new reference numbers.")
+                .clicked()
+            {
+                self.paste_last_copy();
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .button("Clean up tracks")
+                    .on_hover_text("Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.")
+                    .clicked()
+            {
+                self.cleanup_tracks();
             }
             if !self.project.auto_sync {
                 ui.separator();
@@ -6138,7 +6186,9 @@ impl App {
                     .show(ui, |ui| {
                 self.draw_tool_options(ui);
                 self.section_heading(ui, "Details");
-                if let Some(id) = self.selected {
+                if let Some(id) = self.selected.filter(|id| datums::is_datum(&self.project, *id)) {
+                    self.datum_inspector(ui, id);
+                } else if let Some(id) = self.selected {
                     let c = self.project.component(id).cloned().or_else(|| {
                         self.project
                             .footprint(id)
@@ -6213,12 +6263,7 @@ impl App {
                             )
                             .clicked()
                         {
-                            let target =
-                                self.project.footprint(id).map_or(id, |fp| fp.component);
-                            self.run(
-                                "object.duplicate",
-                                json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
-                            );
+                            self.duplicate_selection();
                         }
                         let sheet = Self::datasheet_url(c.field("Datasheet"));
                         if ui
@@ -6314,6 +6359,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_span_controls(ui, id);
                         self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
@@ -6434,6 +6480,7 @@ impl App {
                                     json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
                                 );
                             }
+                            self.impedance_section(ui, id, net);
                         }
                         if let Some(zone) =
                             self.project.board.zones.iter().find(|z| z.id == id)
@@ -6486,8 +6533,7 @@ impl App {
                     }
                     ui.add_space(10.0);
                     if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
-                        self.run("object.delete", json!({"id":id}));
-                        self.select(None);
+                        self.delete_selection();
                     }
                     ui.separator();
                 } else {
@@ -6538,6 +6584,7 @@ impl App {
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
             Tool::Via => "Place via".to_owned(),
+            Tool::Measure => "Measure".to_owned(),
         };
         egui::Panel::bottom("status")
             .frame(
@@ -6560,6 +6607,10 @@ impl App {
                     .on_hover_text(
                         "Every edit raises this number; undo and redo step it back and forth.",
                     );
+                    if let Some(reading) = self.measure_readout() {
+                        ui.label(egui::RichText::new(reading).small().strong())
+                            .on_hover_text("The last measurement. Press Esc to clear it.");
+                    }
                     if let Some(p) = self.cursor {
                         ui.label(
                             egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
@@ -7321,13 +7372,17 @@ impl App {
                     self.tool = Tool::Fiducial;
                 }
             }
-            if !matches!(self.tool, Tool::Select) {
-                ui.label(
-                    egui::RichText::new(tool_hint(&self.tool))
-                        .small()
-                        .color(self.muted()),
-                );
-            }
+            ui.separator();
+            self.editing_controls(ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if !matches!(self.tool, Tool::Select) {
+                    ui.label(
+                        egui::RichText::new(tool_hint(&self.tool))
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+            });
         });
         ui.separator();
     }
@@ -7365,6 +7420,7 @@ impl App {
         self.refresh();
         self.style(&ctx);
         self.shortcuts(&ctx);
+        self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
         if self.compare_open {
@@ -8422,6 +8478,7 @@ mod tests {
             (Tool::NoConnect, "unused"),
             (Tool::Fiducial, "assembly"),
             (Tool::Via, "via"),
+            (Tool::Measure, "distance"),
         ];
         for (tool, verb) in cases {
             let hint = tool_hint(&tool);
