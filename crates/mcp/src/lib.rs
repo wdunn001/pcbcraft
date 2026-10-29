@@ -1190,7 +1190,9 @@ mod tests {
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
             "pcb-Edge.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
+            "pcb-DrillMap.gbr",
+            "README-fabrication.txt",
         ] {
             let text =
                 std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;
@@ -1198,6 +1200,10 @@ mod tests {
         }
         let front = std::fs::read_to_string(directory.path().join("pcb-F.Cu.gbr"))
             .map_err(|e| e.to_string())?;
+        assert!(
+            front.contains("%TF.FileFunction,Copper,L1,Top*%"),
+            "front copper carries its file function attribute"
+        );
         assert!(
             front.contains("X10.000000Y10.000000D02*\n"),
             "the exported copper should contain the drawn track"
@@ -2177,11 +2183,11 @@ mod tests {
             "a DXF header first"
         );
         assert!(
-            text.contains("8\nF_Cu\n0\nLINE\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
+            text.contains("0\nLINE\n8\nF_Cu\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
             "the routed track should be a line entity"
         );
         assert!(
-            text.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
+            text.contains("0\nLWPOLYLINE\n8\nEdge\n90\n4\n70\n1\n"),
             "the board outline should be a closed polyline"
         );
         assert_eq!(

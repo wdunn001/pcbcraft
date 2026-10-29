@@ -4,10 +4,14 @@ pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
 };
+mod fab;
+pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
@@ -232,6 +236,18 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Default outer via pad diameter for member nets, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_diameter: Option<f64>,
+    /// Default drilled hole for member vias, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via_drill: Option<f64>,
+    /// Default track width for differential pairs on member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_width: Option<f64>,
+    /// Default coupling gap for differential pairs on member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_gap: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -802,27 +818,110 @@ impl Footprint {
         self.position.offset(pad.offset.rotate(-self.rotation))
     }
 }
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Layer {
-    #[serde(rename = "F.Cu")]
-    Front,
-    #[serde(rename = "B.Cu")]
-    Back,
-}
+/// Index of a copper layer: 0 is top, the highest index is bottom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Layer(u8);
+
+/// Maximum copper layers the document model supports.
+pub const MAX_COPPER_LAYERS: u8 = 32;
+
 impl Layer {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Front => "F.Cu",
-            Self::Back => "B.Cu",
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
+    pub const Front: Layer = Layer(0);
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
+    pub const Back: Layer = Layer(1);
+
+    pub fn from_index(index: u8) -> Result<Self, String> {
+        if index >= MAX_COPPER_LAYERS {
+            Err(format!(
+                "copper layer index must be below {MAX_COPPER_LAYERS}"
+            ))
+        } else {
+            Ok(Layer(index))
         }
     }
-    /// Plain-English layer name for people who have never seen copper-layer
-    /// shorthand; file formats keep using [`Self::name`].
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Front => "Top",
-            Self::Back => "Bottom",
+
+    pub fn index(self) -> u8 {
+        self.0
+    }
+
+    /// Legacy two-layer shorthand; prefer [`Project::layer_name`] when the
+    /// stackup may carry inner copper.
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            0 => "F.Cu",
+            1 => "B.Cu",
+            _ => "F.Cu",
         }
+    }
+
+    /// Plain-English layer name for people who have never seen copper-layer
+    /// shorthand; file formats keep using stackup-aware names from the project.
+    pub fn label(self) -> &'static str {
+        match self.0 {
+            0 => "Top",
+            1 => "Bottom",
+            _ => "Inner",
+        }
+    }
+
+    fn from_file_str(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("copper layer name is empty".into());
+        }
+        if s == "F.Cu" {
+            return Ok(Layer::Front);
+        }
+        if s == "B.Cu" {
+            return Ok(Layer::Back);
+        }
+        if let Some(rest) = s.strip_prefix('L')
+            && let Ok(n) = rest.parse::<u32>()
+            && (1..=MAX_COPPER_LAYERS as u32).contains(&n)
+        {
+            return Layer::from_index((n - 1) as u8);
+        }
+        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
+            && let Ok(n) = rest.parse::<u8>()
+            && n > 0
+            && n < MAX_COPPER_LAYERS
+        {
+            return Layer::from_index(n);
+        }
+        Err(format!("unknown copper layer {s:?}"))
+    }
+
+    fn to_file_str(self) -> String {
+        if self.0 == 0 {
+            "F.Cu".into()
+        } else if self.0 == 1 {
+            "B.Cu".into()
+        } else {
+            format!("In{}.Cu", self.0)
+        }
+    }
+}
+
+impl Serialize for Layer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_file_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Layer {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct LayerVisitor;
+        impl Visitor<'_> for LayerVisitor {
+            type Value = Layer;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a copper layer name such as F.Cu, B.Cu, In1.Cu or L1")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Layer, E> {
+                Layer::from_file_str(v).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(LayerVisitor)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -924,13 +1023,47 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
+/// Every export kind a saved output job may name, in the order the UI lists
+/// them. This is the one list; validation, the engine schema and the job
+/// runner all read it.
+pub const OUTPUT_KINDS: [&str; 27] = [
+    "gerbers",
+    "netlist",
+    "bom",
+    "placement",
+    "dxf",
+    "cmp",
+    "idf",
+    "vrml",
+    "step",
+    "pdf",
+    "svg",
+    "ipc2581",
+    "dsn",
+    "ipc356",
+    "gencad",
+    "hyperlynx",
+    "plot",
+    "report",
+    "ps",
+    "odb",
+    "hpgl",
+    "stackup",
+    "drill_chart",
+    "stats",
+    "layer_plots",
+    "panel",
+    "raster",
+];
+/// How many export kinds one output job may hold. It is larger than the kind
+/// list so a single job can still ask for every file a board needs.
+pub const MAX_OUTPUT_KINDS: usize = 32;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OutputJob {
     pub name: String,
-    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf,
-    /// cmp, idf, vrml, step, pdf, svg.
+    /// Export kinds, each one of [`OUTPUT_KINDS`].
     pub kinds: Vec<String>,
 }
 impl OutputJob {
@@ -938,37 +1071,11 @@ impl OutputJob {
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && !self.kinds.is_empty()
-            && self.kinds.len() <= 24
-            && self.kinds.iter().all(|k| {
-                matches!(
-                    k.as_str(),
-                    "gerbers"
-                        | "netlist"
-                        | "bom"
-                        | "placement"
-                        | "dxf"
-                        | "cmp"
-                        | "idf"
-                        | "vrml"
-                        | "step"
-                        | "pdf"
-                        | "svg"
-                        | "ipc2581"
-                        | "dsn"
-                        | "ipc356"
-                        | "gencad"
-                        | "hyperlynx"
-                        | "plot"
-                        | "report"
-                        | "ps"
-                        | "odb"
-                        | "hpgl"
-                        | "stackup"
-                        | "drill_chart"
-                        | "stats"
-                        | "panel"
-                )
-            })
+            && self.kinds.len() <= MAX_OUTPUT_KINDS
+            && self
+                .kinds
+                .iter()
+                .all(|k| OUTPUT_KINDS.contains(&k.as_str()))
     }
 }
 /// An unplated through hole: a drill that passes through the board without
@@ -1019,17 +1126,60 @@ fn front_layer() -> Layer {
     Layer::Front
 }
 /// An unplated through hole: a drill that passes through the board without
-/// plating or a net.
+/// plating or a net. A round drill carries one centre; a slot carries a
+/// second centre in `end` and is routed as a capsule of `diameter` width
+/// between the two.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Hole {
     pub id: Id,
     pub position: Point,
-    /// Drill diameter in millimetres.
+    /// Drill diameter in millimetres; for a slot this is its width.
     pub diameter: f64,
+    /// Second centre of a slotted hole in millimetres, at least 0.01 mm from
+    /// `position`. Absent for a round drill, so old designs keep loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<Point>,
 }
 impl Hole {
+    /// The near centre of the drill: the circle centre for a round hole, or
+    /// one end of a slot.
+    pub fn start(&self) -> Point {
+        self.position
+    }
+    /// The far centre of the drill: the same point for a round hole, the
+    /// other end of the capsule for a slot.
+    pub fn finish(&self) -> Point {
+        self.end.unwrap_or(self.position)
+    }
+    /// True when the drill is a slot rather than a round hole.
+    pub fn is_slot(&self) -> bool {
+        self.end.is_some()
+    }
+    /// Centre of the drill: the circle centre, or the midpoint of a slot.
+    pub fn center(&self) -> Point {
+        let end = self.finish();
+        Point::new(
+            (self.position.x + end.x) / 2.0,
+            (self.position.y + end.y) / 2.0,
+        )
+    }
+    /// Overall length along the drill axis in millimetres: the diameter for a
+    /// round hole, and the capsule length for a slot.
+    pub fn length(&self) -> f64 {
+        self.position.distance(self.finish()) + self.diameter
+    }
+    /// Longest span a slot may cover between its two centres, in millimetres.
+    pub const MAX_SPAN: f64 = 50.0;
     fn valid(&self) -> bool {
-        self.position.valid() && (0.05..=25.0).contains(&self.diameter)
+        if !self.position.valid() || !(0.05..=25.0).contains(&self.diameter) {
+            return false;
+        }
+        match self.end {
+            None => true,
+            Some(end) => {
+                end.valid() && (0.01..=Self::MAX_SPAN).contains(&self.position.distance(end))
+            }
+        }
     }
 }
 /// One named board layer record, kept for fabrication notes: a layer's role
@@ -1042,6 +1192,9 @@ pub struct LayerRecord {
     pub kind: String,
     /// Layer thickness in millimetres.
     pub thickness: f64,
+    /// Copper plane style for fabrication output: signal, plane, mixed or hatched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copper_role: Option<String>,
 }
 impl LayerRecord {
     fn valid(&self) -> bool {
@@ -1053,6 +1206,10 @@ impl LayerRecord {
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
+            && self
+                .copper_role
+                .as_ref()
+                .is_none_or(|r| matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched"))
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
@@ -1115,6 +1272,78 @@ pub enum ArtShape {
     },
 }
 impl ArtShape {
+    /// The true circle this figure draws, when it is one, so a format with
+    /// arcs or circle entities can keep it round instead of sampling it.
+    pub fn circle(&self) -> Option<(Point, f64)> {
+        match self {
+            Self::Circle { center, radius } => Some((*center, *radius)),
+            _ => None,
+        }
+    }
+
+    /// A point that represents the figure for navigation and region tests.
+    pub fn anchor(&self) -> Point {
+        match self {
+            Self::Line { start, .. } => *start,
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => Point::new(x + width / 2.0, y + height / 2.0),
+            Self::Circle { center, .. } => *center,
+            Self::Poly { points } => points.first().copied().unwrap_or_default(),
+            Self::Text { at, .. } => *at,
+        }
+    }
+
+    /// The straight-line paths this figure draws, in board millimetres.
+    pub fn paths(&self) -> Vec<ArtPath> {
+        match self {
+            Self::Line { start, end } => vec![ArtPath {
+                points: vec![*start, *end],
+                closed: false,
+            }],
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                rotate,
+            } => {
+                let center = Point::new(x + width / 2.0, y + height / 2.0);
+                let points = [
+                    Point::new(*x, *y),
+                    Point::new(x + width, *y),
+                    Point::new(x + width, y + height),
+                    Point::new(*x, y + height),
+                ]
+                .into_iter()
+                .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
+                .collect();
+                vec![ArtPath {
+                    points,
+                    closed: true,
+                }]
+            }
+            Self::Circle { center, radius } => vec![ArtPath {
+                points: art_circle_points(*center, *radius),
+                closed: true,
+            }],
+            Self::Poly { points } => {
+                if points.len() < 2 {
+                    return vec![];
+                }
+                vec![ArtPath {
+                    points: points.clone(),
+                    closed: true,
+                }]
+            }
+            Self::Text { .. } => vec![],
+        }
+    }
+
     fn valid(&self) -> bool {
         match self {
             Self::Line { start, end } => start.valid() && end.valid(),
@@ -1154,6 +1383,65 @@ impl ArtShape {
         }
     }
 }
+/// One polyline of a drawn figure, in board millimetres. Plotters, macros
+/// and the screen all read figures through this so they agree on corners,
+/// closure and circle sampling.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtPath {
+    /// The points to travel through, in order.
+    pub points: Vec<Point>,
+    /// True when the path returns to its first point.
+    pub closed: bool,
+}
+impl ArtPath {
+    /// Every point along this path, walking each segment at a physical step
+    /// and placing the first mark at the start. Closed paths include the
+    /// closing segment. Used to turn a perforation line into real holes.
+    pub fn dots(&self, pitch: f64) -> Vec<Point> {
+        const SAMPLES: usize = 100_000;
+        let mut out = Vec::new();
+        if !(pitch.is_finite() && pitch > 0.0) {
+            return out;
+        }
+        let Some(first) = self.points.first().copied() else {
+            return out;
+        };
+        out.push(first);
+        let mut ring = self.points.clone();
+        if self.closed {
+            ring.push(first);
+        }
+        let mut next = pitch;
+        let mut travelled = 0.0;
+        for pair in ring.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let len = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+            if !len.is_finite() || len <= 0.0 {
+                continue;
+            }
+            while travelled + len >= next {
+                let t = (next - travelled) / len;
+                out.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                if out.len() >= SAMPLES {
+                    return out;
+                }
+                next += pitch;
+            }
+            travelled += len;
+        }
+        out
+    }
+}
+/// Sample a circle into a ring of points, without repeating the first point.
+fn art_circle_points(center: Point, radius: f64) -> Vec<Point> {
+    const SEGMENTS: usize = 64;
+    (0..SEGMENTS)
+        .map(|i| {
+            let a = std::f64::consts::TAU * i as f64 / SEGMENTS as f64;
+            Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+        })
+        .collect()
+}
 /// A layer the designer draws: card outlines to cut, perforations to snap
 /// along, custom silk screens, masks or reference art. Copper stays where it
 /// is; these layers sit beside it and are plotted for laser, mill and
@@ -1169,6 +1457,15 @@ pub struct ArtLayer {
     /// snaps along, or a light print guide.
     #[serde(default)]
     pub dotted: bool,
+    /// Centre-to-centre distance between the dots of a dotted layer, in
+    /// millimetres. Machines need a physical pitch; the screen dashes are a
+    /// preview of this.
+    #[serde(default = "art_dot_pitch")]
+    pub dot_pitch: f64,
+    /// Diameter of each dot of a dotted layer, in millimetres. A laser marks
+    /// it, a mill drills it.
+    #[serde(default = "art_dot_size")]
+    pub dot_size: f64,
     /// False hides the layer everywhere on screen.
     #[serde(default = "art_visible")]
     pub visible: bool,
@@ -1182,10 +1479,20 @@ impl ArtLayer {
             && self.name.len() <= 64
             && self.shapes.len() <= 512
             && self.shapes.iter().all(ArtShape::valid)
+            && self.dot_pitch.is_finite()
+            && (0.1..=20.0).contains(&self.dot_pitch)
+            && self.dot_size.is_finite()
+            && (0.05..=10.0).contains(&self.dot_size)
     }
 }
 fn art_visible() -> bool {
     true
+}
+fn art_dot_pitch() -> f64 {
+    1.0
+}
+fn art_dot_size() -> f64 {
+    0.5
 }
 fn art_text_size() -> f64 {
     1.0
@@ -1228,6 +1535,9 @@ pub struct Board {
     pub height: f64,
     pub thickness: f64,
     pub clearance: f64,
+    /// Recorded fabrication minimums and preset metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<FabRules>,
     /// Surface finish applied to exposed copper, for example HASL or ENIG.
     #[serde(default = "board_finish")]
     pub finish: String,
@@ -1237,7 +1547,7 @@ pub struct Board {
     /// Origin that drill file coordinates are measured from, in millimetres.
     #[serde(default = "board_origin")]
     pub drill_origin: Point,
-    /// Recorded per-layer fabrication notes, ordered by layer name.
+    /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
     /// Machining notes for fabrication, absent when none were recorded.
@@ -1476,6 +1786,89 @@ pub const PANEL_SCORE_COMPONENT_MIN_MM: f64 = 1.0;
 pub const PANEL_TAB_CHANNEL_MIN_MM: f64 = 1.6;
 /// Panel fiducial count expected in the rails.
 pub const PANEL_FIDUCIAL_COUNT: usize = 3;
+/// Most named numeric parameters one project may carry.
+pub const MAX_PARAMETERS: usize = 128;
+/// Largest absolute parameter value a project records, in millimetres.
+pub const MAX_PARAMETER_VALUE: f64 = 10_000.0;
+/// Longest parameter note a project records, in bytes.
+pub const MAX_PARAMETER_NOTE: usize = 256;
+/// Most object fields one project may bind to a parameter.
+pub const MAX_BINDINGS: usize = 1024;
+/// A named numeric value that commands reference by name instead of
+/// retyping a number, so one edit moves everything that depends on it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Parameter {
+    /// The number every reference to this name resolves to, in millimetres.
+    pub value: f64,
+    /// Free-form reminder of what the number means, carried with the design.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+/// One numeric field of one object recorded as following a named parameter:
+/// setting the parameter writes this field again and re-runs its range checks.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Binding {
+    /// The object whose field follows the parameter.
+    pub object: Id,
+    /// The field that follows it; a closed set, one variant per numeric
+    /// field a command accepts a parameter name for.
+    pub field: Field,
+    /// The parameter the field follows.
+    pub parameter: String,
+}
+/// The closed set of numeric object fields a named parameter can drive.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum Field {
+    /// Drill diameter, or slot width, of an unplated hole.
+    HoleDiameter,
+    /// X coordinate of an unplated hole's near centre.
+    HoleX,
+    /// Y coordinate of an unplated hole's near centre.
+    HoleY,
+    /// Outer copper pad diameter of a plated via.
+    ViaDiameter,
+    /// Drilled diameter of a plated via.
+    ViaDrill,
+    /// X coordinate of a plated via's centre.
+    ViaX,
+    /// Y coordinate of a plated via's centre.
+    ViaY,
+}
+impl Field {
+    /// True when this field belongs to an unplated hole.
+    pub fn is_hole(&self) -> bool {
+        matches!(self, Field::HoleDiameter | Field::HoleX | Field::HoleY)
+    }
+    /// True when this field belongs to a plated via.
+    pub fn is_via(&self) -> bool {
+        matches!(
+            self,
+            Field::ViaDiameter | Field::ViaDrill | Field::ViaX | Field::ViaY
+        )
+    }
+}
+/// True when `name` is a usable parameter name: one to 32 bytes starting with
+/// a letter or underscore, then letters, digits or underscores.
+pub fn valid_parameter_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+/// True when `note` fits the parameter note limit.
+pub fn valid_parameter_note(note: &str) -> bool {
+    note.len() <= MAX_PARAMETER_NOTE
+}
+/// True when `value` is a finite number a parameter may hold.
+pub fn valid_parameter_value(value: f64) -> bool {
+    value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1491,6 +1884,9 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Clearance overrides between net classes, stricter than either class alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub class_pairs: Vec<ClassPairRule>,
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
@@ -1523,6 +1919,14 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Named numeric values commands may reference by name instead of
+    /// retyping a number, keyed by name and carried with the saved design.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, Parameter>,
+    /// Object fields that follow a named parameter, so changing the parameter
+    /// moves everything that depends on it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bindings: Vec<Binding>,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1596,9 +2000,10 @@ impl ProjectLibrary {
 }
 /// A closed polygon outline: 3-256 distinct vertices, the first repeated last,
 /// finite in-range coordinates and nonzero enclosed area.
-/// Area in square millimetres of an implicitly closed polygon, by the
-/// shoelace formula; zero for polygons with fewer than three vertices.
-pub fn outline_area(points: &[Point]) -> f64 {
+/// Signed area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula: positive when the vertices wind counter-clockwise, zero
+/// for polygons with fewer than three vertices.
+pub fn outline_signed_area(points: &[Point]) -> f64 {
     if points.len() < 3 {
         return 0.0;
     }
@@ -1607,7 +2012,12 @@ pub fn outline_area(points: &[Point]) -> f64 {
         let b = points[(i + 1) % points.len()];
         area += a.x * b.y - b.x * a.y;
     }
-    (area / 2.0).abs()
+    area / 2.0
+}
+/// Area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula; zero for polygons with fewer than three vertices.
+pub fn outline_area(points: &[Point]) -> f64 {
+    outline_signed_area(points).abs()
 }
 
 pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
@@ -1642,6 +2052,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            class_pairs: vec![],
             sheets: vec![],
             ports: vec![],
             bom_fields: vec![],
@@ -1652,6 +2063,8 @@ impl Default for Project {
             variants: vec![],
             graphic_groups: vec![],
             meta: Default::default(),
+            parameters: Default::default(),
+            bindings: vec![],
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1665,6 +2078,7 @@ impl Default for Project {
                 height: 40.0,
                 thickness: 1.6,
                 clearance: 0.2,
+                rules: None,
                 finish: board_finish(),
                 er: board_er(),
                 drill_origin: board_origin(),
@@ -1765,6 +2179,92 @@ pub fn component_template(
 impl Project {
     pub const UNITS: [&'static str; 3] = ["mm", "mil", "inch"];
 
+    /// The named parameter recorded under `name`, if the design has one.
+    pub fn parameter(&self, name: &str) -> Option<&Parameter> {
+        self.parameters.get(name)
+    }
+    /// The bindings that follow the parameter `name`, in the order made.
+    pub fn parameter_bindings<'a>(
+        &'a self,
+        name: &'a str,
+    ) -> impl Iterator<Item = &'a Binding> + 'a {
+        self.bindings.iter().filter(move |b| b.parameter == name)
+    }
+    /// The live value of one object field, or None when no object carries it.
+    pub fn field_value(&self, object: Id, field: Field) -> Option<f64> {
+        let hole = self.board.holes.iter().find(|h| h.id == object);
+        let via = self.board.vias.iter().find(|v| v.id == object);
+        match field {
+            Field::HoleDiameter => Some(hole?.diameter),
+            Field::HoleX => Some(hole?.position.x),
+            Field::HoleY => Some(hole?.position.y),
+            Field::ViaDiameter => Some(via?.diameter),
+            Field::ViaDrill => Some(via?.drill),
+            Field::ViaX => Some(via?.position.x),
+            Field::ViaY => Some(via?.position.y),
+        }
+    }
+    /// True when `object` exists and can carry `field`.
+    pub fn carries_field(&self, object: Id, field: Field) -> bool {
+        if field.is_hole() {
+            self.board.holes.iter().any(|h| h.id == object)
+        } else {
+            self.board.vias.iter().any(|v| v.id == object)
+        }
+    }
+    /// Drop bindings whose object no longer exists, so deleting a bound hole
+    /// or via never leaves a dangling reference behind.
+    pub fn prune_bindings(&mut self) {
+        let board = &self.board;
+        self.bindings.retain(|b| {
+            if b.field.is_hole() {
+                board.holes.iter().any(|h| h.id == b.object)
+            } else {
+                board.vias.iter().any(|v| v.id == b.object)
+            }
+        });
+    }
+    /// Check the parameter table and its bindings: bounded names, values and
+    /// notes, at most one binding per field, and every binding naming a
+    /// parameter and an object that can carry that field.
+    pub fn validate_parameters(&self) -> Result<(), String> {
+        if self.parameters.len() > MAX_PARAMETERS {
+            return Err("a project records at most 128 named parameters".into());
+        }
+        for (name, parameter) in &self.parameters {
+            if !valid_parameter_name(name) {
+                return Err(
+                    "parameter names are 1 to 32 letters, digits or underscores and start with a letter or underscore"
+                        .into(),
+                );
+            }
+            if !valid_parameter_value(parameter.value) {
+                return Err(
+                    "parameter values are finite numbers within plus or minus 10000 mm".into(),
+                );
+            }
+            if !valid_parameter_note(&parameter.note) {
+                return Err("a parameter note fits 256 bytes".into());
+            }
+        }
+        if self.bindings.len() > MAX_BINDINGS {
+            return Err("a project binds at most 1024 object fields".into());
+        }
+        let mut bound = BTreeSet::new();
+        for binding in &self.bindings {
+            if !self.parameters.contains_key(&binding.parameter) {
+                return Err("a binding names a parameter the project does not record".into());
+            }
+            if !self.carries_field(binding.object, binding.field) {
+                return Err("a binding names an object that cannot carry that field".into());
+            }
+            if !bound.insert((binding.object, binding.field)) {
+                return Err("one object field follows at most one parameter".into());
+            }
+        }
+        Ok(())
+    }
+
     pub fn component(&self, id: Id) -> Option<&Component> {
         self.components.iter().find(|c| c.id == id)
     }
@@ -1805,9 +2305,163 @@ impl Project {
             .map(|n| n.name.as_str())
             .unwrap_or("unassigned")
     }
+    /// Copper layer rows from the stackup table, in top-to-bottom order.
+    pub fn copper_layer_records(&self) -> impl Iterator<Item = &LayerRecord> {
+        self.board
+            .layer_records
+            .iter()
+            .filter(|r| r.kind == "copper")
+    }
+    /// How many routable copper layers exist. With no copper rows recorded,
+    /// a board is treated as two layers (top and bottom).
+    pub fn copper_layer_count(&self) -> u8 {
+        let n = self.copper_layer_records().count();
+        if n == 0 {
+            2
+        } else if n > MAX_COPPER_LAYERS as usize {
+            MAX_COPPER_LAYERS
+        } else {
+            n as u8
+        }
+    }
+    /// Ordered copper layer indices from top (0) to bottom.
+    pub fn copper_layers(&self) -> Vec<Layer> {
+        (0..self.copper_layer_count())
+            .filter_map(|i| Layer::from_index(i).ok())
+            .collect()
+    }
+    /// Gerber-style copper name for a layer index on this board.
+    pub fn layer_name(&self, layer: Layer) -> String {
+        let idx = layer.index();
+        let copper: Vec<_> = self.copper_layer_records().collect();
+        if !copper.is_empty() {
+            if let Some(rec) = copper.get(idx as usize) {
+                return rec.name.clone();
+            }
+        } else if idx == 0 {
+            return "F.Cu".into();
+        } else if idx == 1 {
+            return "B.Cu".into();
+        }
+        if idx == 0 {
+            "F.Cu".into()
+        } else if idx + 1 == self.copper_layer_count() {
+            "B.Cu".into()
+        } else {
+            format!("In{}.Cu", idx)
+        }
+    }
+    /// Map a copper layer string from a command or file to a layer index.
+    pub fn resolve_copper_layer(&self, s: &str) -> Result<Layer, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("copper layer name is empty".into());
+        }
+        let count = self.copper_layer_count();
+        if s == "F.Cu" {
+            return Ok(Layer::Front);
+        }
+        if s == "B.Cu" {
+            if count <= 2 {
+                return Ok(Layer::Back);
+            }
+            return Layer::from_index(count - 1);
+        }
+        if let Some(rest) = s.strip_prefix('L')
+            && let Ok(n) = rest.parse::<u32>()
+            && n >= 1
+            && n <= count as u32
+        {
+            return Layer::from_index((n - 1) as u8);
+        }
+        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
+            && let Ok(n) = rest.parse::<u8>()
+            && n < count
+        {
+            return Layer::from_index(n);
+        }
+        for (i, rec) in self.copper_layer_records().enumerate() {
+            if rec.name == s {
+                return Layer::from_index(i as u8);
+            }
+        }
+        Err(format!("unknown copper layer {s:?}"))
+    }
+    fn copper_layer_valid(&self, layer: Layer) -> bool {
+        layer.index() < self.copper_layer_count()
+    }
+    /// Highest copper index referenced by board objects, if any.
+    pub fn max_copper_layer_index_used(&self) -> Option<u8> {
+        let mut max: Option<u8> = None;
+        let mut bump = |layer: Layer| {
+            max = Some(max.map_or(layer.index(), |m| m.max(layer.index())));
+        };
+        for t in &self.board.tracks {
+            bump(t.layer);
+        }
+        for z in &self.board.zones {
+            bump(z.layer);
+        }
+        for t in &self.board.texts {
+            bump(t.layer);
+        }
+        for f in &self.board.fiducials {
+            bump(f.layer);
+        }
+        for a in &self.board.rule_areas {
+            if let Some(l) = a.layer {
+                bump(l);
+            }
+        }
+        max
+    }
+    /// Plain reason when shrinking the stack would orphan board objects.
+    pub fn stack_shrink_blocked_reason(&self, new_copper_count: u8) -> Option<String> {
+        let max = self.max_copper_layer_index_used()?;
+        if new_copper_count == 0 || max >= new_copper_count {
+            let mut kinds = Vec::new();
+            let limit = new_copper_count;
+            if self.board.tracks.iter().any(|t| t.layer.index() >= limit) {
+                kinds.push("track");
+            }
+            if self.board.zones.iter().any(|z| z.layer.index() >= limit) {
+                kinds.push("zone");
+            }
+            if self.board.texts.iter().any(|t| t.layer.index() >= limit) {
+                kinds.push("text");
+            }
+            if self
+                .board
+                .fiducials
+                .iter()
+                .any(|f| f.layer.index() >= limit)
+            {
+                kinds.push("fiducial");
+            }
+            if self
+                .board
+                .rule_areas
+                .iter()
+                .any(|a| a.layer.is_some_and(|l| l.index() >= limit))
+            {
+                kinds.push("rule area");
+            }
+            Some(format!(
+                "copper stack shrink blocked by {} on layer index {}",
+                kinds.join(", "),
+                max
+            ))
+        } else {
+            None
+        }
+    }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
+    }
+    /// The id of the net class a net belongs to, if any.
+    pub fn net_class_id(&self, net: Id) -> Option<Id> {
+        self.net_class(net).map(|c| c.id)
     }
     /// Severity a check code should report at: the project override when it
     /// names one of the two real levels, otherwise the check's own default.
@@ -1871,6 +2525,9 @@ impl Project {
         if let Some(c) = b.cutouts.iter().find(|c| c.id == id) {
             return Some(c.center);
         }
+        if let Some(l) = b.user_layers.iter().find(|l| l.id == id) {
+            return l.shapes.first().map(ArtShape::anchor);
+        }
         if let Some(f) = b.footprints.iter().find(|f| f.id == id) {
             return Some(f.position);
         }
@@ -1894,6 +2551,15 @@ impl Project {
             })
             .max_by(f64::total_cmp)
             .unwrap_or(self.board.clearance);
+        if let (Some(ca), Some(cb)) = (self.net_class_id(a), self.net_class_id(b)) {
+            for rule in &self.class_pairs {
+                if (rule.class_a == ca && rule.class_b == cb)
+                    || (rule.class_a == cb && rule.class_b == ca)
+                {
+                    best = best.max(rule.clearance);
+                }
+            }
+        }
         if let Some(rule) = self
             .board
             .pair_rules
@@ -1973,6 +2639,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.validate_parameters()?;
         if self
             .components
             .iter()
@@ -2140,6 +2807,17 @@ impl Project {
                     .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || !profile_tag_valid(&c.profile)
+                || c.via_diameter
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_drill
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.via_diameter
+                    .zip(c.via_drill)
+                    .is_some_and(|(d, drill)| drill >= d)
+                || c.pair_width
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
+                || c.pair_gap
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
             {
                 return Err("invalid net class".into());
             }
@@ -2148,6 +2826,25 @@ impl Project {
                     return Err("net class membership is invalid".into());
                 }
             }
+        }
+        if self.class_pairs.len() > 64 {
+            return Err("a project carries at most 64 class pair clearance rules".into());
+        }
+        let class_ids: BTreeSet<Id> = self.net_classes.iter().map(|c| c.id).collect();
+        let mut class_paired: BTreeSet<(Id, Id)> = BTreeSet::new();
+        for r in &self.class_pairs {
+            if !r.valid()
+                || !class_ids.contains(&r.class_a)
+                || !class_ids.contains(&r.class_b)
+                || !class_paired.insert(r.key())
+            {
+                return Err(
+                    "class pair rules need known distinct classes, one rule per pair".into(),
+                );
+            }
+        }
+        if self.board.rules.as_ref().is_some_and(|r| !r.valid()) {
+            return Err("fabrication rules carry invalid minimums".into());
         }
         if self.board.pair_rules.len() > 64 {
             return Err("a board carries at most 64 net pair clearance rules".into());
@@ -2160,7 +2857,23 @@ impl Project {
         }
         for h in &self.board.holes {
             if !h.valid() {
-                return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+                return Err(
+                    "unplated holes need a sane position, a 0.05 to 25 mm drill and, for a slot, two centres at least 0.01 mm apart and at most 50 mm apart"
+                        .into(),
+                );
+            }
+            if h.is_slot() {
+                let radius = h.diameter / 2.0;
+                let board = &self.board;
+                let fits = |p: Point| {
+                    p.x - radius >= 0.0
+                        && p.y - radius >= 0.0
+                        && p.x + radius <= board.width
+                        && p.y + radius <= board.height
+                };
+                if !fits(h.start()) || !fits(h.finish()) {
+                    return Err("a slot must fit inside the board".into());
+                }
             }
         }
         if self.board.fiducials.len() > 128 {
@@ -2580,6 +3293,71 @@ impl Project {
             || b.machining.as_ref().is_some_and(|m| !m.valid())
         {
             return Err("invalid board dimensions/rules".into());
+        }
+        let copper_rows: Vec<_> = self.copper_layer_records().collect();
+        if copper_rows.len() > MAX_COPPER_LAYERS as usize {
+            return Err(format!(
+                "a board defines at most {MAX_COPPER_LAYERS} copper layers"
+            ));
+        }
+        let mut copper_names = BTreeSet::new();
+        for rec in &copper_rows {
+            if !copper_names.insert(rec.name.as_str()) {
+                return Err("copper layer names must be unique".into());
+            }
+        }
+        let copper_count = self.copper_layer_count();
+        if copper_count == 0 || copper_count > MAX_COPPER_LAYERS {
+            return Err(format!(
+                "copper layer count must be 1 to {MAX_COPPER_LAYERS}"
+            ));
+        }
+        for t in &b.tracks {
+            if !self.copper_layer_valid(t.layer) {
+                return Err(format!(
+                    "track {} sits on copper index {} but the board has {copper_count} copper layers",
+                    t.id,
+                    t.layer.index()
+                ));
+            }
+        }
+        for z in &b.zones {
+            if !self.copper_layer_valid(z.layer) {
+                return Err(format!(
+                    "zone {} sits on copper index {} but the board has {copper_count} copper layers",
+                    z.id,
+                    z.layer.index()
+                ));
+            }
+        }
+        for t in &b.texts {
+            if !self.copper_layer_valid(t.layer) {
+                return Err(format!(
+                    "board text {} sits on copper index {} but the board has {copper_count} copper layers",
+                    t.id,
+                    t.layer.index()
+                ));
+            }
+        }
+        for f in &b.fiducials {
+            if !self.copper_layer_valid(f.layer) {
+                return Err(format!(
+                    "fiducial {} sits on copper index {} but the board has {copper_count} copper layers",
+                    f.id,
+                    f.layer.index()
+                ));
+            }
+        }
+        for a in &b.rule_areas {
+            if let Some(l) = a.layer
+                && !self.copper_layer_valid(l)
+            {
+                return Err(format!(
+                    "rule area {} filters copper index {} but the board has {copper_count} copper layers",
+                    a.id,
+                    l.index()
+                ));
+            }
         }
         if let Some(points) = &b.outline {
             let distinct: BTreeSet<(u64, u64)> = points
@@ -3446,6 +4224,96 @@ mod drill_tests {
         Ok(())
     }
     #[test]
+    fn two_layer_default_stackup_maps_legacy_names() -> Result<(), String> {
+        let p = Project::default();
+        assert_eq!(p.copper_layer_count(), 2);
+        assert_eq!(p.resolve_copper_layer("F.Cu")?, Layer::Front);
+        assert_eq!(p.resolve_copper_layer("B.Cu")?, Layer::Back);
+        let track = Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        };
+        let json = serde_json::to_string(&track.layer).map_err(|e| e.to_string())?;
+        assert_eq!(json, "\"F.Cu\"");
+        let back: Layer = serde_json::from_str("\"B.Cu\"").map_err(|e| e.to_string())?;
+        assert_eq!(back, Layer::Back);
+        Ok(())
+    }
+    #[test]
+    fn four_layer_stackup_accepts_inner_track_index() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.layer_records = vec![
+            LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+            LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: Some("plane".into()),
+            },
+            LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+            },
+            LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+        ];
+        assert_eq!(p.copper_layer_count(), 4);
+        p.board.tracks.push(Track {
+            id: 100,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::from_index(1)?,
+            arc: None,
+        });
+        p.validate()?;
+        Ok(())
+    }
+    #[test]
+    fn track_on_inner_layer_refused_on_two_layer_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 100,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::Back,
+            arc: None,
+        });
+        p.validate()?;
+        p.board.tracks[0].layer = Layer::from_index(2)?;
+        assert!(p.validate().is_err());
+        Ok(())
+    }
+    #[test]
     fn chamfer_outline_cuts_each_selected_corner_and_merges_meeting_cuts() {
         let all = chamfered_rect(
             Point::new(2.0, 2.0),
@@ -3600,6 +4468,140 @@ mod drill_tests {
             p.validate()
                 .is_err_and(|e| e.contains("unplated footprint pad cannot carry a net"))
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod art_tests {
+    use super::*;
+
+    #[test]
+    fn art_shape_paths_match_the_canvas_rotation_sign() -> Result<(), String> {
+        let shape = ArtShape::Rect {
+            x: 10.0,
+            y: 10.0,
+            width: 20.0,
+            height: 10.0,
+            rotate: 90.0,
+        };
+        let paths = shape.paths();
+        assert_eq!(paths.len(), 1, "a rectangle is one closed path");
+        let path = paths.first().ok_or("no path")?;
+        assert!(path.closed, "a rectangle closes");
+        assert_eq!(path.points.len(), 4, "four corners");
+        // Corners turn by +90 degrees about the centre (20, 15), the same
+        // turn the canvas applies: (10,10) -> (25,5), (30,10) -> (25,25),
+        // (30,20) -> (15,25), (10,20) -> (15,5).
+        for (got, want) in path.points.iter().zip([
+            Point::new(25.0, 5.0),
+            Point::new(25.0, 25.0),
+            Point::new(15.0, 25.0),
+            Point::new(15.0, 5.0),
+        ]) {
+            assert!(
+                (got.x - want.x).abs() < 1e-9 && (got.y - want.y).abs() < 1e-9,
+                "corner {got:?} should be {want:?}"
+            );
+        }
+        let circle = ArtShape::Circle {
+            center: Point::new(5.0, 5.0),
+            radius: 2.0,
+        };
+        assert_eq!(circle.circle(), Some((Point::new(5.0, 5.0), 2.0)));
+        let ring = circle.paths();
+        assert_eq!(ring.len(), 1);
+        assert!(
+            ring.first()
+                .is_some_and(|p| p.closed && p.points.len() == 64),
+            "a circle samples into a closed ring"
+        );
+        assert!(
+            ArtShape::Text {
+                at: Point::new(1.0, 1.0),
+                text: "A".into(),
+                size: 1.0,
+                rotate: 0.0,
+            }
+            .paths()
+            .is_empty(),
+            "text needs a stroke font, so it draws no straight path"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn art_path_dots_follow_the_physical_pitch() -> Result<(), String> {
+        let line = ArtShape::Line {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 10.0),
+        };
+        let path = line.paths().pop().ok_or("a line draws one path")?;
+        let dots = path.dots(1.0);
+        assert_eq!(
+            dots.len(),
+            11,
+            "a mark every millimetre, both ends included"
+        );
+        assert!((dots[0].y - 0.0).abs() < 1e-9);
+        assert!((dots[10].y - 10.0).abs() < 1e-9);
+        assert_eq!(path.dots(0.0).len(), 0, "a pitch must be positive");
+        Ok(())
+    }
+
+    #[test]
+    fn old_projects_with_round_holes_still_load() -> Result<(), String> {
+        let hole: Hole = serde_json::from_value(
+            serde_json::json!({"id":7,"position":{"x":3.0,"y":4.0},"diameter":3.2}),
+        )
+        .map_err(|e| e.to_string())?;
+        assert!(!hole.is_slot(), "a plain drill has no second centre");
+        assert_eq!(hole.finish(), hole.position);
+        assert!((hole.length() - 3.2).abs() < 1e-12);
+        let written = serde_json::to_value(&hole).map_err(|e| e.to_string())?;
+        assert!(
+            written.get("end").is_none(),
+            "a round hole writes no second centre, so files stay as they were"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_slot_reports_its_midpoint_and_overall_length() -> Result<(), String> {
+        let hole = Hole {
+            id: 8,
+            position: Point::new(10.0, 5.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 5.0)),
+        };
+        assert!(hole.is_slot());
+        assert_eq!(hole.center(), Point::new(12.0, 5.0));
+        assert!((hole.length() - 5.0).abs() < 1e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn validation_refuses_a_collapsed_slot_and_one_off_the_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.holes.push(Hole {
+            id: 9,
+            position: Point::new(0.2, 5.0),
+            diameter: 1.0,
+            end: Some(Point::new(5.0, 5.0)),
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("slot must fit inside the board")),
+            "a slot whose cap hangs over the rim is refused"
+        );
+        p.board.holes[0].position = Point::new(10.0, 5.0);
+        p.board.holes[0].end = Some(Point::new(10.0, 5.0));
+        assert!(
+            p.validate().is_err(),
+            "a slot with no distance between its centres is a round drill, not a slot"
+        );
+        p.board.holes[0].end = Some(Point::new(70.0, 5.0));
+        assert!(p.validate().is_err(), "a slot spans at most 50 mm");
         Ok(())
     }
 }

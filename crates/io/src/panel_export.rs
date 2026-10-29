@@ -45,6 +45,9 @@ fn translate_hole(h: &Hole, dx: f64, dy: f64, copy_index: usize) -> Hole {
     let mut out = h.clone();
     out.id = remap_id(h.id, copy_index);
     out.position = translate_point(h.position, dx, dy);
+    if let Some(end) = h.end {
+        out.end = Some(translate_point(end, dx, dy));
+    }
     out
 }
 
@@ -103,6 +106,7 @@ fn add_tooling_holes(board: &mut Board, layout: &PanelLayout, next_id: &mut u64)
             id: *next_id,
             position: Point::new(x, y),
             diameter: TOOLING_DIAMETER,
+            end: None,
         });
     }
 }
@@ -133,6 +137,7 @@ fn add_mouse_bite_holes(
                 id: *next_id,
                 position: Point::new(x, y),
                 diameter: MOUSE_BITE_DIAMETER,
+                end: None,
             });
             y += step;
         }
@@ -153,6 +158,7 @@ fn add_mouse_bite_holes(
                 id: *next_id,
                 position: Point::new(x, y),
                 diameter: MOUSE_BITE_DIAMETER,
+                end: None,
             });
             x += step;
         }

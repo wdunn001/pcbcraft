@@ -1,8 +1,8 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    Board, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
-    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, PanelSeparation, Project, panel_layout,
-    panel_score_lines,
+    ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
+    PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
+    PanelSeparation, Project, Via, panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
@@ -248,13 +248,15 @@ fn copper(project: &Project) -> Vec<Copper> {
         result.push(item);
     }
     for h in &project.board.holes {
-        // An unplated drill is a keep-out circle on every layer: copper may
-        // not enter the drilled annulus and the hole must clear the edge.
+        // An unplated drill is a keep-out shape on every layer: copper may
+        // not enter the drilled area and the drill must clear the edge. A
+        // slot is a capsule between its two centres, so clearance and the
+        // edge check measure the drilled shape itself.
         let item = Copper {
             id: h.id,
             net: 0,
-            start: h.position,
-            end: h.position,
+            start: h.start(),
+            end: h.finish(),
             radius: h.diameter / 2.0,
             contact_radius: h.diameter / 2.0,
             conservative: false,
@@ -616,6 +618,82 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
     } else {
         -distance
     }
+}
+
+/// How far outside the board a drawn figure may sit before it counts as off
+/// the board. A figure drawn on the edge is the normal card outline; only a
+/// real overshoot is a finding.
+const ART_EDGE_TOLERANCE: f64 = 0.01;
+
+fn art_path(shape: &ArtShape) -> Vec<Point> {
+    match shape {
+        ArtShape::Line { start, end } => vec![*start, *end],
+        ArtShape::Rect {
+            x,
+            y,
+            width,
+            height,
+            rotate,
+        } => {
+            let center = Point::new(x + width / 2.0, y + height / 2.0);
+            let mut ring: Vec<Point> = [
+                Point::new(*x, *y),
+                Point::new(x + width, *y),
+                Point::new(x + width, y + height),
+                Point::new(*x, y + height),
+            ]
+            .into_iter()
+            .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
+            .collect();
+            ring.push(ring[0]);
+            ring
+        }
+        ArtShape::Circle { center, radius } => (0..=48)
+            .map(|i| {
+                let turn = std::f64::consts::TAU * i as f64 / 48.0;
+                Point::new(
+                    center.x + turn.cos() * radius,
+                    center.y + turn.sin() * radius,
+                )
+            })
+            .collect(),
+        ArtShape::Poly { points } => {
+            let mut ring = points.clone();
+            if let Some(first) = ring.first().copied() {
+                ring.push(first);
+            }
+            ring
+        }
+        ArtShape::Text { at, .. } => vec![*at],
+    }
+}
+
+fn art_encloses(shape: &ArtShape) -> bool {
+    matches!(
+        shape,
+        ArtShape::Rect { .. } | ArtShape::Circle { .. } | ArtShape::Poly { .. }
+    )
+}
+
+fn art_figure_name(index: usize, shape: &ArtShape) -> String {
+    let kind = match shape {
+        ArtShape::Line { .. } => "line",
+        ArtShape::Rect { .. } => "rectangle",
+        ArtShape::Circle { .. } => "circle",
+        ArtShape::Poly { .. } => "outline",
+        ArtShape::Text { .. } => "text",
+    };
+    format!("{kind} {}", index + 1)
+}
+
+fn rings_overlap(a: &[Point], b: &[Point]) -> bool {
+    if a.len() < 3 || b.len() < 3 {
+        return false;
+    }
+    a.iter().any(|p| point_in_polygon(*p, b))
+        || b.iter().any(|p| point_in_polygon(*p, a))
+        || b.windows(2)
+            .any(|edge| polygon_segment(a, edge[0], edge[1]) <= 1e-9)
 }
 
 fn panel_findings(project: &Project) -> Vec<Finding> {
@@ -999,6 +1077,130 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(panel_findings(project));
+    result.extend(fab_findings(project, board));
+    // Drawn machine layers sit beside the copper.
+    // not run through a via or a pad, a mask figure must not cover an exposed
+    // pad, and no figure may leave the board. Drawn silk and reference art are
+    // left alone: silk over pads belongs to its own check.
+    for layer in &board.user_layers {
+        let cutting = matches!(layer.kind, ArtKind::Cut | ArtKind::Perforation);
+        let masking = layer.kind == ArtKind::Mask;
+        if !cutting && !masking {
+            continue;
+        }
+        for (index, shape) in layer.shapes.iter().enumerate() {
+            let path = art_path(shape);
+            let figure = art_figure_name(index, shape);
+            let outside = path
+                .iter()
+                .map(|p| board_edge_distance(board, *p, *p))
+                .fold(f64::INFINITY, f64::min);
+            if outside < -ART_EDGE_TOLERANCE {
+                result.push(Finding {
+                    code: "art_off_board",
+                    severity: project.rule_severity("art_off_board", "warning"),
+                    message: format!(
+                        "{figure} on {} reaches {:.2} mm past the board edge; the mill holds plus or minus 0.2 mm and a score line 0.4 to 0.5 mm",
+                        layer.name,
+                        -outside
+                    ),
+                    objects: vec![layer.id],
+                });
+            }
+            if cutting {
+                // Vias are read from the board, not from the copper list that
+                // names each plated item twice: one cut crosses every layer.
+                for v in &board.vias {
+                    let required = v.diameter / 2.0 + board.clearance;
+                    let distance = path
+                        .windows(2)
+                        .map(|s| point_segment(v.position, s[0], s[1]))
+                        .fold(f64::INFINITY, f64::min);
+                    if distance + 1e-9 >= required {
+                        continue;
+                    }
+                    result.push(Finding {
+                        code: "cut_hits_via",
+                        severity: project.rule_severity("cut_hits_via", "error"),
+                        message: format!(
+                            "{figure} on {} passes {:.2} mm from the via at {:.2}, {:.2}; {:.2} mm is needed",
+                            layer.name, distance, v.position.x, v.position.y, required
+                        ),
+                        objects: vec![layer.id, v.id],
+                    });
+                }
+                // Pads are cut against their true copper outline, the same
+                // rotated ring the clearance pass measures them by.
+                for f in &board.footprints {
+                    for pad in &f.pads {
+                        let outline: Vec<Point> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
+                            .collect();
+                        let distance = path
+                            .windows(2)
+                            .map(|s| polygon_segment(&outline, s[0], s[1]))
+                            .fold(f64::INFINITY, f64::min);
+                        if distance + 1e-9 >= board.clearance {
+                            continue;
+                        }
+                        let owner = project
+                            .component(f.component)
+                            .map(|c| c.reference.clone())
+                            .unwrap_or_else(|| format!("footprint {}", f.id));
+                        result.push(Finding {
+                            code: "cut_hits_via",
+                            severity: project.rule_severity("cut_hits_via", "error"),
+                            message: format!(
+                                "{figure} on {} passes {:.2} mm from pad {} of {owner}; {:.2} mm is needed",
+                                layer.name, distance, pad.number, board.clearance
+                            ),
+                            objects: vec![layer.id, f.id],
+                        });
+                    }
+                }
+            }
+            if masking && art_encloses(shape) {
+                for f in &board.footprints {
+                    for pad in &f.pads {
+                        // A pad without geometry comes from a built-in
+                        // template and carries an opening. Layers that name
+                        // only the far side leave the top opening clear.
+                        let exposed = pad.geometry.as_ref().is_none_or(|g| {
+                            g.layers.iter().any(|l| l == "F.Mask" || l == "*.Mask")
+                        });
+                        if !exposed {
+                            continue;
+                        }
+                        let outline: Vec<Point> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| f.position.offset(p.rotate(-f.rotation)))
+                            .collect();
+                        if !rings_overlap(&path, &outline) {
+                            continue;
+                        }
+                        let owner = project
+                            .component(f.component)
+                            .map(|c| c.reference.clone())
+                            .unwrap_or_else(|| format!("footprint {}", f.id));
+                        // A drawn layer carries no side, so the message says
+                        // the top side it is assumed to print on.
+                        result.push(Finding {
+                            code: "mask_covers_pad",
+                            severity: project.rule_severity("mask_covers_pad", "warning"),
+                            message: format!(
+                                "{figure} on {} covers the opening of pad {} of {owner} on the top side",
+                                layer.name, pad.number
+                            ),
+                            objects: vec![layer.id, f.id],
+                        });
+                    }
+                }
+            }
+        }
+    }
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -1007,12 +1209,235 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result
 }
 
+fn pad_outer_radius(pad: &Pad) -> f64 {
+    pad.geometry
+        .as_ref()
+        .map(|g| g.size.x.max(g.size.y) / 2.0)
+        .unwrap_or(pad.diameter / 2.0)
+}
+
+fn pad_drill_diameter(pad: &Pad) -> Option<f64> {
+    pad.geometry
+        .as_ref()
+        .and_then(|g| g.drill.as_ref())
+        .map(|d| d.size.x.min(d.size.y))
+}
+
+fn via_annular_ring(rules: &FabRules, via: &Via) -> f64 {
+    let tool = rules.drill_tool(via.drill);
+    (via.diameter - tool) / 2.0
+}
+
+fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
+    let drill = pad_drill_diameter(pad)?;
+    let tool = rules.drill_tool(drill);
+    Some((pad_outer_radius(pad) * 2.0 - tool) / 2.0)
+}
+
+fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
+    let Some(rules) = board.rules.as_ref() else {
+        return vec![];
+    };
+    let mut result = vec![];
+    if let Some(min) = rules.min_track {
+        for track in &board.tracks {
+            if track.width + 1e-6 < min {
+                result.push(Finding {
+                    code: "min_track",
+                    severity: project.rule_severity("min_track", "error"),
+                    message: format!(
+                        "{} track is {:.3} mm wide, fabrication needs at least {:.3} mm",
+                        project.net_name(track.net),
+                        track.width,
+                        min
+                    ),
+                    objects: vec![track.id],
+                });
+            }
+        }
+    }
+    if let Some(min) = rules.min_drill {
+        for via in &board.vias {
+            if via.drill > 0.0 && via.drill + 1e-6 < min {
+                result.push(Finding {
+                    code: "min_drill",
+                    severity: project.rule_severity("min_drill", "error"),
+                    message: format!(
+                        "Via drill {:.3} mm is below the {:.3} mm fabrication minimum",
+                        via.drill, min
+                    ),
+                    objects: vec![via.id],
+                });
+            }
+        }
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                if let Some(drill) = pad_drill_diameter(pad)
+                    && drill + 1e-6 < min
+                {
+                    result.push(Finding {
+                        code: "min_drill",
+                        severity: project.rule_severity("min_drill", "error"),
+                        message: format!(
+                            "Pad drill {:.3} mm is below the {:.3} mm fabrication minimum",
+                            drill, min
+                        ),
+                        objects: vec![fp.id],
+                    });
+                }
+            }
+        }
+    }
+    if let Some(min) = rules.min_ring_via {
+        for via in &board.vias {
+            if via.drill <= 0.0 {
+                continue;
+            }
+            let ring = via_annular_ring(rules, via);
+            if ring + 1e-6 < min {
+                result.push(Finding {
+                    code: "annular_ring",
+                    severity: project.rule_severity("annular_ring", "error"),
+                    message: format!(
+                        "Via annular ring {:.3} mm is below the {:.3} mm via minimum",
+                        ring, min
+                    ),
+                    objects: vec![via.id],
+                });
+            }
+        }
+    }
+    if let Some(min) = rules.min_ring_pth {
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                let Some(ring) = pad_annular_ring(rules, pad) else {
+                    continue;
+                };
+                if ring + 1e-6 < min {
+                    result.push(Finding {
+                        code: "annular_ring",
+                        severity: project.rule_severity("annular_ring", "error"),
+                        message: format!(
+                            "Pad annular ring {:.3} mm is below the {:.3} mm plated-hole minimum",
+                            ring, min
+                        ),
+                        objects: vec![fp.id],
+                    });
+                }
+            }
+        }
+    }
+    if let Some(edge) = rules.edge_routed {
+        let items = copper(project);
+        for a in &items {
+            let edge_dist = if let Some(points) = &a.outline {
+                points
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let q = points[(i + 1) % points.len()];
+                        board_edge_distance(board, *p, q)
+                    })
+                    .fold(f64::INFINITY, f64::min)
+                    - a.outline_error
+            } else {
+                board_edge_distance(board, a.start, a.end) - a.radius
+            };
+            if edge_dist + 1e-6 < edge {
+                result.push(Finding {
+                    code: "copper_to_edge",
+                    severity: project.rule_severity("copper_to_edge", "error"),
+                    message: format!("Copper is {:.3} mm from the routed edge", edge_dist),
+                    objects: vec![a.id],
+                });
+            }
+        }
+    }
+    if let Some(max_ratio) = rules.max_aspect_ratio {
+        let mut smallest = f64::INFINITY;
+        for via in &board.vias {
+            if via.drill > 0.0 {
+                smallest = smallest.min(via.drill);
+            }
+        }
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                if let Some(d) = pad_drill_diameter(pad) {
+                    smallest = smallest.min(d);
+                }
+            }
+        }
+        for hole in &board.holes {
+            smallest = smallest.min(hole.diameter);
+        }
+        if smallest.is_finite() && board.thickness / smallest > max_ratio + 1e-6 {
+            result.push(Finding {
+                code: "aspect_ratio",
+                severity: project.rule_severity("aspect_ratio", "error"),
+                message: format!(
+                    "Board {:.3} mm thick over {:.3} mm drill exceeds {:.1}:1",
+                    board.thickness, smallest, max_ratio
+                ),
+                objects: vec![],
+            });
+        }
+    }
+    if let Some(min) = rules.min_space {
+        let items = copper(project);
+        for (i, a) in items.iter().enumerate() {
+            for b in items.iter().skip(i + 1) {
+                if a.net == b.net || a.layer != b.layer {
+                    continue;
+                }
+                let separation = gap(a, b);
+                if separation + 1e-6 < min {
+                    result.push(Finding {
+                        code: "min_space",
+                        severity: project.rule_severity("min_space", "error"),
+                        message: format!(
+                            "{} / {} spacing {:.3} mm is below the {:.3} mm fabrication minimum",
+                            project.net_name(a.net),
+                            project.net_name(b.net),
+                            separation,
+                            min
+                        ),
+                        objects: vec![a.id, b.id],
+                    });
+                }
+            }
+        }
+    }
+    for layer in &board.user_layers {
+        if layer.kind != ArtKind::Silk {
+            continue;
+        }
+        for shape in &layer.shapes {
+            if let ArtShape::Text { size, .. } = shape
+                && let Some(min) = rules.silk_text_height
+                && *size + 1e-6 < min
+            {
+                result.push(Finding {
+                    code: "silk_text_height",
+                    severity: project.rule_severity("silk_text_height", "error"),
+                    message: format!(
+                        "Silk text height {:.3} mm is below the {:.3} mm minimum",
+                        size, min
+                    ),
+                    objects: vec![layer.id],
+                });
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
     };
+    use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -2007,5 +2432,477 @@ mod tests {
             "a track through a peg drill is a clearance finding: {findings:?}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn slot_clearance_is_measured_along_its_length() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.clearance = 0.2;
+        p.board.holes.push(pcbcraft_doc::Hole {
+            id: 40,
+            position: Point::new(14.0, 10.0),
+            diameter: 2.0,
+            end: Some(Point::new(20.0, 10.0)),
+        });
+        p.board.tracks.push(Track {
+            id: 41,
+            net: 1,
+            start: Point::new(21.1, 8.0),
+            end: Point::new(21.1, 12.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.objects.contains(&40) && f.code != "board_edge"),
+            "a track beside a slot's end centre is a clearance violation: {findings:?}"
+        );
+        p.board.tracks[0].start = Point::new(15.0, 12.0);
+        p.board.tracks[0].end = Point::new(19.0, 12.0);
+        let slot_only: Vec<Finding> = drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&40))
+            .collect();
+        assert!(
+            slot_only.is_empty(),
+            "copper clear of the slot's side has room: {slot_only:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn annular_ring_uses_separate_via_and_pth_limits() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            min_ring_via: Some(0.2),
+            min_ring_pth: Some(0.35),
+            ..FabRules::default()
+        });
+        p.board.vias.push(Via {
+            id: 99,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        let fp_id = p.board.footprints[0].id;
+        if let Some(pad) = p.board.footprints[0].pads.first_mut() {
+            pad.diameter = 1.0;
+            pad.geometry = Some(FootprintPad {
+                number: "1".into(),
+                pad_type: "thru_hole".into(),
+                shape: "circle".into(),
+                size: Point::new(1.0, 1.0),
+                position: Point::default(),
+                rotation: 0.0,
+                layers: vec!["F.Cu".into(), "B.Cu".into()],
+                drill: Some(Drill {
+                    size: Point::new(0.4, 0.4),
+                    offset: Point::default(),
+                }),
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            });
+        }
+        let findings = drc(&p);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&99)),
+            "via ring passes the via limit"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "annular_ring" && f.objects.contains(&fp_id)),
+            "the same ring fails the plated-hole limit"
+        );
+        Ok(())
+    }
+
+    /// A project with one drawn layer holding a single figure, for the drawn
+    /// layer checks.
+    fn drawn_layer(kind: ArtKind, shape: ArtShape) -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 40,
+            name: "Card Outline".into(),
+            kind,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![shape],
+        });
+        p
+    }
+    fn codes(p: &Project) -> Vec<&'static str> {
+        drc(p).into_iter().map(|f| f.code).collect()
+    }
+    fn test_via(p: &mut Project) {
+        p.board.vias.push(Via {
+            id: 20,
+            net: 1,
+            position: Point::new(20.0, 20.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+    }
+    /// A project holding one surface pad at (20, 20) that names `layers` and
+    /// carries a 2 mm square copper outline.
+    fn masked_pad(layers: &[&str]) -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "signal".into(),
+            ..Default::default()
+        });
+        p.board.footprints.push(Footprint {
+            id: 11,
+            component: 1,
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 2.0,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    size: Point::new(2.0, 2.0),
+                    layers: layers.iter().map(|l| (*l).to_string()).collect(),
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                }),
+            }],
+        });
+        p
+    }
+    #[test]
+    fn cut_line_through_a_via_is_a_finding() -> Result<(), String> {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        let found = drc(&p);
+        let hit = found
+            .iter()
+            .find(|f| f.code == "cut_hits_via")
+            .ok_or("a cut across a via should be reported")?;
+        assert_eq!(hit.severity, "error");
+        assert_eq!(hit.objects, vec![40, 20]);
+        assert!(
+            hit.message.contains("line 1 on Card Outline"),
+            "the finding names the figure and its layer: {}",
+            hit.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn cut_line_clear_of_a_via_is_clean() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(10.0, 30.0),
+                end: Point::new(20.0, 30.0),
+            },
+        );
+        test_via(&mut p);
+        assert!(!codes(&p).contains(&"cut_hits_via"));
+    }
+    #[test]
+    fn perforation_through_a_rotated_rect_pad_uses_the_true_outline() -> Result<(), String> {
+        let pad = |shape: ArtShape| {
+            let mut p = masked_pad(&["F.Cu", "F.Mask"]);
+            if let Some(pad) = p
+                .board
+                .footprints
+                .first_mut()
+                .and_then(|f| f.pads.first_mut())
+                && let Some(g) = pad.geometry.as_mut()
+            {
+                g.rotation = 45.0;
+            }
+            p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+                id: 40,
+                name: "Snap Line".into(),
+                kind: ArtKind::Perforation,
+                dotted: true,
+                dot_pitch: 1.0,
+                dot_size: 0.5,
+                visible: true,
+                shapes: vec![shape],
+            });
+            p
+        };
+        // Straight through the middle of the diamond.
+        let through = pad(ArtShape::Line {
+            start: Point::new(19.0, 20.0),
+            end: Point::new(21.0, 20.0),
+        });
+        assert!(
+            codes(&through).contains(&"cut_hits_via"),
+            "a perforation through the pad is reported"
+        );
+        // Across the empty corner of the bounding square: 0.41 mm from the
+        // rotated edge, so the true outline leaves room the square would not.
+        let graze = pad(ArtShape::Line {
+            start: Point::new(21.0, 21.0),
+            end: Point::new(21.3, 21.3),
+        });
+        assert!(
+            !codes(&graze).contains(&"cut_hits_via"),
+            "the empty corner of the square is outside the true outline"
+        );
+        Ok(())
+    }
+    #[test]
+    fn cut_through_a_mounting_hole_is_clean() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        p.board.holes.push(pcbcraft_doc::Hole {
+            id: 25,
+            position: Point::new(20.0, 20.0),
+            diameter: 3.0,
+            end: None,
+        });
+        assert!(
+            !codes(&p).contains(&"cut_hits_via"),
+            "cutting through a mounting hole is normal"
+        );
+    }
+    #[test]
+    fn each_via_is_reported_once_not_per_copper_side() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        let hits = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "cut_hits_via")
+            .count();
+        assert_eq!(hits, 1, "one cut crosses one via, on every layer");
+    }
+    #[test]
+    fn mask_rect_over_an_exposed_pad_is_a_finding() -> Result<(), String> {
+        let mut p = masked_pad(&["F.Cu", "F.Mask"]);
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 40,
+            name: "Logo Mask".into(),
+            kind: ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![ArtShape::Rect {
+                x: 19.0,
+                y: 19.0,
+                width: 2.0,
+                height: 2.0,
+                rotate: 0.0,
+            }],
+        });
+        let hit = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "mask_covers_pad")
+            .ok_or("a mask figure over a pad opening should be reported")?;
+        assert_eq!(hit.severity, "warning");
+        assert_eq!(hit.objects, vec![40, 11]);
+        assert!(
+            hit.message.contains("rectangle 1 on Logo Mask") && hit.message.contains("top side"),
+            "the finding names the figure and the side it assumes: {}",
+            hit.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn mask_over_a_pad_without_a_mask_opening_is_clean() {
+        let mut p = masked_pad(&["F.Cu"]);
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 40,
+            name: "Logo Mask".into(),
+            kind: ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![ArtShape::Rect {
+                x: 19.0,
+                y: 19.0,
+                width: 2.0,
+                height: 2.0,
+                rotate: 0.0,
+            }],
+        });
+        assert!(!codes(&p).contains(&"mask_covers_pad"));
+    }
+    #[test]
+    fn mask_line_has_no_area_and_is_ignored() {
+        let mut p = masked_pad(&["F.Cu", "F.Mask"]);
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 40,
+            name: "Logo Mask".into(),
+            kind: ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            }],
+        });
+        assert!(
+            !codes(&p).contains(&"mask_covers_pad"),
+            "a bare mask stroke has no area to cover an opening"
+        );
+    }
+    #[test]
+    fn cut_on_the_traced_board_edge_is_not_off_board() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(60.0, 0.0),
+            },
+        );
+        p.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(60.0, 0.0),
+            Point::new(60.0, 40.0),
+            Point::new(0.0, 40.0),
+        ]);
+        assert!(
+            !codes(&p).contains(&"art_off_board"),
+            "a card outline drawn on the edge is the normal case"
+        );
+    }
+    #[test]
+    fn figure_outside_the_board_rectangle_is_off_board() -> Result<(), String> {
+        let p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(58.0, 20.0),
+                end: Point::new(62.0, 20.0),
+            },
+        );
+        let hit = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "art_off_board")
+            .ok_or("a cut that leaves the board should be reported")?;
+        assert_eq!(hit.severity, "warning");
+        assert_eq!(hit.objects, vec![40]);
+        assert!(
+            hit.message.contains("past the board edge"),
+            "the finding quotes the overshoot: {}",
+            hit.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn severity_override_and_exclusion_silence_the_drawn_layer_codes() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        p.rule_severity.insert("cut_hits_via".into(), "off".into());
+        assert!(!codes(&p).contains(&"cut_hits_via"));
+        p.rule_severity
+            .insert("cut_hits_via".into(), "warning".into());
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "cut_hits_via" && f.severity == "warning"),
+            "a re-levelled check reports at the chosen level"
+        );
+        p.rule_severity.remove("cut_hits_via");
+        p.rule_exclusions
+            .insert("cut_hits_via".into(), vec![40, 20]);
+        assert!(!codes(&p).contains(&"cut_hits_via"));
+        p.rule_exclusions.clear();
+        let mut edge = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(58.0, 20.0),
+                end: Point::new(62.0, 20.0),
+            },
+        );
+        edge.rule_severity
+            .insert("art_off_board".into(), "off".into());
+        assert!(!codes(&edge).contains(&"art_off_board"));
+    }
+    #[test]
+    fn region_exclusion_covers_a_drawn_layer_finding() {
+        let mut p = drawn_layer(
+            ArtKind::Cut,
+            ArtShape::Line {
+                start: Point::new(18.0, 20.0),
+                end: Point::new(22.0, 20.0),
+            },
+        );
+        test_via(&mut p);
+        p.rule_regions.insert(
+            "cut_hits_via".into(),
+            vec![pcbcraft_doc::RuleRegion {
+                x: 10.0,
+                y: 10.0,
+                width: 20.0,
+                height: 20.0,
+            }],
+        );
+        assert!(
+            !codes(&p).contains(&"cut_hits_via"),
+            "the layer anchor and the via both sit inside the region"
+        );
+        p.rule_regions.insert(
+            "cut_hits_via".into(),
+            vec![pcbcraft_doc::RuleRegion {
+                x: 30.0,
+                y: 30.0,
+                width: 5.0,
+                height: 5.0,
+            }],
+        );
+        assert!(
+            codes(&p).contains(&"cut_hits_via"),
+            "a region elsewhere leaves the finding alone"
+        );
     }
 }
