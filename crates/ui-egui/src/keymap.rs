@@ -3,7 +3,7 @@
 use crate::Tab;
 use egui::Key;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// Stable action id stored in profiles and used for dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,6 +38,7 @@ pub enum KeyAction {
     PaletteRun,
     ToggleAutoSync,
     UpdateBoardFromSchematic,
+    ToggleAssistant,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,7 +50,7 @@ pub struct KeyChord {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct KeyChordStore {
+pub(crate) struct KeyChordStore {
     key: String,
     ctrl: bool,
     shift: bool,
@@ -89,7 +90,7 @@ fn parse_storage_key(name: &str) -> Option<Key> {
     if name == "slash" || name == "?" {
         return Some(Key::Slash);
     }
-    Key::ALL.into_iter().find(|k| k.name() == name).copied()
+    Key::ALL.iter().find(|k| k.name() == name).copied()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -98,7 +99,6 @@ pub enum ShortcutContext {
     Schematic,
     Pcb,
     CommandPalette,
-    Canvas,
 }
 
 struct ActionSpec {
@@ -450,6 +450,19 @@ const SPECS: &[ActionSpec] = &[
         }),
     },
     ActionSpec {
+        action: KeyAction::ToggleAssistant,
+        label: "Show or hide the Assistant tab",
+        tooltip: "Open the Assistant in the lower-right aside, or return to Properties.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        default_chord: Some(KeyChord {
+            key: Key::A,
+            ctrl: true,
+            shift: true,
+            alt: false,
+        }),
+    },
+    ActionSpec {
         action: KeyAction::RepeatLastCommand,
         label: "Repeat the last command",
         tooltip: "Run the most recent successful edit command again.",
@@ -549,7 +562,6 @@ fn context_name(context: ShortcutContext) -> &'static str {
         ShortcutContext::Schematic => "schematic tab",
         ShortcutContext::Pcb => "pcb tab",
         ShortcutContext::CommandPalette => "command palette",
-        ShortcutContext::Canvas => "canvas",
     }
 }
 
@@ -648,10 +660,14 @@ impl Keymap {
             let Some(chord) = entry.default_chord else {
                 continue;
             };
-            if bindings.contains_key(&entry.action) {
-                extra_chords.entry(entry.action).or_default().push(chord);
-            } else {
-                bindings.insert(entry.action, chord);
+            use std::collections::hash_map::Entry;
+            match bindings.entry(entry.action) {
+                Entry::Vacant(slot) => {
+                    slot.insert(chord);
+                }
+                Entry::Occupied(_) => {
+                    extra_chords.entry(entry.action).or_default().push(chord);
+                }
             }
         }
         Self {
@@ -813,7 +829,6 @@ fn context_matches(
         ShortcutContext::Schematic => !command_open && tab == Tab::Schematic,
         ShortcutContext::Pcb => !command_open && tab == Tab::Pcb,
         ShortcutContext::CommandPalette => command_open,
-        ShortcutContext::Canvas => false,
     }
 }
 
@@ -834,24 +849,6 @@ pub fn chord_from_input(key: Key, modifiers: egui::Modifiers) -> KeyChord {
         shift: modifiers.shift,
         alt: modifiers.alt,
     }
-}
-
-pub fn pressed_chords(ctx: &egui::Context) -> Vec<KeyChord> {
-    ctx.input(|i| {
-        let mods = i.modifiers;
-        i.events
-            .iter()
-            .filter_map(|ev| match ev {
-                egui::Event::Key {
-                    key,
-                    pressed: true,
-                    repeat: false,
-                    ..
-                } => Some(chord_from_input(*key, mods)),
-                _ => None,
-            })
-            .collect()
-    })
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

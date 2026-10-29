@@ -78,6 +78,7 @@ fn field_help(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
 /// the canvas mouse gestures, with where each one applies. The overlay and
 /// the tests read this one table, so the list can never claim a key the
 /// handler does not install.
+#[cfg(test)]
 fn shortcut_rows() -> Vec<(String, String, String)> {
     vec![
         (
@@ -3292,6 +3293,9 @@ impl App {
                     self.run("board.sync", json!({}));
                 }
             }
+            KeyAction::ToggleAssistant => {
+                self.assistant_toggle();
+            }
         }
     }
 
@@ -3356,15 +3360,15 @@ impl App {
                     continue;
                 };
                 let chord = keymap::chord_from_input(*key, i.modifiers);
-                if let Some(action) = map.resolve(chord, tab, command_open) {
-                    if !matches!(
+                if let Some(action) = map.resolve(chord, tab, command_open)
+                    && !matches!(
                         action,
                         keymap::KeyAction::PaletteLineUp
                             | keymap::KeyAction::PaletteLineDown
                             | keymap::KeyAction::PaletteRun
-                    ) {
-                        self.dispatch_shortcut(action);
-                    }
+                    )
+                {
+                    self.dispatch_shortcut(action);
                 }
             }
         });
@@ -3713,16 +3717,14 @@ impl App {
                 .iter()
                 .any(|c| c.id == change.object)
                 && kind == CompareKind::Changed
-            {
-                if let Some(fp) = self
+                && let Some(fp) = self
                     .project
                     .board
                     .footprints
                     .iter()
                     .find(|f| f.component == change.object)
-                {
-                    self.compare_tint.insert(fp.id, CompareKind::Changed);
-                }
+            {
+                self.compare_tint.insert(fp.id, CompareKind::Changed);
             }
         }
     }
@@ -3855,10 +3857,8 @@ impl App {
                 self.tool_call("save", json!({"path":self.path}));
             }
             if ui
-                .button("Compare with another design…")
-                .on_hover_text(
-                    "Diff the open design against an older saved file; highlights show on the canvas.",
-                )
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
             {
                 self.compare_open = true;
@@ -5072,23 +5072,18 @@ impl App {
         assistant::settings::section(self, ui);
         ui.add_space(16.0);
         ui.label(
-            egui::RichText::new("SCHEMATIC AND BOARD")
+            egui::RichText::new(t!("settings.settings_tab.schematic_and_board"))
                 .size(10.0)
                 .color(self.muted()),
         );
         let mut sync_on = self.project.auto_sync;
         if ui
-            .checkbox(
-                &mut sync_on,
-                "Keep the board in sync with the schematic automatically",
-            )
-            .on_hover_text(
-                "When on, every schematic edit that changes parts, footprints or nets updates the board in the same undo step. Turn off to batch changes, then use Update board from schematic in the Edit menu.",
-            )
+            .checkbox(&mut sync_on, t!("settings.settings_tab.auto_sync"))
+            .on_hover_text(t!("settings.settings_tab.auto_sync.tip"))
             .changed()
             && sync_on != self.project.auto_sync
         {
-            let _ = self.run("project.set_auto_sync", json!({"auto_sync": sync_on}));
+            self.run("project.set_auto_sync", json!({"auto_sync": sync_on}));
         }
         ui.add_space(16.0);
         ui.label(

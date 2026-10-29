@@ -2306,6 +2306,7 @@ impl Session {
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
+        s.project.auto_sync = false;
         s.execute("project.rename", json!({"name":"LED indicator"}), None)?;
         s.execute("component.add",json!({"kind":"connector","reference":"J1","value":"5V input","position":{"x":15,"y":26}}),None)?;
         s.execute(
