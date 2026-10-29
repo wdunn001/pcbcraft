@@ -185,3 +185,65 @@ fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
     );
     Ok(())
 }
+#[test]
+fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.tool_call(
+        "track.route",
+        json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
+    );
+    app.refresh();
+    let (id, middle) = app
+        .project
+        .board
+        .tracks
+        .first()
+        .map(|t| {
+            (
+                t.id,
+                Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
+            )
+        })
+        .ok_or("routing should leave a wire to tune")?;
+    app.change_tab(Tab::Pcb);
+    app.canvas_click(middle, 15.0);
+    assert_eq!(
+        app.selected,
+        Some(id),
+        "the wire is picked up: {}",
+        app.message
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to(&ctx, &mut app, "Suggested width")?,
+        "the side panel suggests a width for the target impedance: {}",
+        app.message
+    );
+    assert!(
+        scrolled_to(&ctx, &mut app, "Tune length")?,
+        "the side panel offers Tune length: {}",
+        app.message
+    );
+    let before: f64 = app.project.board.tracks.iter().map(track_length).sum();
+    app.impedance_ui.tune_target = before + 6.0;
+    scrolled_to(&ctx, &mut app, "Tune length")?;
+    authoring::tests::tap(&ctx, &mut app, "Tune length")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let after: f64 = app.project.board.tracks.iter().map(track_length).sum();
+    assert!(
+        after > before + 5.0,
+        "the zigzag adds length: {before} -> {after}: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Before")?,
+        "the panel reports the length before and after: {}",
+        app.message
+    );
+    Ok(())
+}
