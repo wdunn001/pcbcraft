@@ -16,6 +16,9 @@ use std::fmt;
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
 
+pub mod fill;
+pub use fill::{KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, zone_fill, zone_fills};
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
     pub number: String,
@@ -314,6 +317,36 @@ impl DiffPair {
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
     }
 }
+/// Which kinds of copper a keepout keeps out. Every kind is forbidden unless
+/// its flag is turned off, so a plain keepout excludes all copper.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Keepout {
+    /// Tracks may not enter the area.
+    #[serde(default = "forbidden")]
+    pub tracks: bool,
+    /// Vias may not enter the area.
+    #[serde(default = "forbidden")]
+    pub vias: bool,
+    /// Pads may not enter the area.
+    #[serde(default = "forbidden")]
+    pub pads: bool,
+    /// Poured zones and other copper regions may not enter the area.
+    #[serde(default = "forbidden")]
+    pub zones: bool,
+}
+fn forbidden() -> bool {
+    true
+}
+impl Default for Keepout {
+    fn default() -> Self {
+        Self {
+            tracks: true,
+            vias: true,
+            pads: true,
+            zones: true,
+        }
+    }
+}
 /// A length-match group: several nets whose routed lengths must stay within
 /// one tolerance of each other, such as the data lines of a parallel bus.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -344,6 +377,12 @@ impl LengthGroup {
 /// layer and net when those filters are set, must clear by at least the
 /// area's gap. The area raises the required clearance; it never lowers the
 /// net-pair requirement.
+///
+/// With [`RuleArea::keepout`] set the area instead forbids copper: nothing of
+/// a kind the keepout names may come within `clearance` of the rectangle. The
+/// layer filter narrows a keepout to one copper side, and the net filter lets
+/// that one net through, which is how a ground pour is allowed under a part
+/// while every trace stays out.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct RuleArea {
     pub id: Id,
@@ -360,6 +399,10 @@ pub struct RuleArea {
     pub layer: Option<Layer>,
     /// Minimum copper separation demanded inside the area, in millimetres.
     pub clearance: f64,
+    /// When set, the area is a keepout: copper of the kinds it names may not
+    /// come within `clearance` of the rectangle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepout: Option<Keepout>,
     /// When set, components inside the area may not stand taller than this,
     /// in millimetres: a height restriction for boards that must fit under a
     /// cover or past another board.
@@ -375,6 +418,25 @@ fn profile_tag_valid(tag: &Option<String>) -> bool {
     tag.as_ref().is_none_or(|s| !s.is_empty() && s.len() <= 64)
 }
 impl RuleArea {
+    /// True when this area keeps copper out on `layer` for `net`. A keepout
+    /// with a net filter lets that one net through; a keepout with a layer
+    /// filter only bites on that side of the board.
+    pub fn keepout_applies(&self, layer: Layer, net: Id) -> bool {
+        self.keepout.is_some()
+            && self.net.is_none_or(|n| n != net)
+            && self.layer.is_none_or(|l| l == layer)
+    }
+    /// The rectangle grown outward by the keepout clearance, which is the
+    /// copper-free margin a keepout demands.
+    pub fn keepout_rect(&self) -> RuleRegion {
+        let margin = self.clearance.max(0.0);
+        RuleRegion {
+            x: self.region.x - margin,
+            y: self.region.y - margin,
+            width: self.region.width + margin * 2.0,
+            height: self.region.height + margin * 2.0,
+        }
+    }
     fn valid(&self) -> bool {
         self.id != 0
             && self.clearance.is_finite()
@@ -1088,6 +1150,127 @@ pub struct CopperZone {
     /// hand-drawn zones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// How the poured copper meets same-net copper inside the outline. Absent
+    /// means the defaults: solid to vias, four spokes to plated pads, islands
+    /// removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pour: Option<ZonePour>,
+}
+/// How a poured zone meets one kind of same-net copper that sits inside its
+/// outline.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoneConnect {
+    /// Copper joins the zone directly, with no gap around it.
+    #[default]
+    Solid,
+    /// Copper keeps a gap all round and joins through narrow spokes, so a
+    /// soldering iron can heat the joint without draining the whole pour.
+    Relief,
+    /// Copper keeps a gap all round and does not join the zone at all.
+    None,
+}
+impl ZoneConnect {
+    /// Whether copper of this kind joins the pour through thermal spokes.
+    pub fn relief(self) -> bool {
+        matches!(self, Self::Relief)
+    }
+}
+/// What a pour does with copper that touches nothing of its own net: a
+/// detached piece that a fab etch bath can lift off the board.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoneIslands {
+    /// Keep every detached piece and report it.
+    Keep,
+    /// Drop every detached piece from the fill.
+    #[default]
+    Remove,
+    /// Keep detached pieces at least this many square millimetres, so a large
+    /// deliberate shield stays and crumbs go.
+    RemoveBelow(f64),
+}
+/// Per-zone pour settings: how the fill meets same-net copper, how narrow a
+/// neck may survive, and what happens to detached copper.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ZonePour {
+    /// How plated through-hole pads inside the zone join the pour.
+    #[serde(default)]
+    pub pad_connect: ZoneConnect,
+    /// How vias inside the zone join the pour.
+    #[serde(default)]
+    pub via_connect: ZoneConnect,
+    /// Gap between pad copper and the pour, in millimetres, when a pad joins
+    /// through spokes or not at all.
+    #[serde(default = "pour_gap")]
+    pub relief_gap: f64,
+    /// Width of each thermal spoke, in millimetres.
+    #[serde(default = "pour_spoke")]
+    pub spoke_width: f64,
+    /// Spokes per pad: two or four, aligned to the pad rotation.
+    #[serde(default = "pour_spokes")]
+    pub spokes: u8,
+    /// Narrowest copper the pour keeps, in millimetres: narrower necks are
+    /// removed before the fill ships. Absent means the narrowest track already
+    /// on the board, so a pour is never thinner than allowed copper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_width: Option<f64>,
+    /// What happens to copper that touches nothing of its own net.
+    #[serde(default)]
+    pub islands: ZoneIslands,
+}
+fn pour_gap() -> f64 {
+    0.25
+}
+fn pour_spoke() -> f64 {
+    0.3
+}
+fn pour_spokes() -> u8 {
+    4
+}
+impl Default for ZonePour {
+    fn default() -> Self {
+        Self {
+            pad_connect: ZoneConnect::Relief,
+            via_connect: ZoneConnect::Solid,
+            relief_gap: pour_gap(),
+            spoke_width: pour_spoke(),
+            spokes: pour_spokes(),
+            min_width: None,
+            islands: ZoneIslands::Remove,
+        }
+    }
+}
+impl ZonePour {
+    /// True when every setting is finite and inside the bounds a pour accepts.
+    pub fn valid(&self) -> bool {
+        self.relief_gap.is_finite()
+            && (0.05..=2.0).contains(&self.relief_gap)
+            && self.spoke_width.is_finite()
+            && (0.05..=5.0).contains(&self.spoke_width)
+            && matches!(self.spokes, 2 | 4)
+            && self
+                .min_width
+                .is_none_or(|w| w.is_finite() && (0.05..=5.0).contains(&w))
+            && match self.islands {
+                ZoneIslands::Keep | ZoneIslands::Remove => true,
+                ZoneIslands::RemoveBelow(area) => {
+                    area.is_finite() && (0.0..=10_000.0).contains(&area)
+                }
+            }
+    }
+}
+impl CopperZone {
+    /// The pour settings in force: the zone's own, or the defaults when it
+    /// carries none.
+    pub fn pour_settings(&self) -> ZonePour {
+        self.pour.unwrap_or_default()
+    }
+    /// True when this zone is generated copper, such as a teardrop, rather
+    /// than an area the designer drew.
+    pub fn is_generated(&self) -> bool {
+        self.kind.as_deref() == Some("teardrop")
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
@@ -3722,6 +3905,14 @@ impl Project {
                 && (kind.is_empty() || kind.len() > 32)
             {
                 return Err("zone kind must be 1 to 32 characters".into());
+            }
+            if let Some(pour) = &z.pour
+                && !pour.valid()
+            {
+                return Err(
+                    "zone pour settings need a 0.05 to 2 mm relief gap, a 0.05 to 5 mm spoke, two or four spokes and a bounded minimum width"
+                        .into(),
+                );
             }
         }
         for c in &b.cutouts {

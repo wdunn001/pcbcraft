@@ -2330,15 +2330,26 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             continue;
         }
         let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let fill = pcbcraft_doc::zone_fill(p, z)?;
         let file = if is_back { &mut back } else { &mut front };
         let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .chain(z.cutouts.iter().flatten())
-            .map(|q| mirror(q.x, q.y, is_back))
-            .collect();
-        file.fill(code, &outline)?;
+        // The fill is what ships: gaps round foreign copper, thermal spokes and
+        // the island policy are already applied. Each piece is one G36 region
+        // and each hole is cleared with LPC immediately after it, before any
+        // track or pad is drawn, because LPC would clear those too.
+        for piece in &fill.pieces {
+            for (index, ring) in piece.iter().enumerate() {
+                let points: Vec<(f64, f64)> =
+                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
+                if index > 0 {
+                    file.body.push_str("%LPC*%\n");
+                }
+                file.fill(code, &points)?;
+                if index > 0 {
+                    file.body.push_str("%LPD*%\n");
+                }
+            }
+        }
     }
     for t in &p.board.tracks {
         let is_back = t.layer == pcbcraft_doc::Layer::Back;
@@ -7870,6 +7881,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -8036,6 +8049,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
             id: 6,
@@ -8197,7 +8212,7 @@ mod tests {
             "through-hole pad aperture"
         );
         assert!(
-            front.contains("G36*") && front.contains("X5.000000Y5.000000D02*\n"),
+            front.contains("G36*") && front.contains("G37*"),
             "the poured zone must appear as a filled region"
         );
         assert!(
@@ -9173,6 +9188,7 @@ mod tests {
             net: None,
             layer: None,
             clearance: 0.5,
+            keepout: None,
             max_height: None,
             region: pcbcraft_doc::RuleRegion {
                 x: 5.0,
@@ -12444,6 +12460,133 @@ mod tests {
         assert!(
             drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count() == 2,
             "one tool per covering: {drill}"
+        );
+        Ok(())
+    }
+    fn pour_board() -> Result<Project, String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let ring = |x0: f64, y0: f64, x1: f64, y1: f64| {
+            vec![
+                Point::new(x0, y0),
+                Point::new(x1, y0),
+                Point::new(x1, y1),
+                Point::new(x0, y1),
+                Point::new(x0, y0),
+            ]
+        };
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 10,
+            net: 1,
+            layer: pcbcraft_doc::Layer::Front,
+            outline: ring(5.0, 5.0, 35.0, 35.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p.validate()?;
+        Ok(p)
+    }
+    fn front_copper(p: &Project) -> Result<String, String> {
+        gerber_files(p)?
+            .into_iter()
+            .find(|(name, _)| name == "pcb-F.Cu.gbr")
+            .map(|(_, body)| body)
+            .ok_or_else(|| "no front copper file".to_string())
+    }
+    #[test]
+    fn gerber_zone_cutout_is_a_hole_not_a_joined_contour() -> Result<(), String> {
+        let mut p = pour_board()?;
+        p.board.zones[0].cutouts.push(vec![
+            Point::new(15.0, 15.0),
+            Point::new(25.0, 15.0),
+            Point::new(25.0, 25.0),
+            Point::new(15.0, 25.0),
+            Point::new(15.0, 15.0),
+        ]);
+        p.validate()?;
+        let front = front_copper(&p)?;
+        assert_eq!(front.matches("G36*").count(), 2, "outer region plus hole");
+        let clear = front
+            .find("%LPC*%")
+            .ok_or("no clear polarity for the hole")?;
+        let hole = front[clear..].find("G36*").ok_or("hole is not a region")?;
+        assert!(hole > 0);
+        assert!(front.contains("%LPD*%"), "polarity returns to dark");
+        Ok(())
+    }
+    #[test]
+    fn gerber_relief_shows_four_spokes() -> Result<(), String> {
+        let mut p = pour_board()?;
+        let g = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(mut c) =
+            pcbcraft_doc::component_template("resistor", 4, "R4".into(), Point::new(20.0, 20.0))
+        {
+            c.pins.truncate(1);
+            for pin in &mut c.pins {
+                pin.net = Some(1);
+            }
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "PTH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![g.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+            p.components.push(c);
+        }
+        p.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 20,
+            component: 4,
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+        });
+        p.validate()?;
+        let front = front_copper(&p)?;
+        // Four spokes cut the gap ring round the pad into four separate holes.
+        assert_eq!(
+            front.matches("%LPC*%").count(),
+            4,
+            "four gaps between four spokes"
         );
         Ok(())
     }
