@@ -131,7 +131,7 @@ fn at_point(node: &Node) -> Result<(Point, f64), String> {
     } else {
         num(at.value(3))?
     };
-    Ok((Point::new(num(at.value(1))?, num(at.value(2))?)), rotation))
+    Ok((Point::new(num(at.value(1))?, num(at.value(2))?), rotation))
 }
 
 fn snap_key(sheet: u64, point: Point) -> (u64, i64, i64) {
@@ -725,7 +725,7 @@ fn label_anchor(node: &Node) -> Result<(Point, f64), String> {
     } else {
         num(at.value(3))?
     };
-    Ok((Point::new(num(at.value(1))?, num(at.value(2))?)), rotation))
+    Ok((Point::new(num(at.value(1))?, num(at.value(2))?), rotation))
 }
 
 fn parse_wire_points(node: &Node) -> Result<Vec<Point>, String> {
