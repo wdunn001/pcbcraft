@@ -291,6 +291,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "part.attach_source",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            schema(
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
+                &["id", "manufacturer", "mpn"],
+            ),
+        ),
+        (
             "component.field",
             "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
             schema(
@@ -934,6 +942,35 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.datum_add",
+            "Add a named mounting datum for enclosure tools, at a position or at the centre of a drilled hole it then follows",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32,"description":"letters, digits, underscore or hyphen, unique ignoring case"},"position":point_schema(),"hole":id_schema()}),
+                &["name"],
+            ),
+        ),
+        (
+            "board.datum_move",
+            "Move a datum to a new position; a datum tied to a hole is released from it",
+            schema(
+                json!({"id":id_schema(),"position":point_schema()}),
+                &["id", "position"],
+            ),
+        ),
+        (
+            "board.datum_rename",
+            "Rename a datum",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string","minLength":1,"maxLength":32}}),
+                &["id", "name"],
+            ),
+        ),
+        (
+            "board.datum_remove",
+            "Remove a datum",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
             "via.place",
             "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
             schema(
@@ -1016,6 +1053,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"filled":{"type":"boolean","description":"true pours the copper, false leaves only the outline"}}),
                 &["id", "filled"],
+            ),
+        ),
+        (
+            "zone.fill",
+            "Report the copper a zone actually pours on its layer: area, connected pieces, thermal spokes that reach the fill, pads left starved, detached islands and how many the settings removed, with knockouts round foreign copper, keepouts and the board edge already applied",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "zone.pour",
+            "Set how a zone pours: whether plated pads and vias join solid, through thermal spokes or not at all, the relief gap, spoke width and count, the narrowest copper it keeps, and whether detached copper is kept or dropped",
+            schema(
+                json!({"id":id_schema(),"pad_connect":{"type":"string","enum":["solid","relief","none"],"description":"how plated pads inside the zone join the pour"},"via_connect":{"type":"string","enum":["solid","relief","none"],"description":"how vias inside the zone join the pour"},"relief_gap":{"type":"number","minimum":0.05,"maximum":2,"description":"gap round a relieved pad in millimetres"},"spoke_width":{"type":"number","minimum":0.05,"maximum":5,"description":"width of each thermal spoke in millimetres"},"spokes":{"type":"integer","enum":[2,4],"description":"spokes per pad, aligned to the pad rotation"},"min_width":{"type":["number","null"],"minimum":0.05,"maximum":5,"description":"narrowest copper the pour keeps in millimetres; null follows the narrowest track on the board"},"islands":{"type":"string","enum":["keep","remove","remove_below"],"description":"what happens to copper that touches nothing of its net"},"island_area":{"type":"number","minimum":0,"maximum":10000,"description":"with remove_below, the area in square millimetres at or above which a detached piece is kept"}}),
+                &["id"],
             ),
         ),
         (
@@ -1276,6 +1326,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"outer copper pad diameter in millimetres"},"drill":{"type":"number","minimum":0,"description":"drilled hole diameter in millimetres; keeps the current drill when omitted"}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "via.set_covering",
+            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
+            schema(
+                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "board.set_via_covering_default",
+            "Set the covering every via follows unless it has its own: open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered or filled_capped",
+            schema(
+                json!({"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["covering"],
             ),
         ),
         (
@@ -1584,7 +1650,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_add",
             "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it; optionally narrowed to one net and one copper layer, which apply when either side of a pair matches",
             schema(
-                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
+                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"},"keepout":{"type":"boolean","description":"true keeps all copper and tracks at least the clearance away from the rectangle"}}),
                 &["clearance", "x", "y", "width", "height"],
             ),
         ),
@@ -2019,6 +2085,14 @@ impl Session {
         }
         self.redo.clear();
         self.revision = self.revision.saturating_add(1);
+    }
+    /// True when an edit can be stepped back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// True when an undone edit can be stepped forward again.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
     }
     pub fn undo(&mut self) -> Result<Value, Error> {
         let p = self
@@ -3130,6 +3204,43 @@ struct ViaParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DatumAddParams {
+    name: String,
+    position: Option<Point>,
+    hole: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DatumRenameParams {
+    id: Id,
+    name: String,
+}
+fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Error> {
+    if !pcbcraft_doc::Datum::name_valid(name) {
+        return Err(Error::Invalid(
+            "datum names are 1 to 32 letters, digits, underscores or hyphens".into(),
+        ));
+    }
+    if p.board
+        .datums
+        .iter()
+        .any(|d| Some(d.id) != own && d.name.eq_ignore_ascii_case(name))
+    {
+        return Err(Error::Invalid("datum names must be unique".into()));
+    }
+    Ok(())
+}
+fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
+    if !position.valid() {
+        return Err(Error::Invalid("datum position is out of range".into()));
+    }
+    if !p.board_contains(position) {
+        return Err(Error::Invalid("a datum must lie inside the board".into()));
+    }
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HolePlaceParams {
     position: Point,
     diameter: f64,
@@ -3670,6 +3781,10 @@ struct RuleAreaParams {
     height: f64,
     #[serde(default)]
     max_height: Option<f64>,
+    /// True turns the area into a keepout: nothing of any copper kind may
+    /// come within the clearance of the rectangle.
+    #[serde(default)]
+    keepout: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3874,6 +3989,59 @@ struct FindParams {
     #[serde(flatten)]
     filter: ComponentFilter,
 }
+/// Set (or clear, when `value` is `None`) one named property on a component.
+/// Returns whether the property is set afterwards.
+fn set_component_field(
+    component: &mut Component,
+    key: &str,
+    value: Option<&str>,
+) -> Result<bool, Error> {
+    if key.is_empty() || key.len() > 64 {
+        return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
+    }
+    if value.is_some_and(|v| v.len() > 256) {
+        return Err(Error::Invalid(
+            "field value must be at most 256 bytes".into(),
+        ));
+    }
+    let existing = component.fields.iter().position(|f| f.key == key);
+    match (value, existing) {
+        (Some(value), Some(index)) => {
+            component.fields[index].value = value.to_string();
+            Ok(true)
+        }
+        (Some(value), None) => {
+            if component.fields.len() >= 32 {
+                return Err(Error::Invalid(
+                    "a component carries at most 32 fields".into(),
+                ));
+            }
+            component.fields.push(ComponentField {
+                key: key.to_string(),
+                value: value.to_string(),
+            });
+            Ok(true)
+        }
+        (None, Some(index)) => {
+            component.fields.remove(index);
+            Ok(false)
+        }
+        (None, None) => Err(Error::Invalid("component has no such field".into())),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttachSourceParams {
+    id: Id,
+    manufacturer: String,
+    mpn: String,
+    #[serde(default)]
+    datasheet: String,
+    #[serde(default)]
+    distributor: String,
+    #[serde(default)]
+    sku: String,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FieldParams {
@@ -4049,6 +4217,18 @@ enum TrackEnd {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ViaCoveringParams {
+    id: Id,
+    #[serde(default)]
+    covering: Option<pcbcraft_doc::ViaCovering>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringDefaultParams {
+    covering: pcbcraft_doc::ViaCovering,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ViaSizeParams {
     id: Id,
     diameter: f64,
@@ -4098,6 +4278,32 @@ struct ZoneRemoveParams {
 struct ZoneFillParams {
     id: Id,
     filled: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZonePourParams {
+    id: Id,
+    #[serde(default)]
+    pad_connect: Option<String>,
+    #[serde(default)]
+    via_connect: Option<String>,
+    #[serde(default)]
+    relief_gap: Option<f64>,
+    #[serde(default)]
+    spoke_width: Option<f64>,
+    #[serde(default)]
+    spokes: Option<u8>,
+    #[serde(default)]
+    min_width: Option<f64>,
+    #[serde(default)]
+    islands: Option<String>,
+    #[serde(default)]
+    island_area: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneFillQuery {
+    id: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6357,46 +6563,60 @@ fn run_command(
         }
         "component.field" => {
             let a: FieldParams = parse(params)?;
-            if a.key.is_empty() || a.key.len() > 64 {
-                return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
-            }
-            if a.value.as_ref().is_some_and(|v| v.len() > 256) {
-                return Err(Error::Invalid(
-                    "field value must be at most 256 bytes".into(),
-                ));
-            }
             let component = p
                 .components
                 .iter_mut()
                 .find(|c| c.id == a.id)
                 .ok_or_else(missing)?;
-            let existing = component.fields.iter().position(|f| f.key == a.key);
-            let set = match (&a.value, existing) {
-                (Some(value), Some(index)) => {
-                    component.fields[index].value = value.clone();
-                    true
-                }
-                (Some(value), None) => {
-                    if component.fields.len() >= 32 {
-                        return Err(Error::Invalid(
-                            "a component carries at most 32 fields".into(),
-                        ));
-                    }
-                    component.fields.push(ComponentField {
-                        key: a.key.clone(),
-                        value: value.clone(),
-                    });
-                    true
-                }
-                (None, Some(index)) => {
-                    component.fields.remove(index);
-                    false
-                }
-                (None, None) => {
-                    return Err(Error::Invalid("component has no such field".into()));
-                }
-            };
+            let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "part.attach_source" => {
+            let a: AttachSourceParams = parse(params)?;
+            let bounded = |name: &str, v: &str, max: usize| -> Result<(), Error> {
+                if v.len() > max || v.chars().any(char::is_control) {
+                    return Err(Error::Invalid(format!(
+                        "{name} must be at most {max} bytes without control characters"
+                    )));
+                }
+                Ok(())
+            };
+            if a.manufacturer.trim().is_empty() || a.mpn.trim().is_empty() {
+                return Err(Error::Invalid(
+                    "a source part needs a manufacturer and a part number".into(),
+                ));
+            }
+            bounded("manufacturer", &a.manufacturer, 256)?;
+            bounded("mpn", &a.mpn, 256)?;
+            bounded("datasheet", &a.datasheet, 256)?;
+            bounded("distributor", &a.distributor, 48)?;
+            bounded("sku", &a.sku, 256)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut written: Vec<String> = vec![];
+            let mut put = |key: String, value: &str| -> Result<(), Error> {
+                if value.is_empty() {
+                    return Ok(());
+                }
+                set_component_field(component, &key, Some(value))?;
+                written.push(key);
+                Ok(())
+            };
+            put("Manufacturer".into(), a.manufacturer.trim())?;
+            put("MPN".into(), a.mpn.trim())?;
+            put("Datasheet".into(), &a.datasheet)?;
+            if !a.sku.is_empty() {
+                let key = if a.distributor.trim().is_empty() {
+                    "SKU".to_string()
+                } else {
+                    format!("{} SKU", a.distributor.trim())
+                };
+                put(key, &a.sku)?;
+            }
+            Ok(json!({"id": a.id, "fields": written}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -10276,6 +10496,80 @@ fn run_command(
             hole.diameter = a.diameter;
             Ok(json!({"id":a.id,"diameter":a.diameter}))
         }
+        "board.datum_add" => {
+            let a: DatumAddParams = parse(params)?;
+            check_datum_name(p, &a.name, None)?;
+            if p.board.datums.len() >= pcbcraft_doc::Datum::MAX {
+                return Err(Error::Invalid("a board carries at most 64 datums".into()));
+            }
+            let (position, hole) = match (a.position, a.hole) {
+                (Some(_), Some(_)) | (None, None) => {
+                    return Err(Error::Invalid(
+                        "give either a position or a hole for the datum".into(),
+                    ));
+                }
+                (Some(position), None) => (position, None),
+                (None, Some(hole)) => {
+                    let h = p
+                        .board
+                        .holes
+                        .iter()
+                        .find(|h| h.id == hole)
+                        .ok_or_else(missing)?;
+                    (h.center(), Some(hole))
+                }
+            };
+            check_datum_position(p, position)?;
+            let id = allocate(next)?;
+            p.board.datums.push(pcbcraft_doc::Datum {
+                id,
+                name: a.name,
+                position,
+                hole,
+            });
+            Ok(json!({"id":id,"position":position}))
+        }
+        "board.datum_move" => {
+            let a: Move = parse(params)?;
+            check_datum_position(p, a.position)?;
+            let datum = p
+                .board
+                .datums
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            datum.position = a.position;
+            datum.hole = None;
+            Ok(json!({"id":a.id,"position":a.position}))
+        }
+        "board.datum_rename" => {
+            let a: DatumRenameParams = parse(params)?;
+            check_datum_name(p, &a.name, Some(a.id))?;
+            let datum = p
+                .board
+                .datums
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            datum.name = a.name;
+            let position = datum.position;
+            let position = p
+                .board
+                .datums
+                .iter()
+                .find(|d| d.id == a.id)
+                .map_or(position, |d| p.datum_position(d));
+            Ok(json!({"id":a.id,"position":position}))
+        }
+        "board.datum_remove" => {
+            let a: IdParams = parse(params)?;
+            let before = p.board.datums.len();
+            p.board.datums.retain(|d| d.id != a.id);
+            if p.board.datums.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"id":a.id}))
+        }
         "via.place" => {
             let a: ViaParams = parse(params)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
@@ -10312,6 +10606,7 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -10387,6 +10682,7 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        covering: None,
                     });
                     ids.push(id);
                 }
@@ -10409,6 +10705,7 @@ fn run_command(
                 cutouts: vec![],
                 filled: true,
                 kind: None,
+                pour: None,
             });
             Ok(json!({"id":id}))
         }
@@ -10596,6 +10893,95 @@ fn run_command(
             zone.filled = a.filled;
             Ok(json!({"id": a.id, "filled": a.filled}))
         }
+        "zone.fill" => {
+            let a: ZoneFillQuery = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?
+                .clone();
+            let fill = pcbcraft_doc::zone_fill(p, &zone).map_err(Error::Invalid)?;
+            Ok(json!({
+                "id": a.id,
+                "net": zone.net,
+                "layer": zone.layer,
+                "filled": zone.filled,
+                "area": (fill.area() * 1e6).round() / 1e6,
+                "pieces": fill.pieces.len(),
+                "holes": fill.pieces.iter().map(|piece| piece.len().saturating_sub(1)).sum::<usize>(),
+                "islands": fill.islands,
+                "removed": fill.removed,
+                "unconnected": fill.unconnected,
+                "spokes": fill.spokes,
+                "starved": fill.starved,
+                "min_width": fill.min_width,
+            }))
+        }
+        "zone.pour" => {
+            let a: ZonePourParams = parse(params)?;
+            let connect = |value: &Option<String>| match value.as_deref() {
+                None => Ok(None),
+                Some("solid") => Ok(Some(pcbcraft_doc::ZoneConnect::Solid)),
+                Some("relief") => Ok(Some(pcbcraft_doc::ZoneConnect::Relief)),
+                Some("none") => Ok(Some(pcbcraft_doc::ZoneConnect::None)),
+                Some(_) => Err(Error::Invalid(
+                    "connection must be solid, relief or none".into(),
+                )),
+            };
+            let pad_connect = connect(&a.pad_connect)?;
+            let via_connect = connect(&a.via_connect)?;
+            let islands = match a.islands.as_deref() {
+                None => None,
+                Some("keep") => Some(pcbcraft_doc::ZoneIslands::Keep),
+                Some("remove") => Some(pcbcraft_doc::ZoneIslands::Remove),
+                Some("remove_below") => Some(pcbcraft_doc::ZoneIslands::RemoveBelow(
+                    a.island_area.unwrap_or(1.0),
+                )),
+                Some(_) => {
+                    return Err(Error::Invalid(
+                        "islands must be keep, remove or remove_below".into(),
+                    ));
+                }
+            };
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            let mut pour = zone.pour_settings();
+            if let Some(value) = pad_connect {
+                pour.pad_connect = value;
+            }
+            if let Some(value) = via_connect {
+                pour.via_connect = value;
+            }
+            if let Some(value) = a.relief_gap {
+                pour.relief_gap = value;
+            }
+            if let Some(value) = a.spoke_width {
+                pour.spoke_width = value;
+            }
+            if let Some(value) = a.spokes {
+                pour.spokes = value;
+            }
+            if a.min_width.is_some() {
+                pour.min_width = a.min_width;
+            }
+            if let Some(value) = islands {
+                pour.islands = value;
+            }
+            if !pour.valid() {
+                return Err(Error::Invalid(
+                    "pour settings need a 0.05 to 2 mm relief gap, a 0.05 to 5 mm spoke, two or four spokes and a bounded minimum width"
+                        .into(),
+                ));
+            }
+            zone.pour = Some(pour);
+            Ok(json!({"id": a.id, "pour": pour}))
+        }
         "zone.cutout" => {
             let a: ZoneCutoutParams = parse(params)?;
             let zone = p
@@ -10713,6 +11099,7 @@ fn run_command(
                     cutouts: vec![],
                     filled: true,
                     kind: Some("teardrop".into()),
+                    pour: None,
                 });
                 added += 1;
             }
@@ -12078,6 +12465,10 @@ fn run_command(
                 net: a.net,
                 layer,
                 clearance: a.clearance,
+                keepout: a
+                    .keepout
+                    .filter(|keepout| *keepout)
+                    .map(|_| pcbcraft_doc::Keepout::default()),
                 max_height: a.max_height,
                 region: pcbcraft_doc::RuleRegion {
                     x: a.x,
@@ -14149,6 +14540,15 @@ fn run_command(
                 c.center = center;
                 return Ok(json!({"id": a.id}));
             }
+            if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == a.id) {
+                let position = shift(d.position);
+                if !position.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                d.position = position;
+                d.hole = None;
+                return Ok(json!({"id": a.id}));
+            }
             if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == a.id) {
                 let position = shift(t.position);
                 if !position.valid() {
@@ -14262,6 +14662,20 @@ fn run_command(
             p.board.vias.retain(|v| v.id != a.id && v.net != a.id);
             p.board.zones.retain(|z| z.id != a.id && z.net != a.id);
             p.board.cutouts.retain(|c| c.id != a.id);
+            let detached: Vec<(Id, Point)> = p
+                .board
+                .datums
+                .iter()
+                .filter(|d| d.hole == Some(a.id))
+                .map(|d| (d.id, p.datum_position(d)))
+                .collect();
+            for (id, position) in detached {
+                if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == id) {
+                    d.position = position;
+                    d.hole = None;
+                }
+            }
+            p.board.datums.retain(|d| d.id != a.id);
             p.board.holes.retain(|h| h.id != a.id);
             p.board.fiducials.retain(|f| f.id != a.id);
             p.board
@@ -14367,6 +14781,30 @@ fn run_command(
                 "position": *moved,
             }))
         }
+        "via.set_covering" => {
+            let a: ViaCoveringParams = parse(params)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            if via.drill <= 0.0
+                && a.covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                ));
+            }
+            via.covering = a.covering;
+            Ok(json!({"id":a.id,"covering":via.covering}))
+        }
+        "board.set_via_covering_default" => {
+            let a: ViaCoveringDefaultParams = parse(params)?;
+            p.board.via_covering_default = a.covering;
+            Ok(json!({"covering":p.board.via_covering_default}))
+        }
         "via.set_size" => {
             let a: ViaSizeParams = parse(params)?;
             if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
@@ -14384,6 +14822,15 @@ fn run_command(
             if !drill.is_finite() || drill < 0.0 || drill >= a.diameter {
                 return Err(Error::Invalid(
                     "via drill must be smaller than its pad".into(),
+                ));
+            }
+            if drill <= 0.0
+                && via
+                    .covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a tented, plugged or filled via needs a drilled hole".into(),
                 ));
             }
             via.diameter = a.diameter;
@@ -22603,6 +23050,96 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn via_covering_commands_set_default_and_override_with_bounds() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("net id".into()))?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        s.execute(
+            "board.set_via_covering_default",
+            json!({"covering":"tented"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.via_covering_default,
+            pcbcraft_doc::ViaCovering::Tented
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"filled_capped"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.vias[0].covering,
+            Some(pcbcraft_doc::ViaCovering::FilledCapped)
+        );
+        s.execute("via.set_covering", json!({"id":via}), None)?;
+        assert_eq!(
+            s.project.board.vias[0].covering, None,
+            "omitted follows the default"
+        );
+        let before = s.inspect();
+        for (command, params) in [
+            ("via.set_covering", json!({"id":via,"covering":"glued"})),
+            ("via.set_covering", json!({"id":9999,"covering":"tented"})),
+            (
+                "board.set_via_covering_default",
+                json!({"covering":"glued"}),
+            ),
+            ("board.set_via_covering_default", json!({})),
+        ] {
+            assert!(
+                s.execute(command, params, None).is_err(),
+                "{command} must refuse"
+            );
+        }
+        assert_eq!(
+            s.inspect(),
+            before,
+            "refused commands leave the design untouched"
+        );
+        let blind = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":9.0,"y":5.0},"diameter":0.6,"drill":0.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        assert!(
+            s.execute(
+                "via.set_covering",
+                json!({"id":blind,"covering":"plugged"}),
+                None
+            )
+            .is_err(),
+            "a via with no drilled hole cannot be plugged"
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"plugged"}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "via.set_size",
+                json!({"id":via,"diameter":0.6,"drill":0.0}),
+                None
+            )
+            .is_err(),
+            "removing the hole of a plugged via is refused"
+        );
+        s.undo()?;
+        Ok(())
+    }
+
+    #[test]
     fn failed_batch_is_atomic_and_stale_edits_reject() {
         let mut s = Session::default();
         let before = s.inspect();
@@ -23049,6 +23586,46 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn part_attach_source_sets_manufacturer_and_mpn_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        s.execute(
+            "part.attach_source",
+            json!({"id":r1,"manufacturer":"Example Components","mpn":"SAMPLE-R-10K","datasheet":"https://example.invalid/d.pdf","distributor":"Sample Shop","sku":"SS-1"}),
+            None,
+        )?;
+        let after = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        assert_eq!(after, before + 1, "one undo step");
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(c.field("Manufacturer"), Some("Example Components"));
+        assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
+        assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
+        assert!(
+            s.execute(
+                "part.attach_source",
+                json!({"id":r1,"manufacturer":"","mpn":"x"}),
+                None
+            )
+            .is_err()
+        );
+        s.undo()?;
+        assert!(
+            s.project
+                .component(r1)
+                .ok_or_else(missing)?
+                .fields
+                .is_empty()
+        );
+        Ok(())
+    }
     #[test]
     fn undo_branch_never_reuses_ids() {
         let mut s = Session::default();
@@ -23776,9 +24353,18 @@ mod tests {
         };
         assert_eq!(
             touching(&s),
-            1,
-            "a signal track crossing a ground zone on the same layer shorts"
+            0,
+            "the pour clears a signal track crossing it, so nothing shorts"
         );
+        let probe = |s: &Session| -> bool {
+            s.project
+                .board
+                .zones
+                .first()
+                .and_then(|z| pcbcraft_doc::zone_fill(&s.project, z).ok())
+                .is_some_and(|fill| fill.contains(Point::new(40.0, 15.25)))
+        };
+        assert!(!probe(&s), "the pour keeps its distance from the track");
         let out = s.execute("zone.set_layer", json!({"id":zone,"layer":"B.Cu"}), None)?;
         assert_eq!(out["result"]["layer"], json!("B.Cu"));
         assert_eq!(
@@ -23802,6 +24388,10 @@ mod tests {
             0,
             "copper on opposite sides no longer touches"
         );
+        assert!(
+            probe(&s),
+            "on the other side the pour runs over the track's place"
+        );
         for params in [
             json!({"id":zone,"layer":"C.Cu"}),
             json!({"id":zone,"layer":"B.Cu"}),
@@ -23818,7 +24408,7 @@ mod tests {
             pcbcraft_doc::Layer::Front,
             "undo pours the zone back on the front"
         );
-        assert_eq!(touching(&s), 1, "and the short reappears");
+        assert!(!probe(&s), "and the pour clears the track again");
         Ok(())
     }
     #[test]
@@ -24139,7 +24729,10 @@ mod tests {
                 .unwrap_or_default()
                 .iter()
                 .filter(|f| {
-                    f["objects"]
+                    !matches!(
+                        f["code"].as_str(),
+                        Some("zone_unconnected" | "zone_island" | "thermal_starved")
+                    ) && f["objects"]
                         .as_array()
                         .is_some_and(|o| o.contains(&json!(zone)))
                 })
@@ -24147,8 +24740,8 @@ mod tests {
         };
         assert_eq!(
             touching(&s),
-            1,
-            "the track runs along the zone's lower edge and touches it"
+            0,
+            "the pour pulls back from the track along its lower edge, so it does not touch"
         );
         s.execute(
             "zone.set_point",
@@ -24166,7 +24759,7 @@ mod tests {
             "lifting both lower corners off the track clears the finding"
         );
         s.undo()?;
-        assert_eq!(touching(&s), 1, "and undo brings it back");
+        assert_eq!(touching(&s), 0, "and undo leaves it clear");
         assert!(s.project.validate().is_ok());
         let before = s.inspect();
         for params in [
@@ -24420,12 +25013,22 @@ mod tests {
                 })
                 .count()
         };
-        assert!(pairs(&s) >= 1, "the track rides the filled zone edge");
+        let area = |s: &Session| -> f64 {
+            s.project
+                .board
+                .zones
+                .first()
+                .and_then(|z| pcbcraft_doc::zone_fill(&s.project, z).ok())
+                .map_or(-1.0, |fill| fill.area())
+        };
+        assert_eq!(pairs(&s), 0, "the pour clears the track riding its edge");
+        assert!(area(&s) > 300.0, "a filled zone carries copper");
         s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
         assert_eq!(pairs(&s), 0, "an unfilled zone carries no copper");
+        assert!(area(&s).abs() < 1e-9);
         assert!(!s.project.board.zones[0].filled);
         s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
-        assert!(pairs(&s) >= 1, "pouring it back restores the finding");
+        assert!(area(&s) > 300.0, "pouring it back restores the copper");
         s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
         let before = s.inspect();
         for params in [
@@ -24443,13 +25046,13 @@ mod tests {
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
         s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
-        assert!(pairs(&s) >= 1);
+        assert!(area(&s) > 300.0);
         s.undo()?;
         assert!(
             !s.project.board.zones[0].filled,
             "undo takes the copper out again"
         );
-        assert_eq!(pairs(&s), 0, "and the finding falls silent");
+        assert!(area(&s).abs() < 1e-9, "and the copper is gone");
         Ok(())
     }
     #[test]
@@ -31258,6 +31861,209 @@ mod tests {
                 .is_err(),
             "clearing stack notes is refused while inner copper is in use"
         );
+        Ok(())
+    }
+    fn datum_id(s: &mut Session, params: Value) -> Result<u64, Error> {
+        s.execute("board.datum_add", params, None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)
+    }
+    #[test]
+    fn datums_are_added_moved_renamed_and_removed_with_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":6.0}}))?;
+        assert_eq!(s.project.board.datums.len(), 1);
+        s.execute(
+            "board.datum_move",
+            json!({"id":a,"position":{"x":7.0,"y":8.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.datums[0].position, Point::new(7.0, 8.0));
+        s.execute("board.datum_rename", json!({"id":a,"name":"Mount-1"}), None)?;
+        assert_eq!(s.project.board.datums[0].name, "Mount-1");
+        s.undo()?;
+        assert_eq!(s.project.board.datums[0].name, "A");
+        s.execute("board.datum_remove", json!({"id":a}), None)?;
+        assert!(s.project.board.datums.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.datums.len(), 1);
+        assert!(
+            s.execute("board.datum_remove", json!({"id":9_999}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn datum_names_are_unique_and_bounded() -> Result<(), Error> {
+        let mut s = Session::default();
+        datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":6.0}}))?;
+        let long = "x".repeat(33);
+        for bad in [
+            json!({"name":"a","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"","position":{"x":9.0,"y":6.0}}),
+            json!({"name":long,"position":{"x":9.0,"y":6.0}}),
+            json!({"name":"has space","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"it's","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"B"}),
+            json!({"name":"B","position":{"x":9.0,"y":6.0},"hole":1}),
+        ] {
+            assert!(s.execute("board.datum_add", bad, None).is_err());
+        }
+        let b = datum_id(&mut s, json!({"name":"B","position":{"x":9.0,"y":6.0}}))?;
+        assert!(
+            s.execute("board.datum_rename", json!({"id":b,"name":"A"}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.datum_rename", json!({"id":b,"name":"B"}), None)
+                .is_ok()
+        );
+        for i in 0..62 {
+            datum_id(
+                &mut s,
+                json!({"name":format!("N{i}"),"position":{"x":10.0,"y":6.0}}),
+            )?;
+        }
+        assert_eq!(s.project.board.datums.len(), 64);
+        assert!(
+            s.execute(
+                "board.datum_add",
+                json!({"name":"Over","position":{"x":10.0,"y":6.0}}),
+                None
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn datums_outside_the_board_are_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        let w = s.project.board.width;
+        for bad in [
+            json!({"name":"A","position":{"x":-1.0,"y":5.0}}),
+            json!({"name":"A","position":{"x":w + 1.0,"y":5.0}}),
+        ] {
+            assert!(s.execute("board.datum_add", bad, None).is_err());
+        }
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":5.0}}))?;
+        assert!(
+            s.execute(
+                "board.datum_move",
+                json!({"id":a,"position":{"x":w + 5.0,"y":5.0}}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.datums[0].position, Point::new(5.0, 5.0));
+        Ok(())
+    }
+    #[test]
+    fn a_datum_tied_to_a_hole_follows_the_hole() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":4.0,"y":4.0},"diameter":3.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let d = datum_id(&mut s, json!({"name":"M1","hole":hole}))?;
+        assert_eq!(
+            s.project.datum_position(&s.project.board.datums[0]),
+            Point::new(4.0, 4.0)
+        );
+        s.execute(
+            "board.hole_move",
+            json!({"id":hole,"position":{"x":12.0,"y":9.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.datum_position(&s.project.board.datums[0]),
+            Point::new(12.0, 9.0)
+        );
+        // Deleting the hole detaches the datum where the hole last was.
+        s.execute("object.delete", json!({"id":hole}), None)?;
+        let kept = s.project.board.datums.first().ok_or_else(missing)?;
+        assert_eq!(kept.id, d);
+        assert_eq!(kept.hole, None);
+        assert_eq!(s.project.datum_position(kept), Point::new(12.0, 9.0));
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn datum_ids_are_never_reused_after_save_and_open() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":5.0}}))?;
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let project: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut reopened = Session::default();
+        reopened.replace(project)?;
+        let b = datum_id(
+            &mut reopened,
+            json!({"name":"B","position":{"x":6.0,"y":5.0}}),
+        )?;
+        assert_ne!(a, b);
+        assert!(b > a);
+        Ok(())
+    }
+    #[test]
+    fn datums_write_into_the_mechanical_outputs_of_a_job() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        datum_id(&mut s, json!({"name":"DA","position":{"x":3.0,"y":3.0}}))?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-datum-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"mech","kinds":["step","svg","dxf"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"mech","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let step = std::fs::read_to_string(directory.join("board.step"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(step.contains("'DATUM_DA'"));
+        let svg = std::fs::read_to_string(directory.join("board.svg"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(svg.contains(">DA</text>"));
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+    #[test]
+    fn zone_pour_settings_are_bounded_and_zone_fill_reports_the_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":30.0,"y":10.0},{"x":30.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("zone.fill", json!({"id":zone}), None)?;
+        assert!(out["result"]["area"].as_f64().unwrap_or(0.0) > 300.0);
+        s.execute(
+            "zone.pour",
+            json!({"id":zone,"pad_connect":"solid","spokes":2,"islands":"keep"}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"relief_gap":0.0}),
+            json!({"id":zone,"spokes":3}),
+            json!({"id":zone,"islands":"maybe"}),
+            json!({"id":zone,"pad_connect":"loose"}),
+            json!({"id":zone,"spoke_width":99.0}),
+        ] {
+            assert!(s.execute("zone.pour", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
         Ok(())
     }
 }
