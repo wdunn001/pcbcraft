@@ -390,11 +390,50 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             let fields = strings(args, "fields")?;
             let variant = args
                 .get("variant")
-                .map(|v| v.as_str().ok_or("variant must be a string"))
-                .transpose()?;
-            let text = pcbcraft_io::bom_csv(&s.project, &fields, variant)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("bom.csv"), text.as_bytes())?;
-            json!({"directory":directory,"files":["bom.csv"]})
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let grouping = args
+                .get("grouping")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let dnp = args.get("dnp").and_then(|v| v.as_str()).unwrap_or("");
+            let house = args.get("house").and_then(|v| v.as_str()).unwrap_or("");
+            let ranges = args.get("ranges").and_then(|v| v.as_bool()).unwrap_or(true);
+            let format = args
+                .get("format")
+                .and_then(|v| v.as_str())
+                .unwrap_or("csv");
+            let summary = args.get("summary").and_then(|v| v.as_bool()).unwrap_or(false);
+            let opts = pcbcraft_io::BomOptions {
+                grouping: pcbcraft_io::parse_bom_grouping(grouping)?,
+                dnp: pcbcraft_io::parse_dnp_mode(dnp)?,
+                fields,
+                variant,
+                house: pcbcraft_io::parse_bom_house(house)?,
+                ranges,
+                summary,
+                legacy_reference_order: false,
+                legacy_generic_columns: false,
+            };
+            if matches!(
+                opts.dnp,
+                pcbcraft_io::DnpMode::Section | pcbcraft_io::DnpMode::Column
+            ) && opts.house != pcbcraft_io::BomHouse::Generic
+            {
+                return Err(
+                    "only the generic bill accepts do-not-populate sections or columns".into(),
+                );
+            }
+            let path = Path::new(directory);
+            if format == "xlsx" {
+                let bytes = pcbcraft_io::bom_xlsx(&s.project, &opts)?;
+                pcbcraft_io::atomic_write(&path.join("bom.xlsx"), &bytes)?;
+                json!({"directory":directory,"files":["bom.xlsx"]})
+            } else {
+                let text = pcbcraft_io::bom_csv_with_options(&s.project, &opts)?;
+                pcbcraft_io::atomic_write(&path.join("bom.csv"), text.as_bytes())?;
+                json!({"directory":directory,"files":["bom.csv"]})
+            }
         }
         "dxf.export" => {
             let directory = string(args, "path")?;
@@ -2134,6 +2173,27 @@ mod tests {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "the export must not edit the design"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bom_write_passes_grouping_and_format_through() -> Result<(), String> {
+        let session = shared(Session::default());
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"component.add","params":{"kind":"resistor","reference":"R1","value":"10k","position":[10.0,10.0]}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let export = call_tool(
+            &session,
+            "bom.write",
+            &json!({"path":directory.path(),"grouping":"value_footprint_mpn","format":"xlsx","house":"generic"}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert!(
+            directory.path().join("bom.xlsx").exists(),
+            "xlsx format writes a spreadsheet file"
         );
         Ok(())
     }

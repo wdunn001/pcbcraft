@@ -1640,7 +1640,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"grouping":{"type":"string","enum":["value_footprint","value_footprint_mpn","mpn"]},"dnp":{"type":"string","enum":["exclude","section","column"]},"house":{"type":"string","enum":["generic","jlc","pcbway","seeed"]},"ranges":{"type":"boolean"},"format":{"type":"string","enum":["csv","xlsx"]},"summary":{"type":"boolean"}}),
                 &[],
             ),
         ),
@@ -3060,7 +3060,59 @@ struct BomParams {
     fields: Vec<String>,
     #[serde(default)]
     variant: Option<String>,
+    #[serde(default)]
+    grouping: Option<String>,
+    #[serde(default)]
+    dnp: Option<String>,
+    #[serde(default)]
+    house: Option<String>,
+    #[serde(default)]
+    ranges: Option<bool>,
+    #[serde(default)]
+    format: Option<String>,
+    #[serde(default)]
+    summary: Option<bool>,
 }
+
+fn bom_export_options(a: &BomParams) -> Result<pcbcraft_io::BomOptions, String> {
+    if a.fields.len() > 16 {
+        return Err("a bill of materials lists at most 16 properties".into());
+    }
+    for key in &a.fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err("property names must be 1 to 64 bytes".into());
+        }
+    }
+    let grouping = pcbcraft_io::parse_bom_grouping(a.grouping.as_deref().unwrap_or(""))?;
+    let dnp = pcbcraft_io::parse_dnp_mode(a.dnp.as_deref().unwrap_or(""))?;
+    let house = pcbcraft_io::parse_bom_house(a.house.as_deref().unwrap_or(""))?;
+    if matches!(
+        dnp,
+        pcbcraft_io::DnpMode::Section | pcbcraft_io::DnpMode::Column
+    ) && house != pcbcraft_io::BomHouse::Generic
+    {
+        return Err(
+            "only the generic bill accepts do-not-populate sections or columns".into(),
+        );
+    }
+    if let Some(format) = a.format.as_deref() {
+        if format != "csv" && format != "xlsx" {
+            return Err(format!("unknown bill format {format}"));
+        }
+    }
+    Ok(pcbcraft_io::BomOptions {
+        grouping,
+        dnp,
+        fields: a.fields.clone(),
+        variant: a.variant.clone(),
+        house,
+        ranges: a.ranges.unwrap_or(true),
+        summary: a.summary.unwrap_or(false),
+        legacy_reference_order: false,
+        legacy_generic_columns: false,
+    })
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RuleSeverityParams {
@@ -11306,87 +11358,53 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "bom.export" => {
             let a: BomParams = parse(params)?;
-            if a.fields.len() > 16 {
-                return Err(Error::Invalid(
-                    "a bill of materials lists at most 16 properties".into(),
-                ));
-            }
-            for key in &a.fields {
-                if key.is_empty() || key.len() > 64 {
-                    return Err(Error::Invalid(
-                        "property names must be 1 to 64 bytes".into(),
-                    ));
-                }
-            }
-            // With no explicit request, the columns the project defines are used.
+            let opts = bom_export_options(&a).map_err(Error::Invalid)?;
+            let table = pcbcraft_io::bom_rows(p, &opts).map_err(Error::Invalid)?;
             let keys: Vec<String> = if a.fields.is_empty() {
                 p.bom_fields.iter().map(|f| f.key.clone()).collect()
             } else {
                 a.fields.clone()
             };
-            let variant = match a.variant.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(name) => Some(
-                    p.variants
-                        .iter()
-                        .find(|v| v.name == name)
-                        .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-                ),
-            };
-            let mut groups: std::collections::BTreeMap<
-                (String, String, String, Vec<String>),
-                Vec<String>,
-            > = std::collections::BTreeMap::new();
-            let mut populated = 0usize;
-            for c in &p.components {
-                if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-                    continue;
-                }
-                populated += 1;
-                let footprint =
-                    match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
-                        Some(swap) => swap.footprint.clone(),
-                        None => match &c.library_footprint {
-                            Some(footprint) => {
-                                format!("{}:{}", footprint.library, footprint.definition.name)
-                            }
-                            None => "starter pads".into(),
-                        },
-                    };
-                let values: Vec<String> = keys
-                    .iter()
-                    .map(|key| c.field(key).unwrap_or("").to_string())
-                    .collect();
-                groups
-                    .entry((c.value.clone(), c.kind.clone(), footprint, values))
-                    .or_default()
-                    .push(c.reference.clone());
-            }
-            let items: Vec<Value> = groups
-                .into_iter()
-                .map(|((value, kind, footprint, values), mut references)| {
-                    references.sort();
-                    let columns = keys.clone();
+            let items: Vec<Value> = table
+                .rows
+                .iter()
+                .filter(|row| !(row.refs.len() == 1 && row.refs[0] == "DNP") && !row.refs.is_empty())
+                .map(|row| {
                     let mut fields = serde_json::Map::new();
-                    for (key, value) in columns.into_iter().zip(values) {
-                        fields.insert(key, json!(value));
+                    for (key, value) in keys.iter().zip(row.fields.iter()) {
+                        fields.insert(key.clone(), json!(value));
                     }
                     json!({
-                        "quantity": references.len(),
-                        "references": references,
-                        "value": value,
-                        "kind": kind,
-                        "footprint": footprint,
+                        "quantity": row.quantity,
+                        "references": row.refs,
+                        "value": row.value,
+                        "kind": row.kind,
+                        "footprint": row.footprint,
+                        "manufacturer": row.manufacturer,
+                        "mpn": row.mpn,
+                        "dnp": row.dnp,
                         "fields": Value::Object(fields),
                     })
                 })
                 .collect();
-            Ok(json!({
+            let format = a.format.as_deref().unwrap_or("csv");
+            let mut out = json!({
                 "items": items,
                 "groups": items.len(),
-                "components": populated,
-                "variant": variant.map(|v| v.name.clone()),
-            }))
+                "lines": table.lines,
+                "parts": table.parts,
+                "components": table.parts,
+                "variant": a.variant,
+                "format": format,
+            });
+            if format == "xlsx" {
+                let bytes = pcbcraft_io::bom_xlsx(p, &opts).map_err(Error::Invalid)?;
+                out["bytes"] = json!(bytes.len());
+                out["hex"] = json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
+            } else {
+                out["csv"] = json!(pcbcraft_io::bom_csv_with_options(p, &opts).map_err(Error::Invalid)?);
+            }
+            Ok(out)
         }
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
@@ -20088,6 +20106,44 @@ mod tests {
         let unchanged = s.project.clone();
         s.execute("bom.export", json!({"fields":["Datasheet"]}), None)?;
         assert_eq!(s.project, unchanged);
+        Ok(())
+    }
+    #[test]
+    fn bom_export_accepts_the_new_settings_and_refuses_unknown_houses() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        let out = s.execute(
+            "bom.export",
+            json!({"grouping":"mpn","house":"jlc","ranges":false,"summary":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert!(out["csv"].as_str().is_some_and(|t| t.starts_with("Comment,")));
+        assert_eq!(out["lines"], 1);
+        assert!(s.execute("bom.export", json!({"house":"unknown"}), None).is_err());
+        Ok(())
+    }
+    #[test]
+    fn bom_export_refuses_dnp_section_for_house_presets() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "bom.export",
+                json!({"house":"jlc","dnp":"section"}),
+                None,
+            )
+            .is_err(),
+            "fabricator presets only accept excluded do-not-populate lines"
+        );
         Ok(())
     }
     #[test]

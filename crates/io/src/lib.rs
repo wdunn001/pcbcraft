@@ -6,9 +6,15 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod bom;
 mod board_mesh;
 mod gerber;
 mod library_render;
+pub use bom::{
+    bom_csv_with_options, bom_rows, bom_xlsx, csv_cell, parse_bom_grouping, parse_bom_house,
+    parse_dnp_mode, part_fields, BomGrouping, BomHouse, BomOptions, BomRow, BomTable, DnpMode,
+    PartFields,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -169,11 +175,11 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
             file.data.clone().into_bytes(),
         ));
     }
-    zip_bytes(&entries)
+    zip_entries(&entries)
 }
 
 /// Build a stored (uncompressed) ZIP file from named byte entries.
-fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let mut zip: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();
     let mut offset = 0u32;
@@ -271,6 +277,53 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
         .validate()
         .map_err(|e| format!("archived design is invalid: {e}"))?;
     Ok(project)
+}
+
+/// Read one entry from a stored ZIP file built by `zip_entries`.
+pub fn zip_entry(bytes: &[u8], want: &str) -> Result<Vec<u8>, String> {
+    let eocd = bytes
+        .windows(22)
+        .rposition(|w| w.starts_with(b"PK\x05\x06"))
+        .ok_or_else(|| "not a zip archive: no archive directory".to_string())?;
+    let read_u16 = |at: usize| -> u16 { u16::from_le_bytes([bytes[at], bytes[at + 1]]) };
+    let read_u32 = |at: usize| -> u32 {
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+    };
+    let entries = read_u16(eocd + 10) as usize;
+    let mut at = read_u32(eocd + 16) as usize;
+    for _ in 0..entries {
+        if !bytes[at..].starts_with(b"PK\x01\x02") || at + 46 > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let size = read_u32(at + 20) as usize;
+        let name_len = read_u16(at + 28) as usize;
+        let extra_len = read_u16(at + 30) as usize;
+        let comment_len = read_u16(at + 32) as usize;
+        let local_at = read_u32(at + 42) as usize;
+        if name_len == 0 || at + 46 + name_len > bytes.len() {
+            return Err("corrupt archive directory entry".into());
+        }
+        let name = &bytes[at + 46..at + 46 + name_len];
+        if std::str::from_utf8(name).map_err(|_| "non-utf8 entry name")? == want {
+            if local_at + 30 > bytes.len() || !bytes[local_at..].starts_with(b"PK\x03\x04") {
+                return Err("corrupt archive entry header".into());
+            }
+            let local_name = read_u16(local_at + 26) as usize;
+            let local_extra = read_u16(local_at + 28) as usize;
+            if local_at + 30 + local_name > bytes.len()
+                || &bytes[local_at + 30..local_at + 30 + local_name] != name
+            {
+                return Err("archive entry headers disagree about the name".into());
+            }
+            let data_at = local_at + 30 + local_name + local_extra;
+            if data_at + size > bytes.len() {
+                return Err("archive entry runs past the end of the file".into());
+            }
+            return Ok(bytes[data_at..data_at + size].to_vec());
+        }
+        at += 46 + name_len + extra_len + comment_len;
+    }
+    Err(format!("zip archive holds no {want}"))
 }
 
 /// A small vector PDF writer: the drawing is collected as path and text
@@ -1272,7 +1325,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
             components(&comps_bottom).into_bytes(),
         ),
     ];
-    zip_bytes(&entries)
+    zip_entries(&entries)
 }
 
 /// A minimal AP214 (STEP) writer. The board outline and every placed pad
@@ -2309,98 +2362,18 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// columns; with no request, the columns the project itself defines are
 /// printed under their labels.
 pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<String, String> {
-    p.validate()?;
-    if fields.len() > 16 {
-        return Err("a bill of materials lists at most 16 properties".into());
-    }
-    for key in fields {
-        if key.is_empty() || key.len() > 64 {
-            return Err("property names must be 1 to 64 bytes".into());
-        }
-    }
-    let variant = match variant.map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| format!("no variant named {name}"))?,
-        ),
+    let opts = BomOptions {
+        grouping: BomGrouping::ValueFootprint,
+        dnp: DnpMode::Exclude,
+        fields: fields.to_vec(),
+        variant: variant.map(str::to_string),
+        house: BomHouse::Generic,
+        ranges: false,
+        summary: false,
+        legacy_reference_order: true,
+        legacy_generic_columns: true,
     };
-    // Columns come from the caller's list, or from the columns the project
-    // itself defines when the caller asks for none.
-    let columns: Vec<(String, String)> = if fields.is_empty() {
-        p.bom_fields
-            .iter()
-            .map(|f| {
-                (
-                    f.key.clone(),
-                    if f.label.is_empty() {
-                        f.key.clone()
-                    } else {
-                        f.label.clone()
-                    },
-                )
-            })
-            .collect()
-    } else {
-        fields
-            .iter()
-            .map(|key| (key.clone(), key.clone()))
-            .collect()
-    };
-    let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
-    for c in &p.components {
-        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-            continue;
-        }
-        let footprint = match variant
-            .and_then(|v| v.footprints.iter().find(|o| o.component == c.id))
-        {
-            Some(swap) => swap.footprint.clone(),
-            None => match &c.library_footprint {
-                Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
-                None => "starter pads".into(),
-            },
-        };
-        let values: Vec<String> = columns
-            .iter()
-            .map(|(key, _)| c.field(key).unwrap_or("").to_string())
-            .collect();
-        groups
-            .entry((c.value.clone(), c.kind.clone(), footprint, values))
-            .or_default()
-            .push(c.reference.clone());
-    }
-    let mut out = String::from("quantity,references,value,kind,footprint");
-    for (_, header) in &columns {
-        out.push(',');
-        out.push_str(&csv_cell(header));
-    }
-    out.push('\n');
-    for ((value, kind, footprint, values), mut references) in groups {
-        references.sort();
-        let joined = references.join(",");
-        out.push_str(&references.len().to_string());
-        for cell in [joined, value, kind, footprint] {
-            out.push(',');
-            out.push_str(&csv_cell(&cell));
-        }
-        for value in values {
-            out.push(',');
-            out.push_str(&csv_cell(&value));
-        }
-        out.push('\n');
-    }
-    Ok(out)
-}
-/// Quote a CSV cell only when it needs it: commas, quotes or newlines.
-fn csv_cell(text: &str) -> String {
-    if text.contains([',', '"', '\n']) {
-        format!("\"{}\"", text.replace('"', "\"\""))
-    } else {
-        text.to_string()
-    }
+    bom_csv_with_options(p, &opts)
 }
 /// Plain-text netlist: one line per connected net, listing the component
 /// pins it carries as `REFERENCE.PIN`, sorted by net name and reference.
