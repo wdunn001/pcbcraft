@@ -15992,11 +15992,7 @@ mod tests {
     }
 
     fn move_footprint_to_component(s: &mut Session, component: Id) -> Result<(), Error> {
-        let position = s
-            .project
-            .component(component)
-            .ok_or_else(missing)?
-            .position;
+        let position = s.project.component(component).ok_or_else(missing)?.position;
         let footprint = s
             .project
             .board
