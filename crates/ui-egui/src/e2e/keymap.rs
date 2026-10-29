@@ -1,6 +1,6 @@
 use super::super::*;
-use crate::keymap::{KeyAction, KeyChord};
 use super::support::frame;
+use crate::keymap::{KeyAction, KeyChord};
 use egui::Key;
 use serde_json::json;
 

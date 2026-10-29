@@ -2977,9 +2977,7 @@ fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
 
 fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Error> {
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
-    p.board
-        .footprints
-        .retain(|f| live.contains(&f.component));
+    p.board.footprints.retain(|f| live.contains(&f.component));
     let staging_x = board_outline_max_x(&p.board) + 10.0;
     let mut staging_index = 0usize;
     let mut skipped = vec![];

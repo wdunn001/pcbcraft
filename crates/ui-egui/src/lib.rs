@@ -29,9 +29,9 @@ use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
-use std::collections::HashMap;
 #[cfg(test)]
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use targets::TapButton;
 /// Window width in points under which side docks give way to the drawing.
 const NARROW_WINDOW: f32 = 640.0;
@@ -2329,13 +2329,14 @@ impl App {
         self.stackup_section(ui);
         ui.separator();
         ui.horizontal(|ui| {
-            let search = ui.add(
-                crate::targets::text_field(&mut self.tree_query)
-                    .hint_text(t!("board.layers_tab.search_the_whole_board"))
-                    .desired_width(150.0),
-            )
-            .named("Search the whole board")
-            .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
+            let search = ui
+                .add(
+                    crate::targets::text_field(&mut self.tree_query)
+                        .hint_text(t!("board.layers_tab.search_the_whole_board"))
+                        .desired_width(150.0),
+                )
+                .named("Search the whole board")
+                .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
             if self.tree_search_focus {
                 search.request_focus();
                 self.tree_search_focus = false;
