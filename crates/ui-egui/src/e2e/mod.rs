@@ -3,16 +3,21 @@
 
 pub(crate) mod support;
 
+mod audit;
+
 mod artifacts;
+mod assistant;
 mod board;
 mod board3d;
 mod builds;
 mod checks;
 mod editing;
+mod images;
 mod layers;
 mod layout;
 mod library;
 mod nets;
+mod pairs;
 mod rules;
 mod settings;
 mod shell;

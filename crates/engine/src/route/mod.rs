@@ -153,7 +153,7 @@ fn track_hulls(p: &Project, layer: Layer, net: Id, width: f64) -> Vec<Hull> {
         .collect()
 }
 
-fn errors(p: &Project) -> BTreeSet<(&'static str, Vec<Id>)> {
+pub(crate) fn errors(p: &Project) -> BTreeSet<(&'static str, Vec<Id>)> {
     drc(p)
         .into_iter()
         .filter(|f| f.severity == "error")

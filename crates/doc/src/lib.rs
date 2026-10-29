@@ -1,4 +1,6 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod machine_profile;
+pub use machine_profile::*;
 mod panel;
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
@@ -239,6 +241,10 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Longest dead-end copper branch allowed on member nets, in millimetres.
+    /// Absent means no stub check; zero means no stubs at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_stub: Option<f64>,
     /// Default outer via pad diameter for member nets, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_diameter: Option<f64>,
@@ -672,6 +678,18 @@ fn wrap_360(degrees: f64) -> f64 {
 fn on_arc(start: f64, end: f64, test: f64) -> bool {
     wrap_360(test - start) <= wrap_360(end - start)
 }
+/// A pad's drilled hole as a capsule: end centres, radius and plating.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PadDrill {
+    /// One end centre of the hole, in footprint coordinates.
+    pub start: Point,
+    /// The other end centre; the same point for a round hole.
+    pub end: Point,
+    /// Hole radius in millimetres.
+    pub radius: f64,
+    /// True when the hole wall is plated.
+    pub plated: bool,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pad {
     pub number: String,
@@ -743,6 +761,69 @@ impl Pad {
             *p = self.offset.offset(p.rotate(-g.rotation));
         }
         points
+    }
+    /// The drilled hole of this pad as a capsule in footprint coordinates
+    /// before the footprint is placed: its two end centres, its radius, and
+    /// whether the wall is plated. A round hole has equal ends. `None` when the
+    /// pad has no drill.
+    ///
+    /// # Rules
+    /// The hole centre includes the drill offset, turned with the pad, the same
+    /// way the copper snapshot in `crates/rules/src/lib.rs` places it.
+    ///
+    /// # Dependencies
+    /// `pcbcraft_library::Drill` in `crates/library/src/lib.rs`.
+    ///
+    /// # Do not
+    /// Do not apply the footprint position or rotation here; callers do.
+    pub fn drill_capsule(&self) -> Option<PadDrill> {
+        let g = self.geometry.as_ref()?;
+        let d = g.drill.as_ref()?;
+        let radius = d.size.x.min(d.size.y) / 2.0;
+        let axis = Point::new(
+            (d.size.x / 2.0 - radius).max(0.0),
+            (d.size.y / 2.0 - radius).max(0.0),
+        );
+        let at = |local: Point| self.offset.offset(local.rotate(-g.rotation));
+        Some(PadDrill {
+            start: at(d.offset.offset(axis)),
+            end: at(d.offset.offset(Point::new(-axis.x, -axis.y))),
+            radius,
+            plated: g.pad_type != "np_thru_hole" && g.pad_type != "unplated",
+        })
+    }
+    /// Thinnest copper ring left around the plated hole of this pad, in
+    /// millimetres, after adding `allowance` to the finished drill to get the
+    /// tool size. `None` for a pad with no plated hole.
+    ///
+    /// # Rules
+    /// The ring is measured to the nearest pad edge from the hole's true
+    /// centre, so an offset or oval drill reports its thin side. A round pad
+    /// uses its exact radius rather than the sampled outline.
+    ///
+    /// # Dependencies
+    /// `Pad::drill_capsule` and `Pad::outline_points` in this file.
+    ///
+    /// # Do not
+    /// Do not use the larger pad side; that hides a thin ring.
+    pub fn min_annular_ring(&self, allowance: f64) -> Option<f64> {
+        let hole = self.drill_capsule().filter(|h| h.plated)?;
+        let tool_radius = hole.radius + allowance / 2.0;
+        if let Some(g) = &self.geometry
+            && matches!(g.shape_kind(), PadShape::Circle)
+        {
+            let reach = self
+                .offset
+                .distance(hole.start)
+                .max(self.offset.distance(hole.end));
+            return Some(g.size.x.min(g.size.y) / 2.0 - reach - tool_radius);
+        }
+        let outline = self.outline_points();
+        outline
+            .windows(2)
+            .map(|edge| pcbcraft_geom::segment_distance(hole.start, hole.end, edge[0], edge[1]))
+            .reduce(f64::min)
+            .map(|d| d - tool_radius)
     }
     fn finish_outline(&self, mut points: Vec<Point>) -> Vec<Point> {
         if let Some(first) = points.first().copied() {
@@ -1348,6 +1429,125 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
+/// Settings for a UV flatbed printer that registers artwork on a camera photo.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct UvPrinterProfile {
+    pub name: String,
+    pub bed_width_mm: f64,
+    pub bed_height_mm: f64,
+    #[serde(default = "default_uv_dpi_options")]
+    pub dpi_options: Vec<u32>,
+    #[serde(default = "default_uv_white_choke")]
+    pub white_choke_mm: f64,
+    #[serde(default = "default_uv_bleed")]
+    pub default_bleed_mm: f64,
+    #[serde(default = "default_uv_pad_clearance")]
+    pub pad_clearance_mm: f64,
+    pub min_text_height_mm: f64,
+    pub min_stroke_mm: f64,
+    #[serde(default = "default_uv_channels")]
+    pub channels: Vec<String>,
+    pub max_substrate_height_mm: f64,
+    #[serde(default = "default_uv_registration")]
+    pub registration: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask_colour: Option<String>,
+}
+
+fn default_uv_dpi_options() -> Vec<u32> {
+    vec![720, 1440]
+}
+
+fn default_uv_white_choke() -> f64 {
+    0.2
+}
+
+fn default_uv_bleed() -> f64 {
+    0.3
+}
+
+fn default_uv_pad_clearance() -> f64 {
+    0.15
+}
+
+fn default_uv_channels() -> Vec<String> {
+    vec!["cmyk".into(), "white".into(), "gloss".into()]
+}
+
+fn default_uv_registration() -> String {
+    "camera_photo".into()
+}
+
+impl UvPrinterProfile {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() || self.name.len() > 64 {
+            return Err("uv printer profile name must be 1 to 64 bytes".into());
+        }
+        if !(50.0..=2000.0).contains(&self.bed_width_mm)
+            || !(50.0..=2000.0).contains(&self.bed_height_mm)
+        {
+            return Err("uv printer bed size is out of range".into());
+        }
+        if self.dpi_options.is_empty() || self.dpi_options.len() > 8 {
+            return Err("uv printer needs one to eight dpi choices".into());
+        }
+        if self.dpi_options.iter().any(|d| *d < 300 || *d > 4800) {
+            return Err("uv printer dpi choices must be between 300 and 4800".into());
+        }
+        if !(0.0..=2.0).contains(&self.white_choke_mm) {
+            return Err("white underbase choke must be between 0 and 2 mm".into());
+        }
+        if !(0.0..=5.0).contains(&self.default_bleed_mm) {
+            return Err("default bleed must be between 0 and 5 mm".into());
+        }
+        if !(0.0..=1.0).contains(&self.pad_clearance_mm) {
+            return Err("pad clearance must be between 0 and 1 mm".into());
+        }
+        if !(0.2..=5.0).contains(&self.min_text_height_mm) {
+            return Err("minimum text height is out of range".into());
+        }
+        if !(0.05..=1.0).contains(&self.min_stroke_mm) {
+            return Err("minimum stroke width is out of range".into());
+        }
+        if self.channels.is_empty() || self.channels.len() > 8 {
+            return Err("uv printer channel list is out of range".into());
+        }
+        if !(1.0..=200.0).contains(&self.max_substrate_height_mm) {
+            return Err("max substrate height is out of range".into());
+        }
+        if self.registration.len() > 64 {
+            return Err("registration method name is too long".into());
+        }
+        Ok(())
+    }
+
+    pub fn allows_dpi(&self, dpi: u32) -> bool {
+        self.dpi_options.contains(&dpi)
+    }
+
+    pub fn has_gloss_channel(&self) -> bool {
+        self.channels.iter().any(|c| c == "gloss")
+    }
+}
+
+/// Default profile for the eufyMake E1 UV flatbed (330 by 420 mm bed).
+pub fn eufymake_e1_uv_printer() -> UvPrinterProfile {
+    UvPrinterProfile {
+        name: "eufyMake E1".into(),
+        bed_width_mm: 330.0,
+        bed_height_mm: 420.0,
+        dpi_options: default_uv_dpi_options(),
+        white_choke_mm: default_uv_white_choke(),
+        default_bleed_mm: default_uv_bleed(),
+        pad_clearance_mm: default_uv_pad_clearance(),
+        min_text_height_mm: 1.0,
+        min_stroke_mm: 0.12,
+        channels: default_uv_channels(),
+        max_substrate_height_mm: 60.0,
+        registration: default_uv_registration(),
+        mask_colour: None,
+    }
+}
 /// Settings for a galvo laser job handed to the shop laser program.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -1426,7 +1626,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 28] = [
+pub const OUTPUT_KINDS: [&str; 29] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1455,6 +1655,7 @@ pub const OUTPUT_KINDS: [&str; 28] = [
     "panel",
     "raster",
     "laser_job",
+    "uv_print",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
@@ -2444,6 +2645,9 @@ pub struct Project {
     /// applied to many pads instead of retyped per footprint.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub padstacks: Vec<Padstack>,
+    /// Shop machine profiles copied from presets or imported from TOML.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub machine_profiles: Vec<MachineProfile>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -2539,6 +2743,7 @@ impl Default for Project {
         Self {
             library_table: Vec::new(),
             padstacks: Vec::new(),
+            machine_profiles: Vec::new(),
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
@@ -3266,6 +3471,16 @@ impl Project {
         if self.padstacks.len() > 256 {
             return Err("the design defines at most 256 padstacks".into());
         }
+        if self.machine_profiles.len() > MAX_ITEMS {
+            return Err("machine profile limit reached (2048)".into());
+        }
+        let mut profile_ids = BTreeSet::new();
+        for profile in &self.machine_profiles {
+            profile.validate()?;
+            if !profile_ids.insert(&profile.id) {
+                return Err("machine profile ids must be unique".into());
+            }
+        }
         for stack in &self.padstacks {
             if stack.name.is_empty()
                 || stack.name.len() > 64
@@ -3420,6 +3635,8 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || c.max_stub
+                    .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
                 || !profile_tag_valid(&c.profile)
                 || c.via_diameter
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)

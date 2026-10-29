@@ -1,11 +1,14 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod dry_run;
 mod images;
 pub mod library;
 pub mod profiles;
 pub mod recents;
+pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
+mod summary;
 mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -61,6 +64,11 @@ fn pin_schema() -> Value {
 }
 pub fn commands() -> Vec<CommandSpec> {
     let entries = [
+        (
+            "design.summary",
+            "A short summary of the design for people and assistants: counts, board, nets, parts, findings. Read it first; it is far smaller than inspect_design",
+            schema(json!({}), &[]),
+        ),
         (
             "project.rename",
             "Rename the current project",
@@ -426,6 +434,14 @@ pub fn commands() -> Vec<CommandSpec> {
             "Set the target routed length and tolerance a net class demands; omitted values stay as they were",
             schema(
                 json!({"class":id_schema(),"target_length":{"type":["number","null"],"exclusiveMinimum":0,"maximum":10000},"length_tolerance":{"type":["number","null"],"minimum":0,"maximum":1000}}),
+                &["class"],
+            ),
+        ),
+        (
+            "netclass.stub_rules",
+            "Set the longest dead-end copper branch a net class allows; null clears the limit",
+            schema(
+                json!({"class":id_schema(),"max_stub":{"type":["number","null"],"minimum":0,"maximum":100}}),
                 &["class"],
             ),
         ),
@@ -1393,9 +1409,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "track.route_pair",
-            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled orthogonal L geometry at the pair gap",
+            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled geometry at the pair gap; corners are cut at 45 degrees by default, mode orthogonal keeps right angles",
             schema(
-                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["octilinear","orthogonal"]}}),
                 &["from_p", "from_n", "to_p", "to_n"],
             ),
         ),
@@ -1628,7 +1644,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -1840,7 +1856,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "output_job.add",
-            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
+            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics, uv_print for silkscreen artwork for a UV printer) that can be re-run after any edit",
             schema(
                 json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":pcbcraft_doc::MAX_OUTPUT_KINDS}}),
                 &["name", "kinds"],
@@ -1858,7 +1874,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.run",
             "Run an output job: write every file of its recipe (fabrication layers, netlist, bill of materials, placement, drawing) into a directory in one step",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1},"uv_print":{"type":"object","description":"Settings for a uv_print kind: silkscreen artwork for a UV printer. Defaults to the top side at 720 DPI with 0.3 mm bleed.","properties":{"side":{"type":"string","enum":["top","bottom"]},"dpi":{"type":"integer","enum":[720,1440]},"gloss":{"type":"boolean"},"bleed_mm":{"type":"number","minimum":0,"maximum":5},"include_outline":{"type":"boolean"},"include_fiducials":{"type":"boolean"}},"additionalProperties":false}}),
                 &["name", "directory"],
             ),
         ),
@@ -1887,6 +1903,70 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
                 &["path"],
+            ),
+        ),
+        (
+            "machine.add",
+            "Copy a built-in shop machine preset or record a full machine profile on the design",
+            schema(
+                json!({
+                    "preset":{"type":"string","minLength":1,"maxLength":64},
+                    "id":{"type":"string","minLength":1,"maxLength":64},
+                    "profile":{"type":"object","maxProperties":256}
+                }),
+                &[],
+            ),
+        ),
+        (
+            "machine.set",
+            "Replace a machine profile on the design by its id",
+            schema(
+                json!({"profile":{"type":"object","maxProperties":256}}),
+                &["profile"],
+            ),
+        ),
+        (
+            "machine.remove",
+            "Remove a machine profile from the design by id",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
+            "machine.list",
+            "List machine profile ids, names and kinds stored on the design",
+            schema(json!({}), &[]),
+        ),
+        (
+            "machine.import",
+            "Read a machine profile TOML file from disk and upsert it on the design by profile id",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["path"],
+            ),
+        ),
+        (
+            "machine.export",
+            "Write one design machine profile out as TOML through an atomic file write",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["id", "path"],
+            ),
+        ),
+        (
+            "placement_yy1.export",
+            "Write the NeoDen YY1 placement file for one or both sides and the feeder sheet into a folder, using a pick and place machine profile recorded on the design. Reads the design and records nothing",
+            schema(
+                json!({
+                    "machine":{"type":"string","minLength":1,"maxLength":64},
+                    "directory":{"type":"string","minLength":1,"maxLength":4096},
+                    "side":{"type":"string","enum":["top","bottom","both"]},
+                    "layout":{"type":"string","enum":["native","import"]},
+                    "variant":{"type":"string","minLength":1,"maxLength":64},
+                    "include_dnp_as_skip":{"type":"boolean"}
+                }),
+                &["machine", "directory"],
             ),
         ),
         (
@@ -2177,7 +2257,8 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with multi-vertex schematic wires committed in one step through wire.place so endpoint pins join a resolved net, ambiguous pin nets are refused with candidate names, and a tee can split an existing wire and drop a junction label, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; length-match groups over several nets reporting skew, a meander tuner that replaces one straight track with a serpentine to reach a target net length within a tolerance, and Hammerstad and Jensen microstrip, coupled microstrip and stripline impedance estimates with width solving; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, or as one package zip that carries a manifest naming every file, its export kind and the job that produced it, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with multi-vertex schematic wires committed in one step through wire.place so endpoint pins join a resolved net, ambiguous pin nets are refused with candidate names, and a tee can split an existing wire and drop a junction label, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and shop machine profiles copied from built-in presets or TOML imports, listed, replaced and exported back to TOML, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; length-match groups over several nets reporting skew, a meander tuner that replaces one straight track with a serpentine to reach a target net length within a tolerance, and Hammerstad and Jensen microstrip, coupled microstrip and stripline impedance estimates with width solving; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, or as one package zip that carries a manifest naming every file, its export kind and the job that produced it, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
+
     }
     /// The 3D mesh of the current board, without changing the design. `layers`
     /// limits the parts built (board, copper, mask, silk, bodies); `geometry`
@@ -2220,7 +2301,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2276,6 +2357,52 @@ impl Session {
 
 fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
+}
+
+const MAX_MACHINE_PROFILE_JSON_BYTES: usize = 65536;
+
+/// Read a machine profile from command JSON, capped at 64 KiB so a command
+/// cannot smuggle in an oversized payload.
+///
+/// # Rules
+/// - Validation of the values happens in `upsert_machine_profile`.
+///
+/// # Dependencies
+/// - crates/doc/src/machine_profile.rs
+fn machine_profile_from_json(v: &Value) -> Result<pcbcraft_doc::MachineProfile, Error> {
+    let bytes = serde_json::to_vec(v).map_err(|e| Error::Invalid(e.to_string()))?;
+    if bytes.len() > MAX_MACHINE_PROFILE_JSON_BYTES {
+        return Err(Error::Invalid(
+            "machine profile payload exceeds 64 KiB".into(),
+        ));
+    }
+    parse(v)
+}
+
+/// Insert or replace a profile by id inside the project copy a command works on.
+/// Returns true when an existing profile was replaced.
+///
+/// # Rules
+/// - Validates the profile and the count cap before touching the list.
+///
+/// # Do not
+/// - Be called on `self.project` directly; command handlers pass the clone.
+fn upsert_machine_profile(
+    profiles: &mut Vec<pcbcraft_doc::MachineProfile>,
+    profile: pcbcraft_doc::MachineProfile,
+) -> Result<bool, Error> {
+    profile.validate().map_err(Error::Invalid)?;
+    if let Some(existing) = profiles.iter_mut().find(|p| p.id == profile.id) {
+        *existing = profile;
+        return Ok(true);
+    }
+    if profiles.len() >= pcbcraft_doc::MAX_ITEMS {
+        return Err(Error::Invalid(
+            "machine profile limit reached (2048)".into(),
+        ));
+    }
+    profiles.push(profile);
+    Ok(false)
 }
 
 /// The kinds a package runs when the caller names none: the whole
@@ -2391,7 +2518,8 @@ fn render_kind(
             pcbcraft_io::stats_text(p)?.into_bytes(),
         )),
         "laser_job" => {
-            let profile = pcbcraft_io::commarker_b6_mopa_profile();
+            let profile = pcbcraft_io::laser_galvo_profile_for_export(p, "commarker-b6-mopa")
+                .map_err(Error::Invalid)?;
             let mut operations = std::collections::BTreeSet::new();
             for id in pcbcraft_doc::LaserJobSettings::OPERATION_IDS {
                 operations.insert(id.to_string());
@@ -3274,6 +3402,96 @@ struct OutputJobAddParams {
 struct OutputJobRunParams {
     name: String,
     directory: String,
+    #[serde(default)]
+    uv_print: Option<UvPrintJobParams>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UvPrintJobParams {
+    #[serde(default = "default_uv_side")]
+    side: String,
+    #[serde(default = "default_uv_dpi")]
+    dpi: u32,
+    #[serde(default)]
+    gloss: bool,
+    #[serde(default = "default_uv_bleed_job")]
+    bleed_mm: f64,
+    #[serde(default = "default_uv_include_outline")]
+    include_outline: bool,
+    #[serde(default = "default_uv_include_fiducials")]
+    include_fiducials: bool,
+}
+
+fn default_uv_side() -> String {
+    "top".into()
+}
+
+fn default_uv_dpi() -> u32 {
+    720
+}
+
+fn default_uv_bleed_job() -> f64 {
+    0.3
+}
+
+fn default_uv_include_outline() -> bool {
+    true
+}
+
+fn default_uv_include_fiducials() -> bool {
+    true
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineAddParams {
+    #[serde(default)]
+    preset: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    profile: Option<Value>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineSetParams {
+    profile: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineIdParams {
+    id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachinePathParams {
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MachineExportParams {
+    id: String,
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlacementYy1Params {
+    machine: String,
+    directory: String,
+    #[serde(default = "default_yy1_side")]
+    side: String,
+    #[serde(default = "default_yy1_layout")]
+    layout: String,
+    #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
+    include_dnp_as_skip: bool,
+}
+fn default_yy1_side() -> String {
+    "top".into()
+}
+fn default_yy1_layout() -> String {
+    "native".into()
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3687,6 +3905,12 @@ struct LengthRulesParams {
     target_length: Option<f64>,
     #[serde(default)]
     length_tolerance: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StubRulesParams {
+    class: Id,
+    max_stub: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5100,6 +5324,13 @@ struct RoutePairParams {
     width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
+    /// `octilinear` (default) chamfers the corner at 45 degrees; `orthogonal`
+    /// keeps the right-angle corner.
+    #[serde(default = "pair_mode")]
+    mode: route::Mode,
+}
+fn pair_mode() -> route::Mode {
+    route::Mode::Octilinear
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5673,6 +5904,112 @@ fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
         .diff_pairs
         .iter()
         .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
+}
+/// Track segments for the positive and negative side of a pair.
+type PairSegments = (Vec<(Point, Point)>, Vec<(Point, Point)>);
+/// Both sides of a pair with their corners cut at 45 degrees. The positive
+/// side takes the straight-diagonal-straight path; the negative side keeps its
+/// diagonal exactly `spacing` (centre to centre) from it, so the pair stays
+/// coupled through the bend.
+fn coupled_chamfer_segments(
+    start_p: Point,
+    end_p: Point,
+    start_n: Point,
+    end_n: Point,
+    spacing: f64,
+) -> Result<PairSegments, Error> {
+    let too_tight =
+        || Error::Invalid("there is not enough room to bend the pair at 45 degrees".into());
+    let dx = end_p.x - start_p.x;
+    let dy = end_p.y - start_p.y;
+    // Work in a frame whose first axis is the longer run.
+    let swap = dy.abs() > dx.abs();
+    let to = |q: Point| if swap { (q.y, q.x) } else { (q.x, q.y) };
+    let from = |m: f64, n: f64| {
+        if swap {
+            Point::new(n, m)
+        } else {
+            Point::new(m, n)
+        }
+    };
+    let (pm0, pn0) = to(start_p);
+    let (pm1, pn1) = to(end_p);
+    let (nm0, nn0) = to(start_n);
+    let (nm1, nn1) = to(end_n);
+    let (dm, dn) = (pm1 - pm0, pn1 - pn0);
+    let chain = |pts: Vec<Point>| {
+        let mut out = vec![];
+        for pair in pts.windows(2) {
+            if pair[0].distance(pair[1]) > 1e-6 {
+                out.push((pair[0], pair[1]));
+            }
+        }
+        out
+    };
+    if dn.abs() < 1e-6 {
+        return Ok((chain(vec![start_p, end_p]), chain(vec![start_n, end_n])));
+    }
+    let (sm, sn) = (dm.signum(), dn.signum());
+    let run = (dm.abs() - dn.abs()) / 2.0;
+    let pa = (pm0 + sm * run, pn0);
+    let pb = (pm0 + sm * (run + dn.abs()), pn1);
+    let root = std::f64::consts::SQRT_2;
+    let (wm, wn) = (-sn / root, sm / root);
+    let side = (wm * (nm0 - pm0) + wn * (nn0 - pn0)).signum();
+    if side == 0.0 {
+        return Err(too_tight());
+    }
+    let c = wm * pa.0 + wn * pa.1 + side * spacing;
+    let ma = (c - wn * nn0) / wm;
+    let mb = (c - wn * nn1) / wm;
+    if sm * (ma - nm0) < -1e-9 || sm * (mb - ma) < -1e-9 || sm * (nm1 - mb) < -1e-9 {
+        return Err(too_tight());
+    }
+    let seg_p = chain(vec![start_p, from(pa.0, pa.1), from(pb.0, pb.1), end_p]);
+    let seg_n = chain(vec![start_n, from(ma, nn0), from(mb, nn1), end_n]);
+    Ok((seg_p, seg_n))
+}
+/// Both sides of a pair with right-angle corners. The negative side nests
+/// round the positive side's corner at `spacing` (centre to centre).
+fn coupled_right_angle_segments(
+    start_p: Point,
+    end_p: Point,
+    start_n: Point,
+    end_n: Point,
+    spacing: f64,
+) -> PairSegments {
+    let chain = |pts: Vec<Point>| {
+        let mut out = vec![];
+        for pair in pts.windows(2) {
+            if pair[0].distance(pair[1]) > 1e-6 {
+                out.push((pair[0], pair[1]));
+            }
+        }
+        out
+    };
+    let seg_p = orthogonal_route_segments(start_p, end_p);
+    let dx = end_p.x - start_p.x;
+    let dy = end_p.y - start_p.y;
+    let offset = start_n.y - start_p.y;
+    if dx.abs() < 1e-6 || dy.abs() < 1e-6 || offset.abs() < 1e-6 {
+        return (seg_p, orthogonal_route_segments(start_n, end_n));
+    }
+    let inner = offset.signum() == dy.signum();
+    // Turn straight at the far pad's column when it already keeps the
+    // spacing, so the run clears the other side's pad.
+    let way = if inner { -dx.signum() } else { dx.signum() };
+    let x = if (end_n.x - end_p.x) * way >= spacing - 1e-9 {
+        end_n.x
+    } else {
+        end_p.x + way * spacing
+    };
+    let seg_n = chain(vec![
+        start_n,
+        Point::new(x, start_n.y),
+        Point::new(x, end_n.y),
+        end_n,
+    ]);
+    (seg_p, seg_n)
 }
 fn orthogonal_route_segments(start: Point, end: Point) -> Vec<(Point, Point)> {
     let bend = Point::new(end.x, start.y);
@@ -7458,6 +7795,7 @@ fn run_command(
                 max_width: None,
                 target_length: None,
                 length_tolerance: None,
+                max_stub: None,
                 via_diameter: None,
                 via_drill: None,
                 pair_width: None,
@@ -7569,6 +7907,35 @@ fn run_command(
                 "class": a.class,
                 "target_length": class.target_length,
                 "length_tolerance": class.length_tolerance,
+            }))
+        }
+        "netclass.stub_rules" => {
+            let a: StubRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.max_stub = match &a.max_stub {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let s = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0 && *v <= 100.0)
+                        .ok_or_else(|| {
+                            Error::Invalid("max stub must be between 0 and 100 mm".into())
+                        })?;
+                    Some(s)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "max stub must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "max_stub": class.max_stub,
             }))
         }
         "netclass.clearance" => {
@@ -7889,6 +8256,7 @@ fn run_command(
             };
             Ok(json!({"name": a.name, "shape": a.shape, "replaced": replaced}))
         }
+        "design.summary" => Ok(summary::build(p)),
         "padstack.report" => {
             let mut stacks = Vec::with_capacity(p.padstacks.len());
             let mut used_total = 0usize;
@@ -13707,6 +14075,171 @@ fn run_command(
             }
             Ok(json!({"removed":a.name}))
         }
+        "machine.add" => {
+            let a: MachineAddParams = parse(params)?;
+            let profile = if let Some(preset) = a.preset {
+                if preset.is_empty() || preset.len() > 64 {
+                    return Err(Error::Invalid(
+                        "built-in preset id must be 1 to 64 bytes".into(),
+                    ));
+                }
+                if a.profile.is_some() {
+                    return Err(Error::Invalid(
+                        "machine.add accepts either a preset or a profile object, not both".into(),
+                    ));
+                }
+                let mut profile =
+                    pcbcraft_io::builtin_machine_profile(&preset).map_err(Error::Invalid)?;
+                if let Some(id) = a.id {
+                    if id.is_empty() || id.len() > 64 {
+                        return Err(Error::Invalid(
+                            "machine profile id must be 1 to 64 bytes".into(),
+                        ));
+                    }
+                    profile.id = id;
+                }
+                profile
+            } else if let Some(body) = a.profile {
+                machine_profile_from_json(&body)?
+            } else {
+                return Err(Error::Invalid(
+                    "machine.add needs a preset id or a profile object".into(),
+                ));
+            };
+            if p.machine_profiles
+                .iter()
+                .any(|existing| existing.id == profile.id)
+            {
+                return Err(Error::Invalid(
+                    "a machine profile with that id already exists".into(),
+                ));
+            }
+            let id = profile.id.clone();
+            let replaced = upsert_machine_profile(&mut p.machine_profiles, profile)?;
+            Ok(json!({"id": id, "replaced": replaced}))
+        }
+        "machine.set" => {
+            let a: MachineSetParams = parse(params)?;
+            let profile = machine_profile_from_json(&a.profile)?;
+            if !p
+                .machine_profiles
+                .iter()
+                .any(|existing| existing.id == profile.id)
+            {
+                return Err(Error::Invalid(format!(
+                    "no machine profile named {} in the design",
+                    profile.id
+                )));
+            }
+            let replaced = upsert_machine_profile(&mut p.machine_profiles, profile)?;
+            Ok(json!({"replaced": replaced}))
+        }
+        "machine.remove" => {
+            let a: MachineIdParams = parse(params)?;
+            let id = a.id.trim();
+            if id.is_empty() || id.len() > 64 {
+                return Err(Error::Invalid(
+                    "machine profile id must be 1 to 64 bytes".into(),
+                ));
+            }
+            let before = p.machine_profiles.len();
+            p.machine_profiles.retain(|profile| profile.id != id);
+            if p.machine_profiles.len() == before {
+                return Err(Error::Invalid(format!(
+                    "no machine profile named {id} in the design"
+                )));
+            }
+            Ok(json!({"removed": id, "count": p.machine_profiles.len()}))
+        }
+        "machine.list" => {
+            let profiles: Vec<Value> = p
+                .machine_profiles
+                .iter()
+                .map(
+                    |profile| json!({"id": profile.id, "name": profile.name, "kind": profile.kind}),
+                )
+                .collect();
+            Ok(json!({"profiles": profiles, "count": profiles.len()}))
+        }
+        "machine.import" => {
+            let a: MachinePathParams = parse(params)?;
+            if a.path.is_empty() || a.path.len() > 4096 {
+                return Err(Error::Invalid("import path must be 1 to 4096 bytes".into()));
+            }
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
+            let profile = pcbcraft_io::machine_profile_from_toml(&text).map_err(Error::Invalid)?;
+            let replaced = upsert_machine_profile(&mut p.machine_profiles, profile.clone())?;
+            Ok(json!({"id": profile.id, "replaced": replaced}))
+        }
+        "machine.export" => {
+            let a: MachineExportParams = parse(params)?;
+            if a.id.is_empty() || a.id.len() > 64 || a.path.is_empty() || a.path.len() > 4096 {
+                return Err(Error::Invalid(
+                    "export id and path must be 1 to 4096 bytes".into(),
+                ));
+            }
+            let profile = p
+                .machine_profiles
+                .iter()
+                .find(|profile| profile.id == a.id)
+                .ok_or_else(|| {
+                    Error::Invalid(format!("no machine profile named {} in the design", a.id))
+                })?
+                .clone();
+            let text = pcbcraft_io::machine_profile_to_toml(&profile).map_err(Error::Invalid)?;
+            pcbcraft_io::atomic_write(std::path::Path::new(&a.path), text.as_bytes())
+                .map_err(Error::Invalid)?;
+            Ok(json!({"id": profile.id, "path": a.path, "bytes": text.len()}))
+        }
+        "placement_yy1.export" => {
+            let a: PlacementYy1Params = parse(params)?;
+            if a.machine.is_empty() || a.machine.len() > 64 {
+                return Err(Error::Invalid("machine id must be 1 to 64 bytes".into()));
+            }
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            let side = match a.side.as_str() {
+                "top" => pcbcraft_io::YySide::Top,
+                "bottom" => pcbcraft_io::YySide::Bottom,
+                "both" => pcbcraft_io::YySide::Both,
+                _ => return Err(Error::Invalid("side must be top, bottom or both".into())),
+            };
+            let layout = match a.layout.as_str() {
+                "native" => pcbcraft_io::YyLayout::Native,
+                "import" => pcbcraft_io::YyLayout::Import,
+                _ => return Err(Error::Invalid("layout must be native or import".into())),
+            };
+            if a.variant.as_ref().is_some_and(|v| v.len() > 64) {
+                return Err(Error::Invalid("variant name is out of range".into()));
+            }
+            let machine = p
+                .machine_profiles
+                .iter()
+                .find(|m| m.id == a.machine)
+                .ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "no machine profile named {} in the design",
+                        a.machine
+                    ))
+                })?;
+            let options = pcbcraft_io::NeodenYy1Options {
+                layout,
+                variant: a.variant.clone(),
+                include_dnp_as_skip: a.include_dnp_as_skip,
+            };
+            let out = pcbcraft_io::placement_neoden_yy1(p, side, machine, &options)
+                .map_err(Error::Invalid)?;
+            let dir = std::path::Path::new(&a.directory);
+            std::fs::create_dir_all(dir).map_err(|e| Error::Invalid(e.to_string()))?;
+            let mut written = Vec::new();
+            for (name, bytes) in &out.files {
+                pcbcraft_io::atomic_write(&dir.join(name), bytes).map_err(Error::Invalid)?;
+                written.push(json!({"file": name, "bytes": bytes.len()}));
+            }
+            Ok(json!({"files": written, "warnings": out.warnings}))
+        }
         "output_job.run" => {
             let a: OutputJobRunParams = parse(params)?;
             let job = p
@@ -13721,6 +14254,45 @@ fn run_command(
             let mut written: Vec<String> = vec![];
             let mut skipped: Vec<String> = vec![];
             for kind in &job.kinds {
+                if kind == "uv_print" {
+                    let fallback: UvPrintJobParams = serde_json::from_value(json!({}))
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    let settings = a.uv_print.as_ref().unwrap_or(&fallback);
+                    let side = match settings.side.as_str() {
+                        "top" => pcbcraft_io::UvPrintSide::Top,
+                        "bottom" => pcbcraft_io::UvPrintSide::Bottom,
+                        other => {
+                            return Err(Error::Invalid(format!(
+                                "uv_print side must be top or bottom, not {other}"
+                            )));
+                        }
+                    };
+                    let profile = pcbcraft_doc::eufymake_e1_uv_printer();
+                    profile.validate().map_err(Error::Invalid)?;
+                    if !profile.allows_dpi(settings.dpi) {
+                        return Err(Error::Invalid(format!(
+                            "dpi {} is not allowed for the configured uv printer",
+                            settings.dpi
+                        )));
+                    }
+                    let options = pcbcraft_io::UvPrintOptions {
+                        side,
+                        dpi: settings.dpi,
+                        white_layer: pcbcraft_io::UvPrintWhiteLayer::Separate,
+                        gloss: settings.gloss,
+                        bleed_mm: settings.bleed_mm,
+                        include_outline: settings.include_outline,
+                        include_fiducials: settings.include_fiducials,
+                        experiment: pcbcraft_io::UvPrintExperiment::None,
+                        include_values: false,
+                    };
+                    let files =
+                        pcbcraft_io::write_uv_print_job_files(p, directory, &profile, &options)
+                            .map_err(Error::Invalid)?;
+                    written.extend(files);
+
+                    continue;
+                }
                 for (name, bytes) in render_kind(p, kind, None, None, &mut skipped)? {
                     pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
                         .map_err(Error::Invalid)?;
@@ -14798,11 +15370,27 @@ fn run_command(
                         return Err(Error::Invalid("pad position is out of range".into()));
                     }
                 }
-                let segs_p = orthogonal_route_segments(start_p, end_p);
-                let segs_n = orthogonal_route_segments(start_n, end_n);
+                let (segs_p, segs_n) = match a.mode {
+                    route::Mode::Orthogonal => coupled_right_angle_segments(
+                        start_p,
+                        end_p,
+                        start_n,
+                        end_n,
+                        pair.gap + width,
+                    ),
+                    route::Mode::Octilinear => {
+                        coupled_chamfer_segments(start_p, end_p, start_n, end_n, pair.gap + width)?
+                    }
+                    route::Mode::OctilinearShove => {
+                        return Err(Error::Invalid(
+                            "a pair routes with chamfered or right-angle corners only".into(),
+                        ));
+                    }
+                };
                 validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
                 (width, pair.gap, segs_p, segs_n)
             };
+            let before = route::errors(p);
             let mut ids_p = vec![];
             let mut ids_n = vec![];
             for (from, to) in segs_p {
@@ -14831,7 +15419,18 @@ fn run_command(
                     arc: None,
                 });
             }
+            let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
+            let after = route::errors(p);
+            if let Some((code, objects)) = after.difference(&before).find(|(code, objects)| {
+                matches!(*code, "clearance" | "copper_short" | "board_edge")
+                    && objects.iter().any(|id| touched.contains(id))
+            }) {
+                return Err(Error::Invalid(format!(
+                    "the pair route would break the {code} check on object(s) {objects:?}; nothing was changed"
+                )));
+            }
             Ok(json!({
+                "mode": if a.mode == route::Mode::Orthogonal { "orthogonal" } else { "octilinear" },
                 "ids_p": ids_p,
                 "ids_n": ids_n,
                 "net_p": net_p,
@@ -20827,6 +21426,42 @@ mod tests {
     }
 
     #[test]
+    fn footprint_generate_same_name_replaces_the_first() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (pins, size) in [(48, 7.0), (32, 5.0)] {
+            s.execute(
+                "library.footprint.generate",
+                json!({"family": "qfn", "name": "QFN_X", "pitch": 0.5,
+                       "pin_count": pins, "body_x": size, "body_y": size}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_refuses_a_30_mm_pitch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.revision;
+        let err = s
+            .execute(
+                "library.footprint.generate",
+                json!({"family": "qfn", "name": "Q", "pitch": 30.0, "pin_count": 32,
+                       "body_x": 5.0, "body_y": 5.0}),
+                None,
+            )
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains("pitch must be between 0.1 and 25.4"), "{err}");
+        assert_eq!(s.revision, before);
+        assert_eq!(s.project.library.footprints.len(), 0);
+        Ok(())
+    }
+
+    #[test]
     fn footprint_generate_rejects_unknown_family() -> Result<(), Error> {
         let mut s = Session::default();
         let before = s.revision;
@@ -22154,6 +22789,118 @@ mod tests {
         let before = s.inspect();
         assert_eq!(s.inspect(), before, "rejections change nothing");
         Ok(())
+    }
+    #[test]
+    fn netclass_stub_rules_sets_and_clears_max_stub() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn stubs(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "stub_length")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":20.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":20.0,"y":10.0},"end":{"x":20.0,"y":13.0},"width":0.3}),
+            None,
+        )?;
+        assert!(
+            stubs(&s).is_empty(),
+            "without a class limit nothing reports"
+        );
+        s.execute(
+            "netclass.stub_rules",
+            json!({"class":class,"max_stub":1.0}),
+            None,
+        )?;
+        assert!(
+            stubs(&s)
+                .iter()
+                .any(|m| m.contains("3.000 mm") && m.contains("at most 1.000 mm")),
+            "the open stub is reported once the class limit is set"
+        );
+        s.execute(
+            "rules.severity",
+            json!({"code":"stub_length","severity":"off"}),
+            None,
+        )?;
+        assert!(stubs(&s).is_empty());
+        s.execute(
+            "rules.severity",
+            json!({"code":"stub_length","severity":"error"}),
+            None,
+        )?;
+        s.execute(
+            "netclass.stub_rules",
+            json!({"class":class,"max_stub":null}),
+            None,
+        )?;
+        assert!(stubs(&s).is_empty());
+        s.execute(
+            "netclass.stub_rules",
+            json!({"class":class,"max_stub":20.0}),
+            None,
+        )?;
+        assert!(stubs(&s).is_empty());
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_stub == Some(20.0)),
+            "the limit round-trips on the class"
+        );
+        let encoded =
+            serde_json::to_value(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let decoded: Project =
+            serde_json::from_value(encoded).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            decoded
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.max_stub == Some(20.0))
+        );
+        for params in [
+            json!({"class":class,"max_stub":-0.1}),
+            json!({"class":class,"max_stub":101.0}),
+            json!({"class":999,"max_stub":1.0}),
+            json!({"class":class,"max_stub":"wide"}),
+            json!({"class":class,"max_stub":1.0,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.stub_rules", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn checks_scope_lists_courtyard_and_silk_checks() {
+        let scope = Session::default().checks()["scope"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(scope.contains("courtyards that overlap"));
+        assert!(scope.contains("drawn silk"));
     }
     #[test]
     fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {
@@ -26256,6 +27003,48 @@ mod tests {
     }
 
     #[test]
+    fn route_pair_bends_at_45_degrees_by_default_and_at_right_angles_on_request()
+    -> Result<(), Error> {
+        let (gap, width) = (0.3, 0.2);
+        for (mode, want_diagonal) in [(None, true), (Some("octilinear"), true)] {
+            let mut s = Session::default();
+            let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+            s.execute(
+                "footprint.move",
+                json!({"id":fp_j2,"position":{"x":50.0,"y":30.0}}),
+                None,
+            )?;
+            let mut params = json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            });
+            if let Some(m) = mode {
+                params["mode"] = json!(m);
+            }
+            let result = s.execute("track.route_pair", params, None);
+            assert!(want_diagonal);
+            result?;
+            let diagonal = |t: &pcbcraft_doc::Track| {
+                let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+                dx > 1e-6 && (dx - dy).abs() < 1e-6
+            };
+            assert!(
+                s.project.board.tracks.iter().any(diagonal),
+                "a 45 degree run exists"
+            );
+            assert!(s.project.board.tracks.iter().all(|t| {
+                let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+                dx < 1e-6 || dy < 1e-6 || diagonal(t)
+            }));
+            assert!(!drc_codes(&mut s)?.contains(&"diffpair_gap".to_string()));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn route_pair_refuses_narrow_channel_and_leaves_tracks_unchanged() -> Result<(), Error> {
         let mut s = Session::default();
         let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, 0.3, 0.2)?;
@@ -27791,6 +28580,64 @@ mod tests {
     }
 
     #[test]
+    fn uv_print_artifact_refuses_oversize_board() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 400.0;
+        s.project.board.height = 500.0;
+        s.project.validate().map_err(Error::Invalid)?;
+        let profile = pcbcraft_doc::eufymake_e1_uv_printer();
+        let options = pcbcraft_io::UvPrintOptions {
+            side: pcbcraft_io::UvPrintSide::Top,
+            dpi: 720,
+            white_layer: pcbcraft_io::UvPrintWhiteLayer::Separate,
+            gloss: false,
+            bleed_mm: 0.3,
+            include_outline: false,
+            include_fiducials: false,
+            experiment: pcbcraft_io::UvPrintExperiment::None,
+            include_values: false,
+        };
+        let err = pcbcraft_io::uv_print_artwork(&s.project, options.side, &profile, &options)
+            .err()
+            .ok_or_else(|| Error::Invalid("expected refusal".into()))?;
+        assert!(
+            err.contains("bed"),
+            "oversize board should name the bed limit: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn uv_print_job_writes_png_svg_and_white_mask() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-uv-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"uv","kinds":["uv_print"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({
+                "name":"uv",
+                "directory":directory.to_string_lossy(),
+                "uv_print":{"side":"top","dpi":720,"bleed_mm":0.3}
+            }),
+            None,
+        )?;
+        for name in ["top-colour.png", "top-white.png", "top.svg"] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
     fn raster_job_writes_six_pngs_into_the_folder() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let directory =
@@ -27820,6 +28667,105 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn machine_add_from_preset_refuses_duplicate_id() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)?;
+        for preset in pcbcraft_io::builtin_machine_profile_ids() {
+            if *preset != "commarker-b6-mopa" {
+                s.execute("machine.add", json!({"preset": preset}), None)?;
+            }
+        }
+        assert_eq!(s.project.machine_profiles.len(), 5);
+        assert!(
+            s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn machine_import_then_export_matches_golden() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let golden = manifest.join("../io/tests/fixtures/machine-profiles/commarker-b6-mopa.toml");
+        let golden_text =
+            std::fs::read_to_string(&golden).map_err(|e| Error::Invalid(e.to_string()))?;
+        let expected =
+            pcbcraft_io::machine_profile_from_toml(&golden_text).map_err(Error::Invalid)?;
+        s.execute(
+            "machine.import",
+            json!({"path": golden.to_string_lossy()}),
+            None,
+        )?;
+        let out_path = std::env::temp_dir().join(format!(
+            "pcbcraft-machine-export-{}.toml",
+            std::process::id()
+        ));
+        s.execute(
+            "machine.export",
+            json!({"id":"commarker-b6-mopa","path": out_path.to_string_lossy()}),
+            None,
+        )?;
+        let exported =
+            std::fs::read_to_string(&out_path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let round = pcbcraft_io::machine_profile_from_toml(&exported).map_err(Error::Invalid)?;
+        if round != expected {
+            return Err(Error::Invalid(
+                "exported profile did not match the golden".into(),
+            ));
+        }
+        let _ = std::fs::remove_file(&out_path);
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_export_refuses_a_missing_or_wrong_machine() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let dir = std::env::temp_dir().join(format!("pcbcraft-yy1-refuse-{}", std::process::id()));
+        let params = |machine: &str| json!({"machine":machine,"directory":dir.to_string_lossy()});
+        assert!(
+            s.execute("placement_yy1.export", params("neoden-yy1"), None)
+                .is_err()
+        );
+        s.execute("machine.add", json!({"preset":"eufymake-e1"}), None)?;
+        assert!(
+            s.execute("placement_yy1.export", params("eufymake-e1"), None)
+                .is_err()
+        );
+        assert!(
+            s.execute(
+                "placement_yy1.export",
+                json!({"machine":"x","directory":"d","layout":"wide"}),
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            !dir.exists(),
+            "nothing is written when the export is refused"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_export_writes_both_sides_and_the_feeder_sheet() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("machine.add", json!({"preset":"neoden-yy1"}), None)?;
+        let dir = std::env::temp_dir().join(format!("pcbcraft-yy1-write-{}", std::process::id()));
+        let out = s.execute(
+            "placement_yy1.export",
+            json!({"machine":"neoden-yy1","directory":dir.to_string_lossy(),"side":"both"}),
+            None,
+        )?;
+        for name in ["Top.csv", "Bottom.csv", "FeederSheet.csv"] {
+            assert!(dir.join(name).exists(), "{name} should have been written");
+        }
+        assert!(out.to_string().contains("FeederSheet.csv"));
+        let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
 
@@ -44069,7 +45015,7 @@ mod tests {
         let mut s = Session::sample()?;
         s.project.board.width = 160.0;
         s.project.board.height = 160.0;
-        let mut profile = pcbcraft_io::commarker_b6_mopa_profile();
+        let mut profile = pcbcraft_io::commarker_b6_mopa_profile().map_err(Error::Invalid)?;
         profile.fields.retain(|field| field.width_mm <= 150.0);
         let (width, height) =
             pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
@@ -44097,7 +45043,7 @@ mod tests {
         let mut s = Session::sample()?;
         s.project.board.width = 160.0;
         s.project.board.height = 160.0;
-        let profile = pcbcraft_io::commarker_b6_mopa_profile();
+        let profile = pcbcraft_io::commarker_b6_mopa_profile().map_err(Error::Invalid)?;
         let (width, height) =
             pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
         pcbcraft_io::laser_job_validate_work_area(&profile, width, height)
