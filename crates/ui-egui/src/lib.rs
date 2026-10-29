@@ -653,11 +653,11 @@ struct Preferences {
     pad_labels: PadLabels,
     #[serde(default)]
     hidden_layers: Vec<String>,
-    #[serde(default = "default_keymap_profile")]
-    active_keymap_profile: String,
-    #[serde(default = "default_keymap_profiles")]
-    keymap_profiles: HashMap<String, keymap::Keymap>,
     /// Vertical split in the right aside: fraction for the Layers tree (top).
+    keymap_profiles: HashMap<String, keymap::Keymap>,
+    #[serde(default = "default_keymap_profiles")]
+    active_keymap_profile: String,
+    #[serde(default = "default_keymap_profile")]
     /// Vertical split in the right aside: fraction for the Layers tree (top).
     #[serde(default = "default_aside_split")]
     aside_split: f32,
@@ -716,15 +716,12 @@ struct Preferences {
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
 }
-fn default_true() -> bool {
-    true
-}
+
 
 impl Preferences {
     fn active_keymap(&self) -> &keymap::Keymap {
         if let Some(map) = self.keymap_profiles.get(&self.active_keymap_profile) {
             return map;
-
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
 }
@@ -766,10 +763,62 @@ impl Default for Preferences {
             assistant_modes: Default::default(),
             assistant_always_allow: Default::default(),
             assistant_turn_limit: default_turn_limit(),
+            active_keymap_profile: default_keymap_profile(),
+            keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
         }
     }
 }
+
+impl Preferences {
+    fn active_keymap(&self) -> &keymap::Keymap {
+        if let Some(map) = self.keymap_profiles.get(&self.active_keymap_profile) {
+            return map;
+        }
+        if let Some(map) = self.keymap_profiles.get("Default") {
+            return map;
+        }
+        if let Some(map) = self.keymap_profiles.values().next() {
+            return map;
+        }
+        static FALLBACK: std::sync::OnceLock<keymap::Keymap> = std::sync::OnceLock::new();
+        FALLBACK.get_or_init(keymap::Keymap::default_bindings)
+    }
+    fn active_keymap_mut(&mut self) -> &mut keymap::Keymap {
+        let name = if self
+            .keymap_profiles
+            .contains_key(&self.active_keymap_profile)
+        {
+            self.active_keymap_profile.clone()
+        } else {
+            self.active_keymap_profile = "Default".into();
+            "Default".into()
+        };
+        self.keymap_profiles
+            .entry(name)
+            .or_insert_with(keymap::Keymap::default_bindings)
+    }
+    fn normalize_keymaps(&mut self) {
+        if self.keymap_profiles.is_empty() {
+            self.keymap_profiles
+                .insert("Default".into(), keymap::Keymap::default_bindings());
+        }
+        if !self.keymap_profiles.contains_key("Default") {
+            self.keymap_profiles
+                .insert("Default".into(), keymap::Keymap::default_bindings());
+        }
+        if !self
+            .keymap_profiles
+            .contains_key(&self.active_keymap_profile)
+        {
+            self.active_keymap_profile = "Default".into();
+        }
+        for map in self.keymap_profiles.values_mut() {
+            map.sanitize();
+        }
+    }
+}
+
 /// Pair name, coupling gap, both routed lengths and their skew for a net that
 /// belongs to a declared differential pair; nothing for any other net.
 fn pair_rows(project: &Project, net: Id) -> Vec<(String, String)> {
@@ -1059,7 +1108,12 @@ pub struct App {
     last_repeat: Option<(String, Value)>,
     needs_zoom_selection: bool,
     tree_search_focus: bool,
-    shortcuts_settings_open: bool,
+    command_focus: bool,
+    command_index: usize,
+    command_scroll: bool,
+    capture: Option<String>,
+    frames: u32,
+    library: library::Browser,
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
@@ -2371,7 +2425,6 @@ impl App {
             }
         }
     }
-    fn net_for_selection(&self, id: Id) -> Option<Id> {
         if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
             return Some(track.net);
         }
@@ -2966,6 +3019,13 @@ impl App {
             }
             ui.separator();
             if ui
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+
                 .button(t!("menu.file.export"))
                 .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
@@ -3775,10 +3835,11 @@ impl App {
 
     /// Everything that used to crowd the right-hand aside: how the app looks
     /// and every setting for the project as a whole.
-    fn compare_kind_color(&self, kind: CompareKind) -> Color32 {
         match kind {
             CompareKind::Added => Color32::from_rgb(72, 187, 120),
             CompareKind::Changed => Color32::from_rgb(255, 183, 77),
+        self.shortcuts_settings_panel(ui);
+        ui.add_space(10.0);
         }
     }
 
@@ -3921,7 +3982,6 @@ impl App {
             self.compare_report_open = report_open;
         }
 
-    fn shortcuts_settings_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new("KEYBOARD SHORTCUTS")
                 .size(10.0)
@@ -4117,8 +4177,6 @@ impl App {
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
-        self.shortcuts_settings_panel(ui);
-        ui.add_space(10.0);
         ui.separator();
         ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);

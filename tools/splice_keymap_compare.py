@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """Graft keymap + design compare from feat lib.rs onto main lib.rs."""
 from pathlib import Path
+import subprocess
 
 repo = Path(__file__).resolve().parents[1]
 main_path = repo / "crates/ui-egui/src/lib.rs"
 feat_path = repo / "_feat_lib.rs"
+
+if not main_path.exists() or main_path.stat().st_size < 100_000:
+    main_path.write_bytes(
+        subprocess.check_output(
+            ["git", "-C", str(repo), "show", "origin/main:crates/ui-egui/src/lib.rs"]
+        )
+    )
+
 main_lines = main_path.read_text(encoding="utf-8").splitlines()
 feat_lines = feat_path.read_text(encoding="utf-8").splitlines()
 
@@ -20,26 +29,20 @@ def find_line(lines: list[str], needle: str, start: int = 0) -> int:
     raise SystemExit(f"needle not found: {needle!r}")
 
 
+def close_impl_after(lines: list[str], start: int) -> int:
+    depth = 0
+    for j in range(start, len(lines)):
+        depth += lines[j].count("{") - lines[j].count("}")
+        if j > start and depth == 0:
+            return j
+    raise SystemExit("impl block not closed")
+
+
 compare_kind = slice_lines(feat_lines, 647, 651)
 pref_keymap_fields = slice_lines(feat_lines, 660, 664)
-keymap_defaults = slice_lines(feat_lines, 726, 728) + slice_lines(feat_lines, 729, 733)
-pref_keymap_impl = slice_lines(feat_lines, 730, 790)
-app_extra_fields = [
-    "    binding_capture: Option<keymap::KeyAction>,",
-    "    profile_name_draft: String,",
-    "    profile_import_text: String,",
-    "    keymap_notice: String,",
-    "    connected_cycle: usize,",
-    "    last_repeat: Option<(String, Value)>,",
-    "    needs_zoom_selection: bool,",
-    "    tree_search_focus: bool,",
-    "    shortcuts_settings_open: bool,",
-    "    pub(crate) compare_open: bool,",
-    "    pub(crate) compare_baseline_path: String,",
-    "    compare_report_open: bool,",
-    "    pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,",
-    "    pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,",
-]
+keymap_defaults = slice_lines(feat_lines, 729, 733)
+pref_keymap_impl = slice_lines(feat_lines, 731, 790)
+app_extra_fields = slice_lines(feat_lines, 1061, 1079)
 app_extra_inits = [
     "            binding_capture: None,",
     "            profile_name_draft: String::new(),",
@@ -66,16 +69,13 @@ shortcuts_settings = slice_lines(feat_lines, 4789, 4980)
 out = main_lines[:]
 
 if not any(l.strip() == "mod keymap;" for l in out):
-    idx = find_line(out, "mod layers_tree;")
-    out.insert(idx + 1, "mod keymap;")
+    out.insert(find_line(out, "mod layers_tree;") + 1, "mod keymap;")
 
 if not any("use std::collections::HashMap;" in l for l in out[:80]):
-    idx = find_line(out, "use targets::TapButton;")
-    out.insert(idx, "use std::collections::HashMap;")
+    out.insert(find_line(out, "use targets::TapButton;"), "use std::collections::HashMap;")
 
 if not any("enum CompareKind" in l for l in out):
-    idx = find_line(out, "#[derive(Clone, Serialize, Deserialize)]")
-    idx = find_line(out, "struct Preferences {", idx)
+    idx = find_line(out, "struct Preferences {")
     out[idx:idx] = compare_kind + [""]
 
 if not any("active_keymap_profile" in l for l in out):
@@ -88,7 +88,8 @@ if not any("fn default_keymap_profile" in l for l in out):
 
 if not any("fn active_keymap(" in l for l in out):
     idx = find_line(out, "impl Default for Preferences {")
-    out[idx:idx] = pref_keymap_impl + [""]
+    end = close_impl_after(out, idx)
+    out[end + 1 : end + 1] = [""] + pref_keymap_impl + [""]
 
 if not any("active_keymap_profile:" in l for l in out):
     idx = find_line(out, "modifiers: Default::default(),")
@@ -98,20 +99,12 @@ if not any("active_keymap_profile:" in l for l in out):
     ]
 
 if not any("binding_capture:" in l for l in out):
-    idx = find_line(out, "library: library::Browser,")
+    idx = find_line(out, "    library: library::Browser,")
     out[idx:idx] = app_extra_fields
 
-if not any("compare_open: false" in l for l in out):
-    idx = find_line(out, "library: library::Browser,")
-    # fields already inserted above; inits below
-    pass
-
-if not any("compare_tint:" in l for l in out):
-    pass
-
 if not any("compare_open: false," in l for l in out):
-    init_idx = find_line(out, "            frames: 0,")
-    out[init_idx + 1 : init_idx + 1] = app_extra_inits
+    idx = find_line(out, "            frames: 0,")
+    out[idx + 1 : idx + 1] = app_extra_inits
 
 if "normalize_keymaps()" not in "\n".join(out):
     idx = find_line(out, 'and_then(|s| eframe::get_value(s, "preferences"))')
@@ -133,7 +126,7 @@ if not any("fn run_design_compare" in l for l in out):
     out[idx:idx] = compare_methods + [""] + shortcuts_settings + [""]
 
 if "menu.file.compare" not in "\n".join(out):
-    idx = find_line(out, ".button(t!(\"menu.file.export\"))")
+    idx = find_line(out, '.button(t!("menu.file.export"))')
     out[idx:idx] = file_menu_compare + [""]
 
 if "shortcuts_settings_panel(ui)" not in "\n".join(out):
