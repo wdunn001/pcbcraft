@@ -35,4 +35,5 @@ mod toolbar;
 mod tree_rows;
 mod via_covering;
 mod vias;
+mod view_side;
 mod workbench;

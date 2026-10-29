@@ -434,17 +434,29 @@ fn a_newcomer_turns_the_3d_view_from_the_layout_toolbar() -> Result<(), String> 
     app.change_tab(Tab::Board3d);
     settled(&ctx, &mut app);
     let before = app.view3d.yaw;
-    super::support::tap_id(&ctx, &mut app, "button:Turn")?;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Turn. Turn the board a quarter turn.",
+    )?;
     assert!(
         (app.view3d.yaw - before).abs() > 1e-9,
         "Turn rotates the view"
     );
-    super::support::tap_id(&ctx, &mut app, "button:Front")?;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Front. Look at the board from the front edge.",
+    )?;
     assert!(
         app.view3d.pitch.abs() < 1e-9,
         "Front looks level at the board"
     );
-    super::support::tap_id(&ctx, &mut app, "button:Side")?;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Side. Look at the board from the side edge.",
+    )?;
     assert!(
         app.view3d.yaw.abs() < 1e-9,
         "Side looks along the long edge"

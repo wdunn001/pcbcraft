@@ -65,6 +65,7 @@ impl Default for Editor {
             tool: LibraryTool::Select,
             camera: Camera {
                 mirror: false,
+                turns: 0,
                 center: Point::default(),
                 zoom: 18.0,
             },
