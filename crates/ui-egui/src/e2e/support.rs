@@ -32,7 +32,7 @@ pub(crate) fn scrolled_to(
     scrolled_to_at(ctx, app, needle, 1280.0)
 }
 /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
-/// left dock, 300 the middle page (Rules, Settings, Checks).
+/// left dock, 700 the middle page (Rules, Settings, Checks).
 pub(crate) fn scrolled_to_at(
     ctx: &egui::Context,
     app: &mut App,

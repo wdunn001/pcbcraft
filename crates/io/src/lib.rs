@@ -6,23 +6,36 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod bitmap_trace;
 mod board_mesh;
 mod drawn;
 mod fab_export;
 mod gerber;
 mod gerber_job;
+mod laser;
 mod layers;
 mod library_render;
 mod package;
 mod panel_export;
+mod plot_read;
 mod raster;
+pub use bitmap_trace::{
+    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
+    decode_embedded_png, decode_png, embedded_bytes,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
-pub use gerber::gerber_copper;
+pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};
+pub use image::RgbaImage;
+pub use laser::{
+    LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
+};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
@@ -34,6 +47,11 @@ pub use package::{
 };
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
+pub use plot_read::{
+    MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
+    PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
+    load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer,
+};
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
@@ -2324,15 +2342,26 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             continue;
         }
         let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let fill = pcbcraft_doc::zone_fill(p, z)?;
         let file = if is_back { &mut back } else { &mut front };
         let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .chain(z.cutouts.iter().flatten())
-            .map(|q| mirror(q.x, q.y, is_back))
-            .collect();
-        file.fill(code, &outline)?;
+        // The fill is what ships: gaps round foreign copper, thermal spokes and
+        // the island policy are already applied. Each piece is one G36 region
+        // and each hole is cleared with LPC immediately after it, before any
+        // track or pad is drawn, because LPC would clear those too.
+        for piece in &fill.pieces {
+            for (index, ring) in piece.iter().enumerate() {
+                let points: Vec<(f64, f64)> =
+                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
+                if index > 0 {
+                    file.body.push_str("%LPC*%\n");
+                }
+                file.fill(code, &points)?;
+                if index > 0 {
+                    file.body.push_str("%LPD*%\n");
+                }
+            }
+        }
     }
     for t in &p.board.tracks {
         let is_back = t.layer == pcbcraft_doc::Layer::Back;
@@ -6625,6 +6654,7 @@ mod tests {
         project.files.push(pcbcraft_doc::EmbeddedFile {
             name: "notes.txt".into(),
             data: "hello from the archive".into(),
+            encoding: String::new(),
         });
         let zip = archive_zip(&project)?;
         assert!(
@@ -6715,6 +6745,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -6833,6 +6864,7 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -6873,6 +6905,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -6880,6 +6913,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -7052,6 +7086,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7096,6 +7131,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7157,6 +7193,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7857,6 +7894,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -7913,6 +7952,7 @@ mod tests {
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -7946,6 +7986,42 @@ mod tests {
         Ok(())
     }
 
+    /// Read every written plot back and compare against an independent count
+    /// of `D03*` flashes in the writer text.
+    fn round_trip_plot_counts(
+        files: &std::collections::BTreeMap<String, String>,
+    ) -> Result<(), String> {
+        let mut flashing = 0;
+        for (name, text) in files {
+            if name.ends_with(".gbr") {
+                let layer = parse_gerber_layer(text, name)?;
+                let (flashes, draws) = count_flashes_and_draws(text)?;
+                let raw_flashes = text
+                    .lines()
+                    .filter(|l| l.trim_end().ends_with("D03*"))
+                    .count();
+                let raw_draws = text
+                    .lines()
+                    .filter(|l| {
+                        let l = l.trim_end();
+                        l.ends_with("D01*") || l.ends_with("G02*") || l.ends_with("G03*")
+                    })
+                    .count();
+                assert_eq!(layer.draw_count, raw_draws, "raw draw count for {name}");
+                assert_eq!(layer.flash_count, raw_flashes, "raw flash count for {name}");
+                assert_eq!(layer.flash_count, flashes, "flash count for {name}");
+                assert_eq!(layer.draw_count, draws, "draw count for {name}");
+                flashing += layer.flash_count;
+            } else if name == "pcb-Drill.drl" {
+                let (tools, hits) = parse_excellon_drill(text)?;
+                assert!(!tools.is_empty(), "drill tools in {name}");
+                assert!(!hits.is_empty(), "drill hits in {name}");
+            }
+        }
+        assert!(flashing > 0, "the rich board flashes pads and vias");
+        Ok(())
+    }
+
     #[test]
     fn gerber_files_export_copper_outline_and_drills() -> Result<(), String> {
         let mut project = Project::default();
@@ -7969,6 +8045,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -7985,6 +8062,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
             id: 6,
@@ -8102,6 +8181,7 @@ mod tests {
                 "pcb-job.gbrjob",
             ]
         );
+        round_trip_plot_counts(&files)?;
         for key in files.keys() {
             let text = &files[key];
             if key.ends_with(".gbr") {
@@ -8145,7 +8225,7 @@ mod tests {
             "through-hole pad aperture"
         );
         assert!(
-            front.contains("G36*") && front.contains("X5.000000Y5.000000D02*\n"),
+            front.contains("G36*") && front.contains("G37*"),
             "the poured zone must appear as a filled region"
         );
         assert!(
@@ -8787,6 +8867,7 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -9112,6 +9193,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -9119,6 +9201,7 @@ mod tests {
             net: None,
             layer: None,
             clearance: 0.5,
+            keepout: None,
             max_height: None,
             region: pcbcraft_doc::RuleRegion {
                 x: 5.0,
@@ -9280,6 +9363,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            covering: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -9406,6 +9490,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            covering: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -9418,6 +9503,7 @@ mod tests {
             ],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -9426,6 +9512,7 @@ mod tests {
             points: vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -9553,6 +9640,7 @@ mod tests {
             points: vec![Point::new(1.0, 2.0), Point::new(9.0, 2.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -10310,6 +10398,7 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -10463,6 +10552,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
+            covering: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -10571,6 +10661,7 @@ mod tests {
             points: vec![Point::new(10.0, 10.0), Point::new(20.0, 15.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -10579,6 +10670,7 @@ mod tests {
             points: vec![Point::new(12.0, 12.0)],
             width: 1.5,
             text: "REV B".into(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -10587,6 +10679,7 @@ mod tests {
             points: vec![Point::new(30.0, 20.0)],
             width: 4.0,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
@@ -11675,6 +11768,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -11705,6 +11799,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12205,7 +12300,6 @@ mod tests {
         assert!(readme.contains("Via protection: open"));
         Ok(())
     }
-
     #[test]
     fn step_board_names_each_datum_with_its_coordinates() -> Result<(), String> {
         let mut project = Project::default();
@@ -12285,6 +12379,234 @@ mod tests {
         assert!(dxf.contains("DATUMS"));
         assert!(dxf.contains("MOUNT_A"));
         assert!(!dxf_board(&Project::default())?.contains("DATUMS"));
+        Ok(())
+    }
+    fn covering_fixture(
+        default: pcbcraft_doc::ViaCovering,
+        own: Option<pcbcraft_doc::ViaCovering>,
+    ) -> Result<Project, String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.via_covering_default = default;
+        for (id, x, covering) in [(10, 10.0, own), (11, 20.0, None)] {
+            project.board.vias.push(pcbcraft_doc::Via {
+                id,
+                net: 1,
+                position: Point::new(x, 10.0),
+                diameter: 0.6,
+                drill: 0.3,
+                covering,
+            });
+        }
+        project.validate()?;
+        Ok(project)
+    }
+    #[test]
+    fn tented_via_has_no_mask_opening_and_open_via_keeps_it() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let openings =
+            |files: &BTreeMap<String, String>| files["pcb-F.Mask.gbr"].matches("G36*").count();
+        let open = gerber_files(&covering_fixture(ViaCovering::Open, None)?)?;
+        assert_eq!(openings(&open), 2, "both open vias keep their opening");
+        let one_tented = gerber_files(&covering_fixture(
+            ViaCovering::Open,
+            Some(ViaCovering::Tented),
+        )?)?;
+        assert_eq!(
+            openings(&one_tented),
+            1,
+            "the tented via loses its opening, the open one keeps it"
+        );
+        let tented = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
+        assert_eq!(
+            openings(&tented),
+            0,
+            "a tented board default closes every via"
+        );
+        assert_eq!(
+            tented["pcb-B.Mask.gbr"].matches("G36*").count(),
+            0,
+            "the back mask closes too"
+        );
+        let own_open = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::Open),
+        )?)?;
+        assert_eq!(openings(&own_open), 1, "a via's own open beats the default");
+        Ok(())
+    }
+    #[test]
+    fn readme_names_the_via_protection_policy() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let files = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
+        let readme = &files["README-fabrication.txt"];
+        assert!(readme.contains("Via protection: tented\n"), "{readme}");
+        assert!(!readme.contains("override"), "no overrides, none listed");
+        let files = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::FilledCapped),
+        )?)?;
+        let readme = &files["README-fabrication.txt"];
+        assert!(
+            readme.contains("Via protection override: 1 filled and capped"),
+            "{readme}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn drill_file_marks_via_tools_with_the_via_attribute_and_covering() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let files = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::Plugged),
+        )?)?;
+        let drill = &files["pcb-Plated.drl"];
+        assert!(
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"),
+            "{drill}"
+        );
+        assert!(drill.contains("; via protection: tented\n"), "{drill}");
+        assert!(drill.contains("; via protection: plugged\n"), "{drill}");
+        assert_eq!(
+            drill.matches("; #@! TD\n").count(),
+            2,
+            "each via tool clears its attribute so later tools do not inherit it"
+        );
+        assert!(
+            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count() == 2,
+            "one tool per covering: {drill}"
+        );
+        Ok(())
+    }
+    fn pour_board() -> Result<Project, String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let ring = |x0: f64, y0: f64, x1: f64, y1: f64| {
+            vec![
+                Point::new(x0, y0),
+                Point::new(x1, y0),
+                Point::new(x1, y1),
+                Point::new(x0, y1),
+                Point::new(x0, y0),
+            ]
+        };
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 10,
+            net: 1,
+            layer: pcbcraft_doc::Layer::Front,
+            outline: ring(5.0, 5.0, 35.0, 35.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p.validate()?;
+        Ok(p)
+    }
+    fn front_copper(p: &Project) -> Result<String, String> {
+        gerber_files(p)?
+            .into_iter()
+            .find(|(name, _)| name == "pcb-F.Cu.gbr")
+            .map(|(_, body)| body)
+            .ok_or_else(|| "no front copper file".to_string())
+    }
+    #[test]
+    fn gerber_zone_cutout_is_a_hole_not_a_joined_contour() -> Result<(), String> {
+        let mut p = pour_board()?;
+        p.board.zones[0].cutouts.push(vec![
+            Point::new(15.0, 15.0),
+            Point::new(25.0, 15.0),
+            Point::new(25.0, 25.0),
+            Point::new(15.0, 25.0),
+            Point::new(15.0, 15.0),
+        ]);
+        p.validate()?;
+        let front = front_copper(&p)?;
+        assert_eq!(front.matches("G36*").count(), 2, "outer region plus hole");
+        let clear = front
+            .find("%LPC*%")
+            .ok_or("no clear polarity for the hole")?;
+        let hole = front[clear..].find("G36*").ok_or("hole is not a region")?;
+        assert!(hole > 0);
+        assert!(front.contains("%LPD*%"), "polarity returns to dark");
+        Ok(())
+    }
+    #[test]
+    fn gerber_relief_shows_four_spokes() -> Result<(), String> {
+        let mut p = pour_board()?;
+        let g = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(mut c) =
+            pcbcraft_doc::component_template("resistor", 4, "R4".into(), Point::new(20.0, 20.0))
+        {
+            c.pins.truncate(1);
+            for pin in &mut c.pins {
+                pin.net = Some(1);
+            }
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "PTH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![g.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+            p.components.push(c);
+        }
+        p.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 20,
+            component: 4,
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+        });
+        p.validate()?;
+        let front = front_copper(&p)?;
+        // Four spokes cut the gap ring round the pad into four separate holes.
+        assert_eq!(
+            front.matches("%LPC*%").count(),
+            4,
+            "four gaps between four spokes"
+        );
         Ok(())
     }
 }

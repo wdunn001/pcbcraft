@@ -4,6 +4,10 @@
 |---|---|---|---|
 | craft-ui | https://github.com/storytold/craft-libs | 1aa81a773aa9198a0e4c0daeda954d622475af38; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
+| SolidCraft agent chat backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/backend.rs` |
+| SolidCraft agent chat transcript | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/transcript.rs` and `turn.rs` |
+| SolidCraft agent chat test script backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/script.rs` |
+| SolidCraft agent chat API backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/api.rs` |
 | SolidCraft Linux packaging | https://github.com/bherbruck/solidcraft | packaging/linux and packaging/env.sh at 2026-03; MIT OR Apache-2.0 | Adapted AppImage, deb, and rpm scripts, nfpm config, AppRun, and postinst for PCBCraft |
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |

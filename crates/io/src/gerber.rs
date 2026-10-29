@@ -704,24 +704,32 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
                 }
             }
         }
-        for graphic in p.graphics.iter().filter(|g| g.layer == "board") {
-            match graphic.outline() {
-                Some(path) => {
-                    let path = if graphic.shape == "line" {
-                        path
-                    } else {
-                        closed(path)
-                    };
-                    for pair in path.windows(2) {
-                        strokes.push(Stroke {
-                            start: pair[0],
-                            end: pair[1],
-                            width: graphic.width.clamp(0.05, 2.0),
-                        });
-                    }
-                }
-                None => dropped_text += 1,
+    }
+    // Board graphics print on the top file unless they name a sublayer.
+    for graphic in p.graphics.iter().filter(|g| {
+        g.layer == "board"
+            && match g.sublayer.as_str() {
+                "" | "F.SilkS" => layer == Layer::Front,
+                "B.SilkS" => layer == Layer::Back,
+                _ => false,
             }
+    }) {
+        match graphic.outline() {
+            Some(path) => {
+                let path = if graphic.shape == "line" {
+                    path
+                } else {
+                    closed(path)
+                };
+                for pair in path.windows(2) {
+                    strokes.push(Stroke {
+                        start: pair[0],
+                        end: pair[1],
+                        width: graphic.width.clamp(0.05, 2.0),
+                    });
+                }
+            }
+            None => dropped_text += 1,
         }
     }
     let openings = silk_openings(p, layer);
@@ -980,6 +988,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
@@ -997,6 +1006,7 @@ mod tests {
             points: vec![Point::new(5.0, 5.0), Point::new(6.0, 5.0)],
             width: 0.15,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         Ok(project)
