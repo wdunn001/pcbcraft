@@ -2,7 +2,7 @@
 //! and track draws, solder mask openings, stencil paste openings, and
 //! silkscreen strokes. Zones, drills and the board outline live in
 //! `gerber_files`.
-#![allow(dead_code)]
+//!
 //! Circles use the standard C aperture. Axis-aligned rect and oval pads use R
 //! and O. Every other pad (rotated rect/oval, roundrect, chamfered and custom
 //! polygon pads) is flashed through an aperture macro with one outline
@@ -362,8 +362,9 @@ fn file_scale(p: &Project) -> f64 {
 /// A bottom side file mirrors x about the board origin.
 fn mirror(at: Point, layer: Layer) -> Point {
     match layer {
-        Layer::Front => at,
         Layer::Back => Point::new(-at.x, at.y),
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
         _ => at,
     }
 }
@@ -398,9 +399,10 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 fn pad_on_side(pad: &Pad, layer: Layer) -> bool {
     let (front, back, _) = pad_sides(pad);
     match layer {
-        Layer::Front => front,
         Layer::Back => back,
-        _ => false,
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => front,
     }
 }
 
@@ -507,14 +509,10 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
-        Layer::Front => ("Soldermask,Top", "top solder mask"),
         Layer::Back => ("Soldermask,Bot", "bottom solder mask"),
-        _ => {
-            return Err(format!(
-                "gerber mask export for inner layer L{} is not implemented",
-                layer.index() + 1
-            ));
-        }
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => ("Soldermask,Top", "top solder mask"),
     };
     Ok(sheet.finish(function, "Negative", comment, &[]))
 }
@@ -542,14 +540,10 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     let (function, comment) = match layer {
-        Layer::Front => ("Paste,Top", "top paste stencil"),
         Layer::Back => ("Paste,Bot", "bottom paste stencil"),
-        _ => {
-            return Err(format!(
-                "gerber paste export for inner layer L{} is not implemented",
-                layer.index() + 1
-            ));
-        }
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => ("Paste,Top", "top paste stencil"),
     };
     Ok(sheet.finish(function, "Positive", comment, &[]))
 }
@@ -710,24 +704,32 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
                 }
             }
         }
-        for graphic in p.graphics.iter().filter(|g| g.layer == "board") {
-            match graphic.outline() {
-                Some(path) => {
-                    let path = if graphic.shape == "line" {
-                        path
-                    } else {
-                        closed(path)
-                    };
-                    for pair in path.windows(2) {
-                        strokes.push(Stroke {
-                            start: pair[0],
-                            end: pair[1],
-                            width: graphic.width.clamp(0.05, 2.0),
-                        });
-                    }
-                }
-                None => dropped_text += 1,
+    }
+    // Board graphics print on the top file unless they name a sublayer.
+    for graphic in p.graphics.iter().filter(|g| {
+        g.layer == "board"
+            && match g.sublayer.as_str() {
+                "" | "F.SilkS" => layer == Layer::Front,
+                "B.SilkS" => layer == Layer::Back,
+                _ => false,
             }
+    }) {
+        match graphic.outline() {
+            Some(path) => {
+                let path = if graphic.shape == "line" {
+                    path
+                } else {
+                    closed(path)
+                };
+                for pair in path.windows(2) {
+                    strokes.push(Stroke {
+                        start: pair[0],
+                        end: pair[1],
+                        width: graphic.width.clamp(0.05, 2.0),
+                    });
+                }
+            }
+            None => dropped_text += 1,
         }
     }
     let openings = silk_openings(p, layer);
@@ -772,14 +774,10 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
         Vec::new()
     };
     let (function, comment) = match layer {
-        Layer::Front => ("Legend,Top", "top silkscreen"),
         Layer::Back => ("Legend,Bot", "bottom silkscreen"),
-        _ => {
-            return Err(format!(
-                "gerber silk export for inner layer L{} is not implemented",
-                layer.index() + 1
-            ));
-        }
+        // Only the outer sides carry mask, paste and silk; an inner layer
+        // never reaches here, and the top side is the harmless default.
+        _ => ("Legend,Top", "top silkscreen"),
     };
     Ok(sheet.finish(function, "Positive", comment, &notes))
 }
@@ -990,6 +988,9 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
@@ -1007,6 +1008,7 @@ mod tests {
             points: vec![Point::new(5.0, 5.0), Point::new(6.0, 5.0)],
             width: 0.15,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         Ok(project)
