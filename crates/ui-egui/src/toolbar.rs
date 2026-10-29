@@ -460,21 +460,10 @@ impl App {
         let items = self.toolbar_items();
         let pcb = self.tab == Tab::Pcb;
         // Width the right-hand options take; the tools get the rest.
-        let sync_label = t!("toolbar.update");
-        let sync_w = button::measure(
-            ui,
-            &button::Look {
-                kind: Kind::Secondary,
-                size: Size::Normal,
-                icon: None,
-                label: &sync_label,
-            },
-        )
-        .x;
         let keepout_on = pcb && matches!(self.tool, Tool::Keepout);
         let mut right_w = 0.0;
         if pcb {
-            right_w += sync_w + 16.0 + 40.0 + 150.0 + 16.0 + 56.0 + 110.0 + 24.0;
+            right_w += 16.0 + 56.0 + 110.0 + 24.0;
         }
         if keepout_on {
             right_w += 340.0;
@@ -566,27 +555,11 @@ impl App {
         }
     }
 
-    /// The right-hand options: Keepout toggles while that tool is active, Corners, Layer
-    /// and the Update button.
+    /// The right-hand options: Keepout toggles while that tool is active, Corners.
     fn toolbar_options(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add_space(16.0);
-            let sync_label = t!("toolbar.update");
-            if button::secondary_button(
-                ui,
-                None,
-                &sync_label,
-                &t!("menu.edit.sync.tip"),
-                Size::Normal,
-                true,
-            )
-            .clicked()
-            {
-                self.run("board.sync", json!({}));
-                self.change_tab(Tab::Pcb);
-            }
-            ui.add_space(8.0);
             let mut idx = usize::from(!self.preferences.chamfer_corners);
             let chamfer = t!("toolbar.corners_45");
             let square = t!("toolbar.corners_90");

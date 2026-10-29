@@ -292,3 +292,34 @@ fn a_newcomer_flips_the_board_in_3d_and_looks_from_below() -> Result<(), String>
     assert!(app.view3d.pitch > 0.0, "Top brings it back");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_the_board_is_behind_the_schematic_and_updates_it() -> Result<(), String> {
+    let (mut app, ctx) = open_layout();
+    assert!(
+        !app.board_behind(),
+        "with automatic sync on, nothing is behind"
+    );
+    app.run("project.set_auto_sync", json!({"auto_sync": false}));
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R9"}),
+    );
+    app.refresh();
+    assert!(
+        paints_text(&ctx, &mut app, "Board is behind the schematic")?,
+        "the Layout canvas says the board is behind"
+    );
+    tap_named(&ctx, &mut app, "Update")?;
+    app.refresh();
+    assert!(
+        app.project.board.footprints.iter().any(|f| {
+            app.project
+                .component(f.component)
+                .is_some_and(|c| c.reference == "R9")
+        }),
+        "the update puts the new part on the board"
+    );
+    assert!(!app.board_behind(), "the notice goes away once synced");
+    Ok(())
+}

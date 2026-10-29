@@ -86,12 +86,25 @@ fn tap_toolbar_corner(ctx: &egui::Context, app: &mut App, chamfer: bool) -> Resu
 }
 
 #[test]
-fn a_newcomer_updates_the_layout_from_the_schematic() -> Result<(), String> {
+fn a_newcomer_updates_the_board_from_the_edit_menu_when_sync_is_off() -> Result<(), String> {
     let (ctx, mut app) = layout_page();
-    tap_id(&ctx, &mut app, "button:Update from schematic")?;
+    assert!(
+        tap_id(&ctx, &mut app, "button:Update from schematic").is_err(),
+        "the Layout toolbar no longer carries an Update button"
+    );
+    assert!(
+        app.project.auto_sync,
+        "the board follows the schematic by default"
+    );
+    app.run("project.set_auto_sync", json!({"auto_sync": false}));
+    assert!(
+        !app.project.auto_sync,
+        "Keep board in sync can be turned off"
+    );
+    app.run("board.sync", json!({}));
     assert!(
         app.message.contains("board.sync"),
-        "the button runs the sync and says so: {}",
+        "Update board from schematic runs the sync: {}",
         app.message
     );
     Ok(())

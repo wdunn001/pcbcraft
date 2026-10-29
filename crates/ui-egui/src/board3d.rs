@@ -11,7 +11,9 @@
 
 use super::*;
 use egui::{Pos2, Sense};
-use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus, PartKind};
+#[cfg(test)]
+use pcbcraft_io::PartKind;
+use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus};
 
 mod model_cache;
 mod raster;
@@ -418,72 +420,25 @@ fn picture(
 pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Option<Id> {
     view.refresh(env.project, env.revision);
     let mut picked = None;
-    let mut bodies: Vec<(String, Id, String, Option<ModelStatus>)> = view
-        .mesh
-        .as_ref()
-        .map(|(_, m)| {
-            m.parts
-                .iter()
-                .filter(|p| p.kind == PartKind::Body)
-                .filter_map(|p| {
-                    let id = p.component?;
-                    let name = env.project.component(id)?.reference.clone();
-                    let note = p.family.clone().unwrap_or_else(|| "box".into());
-                    Some((name, id, note, view.notes.get(&id).cloned()))
-                })
-                .collect()
+    // Parts are listed in the Layers tree; here only a model that did not load
+    // needs saying, with the reason, so a kept box is never a mystery.
+    let mut kept: Vec<String> = view
+        .notes
+        .iter()
+        .filter_map(|(id, status)| match status {
+            ModelStatus::Failed(why) => {
+                let name = env.project.component(*id)?.reference.clone();
+                Some(format!("Box kept. {name}: {why}"))
+            }
+            _ => None,
         })
-        .unwrap_or_default();
-    bodies.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+        .collect();
+    kept.sort();
     let loading = view.models.pending() > 0;
     if loading {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(100));
     }
-
-    egui::Panel::right("parts3d")
-        .default_size(190.0)
-        .min_size(150.0)
-        .show(ui, |ui| {
-            ui.add_space(8.0);
-            ui.label(
-                egui::RichText::new(t!("board.board3d.parts"))
-                    .font(crate::fonts::Role::Caption.font())
-                    .color(env.muted),
-            );
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for (name, id, note, status) in &bodies {
-                    let row = ui
-                        .selectable_label(
-                            env.selected == Some(*id),
-                            t!("board.board3d.name_note", name = name, note = note),
-                        )
-                        .on_hover_text(t!("board.board3d.name_note.tip"));
-                    if row.clicked() {
-                        picked = Some(*id);
-                    }
-                    let reason = match status {
-                        Some(ModelStatus::Failed(why)) => Some(format!("Box kept. {why}")),
-                        Some(ModelStatus::Loading) => Some("Loading model".to_string()),
-                        _ => None,
-                    };
-                    if let Some(reason) = reason {
-                        ui.add(
-                            egui::Label::new(
-                                egui::RichText::new(&reason)
-                                    .font(crate::fonts::Role::Caption.font())
-                                    .color(env.muted),
-                            )
-                            .wrap(),
-                        )
-                        .on_hover_text(reason.clone());
-                    }
-                }
-                if bodies.is_empty() {
-                    ui.label(t!("board.board3d.no_parts_on_this_board"));
-                }
-            });
-        });
 
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
@@ -496,6 +451,16 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     });
     if let Some(e) = &view.error {
         ui.label(t!("board.board3d.the_3d_view_could_not", e = e));
+    }
+    for note in &kept {
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(note)
+                    .font(crate::fonts::Role::Caption.font())
+                    .color(env.muted),
+            )
+            .wrap(),
+        );
     }
     let size = ui.available_size_before_wrap();
     let (rect, response) = ui.allocate_exact_size(

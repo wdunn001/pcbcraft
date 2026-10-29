@@ -1905,7 +1905,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     });
     ui.spacing_mut().item_spacing.y = spacing;
-    view.hover_target = hovered_stack_target(&all, view.hovered_row.as_deref());
+    view.hover_target = hovered_stack_target(env, &all, view.hovered_row.as_deref());
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
@@ -2127,7 +2127,8 @@ fn layer_visibility_name(all: &[Row], key: &str) -> Option<&'static str> {
 ///
 /// # Rules
 /// - Edge cuts and user layers have no place in the stack, so they preview nothing.
-fn hovered_stack_target(all: &[Row], key: Option<&str>) -> Option<Target> {
+/// - A whole-layer row (`side:` or `inner:`) previews that layer's copper.
+fn hovered_stack_target(env: &Env, all: &[Row], key: Option<&str>) -> Option<Target> {
     let mut path = key?;
     loop {
         if let Some(Target::Copper(_) | Target::Silk(_) | Target::Mask(_) | Target::Paste(_)) =
@@ -2135,7 +2136,14 @@ fn hovered_stack_target(all: &[Row], key: Option<&str>) -> Option<Target> {
         {
             return all.iter().find(|r| r.key == path).and_then(|r| r.target);
         }
-        path = path.rsplit_once('/')?.0;
+        match path.rsplit_once('/') {
+            Some((parent, _)) => path = parent,
+            // A whole-layer row previews that layer's copper.
+            None if path.starts_with("side:") || path.starts_with("inner:") => {
+                return Some(Target::Copper(path_layer(env, path)));
+            }
+            None => return None,
+        }
     }
 }
 

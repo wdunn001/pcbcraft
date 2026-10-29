@@ -37,6 +37,7 @@ mod route_drag;
 mod showcase;
 mod sources;
 mod stack_view;
+mod sync_notice;
 #[cfg(test)]
 mod target_size;
 mod targets;
@@ -1034,6 +1035,8 @@ pub struct App {
     needs_fit: bool,
     /// The layer view a click pinned: it stays forward until unpinned.
     pinned_view: Option<draw_target::Target>,
+    /// Whether the board lacks schematic changes, by revision; see `sync_notice.rs`.
+    sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
     /// Left edge of the central page, so tests can check text keeps its margin.
@@ -1570,6 +1573,7 @@ impl App {
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
             pinned_view: None,
+            sync_behind: None,
             renumber_open: false,
             active_page: 0,
             page_left: 0.0,
@@ -2934,6 +2938,14 @@ impl App {
             {
                 self.run("board.sync", json!({}));
                 self.change_tab(Tab::Pcb);
+            }
+            let mut auto = self.project.auto_sync;
+            if ui
+                .checkbox(&mut auto, t!("menu.edit.auto_sync"))
+                .on_hover_text(t!("menu.edit.auto_sync.tip"))
+                .changed()
+            {
+                self.run("project.set_auto_sync", json!({"auto_sync": auto}));
             }
             ui.separator();
             if let Some(lit) = self.highlight_net

@@ -438,6 +438,39 @@ impl App {
                         });
                     });
             });
+        if self.tab == Tab::Pcb && self.board_behind() {
+            let mut update = false;
+            egui::Area::new(egui::Id::new("layout-sync-notice"))
+                .pivot(egui::Align2::CENTER_TOP)
+                .fixed_pos(egui::pos2(rect.center().x, rect.top() + inset))
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    egui::Frame::NONE
+                        .fill(tokens.panel)
+                        .stroke(Stroke::new(crate::theme::BORDER, tokens.edge))
+                        .corner_radius(egui::CornerRadius::same(crate::theme::RADIUS_CARD))
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(t!("board.behind"));
+                                ui.label("·");
+                                use crate::ui_kit::button::{Size, secondary_button};
+                                update = secondary_button(
+                                    ui,
+                                    None,
+                                    &t!("board.behind.update"),
+                                    &t!("board.behind.update.tip"),
+                                    Size::Normal,
+                                    true,
+                                )
+                                .clicked();
+                            });
+                        });
+                });
+            if update {
+                self.run("board.sync", json!({}));
+            }
+        }
         if turn != 0 {
             self.rotate_view(turn);
         }
@@ -468,7 +501,11 @@ impl App {
         }
     }
 
-    /// The 3D controls that replace the Layout toolbar in 3D.
+    /// The 3D controls that replace the Layout toolbar in 3D: icon buttons like
+    /// the 2D rotate buttons, each with a tooltip.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/icons.rs (`icon_button`; icons `rotate`, `view-top`, `view-front`, `view-side`, `fit`)
     fn view3d_controls(&mut self, ui: &mut egui::Ui) {
         use std::f64::consts::FRAC_PI_2;
         // Like the tool strip, it scrolls sideways in a narrow window.
@@ -478,51 +515,28 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(Self::PAGE_GUTTER);
-                    let v = &mut self.view3d;
-                    use crate::ui_kit::button::{Size, secondary_button};
                     ui.spacing_mut().item_spacing.x = 8.0;
-                    if secondary_button(
-                        ui,
-                        None,
-                        &t!("workspace.turn"),
-                        &t!("workspace.turn.tip"),
-                        Size::Normal,
-                        true,
-                    )
-                    .clicked()
-                    {
+                    let v = &mut self.view3d;
+                    let icon = crate::icons::icon_button;
+                    if icon(ui, "rotate", &t!("workspace.turn.tip"), false).clicked() {
                         v.yaw += FRAC_PI_2;
                     }
-                    for (label, tip, yaw, pitch) in [
+                    for (name, tip, yaw, pitch) in [
                         (
-                            t!("board.board3d.top_view"),
+                            "view-top",
                             t!("board.board3d.top_view.tip"),
                             -FRAC_PI_2,
                             1.5,
                         ),
-                        (
-                            t!("workspace.front"),
-                            t!("workspace.front.tip"),
-                            -FRAC_PI_2,
-                            0.0,
-                        ),
-                        (t!("workspace.side"), t!("workspace.side.tip"), 0.0, 0.0),
+                        ("view-front", t!("workspace.front.tip"), -FRAC_PI_2, 0.0),
+                        ("view-side", t!("workspace.side.tip"), 0.0, 0.0),
                     ] {
-                        if secondary_button(ui, None, &label, &tip, Size::Normal, true).clicked() {
+                        if icon(ui, name, &tip, false).clicked() {
                             v.yaw = yaw;
                             v.pitch = pitch;
                         }
                     }
-                    if secondary_button(
-                        ui,
-                        None,
-                        &t!("board.board3d.reset_view"),
-                        &t!("board.board3d.reset_view.tip"),
-                        Size::Normal,
-                        true,
-                    )
-                    .clicked()
-                    {
+                    if icon(ui, "fit", &t!("board.board3d.reset_view.tip"), false).clicked() {
                         v.fit();
                     }
                 });
