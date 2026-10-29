@@ -21,7 +21,7 @@ use model_cache::ModelCache;
 
 type V = [f64; 3];
 
-const FOV_TAN: f64 = 0.364; // tan(20 degrees): a 40 degree vertical view
+const FOV_TAN: f64 = 0.3057; // tan(17 degrees): a 34 degree vertical view
 const NEAR: f64 = 0.01;
 /// The default angle: isometric from the front-left, a little above the board.
 const FIT_YAW: f64 = -3.0 * std::f64::consts::FRAC_PI_4;
@@ -95,6 +95,8 @@ struct FrameKey {
     ss: usize,
     selected: Option<Id>,
     gold: bool,
+    mask: [u8; 3],
+    silk: [u8; 3],
 }
 impl Default for View3d {
     fn default() -> Self {
@@ -249,7 +251,7 @@ impl View3d {
                 (lo[2] + hi[2]) / 2.0,
             ];
             let diag = dot(sub(hi, lo), sub(hi, lo)).sqrt().max(1.0);
-            self.dist = diag * 1.3;
+            self.dist = diag * 1.45;
         }
         self.yaw = FIT_YAW;
         self.pitch = FIT_PITCH;
@@ -341,6 +343,31 @@ pub(crate) struct Env<'a> {
     pub muted: Color32,
 }
 
+/// A colour the project names in its notes (`mask_colour`, `silk_colour`): a
+/// common colour word or a hex code; anything else keeps the default.
+fn project_colour(project: &Project, key: &str, default: [u8; 3]) -> [u8; 3] {
+    let Some(text) = project.meta.get(key) else {
+        return default;
+    };
+    let word = text.trim().to_ascii_lowercase();
+    let hex = word.trim_start_matches('#');
+    if hex.len() == 6
+        && let Ok(v) = u32::from_str_radix(hex, 16)
+    {
+        return [(v >> 16) as u8, (v >> 8) as u8, v as u8];
+    }
+    match word.as_str() {
+        "green" => default,
+        "red" => [150, 24, 28],
+        "blue" => [22, 58, 132],
+        "black" | "matte black" => [26, 27, 30],
+        "white" => [226, 228, 224],
+        "yellow" => [214, 176, 34],
+        "purple" => [74, 34, 110],
+        _ => default,
+    }
+}
+
 /// Largest side of the rendered picture in pixels; 2048 is the smallest texture limit in use.
 const MAX_PICTURE_SIDE: usize = 2048;
 
@@ -376,6 +403,8 @@ fn picture(
         let f = env.project.board.finish.to_ascii_uppercase();
         f.contains("ENIG") || f.contains("GOLD")
     };
+    let mask = project_colour(env.project, "mask_colour", raster::MASK_SRGB);
+    let silk = project_colour(env.project, "silk_colour", raster::SILK_SRGB);
     let key = FrameKey {
         revision,
         model_gen: view.model_gen,
@@ -391,6 +420,8 @@ fn picture(
         ss: if moving { 1 } else { 2 },
         selected: env.selected,
         gold,
+        mask,
+        silk,
     };
     if let Some(Held(held, tex)) = &view.frame
         && *held == key
@@ -407,6 +438,8 @@ fn picture(
             gold,
             selected: env.selected,
             ss: key.ss,
+            mask,
+            silk,
         },
     );
     let tex = match view.frame.take() {
@@ -548,5 +581,39 @@ mod tests {
         let t = depth;
         let hit = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
         assert!(sub(hit, view.target).iter().all(|v| v.abs() < 1e-6));
+    }
+
+    /// Prints how long a still frame and a moving frame take on the showcase.
+    /// Run on demand: `cargo test --release -p pcbcraft-ui-egui frame_time -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing report, run on demand in release mode"]
+    fn frame_time_report_on_the_showcase() -> Result<(), String> {
+        let text = include_str!("../../../examples/showcase.pcbcraft");
+        let project: Project = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let mesh = pcbcraft_io::board_mesh(&project, MeshLayers::default())?;
+        let mut view = View3d {
+            mesh: Some((1, mesh)),
+            ..View3d::default()
+        };
+        view.fit();
+        let basis = view.basis();
+        let (_, mesh) = view.mesh.as_ref().ok_or("no mesh")?;
+        for (name, ss, w, h) in [("still", 2, 940, 780), ("moving", 1, 940, 780)] {
+            let look = raster::Look {
+                gold: false,
+                selected: None,
+                ss,
+                mask: raster::MASK_SRGB,
+                silk: raster::SILK_SRGB,
+            };
+            let mut best = f64::MAX;
+            for _ in 0..12 {
+                let t = std::time::Instant::now();
+                std::hint::black_box(raster::render(mesh, &basis, w, h, &look));
+                best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            println!("frame {name}: {best:.1} ms (best of 12)");
+        }
+        Ok(())
     }
 }

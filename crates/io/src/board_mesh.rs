@@ -10,7 +10,9 @@
 //! unplated holes, via and pad drills; top and bottom copper (pads, tracks,
 //! vias, poured zones, fiducials, net ties) as thin prisms; a solder mask
 //! sheet with pad openings; silk strokes; and one body per placed footprint.
-//! Bodies are parametric defaults chosen from the pad pattern. A footprint
+//! Bodies are parametric defaults chosen from the pad pattern, with metal
+//! terminals ([`PartKind::Lead`]: chip end caps, gull-wing leads, header pins)
+//! and a pin-1 dot on integrated circuits. A footprint
 //! that references a model carries the exact placement matrix ([`model_matrix`]),
 //! and [`with_models`] swaps the box for the loaded model's triangles.
 //!
@@ -36,6 +38,8 @@ const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
 const POST_HEIGHT: f64 = 6.0;
+/// Pin colour of headers: gold plating.
+const PIN_GOLD: [f32; 3] = [0.85, 0.64, 0.25];
 const EPS: f64 = 1e-9;
 
 /// What a part of the mesh is.
@@ -49,6 +53,8 @@ pub enum PartKind {
     SilkTop,
     SilkBottom,
     Body,
+    /// Metal terminals of a part body: chip end caps, gull-wing leads, header pins.
+    Lead,
 }
 impl PartKind {
     pub fn name(self) -> &'static str {
@@ -61,6 +67,7 @@ impl PartKind {
             Self::SilkTop => "silk_top",
             Self::SilkBottom => "silk_bottom",
             Self::Body => "body",
+            Self::Lead => "lead",
         }
     }
 }
@@ -802,6 +809,7 @@ pub fn with_models(
     mut lookup: impl FnMut(&str) -> ModelLookup,
 ) -> Vec<(Id, ModelStatus)> {
     let mut notes = vec![];
+    let mut loaded_ids: Vec<Id> = vec![];
     for part in &mut mesh.parts {
         let (Some(id), Some(model)) = (part.component, part.model.as_mut()) else {
             continue;
@@ -822,10 +830,16 @@ pub fn with_models(
                 part.family = Some("model".into());
                 part.color = m.color;
                 model.loaded = true;
+                loaded_ids.push(id);
                 notes.push((id, ModelStatus::Loaded));
             }
         }
     }
+    // A loaded model brings its own terminals and marks; drop the default ones.
+    mesh.parts.retain(|p| {
+        let detail = p.kind == PartKind::Lead || p.family.as_deref() == Some("mark");
+        !(detail && p.component.is_some_and(|c| loaded_ids.contains(&c)))
+    });
     notes
 }
 
@@ -1285,6 +1299,104 @@ fn through_body(
     }
     None
 }
+/// Metal terminals and a pin-1 mark for a default body, in footprint-local
+/// millimetres. `leads` are rings with (bottom, top) heights above the board
+/// face; `mark` is a centre and radius for a dot on the body top.
+#[derive(Debug, Default)]
+struct Details {
+    leads: Vec<(Vec<Point>, f64, f64)>,
+    mark: Option<(Point, f64)>,
+}
+/// Dot height above the body top, in millimetres.
+const MARK_THICKNESS: f64 = 0.03;
+
+/// Package-shaped detail for one default body: end caps on chip parts, low
+/// gull-wing leads on small-outline and quad packages, and a pin-1 dot on
+/// integrated circuits. Nothing here invents size: every ring comes from the
+/// pads and the body that [`default_body`] already derived.
+fn body_details(fp: &Footprint, body: &Body) -> Details {
+    let mut d = Details::default();
+    let pads: Vec<PadBox> = fp.pads.iter().filter_map(pad_box).collect();
+    let (lo, hi) = ring_bounds(&body.ring);
+    let (bw, bh) = (hi.x - lo.x, hi.y - lo.y);
+    let mid = Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+    match body.family {
+        "chip" => {
+            let along_x = bw >= bh;
+            let length = if along_x { bw } else { bh };
+            let cap = (length * 0.26).clamp(0.12, 0.9);
+            let top = body.height + 0.02;
+            for sign in [-1.0, 1.0] {
+                let ring = if along_x {
+                    rect_ring(
+                        mid.x + sign * ((length - cap) / 2.0 + 0.01),
+                        mid.y,
+                        cap + 0.02,
+                        bh + 0.03,
+                    )
+                } else {
+                    rect_ring(
+                        mid.x,
+                        mid.y + sign * ((length - cap) / 2.0 + 0.01),
+                        bw + 0.03,
+                        cap + 0.02,
+                    )
+                };
+                d.leads.push((ring, 0.0, top));
+            }
+        }
+        "soic" | "sot" | "qfp" => {
+            for p in pads.iter().filter(|p| !p.through) {
+                let (w, h) = (p.width(), p.height());
+                // Skip a central thermal pad: it is under the body.
+                if p.centre.x > lo.x + 0.2
+                    && p.centre.x < hi.x - 0.2
+                    && p.centre.y > lo.y + 0.2
+                    && p.centre.y < hi.y - 0.2
+                {
+                    continue;
+                }
+                let (sx, sy) = if w >= h { (0.8, 0.5) } else { (0.5, 0.8) };
+                d.leads.push((
+                    rect_ring(p.centre.x, p.centre.y, w * sx, h * sy),
+                    0.0,
+                    (body.height * 0.3).clamp(0.12, 0.45),
+                ));
+            }
+        }
+        _ => {}
+    }
+    if matches!(body.family, "soic" | "sot" | "qfp" | "qfn" | "bga") && bw.min(bh) > 1.0 {
+        let first = fp
+            .pads
+            .iter()
+            .find(|p| p.number == "1" || p.number.eq_ignore_ascii_case("a1"))
+            .or_else(|| fp.pads.first())
+            .and_then(pad_box);
+        let r = (bw.min(bh) * 0.09).clamp(0.12, 0.45);
+        let inset = r * 2.2;
+        let corner = |v: f64, a: f64, b: f64| if (v - a).abs() <= (v - b).abs() { a } else { b };
+        let (cx, cy) = match first {
+            Some(p) => (
+                corner(p.centre.x, lo.x, hi.x),
+                corner(p.centre.y, lo.y, hi.y),
+            ),
+            None => (lo.x, lo.y),
+        };
+        let x = if (cx - lo.x).abs() < 1e-9 {
+            lo.x + inset
+        } else {
+            hi.x - inset
+        };
+        let y = if (cy - lo.y).abs() < 1e-9 {
+            lo.y + inset
+        } else {
+            hi.y - inset
+        };
+        d.mark = Some((Point::new(x, y), r));
+    }
+    d
+}
 fn parse_height(text: &str) -> Option<f64> {
     let trimmed = text.trim();
     let number = trimmed.strip_suffix("mm").unwrap_or(trimmed).trim();
@@ -1583,7 +1695,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 .map(|c| c.reference.clone())
                 .unwrap_or_else(|| format!("footprint {}", fp.id));
             let mut b = Builder {
-                part: MeshPart::new(PartKind::Body, name),
+                part: MeshPart::new(PartKind::Body, name.clone()),
                 budget: &mut budget,
             };
             b.part.component = Some(fp.component);
@@ -1614,19 +1726,75 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                     &mut warnings,
                 )?;
             }
-            for pin in &body.pins {
-                if let Some(ring) = clean_ring(&map_ring(fp, pin)) {
-                    b.prism(
-                        &ring,
-                        vec![],
-                        thickness + body.height,
-                        thickness + body.height + POST_HEIGHT,
-                        &mut warnings,
-                    )?;
+            let body_part = b.part;
+            let has_body = !body_part.indices.is_empty();
+            let mut extra: Vec<MeshPart> = vec![];
+            if has_body {
+                let details = body_details(fp, &body);
+                let mut leads = Builder {
+                    part: MeshPart::new(PartKind::Lead, format!("{name} leads")),
+                    budget: &mut budget,
+                };
+                leads.part.component = Some(fp.component);
+                for (ring, bottom, top) in &details.leads {
+                    if let Some(ring) = clean_ring(&map_ring(fp, ring)) {
+                        leads.prism(
+                            &ring,
+                            vec![],
+                            thickness + bottom,
+                            thickness + top,
+                            &mut warnings,
+                        )?;
+                    }
                 }
-            }
-            if !b.part.indices.is_empty() {
-                parts.push(b.part);
+                if !leads.part.indices.is_empty() {
+                    extra.push(leads.part);
+                }
+                if !body.pins.is_empty() {
+                    let mut pins = Builder {
+                        part: MeshPart::new(PartKind::Lead, format!("{name} pins")),
+                        budget: &mut budget,
+                    };
+                    pins.part.component = Some(fp.component);
+                    pins.part.color = Some(PIN_GOLD);
+                    for pin in &body.pins {
+                        if let Some(ring) = clean_ring(&map_ring(fp, pin)) {
+                            pins.prism(
+                                &ring,
+                                vec![],
+                                thickness + body.height,
+                                thickness + body.height + POST_HEIGHT,
+                                &mut warnings,
+                            )?;
+                        }
+                    }
+                    if !pins.part.indices.is_empty() {
+                        extra.push(pins.part);
+                    }
+                }
+                if let Some((centre, radius)) = details.mark {
+                    let mut dot = Builder {
+                        part: MeshPart::new(PartKind::Body, format!("{name} mark")),
+                        budget: &mut budget,
+                    };
+                    dot.part.component = Some(fp.component);
+                    dot.part.family = Some("mark".into());
+                    dot.part.color = Some([0.62, 0.63, 0.65]);
+                    if let Some(ring) = clean_ring(&map_ring(fp, &circle_ring(centre, radius))) {
+                        dot.prism(
+                            &ring,
+                            vec![],
+                            thickness + body.height,
+                            thickness + body.height + MARK_THICKNESS,
+                            &mut warnings,
+                        )?;
+                    }
+                    if !dot.part.indices.is_empty() {
+                        extra.push(dot.part);
+                    }
+                }
+                parts.push(body_part);
+                parts.extend(extra);
             }
         }
     }
