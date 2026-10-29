@@ -15,9 +15,10 @@ use std::collections::HashMap;
 /// staring at a blank list.
 const EMPTY_SYMBOLS: &str =
     "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
-const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+const EMPTY_NETS: &str =
+    "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import.";
 const EMPTY_BOARD: &str =
-    "No packages on the board yet. Run board.sync to place a package for every symbol.";
+    "No packages on the board yet. Place a part on the schematic and it appears here automatically.";
 const EMPTY_CHECKS: &str =
     "Checks run automatically on every edit; findings are listed here as soon as one appears.";
 
@@ -2672,6 +2673,15 @@ impl App {
                 self.tree_search_focus = true;
             }
             KeyAction::PaletteLineUp | KeyAction::PaletteLineDown | KeyAction::PaletteRun => {}
+            KeyAction::ToggleAutoSync => {
+                let next = !self.project.auto_sync;
+                self.run("project.set_auto_sync", json!({"auto_sync": next}));
+            }
+            KeyAction::UpdateBoardFromSchematic => {
+                if !self.project.auto_sync {
+                    self.run("board.sync", json!({}));
+                }
+            }
         }
     }
 
@@ -3265,16 +3275,16 @@ impl App {
             {
                 self.tool_call("redo", json!({}));
             }
-            ui.separator();
-            if ui
-                .button("Update board from schematic")
-                .on_hover_text(
-                    "Copy every symbol, wire and net onto the board, then show the board.",
-                )
-                .clicked()
-            {
-                self.run("board.sync", json!({}));
-                self.change_tab(Tab::Pcb);
+            if !self.project.auto_sync {
+                ui.separator();
+                if ui
+                    .button("Update board from schematic")
+                    .on_hover_text(command_tip("board.sync"))
+                    .clicked()
+                {
+                    self.run("board.sync", json!({}));
+                    self.change_tab(Tab::Pcb);
+                }
             }
             ui.separator();
             if let Some(lit) = self.highlight_net
@@ -3303,7 +3313,7 @@ impl App {
         })
         .response
         .on_hover_text(
-            "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
+            "Step back and forward, apply schematic changes to the board when sync is off, and start the wiring over on one connection or the whole board.",
         );
     }
     fn settings_menu(&mut self, ui: &mut egui::Ui) {
@@ -4314,6 +4324,26 @@ impl App {
         );
         ui.add_space(16.0);
         self.shortcuts_settings_panel(ui);
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("SCHEMATIC AND BOARD")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        let mut sync_on = self.project.auto_sync;
+        if ui
+            .checkbox(
+                &mut sync_on,
+                "Keep the board in sync with the schematic automatically",
+            )
+            .on_hover_text(
+                "When on, every schematic edit that changes parts, footprints or nets updates the board in the same undo step. Turn off to batch changes, then use Update board from schematic in the Edit menu.",
+            )
+            .changed()
+            && sync_on != self.project.auto_sync
+        {
+            let _ = self.run("project.set_auto_sync", json!({"auto_sync": sync_on}));
+        }
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("BOARD GEOMETRY")
@@ -7766,7 +7796,7 @@ mod tests {
             .map(|spec| spec.id)
             .collect();
         for copy in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
-            for name in ["component.add", "netlist.import", "board.sync"] {
+            for name in ["component.add", "netlist.import"] {
                 if copy.contains(name) {
                     assert!(registry.contains(&name), "{name} must exist");
                 }
@@ -7774,8 +7804,9 @@ mod tests {
             assert!(
                 copy.contains("component.add")
                     || copy.contains("netlist.import")
-                    || copy.contains("board.sync"),
-                "empty guidance must name a filling command: {copy}"
+                    || copy.contains("automatically")
+                    || copy.contains("schematic"),
+                "empty guidance must point at how to fill the panel: {copy}"
             );
         }
         assert!(EMPTY_CHECKS.contains("automatically"));

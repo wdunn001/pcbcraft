@@ -1964,6 +1964,14 @@ pub struct Project {
     pub board: Board,
     #[serde(default)]
     pub library: ProjectLibrary,
+    /// When true, schematic edits that change parts, footprints or nets
+    /// reconcile the board in the same undo step as the edit.
+    #[serde(default = "default_auto_sync")]
+    pub auto_sync: bool,
+}
+
+fn default_auto_sync() -> bool {
+    true
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -2099,6 +2107,7 @@ impl Default for Project {
                 cutouts: vec![],
                 texts: vec![],
             },
+            auto_sync: true,
         }
     }
 }

@@ -97,6 +97,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "project.set_auto_sync",
+            "Turn automatic schematic-to-board reconciliation on or off; when off, run board.sync to apply pending schematic changes",
+            schema(
+                json!({"auto_sync":{"type":"boolean"}}),
+                &["auto_sync"],
+            ),
+        ),
+        (
             "project.export_archive",
             "Write the whole design, including its attached text files, to a self-contained archive file that a colleague can open without any other project files",
             schema(
@@ -1825,13 +1833,23 @@ impl Session {
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
         let mut results = vec![];
+        let auto_sync = candidate.auto_sync;
+        let mut needs_sync = false;
+        let manual_sync = commands.iter().any(|c| c.command == "board.sync");
         for command in commands {
+            if auto_sync && command_triggers_board_sync(&command.command) {
+                needs_sync = true;
+            }
             results.push(run(
                 &mut candidate,
                 &mut next,
                 &command.command,
                 &command.params,
             )?);
+            candidate.validate()?;
+        }
+        if auto_sync && needs_sync && !manual_sync {
+            results.push(sync_board_from_schematic(&mut candidate, &mut next)?);
             candidate.validate()?;
         }
         self.commit(candidate);
@@ -2544,6 +2562,85 @@ fn component_pads(c: &Component) -> Vec<Pad> {
             .collect()
     }
 }
+
+fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
+    if let Some(outline) = &board.outline {
+        outline
+            .iter()
+            .map(|p| p.x)
+            .fold(0.0_f64, |a, b| a.max(b))
+    } else {
+        board.width
+    }
+}
+
+fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Error> {
+    let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
+    p.board
+        .footprints
+        .retain(|f| live.iter().any(|id| *id == f.component));
+    let staging_x = board_outline_max_x(&p.board) + 10.0;
+    let mut staging_index = 0usize;
+    let mut skipped = vec![];
+    for c in &p.components {
+        if c.library_symbol.is_some() && c.library_footprint.is_none() {
+            skipped.push(c.id);
+            continue;
+        }
+        if let Some(f) = p.board.footprints.iter_mut().find(|f| f.component == c.id) {
+            f.pads = component_pads(c);
+        } else {
+            let col = staging_index % 4;
+            let row = staging_index / 4;
+            staging_index += 1;
+            let id = allocate(next)?;
+            p.board.footprints.push(Footprint {
+                id,
+                component: c.id,
+                position: Point::new(
+                    staging_x + col as f64 * 12.0,
+                    10.0 + row as f64 * 8.0,
+                ),
+                rotation: 0.0,
+                locked: None,
+                pads: component_pads(c),
+            });
+        }
+    }
+    Ok(
+        json!({"footprints":p.board.footprints.iter().map(|f|json!({"id":f.id,"component":f.component})).collect::<Vec<_>>(),"unassigned_components":skipped}),
+    )
+}
+
+fn command_triggers_board_sync(command: &str) -> bool {
+    matches!(
+        command,
+        "component.add"
+            | "component.place_library"
+            | "footprint.assign"
+            | "footprint.assign_pattern"
+            | "footprint.assign_table"
+            | "footprint.assign_file"
+            | "footprint.assign_custom"
+            | "net.create"
+            | "net.rename"
+            | "net.swap"
+            | "net.connect"
+            | "net.disconnect"
+            | "netlist.import"
+            | "netlist.import_session"
+            | "wire.connect"
+            | "wire.draw"
+            | "wire.draw_bus"
+            | "wire.split"
+            | "label.set"
+            | "label.set_bus"
+            | "pin.no_connect"
+            | "object.delete"
+            | "object.duplicate"
+    )
+}
+
 fn place_definition(
     p: &mut Project,
     next: &mut Id,
@@ -2669,6 +2766,11 @@ struct MetaParams {
 #[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
     unit: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectSetAutoSyncParams {
+    auto_sync: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4691,6 +4793,16 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             p.unit = a.unit;
             Ok(json!({"unit": p.unit.as_str()}))
+        }
+        "project.set_auto_sync" => {
+            let a: ProjectSetAutoSyncParams = parse(params)?;
+            if p.auto_sync == a.auto_sync {
+                return Err(Error::Invalid(
+                    "automatic board sync is already in that state".into(),
+                ));
+            }
+            p.auto_sync = a.auto_sync;
+            Ok(json!({"auto_sync": p.auto_sync}))
         }
         "project.export_archive" => {
             let a: ArchivePathParams = parse(params)?;
@@ -11467,32 +11579,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
             }
-            let mut skipped = vec![];
-            for (index, c) in p.components.iter().enumerate() {
-                if c.library_symbol.is_some() && c.library_footprint.is_none() {
-                    skipped.push(c.id);
-                    continue;
-                }
-                if let Some(f) = p.board.footprints.iter_mut().find(|f| f.component == c.id) {
-                    f.pads = component_pads(c);
-                } else {
-                    let id = allocate(next)?;
-                    p.board.footprints.push(Footprint {
-                        id,
-                        component: c.id,
-                        position: Point::new(
-                            10.0 + (index % 4) as f64 * 12.0,
-                            10.0 + (index / 4) as f64 * 8.0,
-                        ),
-                        rotation: 0.0,
-                        locked: None,
-                        pads: component_pads(c),
-                    });
-                }
-            }
-            Ok(
-                json!({"footprints":p.board.footprints.iter().map(|f|json!({"id":f.id,"component":f.component})).collect::<Vec<_>>(),"unassigned_components":skipped}),
-            )
+            sync_board_from_schematic(p, next)
         }
         "board.resize" => {
             let a: Resize = parse(params)?;
@@ -15811,6 +15898,46 @@ mod tests {
             "only mm, mil and inch are units"
         );
         assert_eq!(s.project.unit, "inch");
+        Ok(())
+    }
+
+    #[test]
+    fn placing_a_resistor_on_the_schematic_creates_its_board_footprint_in_one_revision(
+    ) -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(s.project.auto_sync);
+        let rev0 = s.revision;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.revision, rev0 + 1, "one undo step covers schematic and board");
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        assert!(s.project.components.is_empty());
+        assert!(s.project.board.footprints.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn auto_sync_can_be_turned_off_and_board_sync_applies_pending_changes() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("project.set_auto_sync", json!({"auto_sync": false}), None)?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(s.project.board.footprints.is_empty());
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].component, id);
         Ok(())
     }
 

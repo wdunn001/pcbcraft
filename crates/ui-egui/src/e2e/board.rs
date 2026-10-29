@@ -3,6 +3,39 @@ use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_
 use serde_json::json;
 
     #[test]
+    fn a_newcomer_adds_a_part_and_finds_it_on_the_board() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.run(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1 k","position":{"x":20.0,"y":30.0}}),
+        );
+        app.refresh();
+        assert_eq!(
+            app.project.components.len(),
+            1,
+            "the resistor sits on the schematic: {}",
+            app.message
+        );
+        assert_eq!(
+            app.project.board.footprints.len(),
+            1,
+            "the board already picked up the part without a separate sync step: {}",
+            app.message
+        );
+        app.change_tab(Tab::Pcb);
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "R1")?,
+            "the board view shows the new reference: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

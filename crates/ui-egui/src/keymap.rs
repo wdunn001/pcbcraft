@@ -36,6 +36,8 @@ pub enum KeyAction {
     PaletteLineUp,
     PaletteLineDown,
     PaletteRun,
+    ToggleAutoSync,
+    UpdateBoardFromSchematic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -417,6 +419,32 @@ const SPECS: &[ActionSpec] = &[
         default_chord: Some(KeyChord {
             key: Key::OpenBracket,
             ctrl: false,
+            shift: false,
+            alt: false,
+        }),
+    },
+    ActionSpec {
+        action: KeyAction::ToggleAutoSync,
+        label: "Turn automatic board sync on or off",
+        tooltip: "Toggle whether schematic edits update the board in the same undo step.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        default_chord: Some(KeyChord {
+            key: Key::B,
+            ctrl: true,
+            shift: true,
+            alt: false,
+        }),
+    },
+    ActionSpec {
+        action: KeyAction::UpdateBoardFromSchematic,
+        label: "Update the board from the schematic",
+        tooltip: "Apply pending schematic changes to the board when automatic sync is off.",
+        context: ShortcutContext::Anywhere,
+        rebindable: true,
+        default_chord: Some(KeyChord {
+            key: Key::B,
+            ctrl: true,
             shift: false,
             alt: false,
         }),
