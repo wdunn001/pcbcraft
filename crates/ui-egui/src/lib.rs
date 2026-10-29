@@ -774,6 +774,8 @@ pub struct App {
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
+    canvas_rect: Rect,
+    canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
     value: String,
     x: f64,
@@ -1151,6 +1153,8 @@ impl App {
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
+            canvas_rect: Rect::NOTHING,
+            canvas_menu: None,
             message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
             value: String::new(),
             x: 0.0,
@@ -2739,6 +2743,7 @@ impl App {
                 self.palette = false;
                 self.shortcuts_open = false;
                 self.binding_capture = None;
+                self.canvas_menu = None;
                 self.edit.measure = None;
                 self.edit.box_from = None;
                 self.edit.box_to = None;
@@ -7672,6 +7677,11 @@ impl eframe::App for App {
 }
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
+}
+
+#[cfg(test)]
+fn pcb_screen(app: &App, world: Point) -> egui::Pos2 {
+    app.pcb.screen(world, app.canvas_rect)
 }
 
 #[cfg(test)]
