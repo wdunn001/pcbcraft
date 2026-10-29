@@ -1,4 +1,5 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod component_kind;
 mod machine_profile;
 mod outline;
 pub use machine_profile::*;
@@ -7,6 +8,11 @@ pub use outline::{
     segment_arc, validate_outline_arcs,
 };
 mod panel;
+pub use component_kind::{
+    assign_kind_from_library, allowed_kinds_message, is_ic_like_kind, is_valid_component_kind,
+    kind_matches, parse_component_kind, validate_component_kinds, COMPONENT_KIND_SLUGS,
+    DECOUPLING_EXCLUDED_KINDS,
+};
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
@@ -4999,9 +5005,13 @@ impl Project {
                 || c.reference.is_empty()
                 || c.reference.len() > 64
                 || c.value.len() > 256
-                || (c.library_symbol.is_none() && !TEMPLATES.iter().any(|t| t.kind == c.kind))
+                || !is_valid_component_kind(&c.kind)
             {
-                return Err("invalid component".into());
+                return Err(format!(
+                    "invalid component {}; allowed kinds: {}",
+                    c.reference,
+                    allowed_kinds_message()
+                ));
             }
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
@@ -5019,7 +5029,6 @@ impl Project {
             if let Some(symbol) = &c.library_symbol {
                 symbol.definition.validate().map_err(|e| e.to_string())?;
                 if symbol.unit != 1
-                    || c.kind != "library"
                     || symbol.library.len() > 256
                     || !symbol.definition.unsupported.is_empty()
                 {
@@ -5596,7 +5605,7 @@ pub fn library_component(
         id,
         reference,
         value: value.unwrap_or_else(|| definition.value.clone()),
-        kind: "library".into(),
+        kind: assign_kind_from_library(&definition, None),
         position,
         rotation: 0.0,
         pins,

@@ -192,6 +192,20 @@ fn manifest_source_slugs_exist() {
 }
 
 #[test]
+fn profile_list_includes_component_kinds() -> Result<(), Error> {
+    let s = Session::default();
+    let out = s.execute("rules.profile_list", json!({}), None)?;
+    let ids: Vec<&str> = out["result"]["profiles"]
+        .as_array()
+        .ok_or_else(missing)?
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"component-kinds"));
+    Ok(())
+}
+
+#[test]
 fn profile_list_includes_usb2() -> Result<(), Error> {
     let mut s = Session::default();
     let out = s.execute("rules.profile_list", json!({}), None)?;

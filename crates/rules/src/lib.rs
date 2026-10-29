@@ -666,8 +666,55 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
 
+fn net_has_capacitor(project: &Project, net: Id) -> bool {
+    project.components.iter().any(|c| {
+        pcbcraft_doc::kind_matches(&c.kind, "capacitor")
+            && c.pins.len() == 2
+            && c.pins.iter().any(|p| p.net == Some(net))
+    })
+}
+
+fn missing_decoupling_findings(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    for c in &project.components {
+        if !pcbcraft_doc::is_ic_like_kind(&c.kind) {
+            continue;
+        }
+        for p in &c.pins {
+            if p.electrical_type != "power_in" {
+                continue;
+            }
+            let Some(net) = p.net else {
+                continue;
+            };
+            if project
+                .no_connects
+                .iter()
+                .any(|f| f.pin.component == c.id && f.pin.pin == p.number)
+            {
+                continue;
+            }
+            if !net_has_capacitor(project, net) {
+                result.push(Finding {
+                    code: "missing_decoupling",
+                    severity: project.rule_severity("missing_decoupling", "warning"),
+                    message: format!(
+                        "{} pin {} on {} needs a decoupling capacitor on the same net",
+                        c.reference,
+                        p.number,
+                        project.net_name(net)
+                    ),
+                    objects: vec![c.id],
+                });
+            }
+        }
+    }
+    result
+}
+
 pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
+    result.extend(missing_decoupling_findings(project));
     for c in &project.components {
         for p in &c.pins {
             if p.net.is_none()

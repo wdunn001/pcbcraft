@@ -1,6 +1,7 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+mod component_kind;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -14,6 +15,7 @@ mod sexpr;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub use component_kind::infer_component_kind;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;

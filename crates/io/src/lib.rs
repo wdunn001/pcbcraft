@@ -155,6 +155,7 @@ pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
     let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     migrate_loaded_project(&mut project)?;
+    project.migrate_component_kinds();
     project.validate()?;
     Ok(project)
 }
@@ -213,8 +214,10 @@ pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
 /// - Validates the project before saving
 /// - Uses atomic write to prevent corruption
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
-    project.validate()?;
-    let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
+    let mut prepared = project.clone();
+    prepared.migrate_component_kinds();
+    prepared.validate()?;
+    let bytes = serde_json::to_vec_pretty(&prepared).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("project exceeds 8 MiB".into());
     }
@@ -7967,6 +7970,7 @@ mod tests {
             side: None,
             pads,
         });
+        project.migrate_component_kinds();
         project.validate()?;
         Ok(project)
     }
@@ -11610,6 +11614,7 @@ mod tests {
             library_footprint: None,
             fields: vec![],
         });
+        project.migrate_component_kinds();
         project.validate()?;
         let png = preview_png(&project, "schematic")?;
         let image = image::load_from_memory(&png)

@@ -355,6 +355,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.set_kind",
+            "Set the closed component kind slug used by profile and companion rules",
+            schema(
+                json!({"id":id_schema(),"kind":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id", "kind"],
+            ),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -3472,6 +3480,9 @@ fn assign_to(
         library,
         definition: definition.clone(),
     });
+    if let Some(symbol) = &c.library_symbol {
+        c.kind = pcbcraft_doc::assign_kind_from_library(&symbol.definition, Some(definition));
+    }
     Some(())
 }
 #[derive(Deserialize)]
@@ -3493,6 +3504,12 @@ struct Rotate {
 struct ValueParams {
     id: Id,
     value: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetKindParams {
+    id: Id,
+    kind: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5856,7 +5873,10 @@ fn filter_matches(filter: &ComponentFilter, c: &Component) -> bool {
         .as_deref()
         .is_none_or(|r| class_pattern_matches(r, &c.reference))
         && filter.value.as_deref().is_none_or(|v| c.value == v)
-        && filter.kind.as_deref().is_none_or(|k| c.kind == k)
+        && filter
+            .kind
+            .as_deref()
+            .is_none_or(|k| pcbcraft_doc::kind_matches(&c.kind, k))
 }
 /// Center of an align item's bounding box on the requested axis.
 /// True when any design object (component, net, wire, footprint, track, via,
@@ -8208,6 +8228,17 @@ fn run_command(
                 put(key, &a.sku)?;
             }
             Ok(json!({"id": a.id, "fields": written}))
+        }
+        "component.set_kind" => {
+            let a: SetKindParams = parse(params)?;
+            let kind = pcbcraft_doc::parse_component_kind(&a.kind).map_err(Error::Invalid)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.kind = kind.clone();
+            Ok(json!({"id": a.id, "kind": kind}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
