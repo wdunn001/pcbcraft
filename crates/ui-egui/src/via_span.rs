@@ -145,7 +145,7 @@ impl App {
                 ));
                 if custom
                     && ui
-                        .small_button("Remove")
+                        .tap_button("Remove")
                         .on_hover_text(
                             "Stop allowing vias on this span. Refused while a via uses it.",
                         )

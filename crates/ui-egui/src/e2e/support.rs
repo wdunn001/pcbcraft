@@ -110,3 +110,56 @@ pub(crate) fn frame(
     output.textures_delta.clear();
     output
 }
+
+/// Every interactive control the last frame published to assistive
+/// technology, as `(Role label, screen rectangle)`.
+///
+/// Why: the target-size walk must see all widgets, including ones no test
+/// knows by name, and the accessibility tree is the one place egui lists them.
+///
+/// # Rules
+/// - Runs two frames so the tree is complete; only roles a pointer can press.
+///
+/// # Dependencies
+/// - `crates/ui-egui/src/target_size.rs` consumes the result.
+///
+/// # Do not
+/// - Use it to find text; it returns controls only.
+pub(crate) fn interactive_rects(ctx: &egui::Context, app: &mut App) -> Vec<(String, Rect)> {
+    use egui::accesskit::Role;
+    ctx.enable_accesskit();
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+    let mut out = Vec::new();
+    if let Some(update) = output.platform_output.accesskit_update {
+        for (_, node) in update.nodes {
+            let pressable = matches!(
+                node.role(),
+                Role::Button
+                    | Role::CheckBox
+                    | Role::RadioButton
+                    | Role::ComboBox
+                    | Role::TextInput
+                    | Role::MultilineTextInput
+                    | Role::Slider
+                    | Role::SpinButton
+                    | Role::Link
+                    | Role::Tab
+                    | Role::MenuItem
+                    | Role::Switch
+                    | Role::ColorWell
+            );
+            if let (true, Some(b)) = (pressable, node.bounds()) {
+                let name = format!("{:?} {}", node.role(), node.label().unwrap_or(""));
+                out.push((
+                    name.trim().to_string(),
+                    Rect::from_min_max(
+                        egui::pos2(b.x0 as f32, b.y0 as f32),
+                        egui::pos2(b.x1 as f32, b.y1 as f32),
+                    ),
+                ));
+            }
+        }
+    }
+    out
+}
