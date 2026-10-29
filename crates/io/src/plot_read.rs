@@ -379,7 +379,9 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
                 if ops > MAX_OPS {
                     return Err("plot layer exceeds the object limit".into());
                 }
-                if stroke_pts.is_empty() && let Some(p) = pending {
+                if stroke_pts.is_empty()
+                    && let Some(p) = pending
+                {
                     stroke_pts.push(p);
                 }
                 stroke_pts.push((x_mm, y_mm));
@@ -456,7 +458,9 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
             }
             continue;
         }
-        if let Some(rest) = line.strip_prefix('T') && let Ok(n) = rest.parse::<u32>() {
+        if let Some(rest) = line.strip_prefix('T')
+            && let Ok(n) = rest.parse::<u32>()
+        {
             current_tool = n;
             continue;
         }

@@ -2561,7 +2561,7 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
     let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
     p.board
         .footprints
-        .retain(|f| live.iter().any(|id| *id == f.component));
+        .retain(|f| live.contains(&f.component));
     let staging_x = board_outline_max_x(&p.board) + 10.0;
     let mut staging_index = 0usize;
     let mut skipped = vec![];
