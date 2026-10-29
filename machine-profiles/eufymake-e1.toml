@@ -1,0 +1,41 @@
+id = "eufymake-e1"
+name = "eufyMake E1"
+kind = "uv_printer"
+vendor = "eufyMake"
+model = "E1"
+notes = "UV flatbed; camera registration; owner-unverified choke and bleed."
+
+[work_area]
+x = 330.0
+y = 420.0
+origin = "lower-left"
+y_up = true
+
+[output]
+format = "png"
+dialect = "uv_print"
+units = "mm"
+line_ending = "lf"
+mirror_bottom = false
+mirror_axis = "x"
+invert = false
+
+[uv_printer.print]
+dpi_options = [720, 1440]
+default_dpi = 1440
+channels = ["cmyk", "white", "gloss"]
+registration = "camera_photo"
+white_choke_mm = 0.2
+max_substrate_height_mm = 60.0
+relief_mm = 5.0
+
+[uv_printer.artwork]
+default_bleed_mm = 0.3
+pad_clearance_mm = 0.15
+min_text_height_mm = 1.0
+min_stroke_mm = 0.12
+
+[uv_printer.limits]
+max_width_mm = 330.0
+max_height_mm = 420.0
+max_pixels = 12800
