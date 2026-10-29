@@ -1,5 +1,9 @@
 # English base catalog. One `key = value` per line, # starts a comment.
 # Keys are stable ids: lowercase letters, digits, dots, dashes, underscores.
+# Plurals: write `base.one`, `base.other` and any other category the language
+# needs (zero, two, few, many) as `key = text with {count}`. Write the number
+# into the message (`{count} errors found`), not a separate noun. `other` is
+# mandatory and is the fallback; add exactly the categories your language uses.
 # Values may hold {name} placeholders. A control's tooltip uses the same key
 # with a `.tip` suffix. Translators copy this file and change only the values.
 language.name = English
