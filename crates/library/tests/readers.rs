@@ -82,6 +82,17 @@ fn real_dip8_preserves_through_holes_and_reference_marker() -> Result<(), Box<dy
 }
 
 #[test]
+fn non_plated_through_hole_token_maps_to_unplated() -> Result<(), Box<dyn std::error::Error>> {
+    let fp = read_footprint(
+        "(footprint X (pad \"\" np_thru_hole circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers *.Mask)))",
+    )?;
+    assert_eq!(fp.pads.len(), 1);
+    assert_eq!(fp.pads[0].pad_type, "unplated");
+    assert!(fp.pads[0].number.is_empty());
+    Ok(())
+}
+
+#[test]
 #[ignore = "requires installed KiCad 10 libraries in Linux/WSL"]
 fn installed_library_catalogs() -> Result<(), Box<dyn std::error::Error>> {
     for name in ["Device", "Amplifier_Operational"] {

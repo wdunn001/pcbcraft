@@ -2424,8 +2424,12 @@ fn assign_to(
     definition: &pcbcraft_library::FootprintDefinition,
 ) -> Option<()> {
     let pins: std::collections::BTreeSet<_> = c.pins.iter().map(|p| p.number.as_str()).collect();
-    let pads: std::collections::BTreeSet<_> =
-        definition.pads.iter().map(|p| p.number.as_str()).collect();
+    let pads: std::collections::BTreeSet<_> = definition
+        .pads
+        .iter()
+        .filter(|p| !p.number.is_empty())
+        .map(|p| p.number.as_str())
+        .collect();
     if pins != pads {
         return None;
     }
@@ -15528,7 +15532,7 @@ mod tests {
             .clone();
         assert_eq!(set["drill_origin"]["x"], 20.0);
         assert_eq!(set["drill_origin"]["y"], 10.0);
-        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Drill.drl"].clone();
+        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
             drill.contains("X10.000Y10.000\n"),
             "the recorded origin moves drill coordinates"
@@ -22518,6 +22522,78 @@ mod tests {
     }
 
     #[test]
+    fn assign_to_ignores_unplated_pads_when_matching_pins() -> Result<(), Error> {
+        let mut s = Session::default();
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"J1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let thru = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: pcbcraft_geom::Point::new(x, 0.0),
+            rotation: 0.0,
+            size: pcbcraft_geom::Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: pcbcraft_geom::Point::new(0.8, 0.8),
+                offset: pcbcraft_geom::Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let peg = |x: f64| pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: pcbcraft_geom::Point::new(x, 0.0),
+            rotation: 0.0,
+            size: pcbcraft_geom::Point::new(3.2, 3.2),
+            layers: vec!["*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: pcbcraft_geom::Point::new(3.2, 3.2),
+                offset: pcbcraft_geom::Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        s.project.library.footprints.push(pcbcraft_library::FootprintDefinition {
+            name: "CONN-PEG".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![thru("1", -2.54), thru("2", 2.54), peg(-5.0), peg(5.0)],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        });
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":id,"name":"CONN-PEG"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project
+                .component(id)
+                .and_then(|c| c.library_footprint.as_ref())
+                .map(|f| f.definition.pads.len()),
+            Some(4)
+        );
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints[0].pads.len(), 4);
+        Ok(())
+    }
+
+    #[test]
     fn net_ties_can_be_re_aimed_at_another_pair_and_resized() -> Result<(), Error> {
         let mut s = Session::default();
         let mut net = |name: &str| -> Result<u64, Error> {
@@ -23374,19 +23450,21 @@ mod tests {
             out["files"],
             json!([
                 "pcb-B.Cu.gbr",
-                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
                 "pcb.dxf"
             ])
         );
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
             "pcb.dxf",
         ] {
             assert!(
@@ -23437,7 +23515,8 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
             "pcb-Edge.gbr",
             "pcb.dxf",
             "bom.csv",

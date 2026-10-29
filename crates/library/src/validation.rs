@@ -188,18 +188,36 @@ impl FootprintDefinition {
                 text(s)?;
             }
             metadata(&p.raw_source, &[])?;
+            let size_ok = positive_size(p.size)
+                || (p.pad_type == "unplated"
+                    && p.drill.as_ref().is_some_and(|d| positive_size(d.size)));
             if !p.position.valid()
                 || !scalar(p.rotation)
-                || !positive_size(p.size)
-                || p.layers.is_empty()
-                || p.layers.len() > 64
+                || !size_ok
                 || p.shape.is_empty()
                 || p.pad_type.is_empty()
             {
                 return Err(bad("invalid footprint pad"));
             }
-            for layer in &p.layers {
-                text(layer)?;
+            if p.pad_type == "unplated" {
+                if p.layers.iter().any(|l| l.ends_with(".Cu") || l == "*.Cu") {
+                    return Err(bad("unplated pad must not carry copper layers"));
+                }
+                if p.drill.is_none() {
+                    return Err(bad("unplated pad needs a drill"));
+                }
+                if p.layers.len() > 64 {
+                    return Err(bad("invalid footprint pad"));
+                }
+                for layer in &p.layers {
+                    text(layer)?;
+                }
+            } else if p.layers.is_empty() || p.layers.len() > 64 {
+                return Err(bad("invalid footprint pad"));
+            } else {
+                for layer in &p.layers {
+                    text(layer)?;
+                }
             }
             if p.roundrect_ratio
                 .is_some_and(|r| !r.is_finite() || !(0.0..=0.5).contains(&r))

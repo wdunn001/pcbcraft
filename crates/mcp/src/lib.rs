@@ -1158,7 +1158,8 @@ mod tests {
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
             "pcb-Edge.gbr",
-            "pcb-Drill.drl",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
         ] {
             let text =
                 std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;

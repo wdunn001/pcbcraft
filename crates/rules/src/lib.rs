@@ -56,6 +56,46 @@ fn copper(project: &Project) -> Vec<Copper> {
             .and_then(|l| l.definition.rules.as_ref())
             .and_then(|r| r.clearance);
         for pad in &f.pads {
+            if pad
+                .geometry
+                .as_ref()
+                .is_some_and(|g| g.pad_type == "unplated")
+            {
+                let Some(g) = pad.geometry.as_ref() else {
+                    continue;
+                };
+                let Some(drill) = g.drill.as_ref() else {
+                    continue;
+                };
+                let radius = drill.size.x.min(drill.size.y) / 2.0;
+                if radius <= 0.0 {
+                    continue;
+                }
+                let drill_local = pad.offset.offset(drill.offset.rotate(-g.rotation));
+                let centre = f.position.offset(drill_local.rotate(-f.rotation));
+                let item = Copper {
+                    id: f.id,
+                    net: 0,
+                    start: centre,
+                    end: centre,
+                    radius,
+                    contact_radius: radius,
+                    conservative: false,
+                    outline: None,
+                    outline_error: 0.0,
+                    layer: Layer::Front,
+                    pad: false,
+                    clearance: None,
+                    bridge: None,
+                    hole: None,
+                    cutouts: vec![],
+                };
+                let mut back = item.clone();
+                back.layer = Layer::Back;
+                result.push(back);
+                result.push(item);
+                continue;
+            }
             if let Some(position) = f.pad_position(&pad.number) {
                 let plated = pad
                     .geometry
@@ -1546,5 +1586,91 @@ mod tests {
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
+    }
+
+    #[test]
+    fn drc_clearance_when_track_crosses_footprint_unplated_drill() -> Result<(), String> {
+        let peg = pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(3.2, 3.2),
+            layers: vec!["*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.2, 3.2),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.components.push(Component {
+            id: 1,
+            reference: "J1".into(),
+            value: "CONN".into(),
+            kind: "library".into(),
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            pins: vec![
+                Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::default(),
+                    net: Some(1),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            fields: vec![],
+            sheet: 0,
+            library_symbol: None,
+            library_footprint: None,
+        });
+        p.board.footprints.push(Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(30.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: String::new(),
+                offset: Point::default(),
+                diameter: 3.2,
+                net: None,
+                castellated: None,
+                geometry: Some(peg),
+            }],
+        });
+        p.board.tracks.push(Track {
+            id: 3,
+            net: 1,
+            start: Point::new(20.0, 20.0),
+            end: Point::new(40.0, 20.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings.iter().any(|f| {
+                f.code == "clearance"
+                    && f.objects.iter().any(|o| *o == 2)
+                    && f.objects.iter().any(|o| *o == 3)
+            }),
+            "a track through a footprint peg is a clearance finding: {findings:?}"
+        );
+        Ok(())
     }
 }
