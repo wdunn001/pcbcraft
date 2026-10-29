@@ -1892,8 +1892,10 @@ mod tests {
         let mut p = Project::default();
         length_net(&mut p, 1, "USB_DP", 120.0);
         length_net(&mut p, 2, "USB_DM", 160.0);
+        length_net(&mut p, 3, "USB_ID", 90.0);
         p.nets[1].max_length = Some(150.0);
-        p.net_classes.push(net_class_with(vec![1, 2], Some(100.0)));
+        p.net_classes
+            .push(net_class_with(vec![1, 2, 3], Some(100.0)));
         p.validate()?;
         let found: Vec<String> = drc(&p)
             .into_iter()
@@ -1912,6 +1914,10 @@ mod tests {
                 .iter()
                 .any(|m| m.contains("USB_DM") && m.contains("at most 150.000 mm")),
             "the net with its own ceiling is not judged by the class"
+        );
+        assert!(
+            !found.iter().any(|m| m.contains("USB_ID")),
+            "a net inside the ceiling stays quiet"
         );
         Ok(())
     }

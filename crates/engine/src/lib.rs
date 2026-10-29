@@ -27813,9 +27813,47 @@ mod tests {
             None,
         )?;
         s.execute("net.set_length", json!({"id":net,"max_length":150.0}), None)?;
+        let spare = s.execute("net.create", json!({"name":"USB_DM"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let third = s.execute("net.create", json!({"name":"USB_ID"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let fourth = s.execute("net.create", json!({"name":"USB_VBUS"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "rules.length_group_set",
+            json!({"name":"lanes","nets":[net,spare],"tolerance":1.5,"same_layer":true}),
+            None,
+        )?;
+        s.execute(
+            "rules.length_group_set",
+            json!({"name":"strobes","nets":[third,fourth],"tolerance":0.5,"reference":third}),
+            None,
+        )?;
         let saved = serde_json::to_value(&s.project).map_err(|e| e.to_string())?;
         let reloaded: pcbcraft_doc::Project =
             serde_json::from_value(saved.clone()).map_err(|e| e.to_string())?;
+        assert_eq!(
+            reloaded.length_groups.len(),
+            2,
+            "both length groups survive a save and reload"
+        );
+        assert!(
+            reloaded
+                .length_groups
+                .iter()
+                .any(|g| g.name == "lanes" && g.same_layer && g.reference.is_none()),
+            "the group options travel with the design"
+        );
+        assert!(
+            reloaded
+                .length_groups
+                .iter()
+                .any(|g| g.name == "strobes" && g.reference == Some(third)),
+            "the reference net travels with the design"
+        );
         assert_eq!(
             reloaded
                 .net_classes
@@ -27840,6 +27878,9 @@ mod tests {
                 }
             }
         }
+        if let Some(map) = old.as_object_mut() {
+            map.remove("length_groups");
+        }
         if let Some(rows) = old["nets"].as_array_mut() {
             for row in rows.iter_mut() {
                 if let Some(map) = row.as_object_mut() {
@@ -27853,6 +27894,10 @@ mod tests {
             older.net_classes.iter().all(|c| c.max_length.is_none())
                 && older.nets.iter().all(|n| n.max_length.is_none()),
             "a design saved before ceilings loads unchanged"
+        );
+        assert!(
+            older.length_groups.is_empty(),
+            "a design saved before length groups loads unchanged"
         );
         s.execute(
             "netclass.length_rules",
