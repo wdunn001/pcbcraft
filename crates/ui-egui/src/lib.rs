@@ -16,8 +16,8 @@ mod footprint_wizard;
 mod hover_affordance;
 mod icons;
 mod impedance_panel;
-mod layers_tree;
 mod keymap;
+mod layers_tree;
 mod library;
 mod library_builtin;
 mod library_dock;
@@ -639,13 +639,13 @@ impl PadLabels {
         }
     }
 }
-#[derive(Clone, Serialize, Deserialize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CompareKind {
     Added,
     Changed,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 struct Preferences {
     dark: bool,
     grid: bool,

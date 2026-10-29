@@ -14,11 +14,11 @@ main = (
 feat = Path(repo / "_feat_lib.rs").read_text(encoding="utf-8").splitlines()
 out = main[:]
 
-out.insert(out.index("mod layers_tree;") + 1, "mod keymap;")
+out.insert(out.index("mod layers_tree;"), "mod keymap;")
 out.insert(out.index("use targets::TapButton;"), "use std::collections::HashMap;")
 
 pref_struct = next(x for x, l in enumerate(out) if l.startswith("struct Preferences {"))
-out[pref_struct:pref_struct] = feat[646:651] + [""]
+out[pref_struct:pref_struct] = feat[646:650] + [""]
 
 mod_comment = next(
     x for x, l in enumerate(out) if l.strip().startswith("/// Remapped tool modifiers")
