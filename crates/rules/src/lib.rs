@@ -1508,6 +1508,27 @@ fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
 /// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
 const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
 
+/// Plain-language warning when a via is too deep for its drill to plate well;
+/// none when the ratio is fine or a laser-drilled micro via is exempt.
+pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
+    let board = &project.board;
+    let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
+        Some(board.thickness)
+    } else {
+        project.via_depth(via)
+    };
+    let depth = depth?;
+    if via.drill > 0.0
+        && project.via_kind(via) != ViaKind::Micro
+        && depth / via.drill > MECHANICAL_ASPECT_LIMIT + 1e-9
+    {
+        return Some(format!(
+            "Via at {:.2}, {:.2} is {:.2} mm deep with a {:.2} mm drill; a ratio above {MECHANICAL_ASPECT_LIMIT:.0} to 1 is hard to plate",
+            via.position.x, via.position.y, depth, via.drill
+        ));
+    }
+    None
+}
 /// Checks on where each via starts and ends in the stack.
 fn via_findings(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
@@ -1530,23 +1551,11 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 objects: vec![via.id],
             });
         }
-        let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
-            Some(board.thickness)
-        } else {
-            project.via_depth(via)
-        };
-        if via.drill > 0.0
-            && project.via_kind(via) != ViaKind::Micro
-            && let Some(depth) = depth
-            && depth / via.drill > MECHANICAL_ASPECT_LIMIT + 1e-9
-        {
+        if let Some(message) = via_aspect_warning(project, via) {
             result.push(Finding {
                 code: "via_aspect_ratio",
                 severity: project.rule_severity("via_aspect_ratio", "warning"),
-                message: format!(
-                    "Via at {:.2}, {:.2} is {:.2} mm deep with a {:.2} mm drill; a ratio above {MECHANICAL_ASPECT_LIMIT:.0} to 1 is hard to plate",
-                    via.position.x, via.position.y, depth, via.drill
-                ),
+                message,
                 objects: vec![via.id],
             });
         }

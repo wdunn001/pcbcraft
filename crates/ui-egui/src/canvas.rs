@@ -1685,6 +1685,7 @@ impl App {
                 painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
             }
         }
+        self.paint_datums(painter, rect, camera, p);
         for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);
             painter.circle_filled(center, c.radius as f32 * camera.zoom, self.surface());
