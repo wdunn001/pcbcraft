@@ -420,6 +420,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+enum BarIcon {
+    Save,
+    Undo,
+    Redo,
+    Home,
+    Settings,
+    Feedback,
+    Bug,
+    Help,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Schematic,
     Pcb,
@@ -2561,35 +2572,258 @@ impl App {
             s.spacing.button_padding = Vec2::new(10.0, 6.0);
         });
     }
-    fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("header").exact_size(100.0).show(ui, |ui| {
-            ui.add_space(7.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                let brand = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new("PCBCraft")
-                            .size(20.0)
-                            .strong()
-                            .color(self.accent()),
-                    )
-                    .sense(egui::Sense::click()),
+    const APP_BAR_HEIGHT: f32 = 34.0;
+    /// One square icon button for the application bar. The picture is drawn
+    /// with the painter so it follows the theme and needs no image files.
+    fn bar_icon(&self, ui: &mut egui::Ui, icon: BarIcon, tip: &str, enabled: bool) -> egui::Response {
+        let (rect, response) =
+            ui.allocate_exact_size(Vec2::splat(26.0), egui::Sense::click());
+        let response = response.on_hover_text(tip);
+        let live = enabled;
+        if live && response.hovered() {
+            ui.painter()
+                .rect_filled(rect, 5.0, self.accent().gamma_multiply(0.16));
+        }
+        let color = if !live {
+            self.muted().gamma_multiply(0.5)
+        } else if response.hovered() {
+            self.accent()
+        } else {
+            self.ink()
+        };
+        let stroke = Stroke::new(1.5, color);
+        let painter = ui.painter();
+        let c = rect.center();
+        let at = |x: f32, y: f32| egui::pos2(c.x + x, c.y + y);
+        match icon {
+            BarIcon::Save => {
+                painter.rect_stroke(
+                    Rect::from_center_size(c, Vec2::splat(14.0)),
+                    2.0,
+                    stroke,
+                    egui::StrokeKind::Middle,
                 );
-                if brand
-                    .on_hover_text("Back to the start screen, where you open or begin a design.")
-                    .clicked()
-                {
-                    self.home_open = true;
+                painter.rect_stroke(
+                    Rect::from_min_max(at(-3.5, -7.0), at(3.5, -2.5)),
+                    0.0,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                );
+                painter.rect_stroke(
+                    Rect::from_min_max(at(-4.0, 2.0), at(4.0, 7.0)),
+                    0.0,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                );
+            }
+            BarIcon::Undo | BarIcon::Redo => {
+                let flip = if matches!(icon, BarIcon::Undo) { 1.0 } else { -1.0 };
+                let mut points = Vec::new();
+                for step in 0..=8 {
+                    let angle = 2.7 - step as f32 * 0.3;
+                    points.push(at(flip * 6.5 * angle.cos(), 0.5 - 6.5 * angle.sin()));
                 }
-                if self.library.editor.mode == 0 {
+                painter.add(egui::Shape::line(points, stroke));
+                painter.line_segment([at(flip * -5.9, -2.4), at(flip * -5.9, -6.9)], stroke);
+                painter.line_segment([at(flip * -5.9, -2.4), at(flip * -1.4, -2.4)], stroke);
+            }
+            BarIcon::Home => {
+                painter.add(egui::Shape::line(
+                    vec![at(-7.0, 0.0), at(0.0, -7.0), at(7.0, 0.0)],
+                    stroke,
+                ));
+                painter.add(egui::Shape::line(
+                    vec![at(-5.0, -1.5), at(-5.0, 6.5), at(5.0, 6.5), at(5.0, -1.5)],
+                    stroke,
+                ));
+            }
+            BarIcon::Settings => {
+                painter.circle_stroke(c, 4.0, stroke);
+                for k in 0..8 {
+                    let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                    let (s, co) = a.sin_cos();
+                    painter.line_segment(
+                        [at(co * 6.0, s * 6.0), at(co * 8.0, s * 8.0)],
+                        stroke,
+                    );
+                }
+            }
+            BarIcon::Feedback => {
+                painter.rect_stroke(
+                    Rect::from_min_max(at(-8.0, -6.5), at(8.0, 3.5)),
+                    3.0,
+                    stroke,
+                    egui::StrokeKind::Middle,
+                );
+                painter.add(egui::Shape::line(
+                    vec![at(-3.0, 3.5), at(-4.0, 7.5), at(1.0, 3.5)],
+                    stroke,
+                ));
+            }
+            BarIcon::Bug => {
+                painter.circle_stroke(at(0.0, 1.0), 5.0, stroke);
+                painter.circle_stroke(at(0.0, -5.5), 2.0, stroke);
+                for y in [-1.0, 2.0, 5.0] {
+                    painter.line_segment([at(-5.0, y), at(-8.0, y)], stroke);
+                    painter.line_segment([at(5.0, y), at(8.0, y)], stroke);
+                }
+            }
+            BarIcon::Help => {
+                painter.circle_stroke(c, 8.0, stroke);
+                painter.text(c, Align2::CENTER_CENTER, "?", FontId::proportional(12.0), color);
+            }
+        }
+        response
+    }
+    /// The single 34 px bar across the top: brand, menus, quick actions, the
+    /// open design's tab and the right-hand cluster of help links.
+    fn app_bar(&mut self, ui: &mut egui::Ui) {
+        let (can_undo, can_redo) = self
+            .session
+            .lock()
+            .map(|s| (s.can_undo(), s.can_redo()))
+            .unwrap_or((false, false));
+        let width = ui.available_width();
+        egui::Panel::top("app-bar")
+            .exact_size(Self::APP_BAR_HEIGHT)
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(12, 4)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let (mark, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
+                    ui.painter().rect_filled(mark, 4.0, self.accent());
+                    ui.painter().rect_stroke(
+                        mark.shrink(4.5),
+                        1.0,
+                        Stroke::new(1.5, self.surface()),
+                        egui::StrokeKind::Middle,
+                    );
+                    let brand = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new("PCBCraft")
+                                .size(15.0)
+                                .strong()
+                                .color(self.accent()),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if brand
+                        .on_hover_text("Back to the start screen, where you open or begin a design.")
+                        .clicked()
+                    {
+                        self.home_open = true;
+                    }
+                    if self
+                        .bar_icon(ui, BarIcon::Home, "Back to the start screen.", true)
+                        .clicked()
+                    {
+                        self.home_open = true;
+                    }
+                    if self.library.editor.mode == 0 {
+                        ui.separator();
+                        self.file_menu(ui);
+                        self.edit_menu(ui);
+                        self.help_menu(ui);
+                        ui.separator();
+                        if self
+                            .bar_icon(ui, BarIcon::Save, "Write the design to its file on disk. (Ctrl+S works too.)", true)
+                            .clicked()
+                        {
+                            self.tool_call("save", json!({"path": self.path}));
+                        }
+                        let undo_tip = if can_undo {
+                            "Step back one action.".to_string()
+                        } else {
+                            "Nothing to undo yet: make an edit first.".to_string()
+                        };
+                        if self
+                            .bar_icon(ui, BarIcon::Undo, &undo_tip, can_undo)
+                            .clicked()
+                            && can_undo
+                        {
+                            self.tool_call("undo", json!({}));
+                        }
+                        let redo_tip = if can_redo {
+                            "Step forward to the action you undid.".to_string()
+                        } else {
+                            "Nothing to redo: undo an action first.".to_string()
+                        };
+                        if self
+                            .bar_icon(ui, BarIcon::Redo, &redo_tip, can_redo)
+                            .clicked()
+                            && can_redo
+                        {
+                            self.tool_call("redo", json!({}));
+                        }
+                    }
                     ui.separator();
-                    self.file_menu(ui);
-                    self.edit_menu(ui);
-                    self.settings_menu(ui);
-                    self.help_menu(ui);
-                }
+                    ui.label(egui::RichText::new(self.project.name.clone()).color(self.ink()))
+                        .on_hover_text("The design that is open. Its name is the only thing shown here.");
+                    if ui
+                        .add(egui::Button::new("+").small())
+                        .on_hover_text("Start another design from the New section on the start screen.")
+                        .clicked()
+                    {
+                        self.home_open = true;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // Narrow windows give up the version first, then the
+                        // bug-report words, then the feedback icon.
+                        if width > 900.0 {
+                            ui.label(
+                                egui::RichText::new(env!("CARGO_PKG_VERSION"))
+                                    .small()
+                                    .color(self.muted()),
+                            )
+                            .on_hover_text("The version of PCBCraft you are running.");
+                        }
+                        let bug_url = format!(
+                            "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                            env!("CARGO_PKG_VERSION")
+                        );
+                        let bug_tip = "Open a prefilled bug report with your version filled in.";
+                        let bug = if width > 760.0 {
+                            ui.button("Report a bug").on_hover_text(bug_tip)
+                        } else {
+                            self.bar_icon(ui, BarIcon::Bug, bug_tip, true)
+                        };
+                        if bug.clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(bug_url));
+                        }
+                        if self
+                            .bar_icon(ui, BarIcon::Help, "Show every keyboard shortcut.", true)
+                            .clicked()
+                        {
+                            self.shortcuts_open = !self.shortcuts_open;
+                        }
+                        if self
+                            .bar_icon(ui, BarIcon::Settings, "Open the settings page: theme, grid and the project as a whole.", true)
+                            .clicked()
+                        {
+                            self.change_tab(Tab::Settings);
+                        }
+                        if width > 640.0
+                            && self
+                                .bar_icon(ui, BarIcon::Feedback, "Tell us what to improve.", true)
+                                .clicked()
+                        {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(
+                                "https://github.com/tangency-labs/pcbcraft/issues/new?labels=feedback&title=Feedback",
+                            ));
+                        }
+                    });
+                });
             });
-            ui.add_space(5.0);
+    }
+    fn header(&mut self, ui: &mut egui::Ui) {
+        self.app_bar(ui);
+        self.workspace_tabs(ui);
+    }
+    fn workspace_tabs(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("workspace-tabs").show(ui, |ui| {
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 for (tab, label) in [
@@ -2840,7 +3074,7 @@ impl App {
             }
             ui.separator();
             if ui
-                .button("Export interchange board")
+                .button("Export")
                 .on_hover_text("Write the board out so other design tools can open it.")
                 .clicked()
             {
@@ -2851,7 +3085,7 @@ impl App {
                 self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
             }
             if ui
-                .button("Copy view picture to clipboard")
+                .button("Copy picture")
                 .on_hover_text("Copy a PNG snapshot of the current view, the same picture a plotter would draw, so it can be pasted into a document.")
                 .clicked()
             {
@@ -2919,92 +3153,17 @@ impl App {
             "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
         );
     }
-    fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Settings", |ui| {
-            if ui
-                .button("Appearance & settings…")
-                .on_hover_text(
-                    "Open the settings page: theme, accent colour and everything for the project.",
-                )
-                .clicked()
-            {
-                self.change_tab(Tab::Settings);
-            }
-            if ui
-                .button(if self.preferences.dark {
-                    "Switch to the light theme"
-                } else {
-                    "Switch to the dark theme"
-                })
-                .on_hover_text("Change between the dark and light look.")
-                .clicked()
-            {
-                self.preferences.dark = !self.preferences.dark;
-            }
-            if ui
-                .button(if self.preferences.grid {
-                    "Hide the grid"
-                } else {
-                    "Show the grid"
-                })
-                .on_hover_text("Show or hide the placement grid in the work area.")
-                .clicked()
-            {
-                self.preferences.grid = !self.preferences.grid;
-            }
-            ui.menu_button("Route on", |ui| {
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
-            })
-            .response
-            .on_hover_text("Choose which copper layer new tracks are drawn on.");
-            ui.menu_button("Pad labels", |ui| {
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Number,
-                    PadLabels::Number.name(),
-                )
-                .on_hover_text("Draw each pad's own number on the board.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Net,
-                    PadLabels::Net.name(),
-                )
-                .on_hover_text("Draw the net name on each pad, useful when debugging.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Off,
-                    PadLabels::Off.name(),
-                )
-                .on_hover_text("Hide the pad labels for a clean picture.");
-            })
-            .response
-            .on_hover_text(
-                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
-            );
-            ui.separator();
-            if ui
-                .button("Library sources…")
-                .on_hover_text("Manage the folders that feed the component list.")
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
-            }
-        })
-        .response
-        .on_hover_text("Theme, grid and library folders.");
-    }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Help", |ui| {
             if ui
-                .button("Keyboard shortcuts")
+                .button("Shortcuts")
                 .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands  Ctrl+K")
+                .button("Commands")
                 .on_hover_text(
                     "Search every command by name and run it, with its parameters explained.",
                 )
@@ -3714,6 +3873,27 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.horizontal(|ui| {
+            ui.label("Route on");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
+                .on_hover_text("New tracks are drawn on the top copper layer.");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom")
+                .on_hover_text("New tracks are drawn on the bottom copper layer.");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Pad labels");
+            for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
+                ui.selectable_value(&mut self.preferences.pad_labels, labels, labels.name())
+                    .on_hover_text("Choose what is drawn at each pad centre on the board.");
+            }
+        });
+        if ui
+            .button("Library sources")
+            .on_hover_text("Manage the folders that feed the component list.")
+            .clicked()
+        {
+            self.change_tab(Tab::Libraries);
+        }
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
         ui.label(
@@ -6680,6 +6860,73 @@ mod tests {
     }
     /// True when the named words appear anywhere on screen this frame or the
     /// next two, so tests can assert what a person actually sees.
+    /// Where a text label is painted: its vertical centre, if it is on screen.
+    fn text_row(ctx: &egui::Context, app: &mut App, needle: &str) -> Option<f32> {
+        for _ in 0..3 {
+            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+            for shape in &output.shapes {
+                if let egui::Shape::Text(text) = &shape.shape
+                    && text.galley.text() == needle
+                {
+                    return Some(text.pos.y + text.galley.size().y / 2.0);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn a_newcomer_sees_one_slim_bar_with_menus_and_the_everyday_buttons() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        for needle in ["PCBCraft", "File", "Edit", "Help", "Report a bug"] {
+            let row = text_row(&ctx, &mut app, needle)
+                .ok_or_else(|| format!("{needle} is not on screen"))?;
+            assert!(
+                row < App::APP_BAR_HEIGHT,
+                "{needle} sits inside the 34 px bar, found at {row}"
+            );
+        }
+        assert!(
+            text_row(&ctx, &mut app, "Save").is_none(),
+            "Save is an icon in the bar, not a word"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_finds_only_plain_short_choices_in_the_menus() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        authoring::tests::tap(&ctx, &mut app, "Help")?;
+        for needle in ["Shortcuts", "Commands"] {
+            assert!(
+                paints_text(&ctx, &mut app, needle)?,
+                "the Help menu lists {needle}"
+            );
+        }
+        assert!(
+            !paints_text(&ctx, &mut app, "Ctrl+K")?,
+            "menu labels carry no long shortcut text"
+        );
+        authoring::tests::tap(&ctx, &mut app, "File")?;
+        for needle in ["New", "Open", "Save", "Export", "Copy picture"] {
+            assert!(
+                paints_text(&ctx, &mut app, needle)?,
+                "the File menu lists {needle}"
+            );
+        }
+        assert!(
+            !paints_text(&ctx, &mut app, "Export interchange board")?,
+            "the long menu label is gone"
+        );
+        Ok(())
+    }
+
     fn paints_text(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
         for _ in 0..3 {
             let output = frame(ctx, app, vec![], egui::Modifiers::NONE);

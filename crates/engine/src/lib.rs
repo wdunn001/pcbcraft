@@ -1862,6 +1862,14 @@ impl Session {
         self.redo.clear();
         self.revision = self.revision.saturating_add(1);
     }
+    /// True when an edit can be stepped back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// True when an undone edit can be stepped forward again.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
     pub fn undo(&mut self) -> Result<Value, Error> {
         let p = self
             .undo
