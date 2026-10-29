@@ -43,7 +43,8 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
-    let project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    project.migrate_component_kinds();
     project.validate()?;
     Ok(project)
 }
@@ -147,8 +148,10 @@ pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
 }
 
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
-    project.validate()?;
-    let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
+    let mut prepared = project.clone();
+    prepared.migrate_component_kinds();
+    prepared.validate()?;
+    let bytes = serde_json::to_vec_pretty(&prepared).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("project exceeds 8 MiB".into());
     }
@@ -7373,6 +7376,7 @@ mod tests {
             locked: None,
             pads,
         });
+        project.migrate_component_kinds();
         project.validate()?;
         Ok(project)
     }
@@ -10880,6 +10884,7 @@ mod tests {
             library_footprint: None,
             fields: vec![],
         });
+        project.migrate_component_kinds();
         project.validate()?;
         let png = preview_png(&project, "schematic")?;
         let image = image::load_from_memory(&png)
