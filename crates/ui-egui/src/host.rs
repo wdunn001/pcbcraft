@@ -82,7 +82,7 @@ pub fn replace_session_from_open(
     match kind {
         OpenKind::Project(project) => {
             let mut current = lock_session(session)?;
-            current.replace(project).map_err(|e| e.to_string())
+            current.replace(*project).map_err(|e| e.to_string())
         }
         _ => Err("only a full project file can replace the session here".into()),
     }
@@ -127,7 +127,7 @@ mod tests {
         match reopened {
             OpenKind::Project(project) => {
                 let current = lock_session(&session)?;
-                assert_eq!(project, current.project);
+                assert_eq!(*project, current.project);
             }
             _ => return Err("reopened file was not a project".into()),
         }

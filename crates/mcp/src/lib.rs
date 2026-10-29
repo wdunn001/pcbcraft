@@ -90,20 +90,6 @@ fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
         .and_then(Value::as_str)
         .ok_or_else(|| format!("missing string parameter: {key}"))
 }
-fn strings(args: &Value, key: &str) -> Result<Vec<String>, String> {
-    match args.get(key) {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| {
-                item.as_str()
-                    .map(str::to_string)
-                    .ok_or_else(|| format!("{key} entries must be strings"))
-            })
-            .collect(),
-        _ => Err(format!("{key} must be an array of strings")),
-    }
-}
 fn revision(args: &Value) -> Result<Option<u64>, String> {
     args.get("expected_revision")
         .map(|v| {

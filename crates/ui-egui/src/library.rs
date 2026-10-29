@@ -1,6 +1,7 @@
 use super::*;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
+#[path = "host.rs"]
 pub mod host;
 pub use host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 

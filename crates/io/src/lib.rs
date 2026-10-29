@@ -165,7 +165,7 @@ pub fn save_bytes(project: &Project) -> Result<Vec<u8>, String> {
 /// What an uploaded or picked file contains after validation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpenKind {
-    Project(Project),
+    Project(Box<Project>),
     Library(pcbcraft_doc::ProjectLibrary),
     Footprint(pcbcraft_library::FootprintDefinition),
     Symbols(Vec<pcbcraft_library::SymbolDefinition>),
@@ -204,27 +204,28 @@ pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, Stri
         }
         "zip" => {
             let project = archive_project(bytes)?;
-            return Ok(OpenKind::Project(project));
+            return Ok(OpenKind::Project(Box::new(project)));
         }
         _ => {}
     }
     if let Ok(text) = std::str::from_utf8(bytes) {
-        if let Ok(file) = serde_json::from_str::<LibraryCollectionFile>(text) {
-            if file.format == "pcbcraft-library" && file.version == 1 {
-                file.library.validate()?;
-                return Ok(OpenKind::Library(file.library));
-            }
+        if let Ok(file) = serde_json::from_str::<LibraryCollectionFile>(text)
+            && file.format == "pcbcraft-library"
+            && file.version == 1
+        {
+            file.library.validate()?;
+            return Ok(OpenKind::Library(file.library));
         }
-        if let Ok(project) = serde_json::from_str::<Project>(text) {
-            if project.validate().is_ok() {
-                return Ok(OpenKind::Project(project));
-            }
+        if let Ok(project) = serde_json::from_str::<Project>(text)
+            && project.validate().is_ok()
+        {
+            return Ok(OpenKind::Project(Box::new(project)));
         }
     }
-    if bytes.starts_with(b"PK\x03\x04") {
-        if let Ok(project) = archive_project(bytes) {
-            return Ok(OpenKind::Project(project));
-        }
+    if bytes.starts_with(b"PK\x03\x04")
+        && let Ok(project) = archive_project(bytes)
+    {
+        return Ok(OpenKind::Project(Box::new(project)));
     }
     Err("unrecognized or invalid design file".into())
 }
@@ -6715,7 +6716,7 @@ mod tests {
         let bytes = save_bytes(&project)?;
         let opened = open_document(&bytes, "demo.pcbcraft")?;
         match opened {
-            OpenKind::Project(back) => assert_eq!(back, project),
+            OpenKind::Project(back) => assert_eq!(*back, project),
             _ => return Err("expected a native project file".into()),
         }
         Ok(())
@@ -6730,7 +6731,7 @@ mod tests {
         let zip = archive_zip(&project)?;
         let opened = open_document(&zip, "bundle.zip")?;
         match opened {
-            OpenKind::Project(back) => assert_eq!(back, project),
+            OpenKind::Project(back) => assert_eq!(*back, project),
             _ => return Err("expected a project archive".into()),
         }
         Ok(())
