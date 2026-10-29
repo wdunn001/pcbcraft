@@ -34,6 +34,9 @@ pub struct SymbolDefinition {
     pub extends: Option<String>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -269,6 +272,9 @@ pub struct FootprintDefinition {
     pub rules: Option<FootprintRules>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.
