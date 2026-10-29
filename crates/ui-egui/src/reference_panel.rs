@@ -80,7 +80,7 @@ impl App {
         );
         ui.add_space(4.0);
         ui.add(
-            egui::TextEdit::singleline(&mut form.path)
+            crate::targets::text_field(&mut form.path)
                 .hint_text("PNG file path")
                 .desired_width(180.0),
         )
