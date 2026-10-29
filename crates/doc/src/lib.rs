@@ -1426,9 +1426,7 @@ impl PanelSettings {
             || self.rows > 32
             || self.columns * self.rows > 1024
         {
-            return Err(
-                "panels run 1 to 32 copies per side and at most 1024 in total".into(),
-            );
+            return Err("panels run 1 to 32 copies per side and at most 1024 in total".into());
         }
         if !self.pitch_x.is_finite()
             || !self.pitch_y.is_finite()
@@ -1440,9 +1438,7 @@ impl PanelSettings {
         if !(0.0..=25.0).contains(&self.rail) {
             return Err("rails must be 0 to 25 millimetres".into());
         }
-        if !self.tab_channel_width.is_finite()
-            || !(1.6..=2.0).contains(&self.tab_channel_width)
-        {
+        if !self.tab_channel_width.is_finite() || !(1.6..=2.0).contains(&self.tab_channel_width) {
             return Err("tab routing channels must be 1.6 to 2.0 millimetres".into());
         }
         Ok(())
@@ -1526,8 +1522,7 @@ pub fn panel_layout(project: &Project, settings: &PanelSettings) -> Result<Panel
     settings.validate()?;
     let (board_w, board_h) = board_panel_size(&project.board)?;
     let s = settings;
-    let panel_w =
-        s.columns as f64 * board_w + (s.columns - 1) as f64 * s.pitch_x + 2.0 * s.rail;
+    let panel_w = s.columns as f64 * board_w + (s.columns - 1) as f64 * s.pitch_x + 2.0 * s.rail;
     let panel_h = s.rows as f64 * board_h + (s.rows - 1) as f64 * s.pitch_y + 2.0 * s.rail;
     let copies: Vec<PanelCopyLayout> = (0..s.rows)
         .flat_map(|row| (0..s.columns).map(move |column| (row, column)))

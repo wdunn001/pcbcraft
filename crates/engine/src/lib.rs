@@ -16819,7 +16819,10 @@ mod tests {
         loaded.validate().map_err(Error::Invalid)?;
         assert_eq!(loaded.panel, s.project.panel);
         assert!(
-            loaded.panel.as_ref().is_some_and(|p| p.enabled && p.columns == 3),
+            loaded
+                .panel
+                .as_ref()
+                .is_some_and(|p| p.enabled && p.columns == 3),
             "panel settings survive save and load"
         );
         Ok(())
