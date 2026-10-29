@@ -40,7 +40,6 @@ pub use board_mesh::{
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
     with_models,
 };
-pub use diff::{DesignChange, DesignDiff, project_diff};
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
     MirrorAxis as CamMirrorAxis, Side, Spindle, Tool, isolation_gcode, isolation_paths,
@@ -51,6 +50,7 @@ pub use cam_drill::{
     drill_gcode, drill_tools, outline_gcode,
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use diff::{DesignChange, DesignDiff, project_diff};
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};
