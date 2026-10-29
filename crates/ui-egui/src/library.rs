@@ -18,6 +18,7 @@ pub(super) struct Browser {
     pub(super) source_filter: String,
     pub(super) new_source: String,
     pub(super) notice: String,
+    pub(super) quality: super::library_quality::Quality,
 }
 impl Browser {
     fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {
@@ -461,9 +462,6 @@ impl App {
         symbol: Option<&SymbolDefinition>,
         footprint: Option<&FootprintDefinition>,
     ) {
-        let (response, painter) =
-            ui.allocate_painter(Vec2::new(ui.available_width(), 180.0), egui::Sense::hover());
-        let mut paths: Vec<Vec<Point>> = vec![];
         if let Some(s) = symbol {
             self.library.preview_unit = self.library.preview_unit.max(1);
             let units = pcbcraft_doc::symbol_units(s).unwrap_or_default();
@@ -479,78 +477,11 @@ impl App {
                     }
                 });
             }
-            paths.extend(
-                s.graphics
-                    .iter()
-                    .filter(|g| {
-                        (g.unit == 0 || g.unit == self.library.preview_unit) && g.body_style <= 1
-                    })
-                    .map(|g| g.primitive.path_points()),
-            );
-            paths.extend(
-                s.pins
-                    .iter()
-                    .filter(|p| {
-                        (p.unit == 0 && self.library.preview_unit == 1
-                            || p.unit == self.library.preview_unit)
-                            && p.body_style <= 1
-                    })
-                    .map(|p| {
-                        vec![
-                            p.position,
-                            p.position.offset(Point::new(
-                                p.length * p.angle.to_radians().cos(),
-                                -p.length * p.angle.to_radians().sin(),
-                            )),
-                        ]
-                    }),
-            );
         }
-        if let Some(f) = footprint {
-            paths.extend(f.graphics.iter().map(|g| g.path_points()));
-            paths.extend(f.pads.iter().map(|p| {
-                pcbcraft_doc::Pad {
-                    number: p.number.clone(),
-                    offset: p.position,
-                    diameter: p.size.x.min(p.size.y),
-                    net: None,
-                    castellated: None,
-                    geometry: Some(p.clone()),
-                }
-                .outline_points()
-            }));
-            paths.extend(f.pads.iter().map(|p| {
-                pcbcraft_doc::Pad {
-                    number: p.number.clone(),
-                    offset: p.position,
-                    diameter: p.size.x.min(p.size.y),
-                    net: None,
-                    castellated: None,
-                    geometry: Some(p.clone()),
-                }
-                .drill_outline_points()
-            }));
-        }
-        let min = paths
-            .iter()
-            .flatten()
-            .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
-                Point::new(m.x.min(p.x), m.y.min(p.y))
-            });
-        let max = paths
-            .iter()
-            .flatten()
-            .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
-                Point::new(m.x.max(p.x), m.y.max(p.y))
-            });
-        let (center, extent) = if min.x.is_finite() && min.y.is_finite() {
-            (
-                Point::new((min.x + max.x) / 2.0, (min.y + max.y) / 2.0),
-                Point::new((max.x - min.x).max(1.0), (max.y - min.y).max(1.0)),
-            )
-        } else {
-            (Point::default(), Point::new(2.0, 2.0))
-        };
+        let paths = library_geometry_paths(symbol, footprint, self.library.preview_unit.max(1));
+        let (response, painter) =
+            ui.allocate_painter(Vec2::new(ui.available_width(), 180.0), egui::Sense::hover());
+        let (center, extent) = library_paths_extent(&paths);
         let camera = Camera {
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
@@ -558,13 +489,119 @@ impl App {
                 .clamp(0.01, 40.0),
         };
         painter.rect_filled(response.rect, 6.0, self.surface());
-        for path in paths.into_iter().filter(|p| p.len() > 1) {
-            painter.add(egui::Shape::line(
-                path.into_iter()
-                    .map(|p| camera.screen(p, response.rect))
-                    .collect(),
-                Stroke::new(1.5, self.accent()),
-            ));
+        paint_library_paths(&painter, response.rect, camera, &paths, self.accent());
+    }
+}
+
+pub(super) fn library_geometry_paths(
+    symbol: Option<&SymbolDefinition>,
+    footprint: Option<&FootprintDefinition>,
+    preview_unit: u32,
+) -> Vec<Vec<Point>> {
+    let mut paths: Vec<Vec<Point>> = vec![];
+    if let Some(s) = symbol {
+        paths.extend(
+            s.graphics
+                .iter()
+                .filter(|g| (g.unit == 0 || g.unit == preview_unit) && g.body_style <= 1)
+                .map(|g| g.primitive.path_points()),
+        );
+        for p in s.pins.iter().filter(|p| {
+            (p.unit == 0 && preview_unit == 1 || p.unit == preview_unit) && p.body_style <= 1
+        }) {
+            paths.push(vec![p.position, p.stem_end()]);
+            for (center, radius) in p.decoration_bubbles_draw(false) {
+                paths.push(pcbcraft_library::SymbolPin::circle_points(center, radius));
+            }
+            paths.extend(p.decoration_paths_draw(false));
         }
+    }
+    if let Some(f) = footprint {
+        paths.extend(f.graphics.iter().map(|g| g.path_points()));
+        paths.extend(f.pads.iter().map(|p| {
+            pcbcraft_doc::Pad {
+                number: p.number.clone(),
+                offset: p.position,
+                diameter: p.size.x.min(p.size.y),
+                net: None,
+                castellated: None,
+                geometry: Some(p.clone()),
+            }
+            .outline_points()
+        }));
+        paths.extend(f.pads.iter().map(|p| {
+            pcbcraft_doc::Pad {
+                number: p.number.clone(),
+                offset: p.position,
+                diameter: p.size.x.min(p.size.y),
+                net: None,
+                castellated: None,
+                geometry: Some(p.clone()),
+            }
+            .drill_outline_points()
+        }));
+    }
+    paths
+}
+
+pub(super) fn library_paths_extent(paths: &[Vec<Point>]) -> (Point, Point) {
+    let min = paths
+        .iter()
+        .flatten()
+        .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
+            Point::new(m.x.min(p.x), m.y.min(p.y))
+        });
+    let max = paths
+        .iter()
+        .flatten()
+        .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
+            Point::new(m.x.max(p.x), m.y.max(p.y))
+        });
+    if min.x.is_finite() && min.y.is_finite() {
+        (
+            Point::new((min.x + max.x) / 2.0, (min.y + max.y) / 2.0),
+            Point::new((max.x - min.x).max(1.0), (max.y - min.y).max(1.0)),
+        )
+    } else {
+        (Point::default(), Point::new(2.0, 2.0))
+    }
+}
+
+pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
+    let min = paths
+        .iter()
+        .flatten()
+        .fold(Point::new(f64::INFINITY, f64::INFINITY), |m, p| {
+            Point::new(m.x.min(p.x), m.y.min(p.y))
+        });
+    let max = paths
+        .iter()
+        .flatten()
+        .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |m, p| {
+            Point::new(m.x.max(p.x), m.y.max(p.y))
+        });
+    if min.x.is_finite() && min.y.is_finite() {
+        let pad = 1.0;
+        (
+            Point::new(min.x - pad, min.y - pad),
+            Point::new(max.x + pad, max.y + pad),
+        )
+    } else {
+        (Point::new(-4.0, -4.0), Point::new(4.0, 4.0))
+    }
+}
+
+fn paint_library_paths(
+    painter: &egui::Painter,
+    rect: Rect,
+    camera: Camera,
+    paths: &[Vec<Point>],
+    color: Color32,
+) {
+    for path in paths.iter().filter(|p| p.len() > 1) {
+        painter.add(egui::Shape::line(
+            path.iter().map(|p| camera.screen(*p, rect)).collect(),
+            Stroke::new(1.5, color),
+        ));
     }
 }

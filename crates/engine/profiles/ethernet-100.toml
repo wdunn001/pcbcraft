@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "ethernet-100"
+name = "Fast Ethernet"
+category = "interface"
+summary = "Fast Ethernet rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "ethernet-100_default"
