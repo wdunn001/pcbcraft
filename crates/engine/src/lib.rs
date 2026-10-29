@@ -5641,20 +5641,11 @@ fn run_command(
                         continue;
                     }
                 };
-                let pins: Vec<pcbcraft_doc::Pin> = definition
-                    .pins
-                    .iter()
-                    .filter(|s| s.body_style <= 1)
-                    .map(|s| pcbcraft_doc::Pin {
-                        number: s.number.clone(),
-                        name: s.name.clone(),
-                        offset: s.position,
-                        net: old_nets.get(s.number.as_str()).copied().flatten(),
-                        electrical_type: s.electrical_type.clone(),
-                        direction: Some(s.angle),
-                        unit: s.unit.max(1),
-                    })
-                    .collect();
+                let mut pins = pcbcraft_doc::collapse_symbol_pins(&definition)
+                    .map_err(|e| Error::Invalid(e))?;
+                for pin in &mut pins {
+                    pin.net = old_nets.get(pin.number.as_str()).copied().flatten();
+                }
                 let new_numbers: std::collections::BTreeSet<&str> =
                     pins.iter().map(|p| p.number.as_str()).collect();
                 let old_numbers: std::collections::BTreeSet<&str> =
@@ -16647,6 +16638,70 @@ mod tests {
                 .ok_or_else(|| Error::Invalid("temp folder has no parent".into()))?,
         )
         .map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_refresh_preserves_nets_when_common_pins_collapsed() -> Result<(), Error> {
+        let folder = std::env::temp_dir().join(format!(
+            "pcbcraft-commonpins-{}-{}",
+            std::process::id(),
+            SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
+        let file = folder.join("parts.kicad_sym");
+        let fixture = library_fixture("dual-common-supply.kicad_sym");
+        std::fs::copy(&fixture, &file).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut s = Session::default();
+        s.execute(
+            "library.link",
+            json!({"name":"parts","path":folder.to_string_lossy().to_string()}),
+            None,
+        )?;
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":"parts/parts.kicad_sym","symbol":"DualCommon","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            s.project.components[0].pins.len(),
+            4,
+            "placement collapses repeated supply pins"
+        );
+        let net = s.execute("net.create", json!({"name":"V+"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":chip,"pin":"4"}]}),
+            None,
+        )?;
+        let text = std::fs::read_to_string(&file).map_err(|e| Error::Invalid(e.to_string()))?;
+        std::fs::write(
+            &file,
+            text.replace("V+", "VCC"),
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let refreshed = s.execute(
+            "symbol.refresh",
+            json!({"path":"parts/parts.kicad_sym","symbol":"DualCommon"}),
+            None,
+        )?;
+        assert_eq!(
+            refreshed["result"]["assigned"].as_array().map(Vec::len),
+            Some(1)
+        );
+        let supply = s.project.components[0]
+            .pins
+            .iter()
+            .find(|p| p.number == "4")
+            .ok_or_else(|| Error::Invalid("missing collapsed supply pin".into()))?;
+        assert_eq!(supply.net, Some(net), "net binding survives refresh");
+        assert_eq!(supply.name, "VCC", "refreshed pin name comes from the library");
+        assert_eq!(supply.appearances.len(), 1);
+        std::fs::remove_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(())
     }
 
