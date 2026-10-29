@@ -5058,6 +5058,22 @@ impl App {
         {
             self.write_job_file("svgdraw", "svg", "Web drawing");
         }
+        for (side, label, tip) in [
+            (
+                "top",
+                "Print art, top silkscreen",
+                "Writes the top silkscreen as true-size artwork for a UV printer: a transparent colour picture, a white-ink picture and a drawing, all in the make folder. Text outlines are not included yet.",
+            ),
+            (
+                "bottom",
+                "Print art, bottom silkscreen",
+                "Writes the bottom silkscreen as true-size artwork for a UV printer, not mirrored, because the printer looks at the real board. It lands in the make folder.",
+            ),
+        ] {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                self.write_uv_print_files(side, label);
+            }
+        }
         ui.add_space(6.0);
         ui.label(
             egui::RichText::new("PANEL PLAN")
@@ -6246,6 +6262,25 @@ impl App {
             return;
         }
         self.tool_call(tool, json!({"path": directory}));
+    }
+    /// Write the UV print artwork for one side into the make folder.
+    fn write_uv_print_files(&mut self, side: &str, label: &str) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(&directory).is_err() {
+            self.message = "that folder could not be created".into();
+            return;
+        }
+        let job = format!("uvprint-{side}");
+        let _ = self.tool_call(
+            "output_job.add",
+            json!({"name": &job, "kinds": ["uv_print"]}),
+        );
+        if self.tool_call(
+            "output_job.run",
+            json!({"name": &job, "directory": &directory, "uv_print": {"side": side}}),
+        ) {
+            self.message = format!("{label} saved in {directory}");
+        }
     }
     fn write_job_file(&mut self, job: &str, kind: &str, label: &str) {
         let directory = self.make_directory();
