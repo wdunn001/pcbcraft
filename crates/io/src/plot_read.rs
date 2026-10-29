@@ -4,7 +4,7 @@ use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::{read_text, MAX_FILE_BYTES};
+use crate::{MAX_FILE_BYTES, read_text};
 
 /// Total extracted bytes allowed when reading a plot zip (same budget as one file).
 pub const MAX_PLOT_ZIP_BYTES: u64 = MAX_FILE_BYTES;
@@ -519,8 +519,8 @@ fn safe_zip_name(name: &[u8]) -> Result<String, String> {
     if name.starts_with(b"/") || name.windows(2).any(|w| w == b"..") {
         return Err("archive entry path is not allowed".into());
     }
-    let text = std::str::from_utf8(name)
-        .map_err(|_| "archive entry name is not UTF-8".to_string())?;
+    let text =
+        std::str::from_utf8(name).map_err(|_| "archive entry name is not UTF-8".to_string())?;
     if text.contains('\\') || text.contains(':') {
         return Err("archive entry path is not allowed".into());
     }
@@ -668,12 +668,14 @@ pub fn load_plot_zip(bytes: &[u8]) -> Result<PlotPackage, String> {
     collected.sort_by(|a, b| a.0.cmp(&b.0));
     for (name, data) in collected {
         if name.to_ascii_lowercase().ends_with(".drl") {
-            let text = std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".to_string())?;
+            let text =
+                std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".to_string())?;
             let (tools, hits) = parse_excellon_drill(text)?;
             drill_tools = tools;
             drill_hits = hits;
         } else {
-            let text = std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".to_string())?;
+            let text =
+                std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".to_string())?;
             let layer = parse_gerber_layer(text, &name)?;
             hints.extend(layer.hints.clone());
             layers.push(layer);
@@ -731,7 +733,8 @@ mod tests {
 
     #[test]
     fn shaped_pads_fixture_has_x2_copper_top() -> Result<(), String> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shaped_pads_F_Cu.gbr");
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shaped_pads_F_Cu.gbr");
         let text = read_text(&path)?;
         let layer = parse_gerber_layer(&text, "shaped_pads_F_Cu.gbr")?;
         assert_eq!(layer.kind, PlotLayerKind::FrontCopper);

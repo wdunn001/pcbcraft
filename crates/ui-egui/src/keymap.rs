@@ -600,20 +600,11 @@ struct KeymapStore {
 impl Serialize for Keymap {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let store = KeymapStore {
-            bindings: self
-                .bindings
-                .iter()
-                .map(|(a, c)| (*a, c.store()))
-                .collect(),
+            bindings: self.bindings.iter().map(|(a, c)| (*a, c.store())).collect(),
             extra_chords: self
                 .extra_chords
                 .iter()
-                .map(|(a, list)| {
-                    (
-                        *a,
-                        list.iter().map(|c| c.store()).collect::<Vec<_>>(),
-                    )
-                })
+                .map(|(a, list)| (*a, list.iter().map(|c| c.store()).collect::<Vec<_>>()))
                 .collect(),
         };
         store.serialize(serializer)
@@ -658,10 +649,7 @@ impl Keymap {
                 continue;
             };
             if bindings.contains_key(&entry.action) {
-                extra_chords
-                    .entry(entry.action)
-                    .or_default()
-                    .push(chord);
+                extra_chords.entry(entry.action).or_default().push(chord);
             } else {
                 bindings.insert(entry.action, chord);
             }
@@ -737,12 +725,7 @@ impl Keymap {
         None
     }
 
-    pub fn resolve(
-        &self,
-        chord: KeyChord,
-        tab: Tab,
-        command_open: bool,
-    ) -> Option<KeyAction> {
+    pub fn resolve(&self, chord: KeyChord, tab: Tab, command_open: bool) -> Option<KeyAction> {
         let scope = active_scope(tab, command_open);
         for (action, bound) in &self.bindings {
             if *bound != chord {

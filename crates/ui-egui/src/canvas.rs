@@ -44,10 +44,7 @@ fn selection_bounds(project: &Project, id: pcbcraft_doc::Id) -> Option<(Point, P
     if let Some(via) = project.board.vias.iter().find(|v| v.id == id) {
         let r = via.diameter * 0.5;
         let p = via.position;
-        return Some((
-            Point::new(p.x - r, p.y - r),
-            Point::new(p.x + r, p.y + r),
-        ));
+        return Some((Point::new(p.x - r, p.y - r), Point::new(p.x + r, p.y + r)));
     }
     None
 }
@@ -1262,10 +1259,7 @@ impl App {
                     .or_else(|| {
                         self.pick_pad(pos, zoom).and_then(|(fid, pad)| {
                             self.project.footprint(fid).and_then(|f| {
-                                f.pads
-                                    .iter()
-                                    .find(|p| p.number == pad)
-                                    .and_then(|p| p.net)
+                                f.pads.iter().find(|p| p.number == pad).and_then(|p| p.net)
                             })
                         })
                     });

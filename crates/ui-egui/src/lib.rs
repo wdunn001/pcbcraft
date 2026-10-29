@@ -17,8 +17,7 @@ const EMPTY_SYMBOLS: &str =
     "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
 const EMPTY_NETS: &str =
     "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import.";
-const EMPTY_BOARD: &str =
-    "No packages on the board yet. Place a part on the schematic and it appears here automatically.";
+const EMPTY_BOARD: &str = "No packages on the board yet. Place a part on the schematic and it appears here automatically.";
 const EMPTY_CHECKS: &str =
     "Checks run automatically on every edit; findings are listed here as soon as one appears.";
 
@@ -435,7 +434,10 @@ impl Preferences {
             })
     }
     fn active_keymap_mut(&mut self) -> &mut keymap::Keymap {
-        let name = if self.keymap_profiles.contains_key(&self.active_keymap_profile) {
+        let name = if self
+            .keymap_profiles
+            .contains_key(&self.active_keymap_profile)
+        {
             self.active_keymap_profile.clone()
         } else {
             self.active_keymap_profile = "Default".into();
@@ -454,7 +456,10 @@ impl Preferences {
             self.keymap_profiles
                 .insert("Default".into(), keymap::Keymap::default_bindings());
         }
-        if !self.keymap_profiles.contains_key(&self.active_keymap_profile) {
+        if !self
+            .keymap_profiles
+            .contains_key(&self.active_keymap_profile)
+        {
             self.active_keymap_profile = "Default".into();
         }
         for map in self.keymap_profiles.values_mut() {
@@ -2629,10 +2634,7 @@ impl App {
                     self.select(Some(ids[0]));
                     return;
                 }
-                let at = ids
-                    .iter()
-                    .position(|id| *id == sel)
-                    .unwrap_or(0);
+                let at = ids.iter().position(|id| *id == sel).unwrap_or(0);
                 let next = ids[(at + 1) % ids.len()];
                 self.connected_cycle = at + 1;
                 self.select(Some(next));
@@ -2715,8 +2717,11 @@ impl App {
                     match map.set_binding(capture, chord) {
                         Ok(()) => {
                             *self.preferences.active_keymap_mut() = map;
-                            self.keymap_notice =
-                                format!("{} is now {}", keymap::action_label(capture), keymap::format_chord(chord));
+                            self.keymap_notice = format!(
+                                "{} is now {}",
+                                keymap::action_label(capture),
+                                keymap::format_chord(chord)
+                            );
                             self.binding_capture = None;
                         }
                         Err(err) => self.keymap_notice = err,
@@ -4140,10 +4145,7 @@ impl App {
                 .show_ui(ui, |ui| {
                     for name in self.preferences.keymap_profiles.keys() {
                         if ui
-                            .selectable_label(
-                                self.preferences.active_keymap_profile == *name,
-                                name,
-                            )
+                            .selectable_label(self.preferences.active_keymap_profile == *name, name)
                             .on_hover_text("Switch to this saved shortcut set.")
                             .clicked()
                         {
@@ -4206,7 +4208,9 @@ impl App {
             }
             if ui
                 .button("Export profile…")
-                .on_hover_text("Copy the active profile JSON into the import box for saving to a file.")
+                .on_hover_text(
+                    "Copy the active profile JSON into the import box for saving to a file.",
+                )
                 .clicked()
             {
                 let file = keymap::KeymapProfileFile::from_keymap(
@@ -4228,7 +4232,9 @@ impl App {
                 .desired_rows(4)
                 .desired_width(f32::INFINITY),
         )
-        .on_hover_text("Paste a profile file; invalid versions are rejected without changing stored prefs.");
+        .on_hover_text(
+            "Paste a profile file; invalid versions are rejected without changing stored prefs.",
+        );
         if ui
             .button("Import profile")
             .on_hover_text("Load bindings from the JSON above into a named profile.")
@@ -4263,7 +4269,8 @@ impl App {
                         ui.end_row();
                         for action in keymap::rebindable_actions() {
                             let label = keymap::action_label(action);
-                            ui.label(label).on_hover_text(keymap::action_tooltip(action));
+                            ui.label(label)
+                                .on_hover_text(keymap::action_tooltip(action));
                             let chord = self
                                 .preferences
                                 .active_keymap()
@@ -4273,11 +4280,7 @@ impl App {
                             ui.label(egui::RichText::new(chord).monospace());
                             let waiting = self.binding_capture == Some(action);
                             let change = ui
-                                .button(if waiting {
-                                    "Press keys…"
-                                } else {
-                                    "Change"
-                                })
+                                .button(if waiting { "Press keys…" } else { "Change" })
                                 .on_hover_text("Click then press the new key chord. Esc cancels.");
                             if change.clicked() {
                                 self.binding_capture = Some(action);
@@ -6612,7 +6615,8 @@ impl App {
                         .num_columns(3)
                         .spacing([16.0, 4.0])
                         .show(ui, |ui| {
-                            for (keys, action, context) in self.preferences.active_keymap().rows_for_help()
+                            for (keys, action, context) in
+                                self.preferences.active_keymap().rows_for_help()
                             {
                                 ui.label(egui::RichText::new(keys).monospace().strong());
                                 ui.label(action);
@@ -8008,7 +8012,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn the_nets_tab_reports_the_copper_each_net_carries() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -8722,10 +8725,9 @@ mod tests {
         );
         Ok(())
     }
-
 }
 
 #[cfg(test)]
-mod test_support;
-#[cfg(test)]
 mod e2e;
+#[cfg(test)]
+mod test_support;

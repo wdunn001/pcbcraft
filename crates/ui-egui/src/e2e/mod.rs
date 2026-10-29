@@ -1,14 +1,14 @@
 #![allow(clippy::too_many_lines)]
 
+mod artifacts;
+mod board;
+mod builds;
+mod checks;
+mod compare;
+mod keymap;
+mod layers;
+mod layout;
 mod library;
 mod nets;
 mod rules;
-mod builds;
-mod board;
-mod checks;
-mod artifacts;
-mod layout;
-mod layers;
 mod shell;
-mod compare;
-mod keymap;
