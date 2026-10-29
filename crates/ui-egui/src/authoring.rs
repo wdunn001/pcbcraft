@@ -100,6 +100,8 @@ fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
         electrical_type: "passive".into(),
         unit,
         body_style: 1,
+        graphical_style: "line".into(),
+        visible: true,
     }
 }
 fn new_pad(number: &str, x: f64) -> FootprintPad {

@@ -1,10 +1,11 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
 pub mod library;
+pub mod profiles;
 pub mod recents;
 mod route;
 use pcbcraft_doc::*;
-use pcbcraft_geom::{Point, positive};
+use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
@@ -1201,6 +1202,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.route_pair",
+            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled orthogonal L geometry at the pair gap",
+            schema(
+                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["from_p", "from_n", "to_p", "to_n"],
+            ),
+        ),
+        (
             "footprint.mirror",
             "Mirror a board footprint left-to-right or top-to-bottom about its own origin",
             schema(
@@ -1237,6 +1246,27 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"columns":{"type":"integer","minimum":1,"maximum":32},"rows":{"type":"integer","minimum":1,"maximum":32},"pitch_x":{"type":"number","minimum":0,"maximum":10000,"description":"clear gap between neighbouring copies horizontally, millimetres"},"pitch_y":{"type":"number","minimum":0,"maximum":10000,"description":"clear gap between neighbouring copies vertically, millimetres"},"rail":{"type":"number","minimum":0,"maximum":25,"description":"border kept clear around the outside copies, millimetres"}}),
                 &["columns", "rows", "pitch_x", "pitch_y"],
+            ),
+        ),
+        (
+            "panel.set",
+            "Record manufacturing panel settings on the project: grid size, gaps, rails, tab channel width and separation method",
+            schema(
+                json!({"enabled":{"type":"boolean"},"columns":{"type":"integer","minimum":1,"maximum":32},"rows":{"type":"integer","minimum":1,"maximum":32},"pitch_x":{"type":"number","minimum":0,"maximum":10000},"pitch_y":{"type":"number","minimum":0,"maximum":10000},"rail":{"type":"number","minimum":0,"maximum":25},"separation":{"type":"string","enum":["tab","v_score"]},"tab_channel":{"type":"number","minimum":1.6,"maximum":2.0}}),
+                &[],
+            ),
+        ),
+        (
+            "panel.clear",
+            "Turn off panel settings and return them to defaults",
+            schema(json!({}), &[]),
+        ),
+        (
+            "panel.export",
+            "Write panel fabrication files (duplicated gerbers, drill with breakaway and tooling holes, pick-and-place per copy) into a directory",
+            schema(
+                json!({"directory":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["directory"],
             ),
         ),
         (
@@ -1376,7 +1406,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -1538,6 +1568,24 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_remove",
             "Remove one rule area by id",
             schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "rules.profile_list",
+            "List built-in interface rule profiles with id, name, category and summary",
+            schema(json!({}), &[]),
+        ),
+        (
+            "rules.profile_apply",
+            "Apply a built-in profile by id or a profile TOML file from disk; optional dry run returns the plan without changing the design",
+            schema(
+                json!({
+                    "id":{"type":"string","minLength":1,"maxLength":64,"description":"built-in profile id"},
+                    "path":{"type":"string","minLength":1,"maxLength":4096,"description":"path to profile TOML"},
+                    "nets_override":{"type":"array","items":{"type":"string","minLength":1,"maxLength":128},"maxItems":128,"description":"only assign nets in this list"},
+                    "dry_run":{"type":"boolean","default":false}
+                }),
+                &[],
+            ),
         ),
         (
             "bom.set_fields",
@@ -2004,32 +2052,24 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above" => {
-                if p.components.len() as f64 > c.limit {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} parts, over the limit of {} in \"{}\"",
-                            p.components.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            }
-            "via count above" => {
-                if p.board.vias.len() as f64 > c.limit {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} vias, over the limit of {} in \"{}\"",
-                            p.board.vias.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            }
+            "part count above" if p.components.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} parts, over the limit of {} in \"{}\"",
+                    p.components.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
+            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} vias, over the limit of {} in \"{}\"",
+                    p.board.vias.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -2462,8 +2502,12 @@ fn assign_to(
     definition: &pcbcraft_library::FootprintDefinition,
 ) -> Option<()> {
     let pins: std::collections::BTreeSet<_> = c.pins.iter().map(|p| p.number.as_str()).collect();
-    let pads: std::collections::BTreeSet<_> =
-        definition.pads.iter().map(|p| p.number.as_str()).collect();
+    let pads: std::collections::BTreeSet<_> = definition
+        .pads
+        .iter()
+        .filter(|p| !p.number.is_empty())
+        .map(|p| p.number.as_str())
+        .collect();
     if pins != pads {
         return None;
     }
@@ -3110,6 +3154,31 @@ struct PanelParams {
     pitch_y: f64,
     #[serde(default = "default_rail")]
     rail: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelSetParams {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    columns: Option<usize>,
+    #[serde(default)]
+    rows: Option<usize>,
+    #[serde(default)]
+    pitch_x: Option<f64>,
+    #[serde(default)]
+    pitch_y: Option<f64>,
+    #[serde(default)]
+    rail: Option<f64>,
+    #[serde(default)]
+    separation: Option<String>,
+    #[serde(default)]
+    tab_channel: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelExportParams {
+    directory: String,
 }
 fn default_rail() -> f64 {
     3.0
@@ -4156,6 +4225,18 @@ struct Route {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RoutePairParams {
+    from_p: PadRef,
+    from_n: PadRef,
+    to_p: PadRef,
+    to_n: PadRef,
+    #[serde(default)]
+    width: Option<f64>,
+    #[serde(default = "front")]
+    layer: Layer,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Object {
     id: Id,
 }
@@ -4295,6 +4376,47 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .and_then(|pad| pad.net)
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
+}
+fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
+    p.board
+        .diff_pairs
+        .iter()
+        .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
+}
+fn orthogonal_route_segments(start: Point, end: Point) -> Vec<(Point, Point)> {
+    let bend = Point::new(end.x, start.y);
+    let mut segments = vec![];
+    for (from, to) in [(start, bend), (bend, end)] {
+        if from.distance(to) > 1e-6 {
+            segments.push((from, to));
+        }
+    }
+    segments
+}
+fn validate_pair_coupling(
+    p: &Project,
+    pair: &DiffPair,
+    layer: Layer,
+    width_p: f64,
+    width_n: f64,
+    segs_p: &[(Point, Point)],
+    segs_n: &[(Point, Point)],
+) -> Result<(), Error> {
+    for (a0, a1) in segs_p {
+        for (b0, b1) in segs_n {
+            let separation = segment_distance(*a0, *a1, *b0, *b1) - width_p / 2.0 - width_n / 2.0;
+            let mid_a = Point::new((a0.x + a1.x) / 2.0, (a0.y + a1.y) / 2.0);
+            let mid_b = Point::new((b0.x + b1.x) / 2.0, (b0.y + b1.y) / 2.0);
+            let required =
+                p.required_clearance_at(pair.net_p, pair.net_n, mid_a, mid_b, layer, layer);
+            if separation + 1e-6 < pair.gap.max(required) {
+                return Err(Error::Invalid(
+                    "the differential pair cannot keep its coupling gap on this path".into(),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -5439,7 +5561,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.tolerance
-                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
             {
                 return Err(Error::Invalid(
                     "length tolerance must be between 0 and 100000 millimetres".into(),
@@ -5591,6 +5713,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 target_length: None,
                 length_tolerance: None,
                 nets: a.nets,
+                profile: None,
             });
             Ok(json!({"id": id}))
         }
@@ -5669,7 +5792,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.length_tolerance
-                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
             {
                 return Err(Error::Invalid(
                     "length tolerance must be between 0 and 1000 mm".into(),
@@ -5903,7 +6026,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.drill
-                .is_some_and(|d| !d.is_finite() || d < 0.05 || d > 100.0)
+                .is_some_and(|d| !d.is_finite() || !(0.05..=100.0).contains(&d))
             {
                 return Err(Error::Invalid(
                     "padstack drill must be within 0.05 to 100 mm".into(),
@@ -6863,7 +6986,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             wire.points = moved;
             for label in &mut p.labels {
                 if label.kind != "junction"
-                    || !net.is_some_and(|n| label.net == n)
+                    || net.is_none_or(|n| label.net != n)
                     || !old.contains(&label.position)
                 {
                     continue;
@@ -6948,7 +7071,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.text.len() > 1024 {
                 return Err(Error::Invalid("graphic text is too long".into()));
             }
-            if (a.shape == "text") != !a.text.is_empty() {
+            if (a.shape == "text") == a.text.is_empty() {
                 return Err(Error::Invalid("only text graphics may carry text".into()));
             }
             let id = allocate(next)?;
@@ -7994,13 +8117,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             let height = a.height.unwrap_or(3.0);
-            if !height.is_finite() || height < 0.5 || height > 50.0 {
+            if !height.is_finite() || !(0.5..=50.0).contains(&height) {
                 return Err(Error::Invalid(
                     "barcode height must be between 0.5 and 50 mm".into(),
                 ));
             }
             let module = a.module.unwrap_or(0.25);
-            if !module.is_finite() || module < 0.05 || module > 2.0 {
+            if !module.is_finite() || !(0.05..=2.0).contains(&module) {
                 return Err(Error::Invalid(
                     "barcode module width must be between 0.05 and 2 mm".into(),
                 ));
@@ -9209,7 +9332,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
                 if item
                     .size
-                    .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+                    .is_some_and(|s| !s.is_finite() || !(0.1..=50.0).contains(&s))
                 {
                     return Err(Error::Invalid(
                         "text size must be between 0.1 and 50 mm".into(),
@@ -9607,75 +9730,112 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "board.panel" => {
             let a: PanelParams = parse(params)?;
-            if a.columns < 1
-                || a.rows < 1
-                || a.columns > 32
-                || a.rows > 32
-                || a.columns * a.rows > 1024
-            {
-                return Err(Error::Invalid(
-                    "panels run 1 to 32 copies per side and at most 1024 in total".into(),
-                ));
-            }
-            let (board_w, board_h) = match p.board.outline.as_deref() {
-                Some(outline) if outline.len() >= 3 => {
-                    let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
-                    let max_x = outline
-                        .iter()
-                        .map(|v| v.x)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
-                    let max_y = outline
-                        .iter()
-                        .map(|v| v.y)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    (max_x - min_x, max_y - min_y)
-                }
-                _ => (p.board.width, p.board.height),
+            let settings = pcbcraft_doc::PanelSettings {
+                enabled: false,
+                columns: a.columns,
+                rows: a.rows,
+                pitch_x: a.pitch_x,
+                pitch_y: a.pitch_y,
+                rail: a.rail,
+                separation: pcbcraft_doc::PanelSeparation::Tab,
+                tab_channel: pcbcraft_doc::PANEL_TAB_CHANNEL_MIN_MM,
             };
-            if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
-                return Err(Error::Invalid("the board has no size to panelise".into()));
-            }
-            if !a.pitch_x.is_finite()
-                || !a.pitch_y.is_finite()
-                || a.pitch_x < 0.0
-                || a.pitch_y < 0.0
-            {
-                return Err(Error::Invalid(
-                    "gaps between copies cannot be negative".into(),
-                ));
-            }
-            if !(0.0..=25.0).contains(&a.rail) {
-                return Err(Error::Invalid("rails must be 0 to 25 millimetres".into()));
-            }
-            let panel_w =
-                a.columns as f64 * board_w + (a.columns - 1) as f64 * a.pitch_x + 2.0 * a.rail;
-            let panel_h = a.rows as f64 * board_h + (a.rows - 1) as f64 * a.pitch_y + 2.0 * a.rail;
-            let copies: Vec<serde_json::Value> = (0..a.rows)
-                .flat_map(|row| (0..a.columns).map(move |column| (row, column)))
-                .map(|(row, column)| {
-                    let x = a.rail + column as f64 * (board_w + a.pitch_x);
-                    let y = a.rail + row as f64 * (board_h + a.pitch_y);
+            let layout = pcbcraft_doc::panel_layout_with_settings(&p.board, &settings)
+                .map_err(Error::Invalid)?;
+            let copies: Vec<serde_json::Value> = layout
+                .copies
+                .iter()
+                .map(|copy| {
                     json!({
-                        "row": row,
-                        "column": column,
-                        "x": x,
-                        "y": y,
-                        "center_x": x + board_w / 2.0,
-                        "center_y": y + board_h / 2.0,
+                        "row": copy.row,
+                        "column": copy.column,
+                        "x": copy.x,
+                        "y": copy.y,
+                        "center_x": copy.center_x,
+                        "center_y": copy.center_y,
                     })
                 })
                 .collect();
             Ok(json!({
-                "columns": a.columns,
-                "rows": a.rows,
+                "columns": layout.columns,
+                "rows": layout.rows,
                 "copies": copies.len(),
-                "board": {"width": board_w, "height": board_h},
-                "pitch": {"x": a.pitch_x, "y": a.pitch_y},
-                "rail": a.rail,
-                "panel": {"width": panel_w, "height": panel_h},
+                "board": {"width": layout.board_width, "height": layout.board_height},
+                "pitch": {"x": layout.pitch_x, "y": layout.pitch_y},
+                "rail": layout.rail,
+                "panel": {
+                    "width": layout.panel_width,
+                    "height": layout.panel_height
+                },
                 "layout": copies,
             }))
+        }
+        "panel.set" => {
+            let a: PanelSetParams = parse(params)?;
+            if let Some(enabled) = a.enabled {
+                p.panel.enabled = enabled;
+            }
+            if let Some(columns) = a.columns {
+                p.panel.columns = columns;
+            }
+            if let Some(rows) = a.rows {
+                p.panel.rows = rows;
+            }
+            if let Some(pitch_x) = a.pitch_x {
+                p.panel.pitch_x = pitch_x;
+            }
+            if let Some(pitch_y) = a.pitch_y {
+                p.panel.pitch_y = pitch_y;
+            }
+            if let Some(rail) = a.rail {
+                p.panel.rail = rail;
+            }
+            if let Some(tab_channel) = a.tab_channel {
+                p.panel.tab_channel = tab_channel;
+            }
+            if let Some(separation) = a.separation {
+                p.panel.separation = match separation.as_str() {
+                    "tab" => pcbcraft_doc::PanelSeparation::Tab,
+                    "v_score" => pcbcraft_doc::PanelSeparation::VScore,
+                    other => {
+                        return Err(Error::Invalid(format!(
+                            "separation must be tab or v_score, not {other}"
+                        )));
+                    }
+                };
+            }
+            if p.panel.enabled {
+                p.panel.validate_fields().map_err(Error::Invalid)?;
+            }
+            Ok(json!({"panel": p.panel}))
+        }
+        "panel.clear" => {
+            p.panel = pcbcraft_doc::PanelSettings::default();
+            Ok(json!({"panel": p.panel}))
+        }
+        "panel.export" => {
+            let a: PanelExportParams = parse(params)?;
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            if !p.panel.enabled {
+                return Err(Error::Invalid(
+                    "panel export needs enabled panel settings".into(),
+                ));
+            }
+            let directory = std::path::Path::new(&a.directory);
+            let mut written: Vec<String> = vec![];
+            let files = pcbcraft_io::panel_fabrication_files(p)?;
+            for (name, text) in &files {
+                pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                written.push(name.clone());
+            }
+            let placement = pcbcraft_io::panel_placement_text(p)?;
+            pcbcraft_io::atomic_write(&directory.join("panel-placement.txt"), placement.as_bytes())
+                .map_err(Error::Invalid)?;
+            written.push("panel-placement.txt".into());
+            Ok(json!({"directory": a.directory, "files": written}))
         }
         "board.set_finish" => {
             let a: FinishParams = parse(params)?;
@@ -10346,7 +10506,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.net.is_some_and(|n| !p.nets.iter().any(|x| x.id == n)) {
                 return Err(Error::Invalid("area references an unknown net".into()));
             }
-            if a.max_height.is_some_and(|h| h < 0.1 || h > 100.0) {
+            if a.max_height.is_some_and(|h| !(0.1..=100.0).contains(&h)) {
                 return Err(Error::Invalid(
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
@@ -10376,12 +10536,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     width: a.width,
                     height: a.height,
                 },
+                profile: None,
             });
             Ok(json!({"id": id}))
         }
         "rules.area_set_height" => {
             let a: AreaHeightParams = parse(params)?;
-            if a.height.is_some_and(|h| h < 0.1 || h > 100.0) {
+            if a.height.is_some_and(|h| !(0.1..=100.0).contains(&h)) {
                 return Err(Error::Invalid(
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
@@ -10404,6 +10565,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"id": a.id}))
         }
+        "rules.profile_list" => Ok(profiles::profile_list()),
+        "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
             if a.name.trim().is_empty() || a.name.len() > 64 {
@@ -10697,6 +10860,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     a: key.0,
                     b: key.1,
                     clearance,
+                    profile: None,
                 });
                 rules.sort_by_key(|r| (r.a, r.b));
             }
@@ -10772,6 +10936,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 net_n: a.net_n,
                 gap: a.gap,
                 length_tolerance: a.length_tolerance,
+                profile: None,
             });
             Ok(json!({"id": id, "name": name}))
         }
@@ -11141,6 +11306,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         )
                         .map_err(Error::Invalid)?;
                         written.push("board-stats.csv".into());
+                    }
+                    "panel" => {
+                        let files = pcbcraft_io::panel_fabrication_files(p)?;
+                        for (name, text) in &files {
+                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                                .map_err(Error::Invalid)?;
+                            written.push(name.clone());
+                        }
+                        let placement = pcbcraft_io::panel_placement_text(p)?;
+                        pcbcraft_io::atomic_write(
+                            &directory.join("panel-placement.txt"),
+                            placement.as_bytes(),
+                        )
+                        .map_err(Error::Invalid)?;
+                        written.push("panel-placement.txt".into());
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -12020,6 +12200,86 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             Ok(json!({"ids":ids,"net":net,"width":width}))
         }
+        "track.route_pair" => {
+            let a: RoutePairParams = parse(params)?;
+            let (start_p, net_p) = pad(p, &a.from_p, a.layer)?;
+            let (end_p, end_net_p) = pad(p, &a.to_p, a.layer)?;
+            let (start_n, net_n) = pad(p, &a.from_n, a.layer)?;
+            let (end_n, end_net_n) = pad(p, &a.to_n, a.layer)?;
+            if net_p != end_net_p || net_n != end_net_n {
+                return Err(Error::Invalid(
+                    "each side must stay on one net between its pads".into(),
+                ));
+            }
+            if net_p == net_n {
+                return Err(Error::Invalid(
+                    "the two sides must be different nets".into(),
+                ));
+            }
+            let (width, pair_gap, segs_p, segs_n) = {
+                let Some(pair) = diff_pair_for_nets(p, net_p, net_n) else {
+                    return Err(Error::Invalid(
+                        "those nets are not declared as a differential pair".into(),
+                    ));
+                };
+                let width = a
+                    .width
+                    .unwrap_or_else(|| class_width(p, pair.net_p).max(class_width(p, pair.net_n)));
+                if !positive(width) {
+                    return Err(Error::Invalid("route requires a valid width".into()));
+                }
+                for (start, end) in [(start_p, end_p), (start_n, end_n)] {
+                    if start.distance(end) < 1e-6 {
+                        return Err(Error::Invalid(
+                            "each side needs distinct start and end pads".into(),
+                        ));
+                    }
+                    if !start.valid() || !end.valid() {
+                        return Err(Error::Invalid("pad position is out of range".into()));
+                    }
+                }
+                let segs_p = orthogonal_route_segments(start_p, end_p);
+                let segs_n = orthogonal_route_segments(start_n, end_n);
+                validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
+                (width, pair.gap, segs_p, segs_n)
+            };
+            let mut ids_p = vec![];
+            let mut ids_n = vec![];
+            for (from, to) in segs_p {
+                let id = allocate(next)?;
+                ids_p.push(id);
+                p.board.tracks.push(Track {
+                    id,
+                    net: net_p,
+                    start: from,
+                    end: to,
+                    width,
+                    layer: a.layer,
+                    arc: None,
+                });
+            }
+            for (from, to) in segs_n {
+                let id = allocate(next)?;
+                ids_n.push(id);
+                p.board.tracks.push(Track {
+                    id,
+                    net: net_n,
+                    start: from,
+                    end: to,
+                    width,
+                    layer: a.layer,
+                    arc: None,
+                });
+            }
+            Ok(json!({
+                "ids_p": ids_p,
+                "ids_n": ids_n,
+                "net_p": net_p,
+                "net_n": net_n,
+                "gap": pair_gap,
+                "width": width,
+            }))
+        }
         "footprint.mirror" => {
             let a: MirrorParams = parse(params)?;
             if footprint_locked(p, a.id) {
@@ -12634,7 +12894,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
             }
             if a.size
-                .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+                .is_some_and(|s| !s.is_finite() || !(0.1..=50.0).contains(&s))
             {
                 return Err(Error::Invalid(
                     "text size must be between 0.1 and 50 mm".into(),
@@ -16668,6 +16928,32 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn panel_settings_save_load_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "panel.set",
+            json!({
+                "enabled": true,
+                "columns": 2,
+                "rows": 2,
+                "pitch_x": 60.0,
+                "pitch_y": 40.0,
+                "rail": 3.0,
+                "separation": "tab",
+                "tab_channel": 1.8
+            }),
+            None,
+        )?;
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate().map_err(Error::Invalid)?;
+        assert!(loaded.panel.enabled);
+        assert_eq!(loaded.panel.columns, 2);
+        assert_eq!(loaded.panel.tab_channel, 1.8);
+        Ok(())
+    }
+    #[test]
     fn board_panel_reports_a_copy_grid_without_touching_the_design() -> Result<(), Error> {
         let mut s = Session::default();
         for bad in [
@@ -17647,6 +17933,145 @@ mod tests {
                 .iter()
                 .any(|g| g["Rectangle"]["layer"].as_str() == Some("pcbcraft.courtyard")),
             "assigned copies carry the courtyard with them"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_upserts_valid_definition() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert_eq!(s.project.library.footprints.len(), 0);
+        s.execute(
+            "library.footprint.generate",
+            json!({
+                "family": "qfn",
+                "density": "B",
+                "name": "QFN50P500X500X100-33N",
+                "pitch": 0.5,
+                "pin_count": 32,
+                "body_x": 5.0,
+                "body_y": 5.0,
+                "body_z": 1.0,
+                "thermal": true
+            }),
+            None,
+        )?;
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(
+            s.project.library.footprints[0].name,
+            "QFN50P500X500X100-33N"
+        );
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        assert!(
+            commands()
+                .iter()
+                .any(|c| c.id == "library.footprint.generate"),
+            "MCP clients must see library.footprint.generate"
+        );
+        assert!(
+            commands().iter().any(|c| c.id == "library.footprint.check"),
+            "MCP clients must see library.footprint.check"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_rejects_unknown_family() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.revision;
+        assert!(
+            s.execute(
+                "library.footprint.generate",
+                json!({"family": "not_a_family", "name": "X", "pitch": 0.5, "pin_count": 8}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.revision, before);
+        assert_eq!(s.project.library.footprints.len(), 0);
+        let before = s.revision;
+        assert!(
+            s.execute(
+                "library.footprint.generate",
+                json!({
+                    "family": "qfn",
+                    "name": "Q",
+                    "pitch": 0.5,
+                    "pin_count": 30,
+                    "body_x": 5.0,
+                    "body_y": 5.0,
+                    "thermal": true
+                }),
+                None
+            )
+            .is_err(),
+            "invalid QFN pin count must refuse"
+        );
+        assert_eq!(s.revision, before);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_check_overlap_fixture() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "OverlapFixture".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(0.0, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(2.0, 2.0),
+                    layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "2".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(0.5, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(2.0, 2.0),
+                    layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+            ],
+            graphics: vec![pcbcraft_library::Graphic::Rectangle {
+                start: pcbcraft_geom::Point::new(-5.0, -5.0),
+                end: pcbcraft_geom::Point::new(5.0, 5.0),
+                width: 0.1,
+                fill: String::new(),
+                layer: "pcbcraft.courtyard".into(),
+            }],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let out = s.execute(
+            "library.footprint.check",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let findings = out["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            findings.iter().any(|f| f["code"] == "lib_pad_overlap"),
+            "overlap fixture must report lib_pad_overlap: {findings:?}"
         );
         Ok(())
     }
@@ -22546,6 +22971,183 @@ mod tests {
         Ok(())
     }
 
+    fn pair_pitch_footprint(
+        name: &str,
+        pitch: f64,
+    ) -> Result<pcbcraft_library::FootprintDefinition, Error> {
+        let template = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))
+        .map_err(Error::Invalid)?;
+        let pad = template.pads.first().ok_or_else(missing)?.clone();
+        let mut fp = template;
+        fp.name = name.into();
+        fp.pads = ["1", "2"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, number)| {
+                let mut item = pad.clone();
+                item.number = number.into();
+                item.position = Point::new(0.0, if i == 0 { -pitch / 2.0 } else { pitch / 2.0 });
+                item
+            })
+            .collect();
+        Ok(fp)
+    }
+
+    fn drc_codes(s: &mut Session) -> Result<Vec<String>, Error> {
+        Ok(s.checks()["drc"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_string))
+            .collect())
+    }
+
+    fn setup_parallel_pair_connectors(
+        s: &mut Session,
+        gap: f64,
+        width: f64,
+    ) -> Result<(Id, Id, Id, Id), Error> {
+        let pitch = gap + width;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": pair_pitch_footprint("PairConn", pitch)?}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","reference":"J1","position":{"x":10.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","reference":"J2","position":{"x":50.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"1"},"to":{"component":2,"pin":"1"}}),
+            None,
+        )?;
+        let net_p = s.project.components[0].pins[0].net.ok_or_else(missing)?;
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"2"}}),
+            None,
+        )?;
+        let net_n = s.project.components[0].pins[1].net.ok_or_else(missing)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        for component in [1_u64, 2] {
+            s.execute(
+                "footprint.assign_custom",
+                json!({"id":component,"name":"PairConn"}),
+                None,
+            )?;
+        }
+        let fp_j1 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == 1)
+            .ok_or_else(missing)?
+            .id;
+        let fp_j2 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == 2)
+            .ok_or_else(missing)?
+            .id;
+        Ok((fp_j1, fp_j2, net_p, net_n))
+    }
+
+    #[test]
+    fn route_pair_parallel_connectors_meets_gap_and_no_diffpair_gap() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        let before = s.project.board.tracks.len();
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        assert!(s.project.board.tracks.len() > before);
+        assert!(
+            !drc_codes(&mut s)?.contains(&"diffpair_gap".to_string()),
+            "coupled routes should satisfy the declared gap"
+        );
+        let mut min_gap = f64::INFINITY;
+        let tracks = s.project.board.tracks.clone();
+        let p_tracks: Vec<_> = tracks
+            .iter()
+            .filter(|t| t.net == s.project.board.diff_pairs[0].net_p)
+            .collect();
+        let n_tracks: Vec<_> = tracks
+            .iter()
+            .filter(|t| t.net == s.project.board.diff_pairs[0].net_n)
+            .collect();
+        for a in &p_tracks {
+            for b in &n_tracks {
+                let separation = segment_distance(a.start, a.end, b.start, b.end)
+                    - a.width / 2.0
+                    - b.width / 2.0;
+                if separation < min_gap {
+                    min_gap = separation;
+                }
+            }
+        }
+        assert!(
+            (min_gap - gap).abs() < 1e-3,
+            "minimum edge gap should match the pair gap, got {min_gap}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn route_pair_refuses_narrow_channel_and_leaves_tracks_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, 0.3, 0.2)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":5.0}),
+            None,
+        )?;
+        let tracks_before = s.project.board.tracks.clone();
+        assert!(
+            s.execute(
+                "track.route_pair",
+                json!({
+                    "from_p":{"footprint":fp_j1,"pad":"1"},
+                    "from_n":{"footprint":fp_j1,"pad":"2"},
+                    "to_p":{"footprint":fp_j2,"pad":"1"},
+                    "to_n":{"footprint":fp_j2,"pad":"2"},
+                    "width":0.2,
+                }),
+                None,
+            )
+            .is_err(),
+            "pad spacing cannot honour a 5 mm coupling gap"
+        );
+        assert_eq!(s.project.board.tracks, tracks_before);
+        Ok(())
+    }
+
     #[test]
     fn unplated_holes_drill_move_resize_and_keep_copper_away() -> Result<(), Error> {
         let mut s = Session::default();
@@ -22612,6 +23214,64 @@ mod tests {
         s.execute("object.delete", json!({"id":id}), None)?;
         s.execute("object.delete", json!({"id":second}), None)?;
         assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn assign_to_ignores_unplated_pads_when_matching_pins() -> Result<(), Error> {
+        let footprint = pcbcraft_library::read_footprint(
+            "(footprint PegConn (pad 1 thru_hole circle (at -2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
+             (pad 2 thru_hole circle (at 2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
+             (pad \"\" np_thru_hole circle (at -5 5) (size 0 0) (drill 3) (layers)) \
+             (pad \"\" np_thru_hole circle (at 5 5) (size 0 0) (drill 3) (layers)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(
+            footprint
+                .pads
+                .iter()
+                .filter(|p| p.pad_type == "unplated")
+                .count(),
+            2
+        );
+        let mut s = Session::default();
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": footprint}),
+            None,
+        )?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id": id, "name":"PegConn"}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .component(id)
+                .and_then(|c| c.library_footprint.as_ref())
+                .is_some(),
+            "numbered pads match the two-pin symbol even with mechanical pegs"
+        );
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].pads.len(), 4);
+        assert!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .filter(|p| p
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "unplated"))
+                .all(|p| p.net.is_none())
+        );
         Ok(())
     }
 
@@ -23476,6 +24136,8 @@ mod tests {
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
                 "pcb.dxf"
             ])
         );
@@ -23485,6 +24147,8 @@ mod tests {
             "pcb-Drill.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
             "pcb.dxf",
         ] {
             assert!(
@@ -23537,6 +24201,8 @@ mod tests {
             "pcb-B.Cu.gbr",
             "pcb-Drill.drl",
             "pcb-Edge.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
             "pcb.dxf",
             "bom.csv",
             "pcb-netlist.net",
@@ -26686,6 +27352,50 @@ mod tests {
         s.undo()?;
         assert_eq!(pin_count(&s), start, "one undo removes a freshly added pin");
         assert_eq!(pin_name(&s, "10"), None);
+        Ok(())
+    }
+
+    #[test]
+    fn library_symbol_pin_set_accepts_graphical_style() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "library.import_symbol_file",
+            json!({"path": library_fixture("device.kicad_sym")}),
+            None,
+        )?;
+        let out = s.execute(
+            "library.symbol.pin_set",
+            json!({
+                "name": "R",
+                "pin": {
+                    "number": "1",
+                    "name": "A",
+                    "position": {"x": 0.0, "y": 3.81},
+                    "angle": 270.0,
+                    "length": 1.27,
+                    "electrical_type": "passive",
+                    "unit": 1,
+                    "body_style": 1,
+                    "graphical_style": "clock",
+                    "visible": true
+                }
+            }),
+            None,
+        )?;
+        assert_eq!(out["result"]["name"], json!("R"));
+        let pin = s
+            .project
+            .library
+            .symbols
+            .iter()
+            .find(|sym| sym.name == "R")
+            .ok_or_else(missing)?
+            .pins
+            .iter()
+            .find(|p| p.number == "1")
+            .ok_or_else(missing)?;
+        assert_eq!(pin.graphical_style, "clock");
+        assert!(pin.visible);
         Ok(())
     }
 

@@ -1,4 +1,9 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod panel;
+pub use panel::{
+    PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
+    panel_layout, panel_layout_from_grid, panel_layout_with_settings,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::{Deserialize, Serialize};
@@ -230,6 +235,9 @@ pub struct NetClass {
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
+    /// Built-in or custom rule profile that last applied these values, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.
@@ -240,6 +248,9 @@ pub struct NetPairRule {
     pub b: Id,
     /// Minimum copper separation between the two nets, in millimetres.
     pub clearance: f64,
+    /// Rule profile that last applied this pair clearance, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 impl NetPairRule {
     fn valid(&self) -> bool {
@@ -269,6 +280,9 @@ pub struct DiffPair {
     /// means length matching is not checked for this pair.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Rule profile that last applied this differential pair, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 impl DiffPair {
     fn valid(&self) -> bool {
@@ -312,6 +326,12 @@ pub struct RuleArea {
     pub max_height: Option<f64>,
     /// The rectangle itself.
     pub region: RuleRegion,
+    /// Rule profile that last applied this area, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+}
+fn profile_tag_valid(tag: &Option<String>) -> bool {
+    tag.as_ref().is_none_or(|s| !s.is_empty() && s.len() <= 64)
 }
 impl RuleArea {
     fn valid(&self) -> bool {
@@ -775,7 +795,11 @@ impl Footprint {
         self.pads
             .iter()
             .find(|p| p.number == number)
-            .map(|p| self.position.offset(p.offset.rotate(-self.rotation)))
+            .map(|p| self.pad_world_position(p))
+    }
+    /// World position of a placed pad, including mechanical pads with no number.
+    pub fn pad_world_position(&self, pad: &Pad) -> Point {
+        self.position.offset(pad.offset.rotate(-self.rotation))
     }
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -942,6 +966,7 @@ impl OutputJob {
                         | "stackup"
                         | "drill_chart"
                         | "stats"
+                        | "panel"
                 )
             })
     }
@@ -1372,6 +1397,85 @@ pub struct LibraryLink {
     /// Folder that holds the library files for this nickname.
     pub path: String,
 }
+/// V-score cut lines across the panel when separation is V-score; empty for tab routing.
+pub fn panel_score_lines(project: &Project) -> Result<Vec<(Point, Point)>, String> {
+    let settings = &project.panel;
+    if !settings.enabled {
+        return Err("panel checks need enabled panel settings".into());
+    }
+    if settings.separation != PanelSeparation::VScore {
+        return Ok(Vec::new());
+    }
+    let layout = panel_layout(project)?;
+    let mut lines = Vec::new();
+    for column in 0..layout.columns.saturating_sub(1) {
+        let x = layout.rail
+            + (column + 1) as f64 * layout.board_width
+            + column as f64 * layout.pitch_x
+            + layout.pitch_x / 2.0;
+        lines.push((Point::new(x, 0.0), Point::new(x, layout.panel_height)));
+    }
+    for row in 0..layout.rows.saturating_sub(1) {
+        let y = layout.rail
+            + (row + 1) as f64 * layout.board_height
+            + row as f64 * layout.pitch_y
+            + layout.pitch_y / 2.0;
+        lines.push((Point::new(0.0, y), Point::new(layout.panel_width, y)));
+    }
+    Ok(lines)
+}
+/// Tab-routing cut paths between copies when tab separation is active.
+pub fn panel_tab_segments(project: &Project) -> Result<Vec<(Point, Point)>, String> {
+    let settings = &project.panel;
+    if !settings.enabled {
+        return Err("panel checks need enabled panel settings".into());
+    }
+    if settings.separation != PanelSeparation::Tab {
+        return Ok(Vec::new());
+    }
+    let layout = panel_layout(project)?;
+    let mut segments = Vec::new();
+    for column in 0..layout.columns.saturating_sub(1) {
+        let x = layout.rail
+            + (column + 1) as f64 * layout.board_width
+            + column as f64 * layout.pitch_x
+            + layout.pitch_x / 2.0;
+        segments.push((
+            Point::new(x, layout.rail),
+            Point::new(x, layout.panel_height - layout.rail),
+        ));
+    }
+    for row in 0..layout.rows.saturating_sub(1) {
+        let y = layout.rail
+            + (row + 1) as f64 * layout.board_height
+            + row as f64 * layout.pitch_y
+            + layout.pitch_y / 2.0;
+        segments.push((
+            Point::new(layout.rail, y),
+            Point::new(layout.panel_width - layout.rail, y),
+        ));
+    }
+    Ok(segments)
+}
+/// Tab-routing channel width in millimetres when tab separation is active.
+pub fn panel_tab_channel_width(project: &Project) -> Option<f64> {
+    let settings = &project.panel;
+    if settings.enabled && settings.separation == PanelSeparation::Tab {
+        Some(settings.tab_channel)
+    } else {
+        None
+    }
+}
+/// Default assembler panel limit until a fabrication profile supplies shop values.
+pub const PANEL_ASSEMBLER_MAX_MM: f64 = 250.0;
+/// Minimum copper clearance from a V-score line (standards default).
+pub const PANEL_SCORE_COPPER_MIN_MM: f64 = 0.40;
+/// Minimum component body clearance from a V-score line (standards default).
+pub const PANEL_SCORE_COMPONENT_MIN_MM: f64 = 1.0;
+/// Minimum routed tab channel width (standards default).
+pub const PANEL_TAB_CHANNEL_MIN_MM: f64 = 1.6;
+/// Panel fiducial count expected in the rails.
+pub const PANEL_FIDUCIAL_COUNT: usize = 3;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1409,6 +1513,9 @@ pub struct Project {
     /// any edit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_jobs: Vec<OutputJob>,
+    /// Manufacturing panel grid; disabled until the designer enables it.
+    #[serde(default)]
+    pub panel: PanelSettings,
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
@@ -1539,6 +1646,7 @@ impl Default for Project {
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
+            panel: PanelSettings::default(),
             custom_checks: vec![],
             files: vec![],
             variants: vec![],
@@ -1935,6 +2043,9 @@ impl Project {
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
         }
+        if self.panel.enabled {
+            self.panel.validate_fields()?;
+        }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
         }
@@ -1994,7 +2105,7 @@ impl Project {
             if n.target_length
                 .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
                 || n.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
             {
                 return Err("invalid net length target or tolerance".into());
@@ -2026,8 +2137,9 @@ impl Project {
                 || c.target_length
                     .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
                 || c.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || !profile_tag_valid(&c.profile)
             {
                 return Err("invalid net class".into());
             }
@@ -2076,6 +2188,7 @@ impl Project {
                 || !nets.contains(&d.net_p)
                 || !nets.contains(&d.net_n)
                 || !pair_names.insert(d.name.as_str())
+                || !profile_tag_valid(&d.profile)
             {
                 return Err(
                     "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
@@ -2084,7 +2197,10 @@ impl Project {
             }
         }
         for r in &self.board.rule_areas {
-            if !r.valid() || r.net.is_some_and(|n| !nets.contains(&n)) {
+            if !r.valid()
+                || r.net.is_some_and(|n| !nets.contains(&n))
+                || !profile_tag_valid(&r.profile)
+            {
                 return Err("rule areas need a valid rectangle, a sane gap and a known net".into());
             }
         }
@@ -2100,7 +2216,12 @@ impl Project {
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
         for r in &self.board.pair_rules {
             let key = (r.a.min(r.b), r.a.max(r.b));
-            if !r.valid() || !nets.contains(&r.a) || !nets.contains(&r.b) || !paired.insert(key) {
+            if !r.valid()
+                || !nets.contains(&r.a)
+                || !nets.contains(&r.b)
+                || !paired.insert(key)
+                || !profile_tag_valid(&r.profile)
+            {
                 return Err(
                     "net pair clearance rules need known distinct nets, one rule per pair".into(),
                 );
@@ -2315,6 +2436,7 @@ impl Project {
                     .definition
                     .pads
                     .iter()
+                    .filter(|p| !p.number.is_empty())
                     .map(|p| p.number.as_str())
                     .collect();
                 if pins != pads {
@@ -2382,7 +2504,7 @@ impl Project {
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
             }
-            if (g.shape == "text") != !g.text.is_empty() {
+            if (g.shape == "text") == g.text.is_empty() {
                 return Err("only text graphics may carry text".into());
             }
             if g.shape == "line" && g.points[0] == g.points[1] {
@@ -2518,7 +2640,25 @@ impl Project {
                 );
             }
             for p in &f.pads {
-                if !numbers.insert(&p.number)
+                let unplated = p
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "unplated");
+                if unplated {
+                    if p.net.is_some() {
+                        return Err("unplated footprint pad cannot carry a net".into());
+                    }
+                    if !p.offset.valid()
+                        || !p.diameter.is_finite()
+                        || p.diameter < 0.0
+                        || p.net.is_some_and(|n| !nets.contains(&n))
+                    {
+                        return Err("invalid pad or stale pad net; sync the PCB".into());
+                    }
+                    if !p.number.is_empty() && !numbers.insert(&p.number) {
+                        return Err("invalid pad or stale pad net; sync the PCB".into());
+                    }
+                } else if !numbers.insert(&p.number)
                     || !p.offset.valid()
                     || !positive(p.diameter)
                     || p.net.is_some_and(|n| !nets.contains(&n))
@@ -2533,8 +2673,12 @@ impl Project {
                 if let Some(geometry) = &p.geometry {
                     if geometry.position != p.offset
                         || geometry.number != p.number
-                        || !positive(geometry.size.x)
-                        || !positive(geometry.size.y)
+                        || (!unplated && (!positive(geometry.size.x) || !positive(geometry.size.y)))
+                        || (unplated
+                            && (geometry.size.x < 0.0
+                                || geometry.size.y < 0.0
+                                || !geometry.size.x.is_finite()
+                                || !geometry.size.y.is_finite()))
                     {
                         return Err("pad geometry does not match imported footprint".into());
                     }
@@ -2762,6 +2906,31 @@ pub fn validate_footprint_support(
     }
     let mut numbers = BTreeSet::new();
     for p in &definition.pads {
+        if p.pad_type == "unplated" {
+            if matches!(p.shape_kind(), PadShape::Unsupported) {
+                return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
+            }
+            if p.layers
+                .iter()
+                .any(|l| l.ends_with(".Cu") || l.as_str() == "*.Cu" || l == "F.Cu" || l == "B.Cu")
+            {
+                return Err("unplated mechanical pad must not include copper layers".into());
+            }
+            let Some(drill) = &p.drill else {
+                return Err("unplated mechanical pad needs a drill".into());
+            };
+            if drill.size.x.min(drill.size.y) <= 0.0 {
+                return Err("unplated mechanical pad needs a positive drill".into());
+            }
+            let copper_present = p.size.x > 1e-9 && p.size.y > 1e-9;
+            if copper_present && !drill_inside_pad(p) {
+                return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
+            }
+            if !p.number.is_empty() && !numbers.insert(&p.number) {
+                return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
+            }
+            continue;
+        }
         let copper_ok = if p.pad_type == "thru_hole" {
             p.layers.iter().any(|l| l == "*.Cu")
                 || (p.layers.iter().any(|l| l == "F.Cu") && p.layers.iter().any(|l| l == "B.Cu"))
@@ -3300,5 +3469,137 @@ mod drill_tests {
         assert_eq!(one.len(), 5);
         assert!((pcbcraft_geom::polygon_area(&one).abs() - (2.0 - 0.02)).abs() < 1e-12);
         assert!(pcbcraft_geom::polygon_is_simple(&one));
+    }
+
+    fn thru_pin(number: &str, x: f64) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    fn unplated_peg(x: f64, y: f64) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn validate_footprint_support_accepts_unplated_pegs_without_numbers() -> Result<(), String> {
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegConn".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                thru_pin("1", -2.54),
+                thru_pin("2", 2.54),
+                unplated_peg(-5.0, 5.0),
+                unplated_peg(5.0, 5.0),
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn project_validate_rejects_unplated_footprint_pad_with_net() -> Result<(), String> {
+        let peg = unplated_peg(0.0, 5.0);
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegOnly".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![thru_pin("1", 0.0), thru_pin("2", 2.54), peg.clone()],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut c = component_template("resistor", 2, "R1".into(), Point::default())
+            .ok_or("missing template")?;
+        c.pins[0].net = Some(1);
+        c.pins[1].net = Some(1);
+        c.library_footprint = Some(LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        p.components.push(c);
+        p.board.footprints.push(Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![
+                Pad {
+                    number: "1".into(),
+                    offset: Point::new(0.0, 0.0),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(definition.pads[0].clone()),
+                },
+                Pad {
+                    number: "2".into(),
+                    offset: Point::new(2.54, 0.0),
+                    diameter: 1.6,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(definition.pads[1].clone()),
+                },
+                Pad {
+                    number: String::new(),
+                    offset: peg.position,
+                    diameter: 0.0,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: Some(peg),
+                },
+            ],
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("unplated footprint pad cannot carry a net"))
+        );
+        Ok(())
     }
 }
