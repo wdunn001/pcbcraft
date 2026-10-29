@@ -52,6 +52,19 @@ pub fn embedded_bytes(file: &EmbeddedFile) -> Result<Vec<u8>, String> {
         .map_err(|_| format!("{} is not valid base64", file.name))
 }
 
+/// Read a picture file from disk and return it as base64 text ready to attach.
+/// Files over about 2 MiB are refused before they are read.
+pub fn read_png_base64(path: &std::path::Path) -> Result<String, String> {
+    const LIMIT: u64 = 2_097_152;
+    let meta =
+        std::fs::metadata(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if !meta.is_file() || meta.len() > LIMIT {
+        return Err("the picture must be a file of about 2 MiB or less".into());
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 /// Decode PNG bytes, refusing animated, 16-bit and oversized pictures before
 /// any pixel is expanded.
 pub fn decode_png(bytes: &[u8]) -> Result<RgbaImage, String> {
