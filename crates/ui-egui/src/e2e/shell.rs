@@ -551,33 +551,141 @@ fn a_newcomer_switches_view_with_the_keyboard_only() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn every_interactive_accesskit_node_has_a_name_on_each_tab() -> Result<(), String> {
-    let (ctx, mut app) = practice_app();
-    let mut gaps = Vec::new();
-    for tab in [
-        Tab::Files,
-        Tab::Schematic,
-        Tab::Pcb,
-        Tab::Board3d,
-        Tab::Rules,
-        Tab::Checks,
-        Tab::Settings,
-    ] {
-        app.change_tab(tab);
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let nodes = a11y::audit::interactive_nodes(&out);
-        assert!(
-            !nodes.is_empty(),
-            "{tab:?} exposes no controls to a screen reader"
-        );
-        let blank = a11y::audit::unnamed(&out);
-        if !blank.is_empty() {
-            gaps.push(format!("{tab:?}: {blank:?}"));
+/// Known unnamed controls, as a count per role: `role | count | #issue | reason`.
+const EXEMPTIONS: &str = include_str!("accessible-name-exemptions.txt");
+
+/// Every screen a person can reach without typing: the start page, each tab,
+/// and both pages of the lower right dock. Returns one line per unnamed
+/// interactive control in the form the exemption file uses (without the
+/// issue and reason), and fails if a screen exposes no controls at all.
+fn unnamed_controls() -> Result<Vec<String>, String> {
+    let mut found = Vec::new();
+    for lower in [0u8, 1u8] {
+        for tab in [
+            Tab::Files,
+            Tab::Schematic,
+            Tab::Pcb,
+            Tab::Board3d,
+            Tab::Rules,
+            Tab::Checks,
+            Tab::Settings,
+        ] {
+            let (ctx, mut app) = practice_app();
+            app.preferences.aside_lower_tab = lower;
+            app.change_tab(tab);
+            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            let nodes = a11y::audit::nodes(&out);
+            if nodes.is_empty() {
+                return Err(format!("{tab:?} exposes no controls to a screen reader"));
+            }
+            for (id, role, name) in nodes {
+                if name.is_empty() {
+                    found.push(format!("{id} | {role:?}"));
+                }
+            }
         }
     }
-    assert!(gaps.is_empty(), "unnamed controls: {gaps:?}");
+    let (ctx, mut app) = practice_app();
+    app.home_open = true;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for (id, role, name) in a11y::audit::nodes(&out) {
+        if name.is_empty() {
+            found.push(format!("{id} | {role:?}"));
+        }
+    }
+    found.sort();
+    found.dedup();
+    Ok(found)
+}
+
+/// Unnamed controls counted per role, from the lines of the exemption file
+/// (`role | count | #issue | reason`).
+fn budget() -> Vec<(String, usize, String)> {
+    EXEMPTIONS
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| {
+            let parts: Vec<&str> = l.splitn(4, '|').map(str::trim).collect();
+            (
+                parts.first().copied().unwrap_or_default().to_owned(),
+                parts.get(1).and_then(|n| n.parse().ok()).unwrap_or(0),
+                l.to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// How many distinct unnamed controls each role has right now.
+fn unnamed_by_role() -> Result<Vec<(String, usize)>, String> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    for line in unnamed_controls()? {
+        let role = line.split('|').nth(1).unwrap_or_default().trim().to_owned();
+        match counts.iter_mut().find(|(r, _)| *r == role) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((role, 1)),
+        }
+    }
+    Ok(counts)
+}
+
+#[test]
+fn every_interactive_control_has_an_accessible_name() -> Result<(), String> {
+    let allowed = budget();
+    let mut worse = Vec::new();
+    for (role, now) in unnamed_by_role()? {
+        let limit = allowed
+            .iter()
+            .find(|(r, _, _)| *r == role)
+            .map_or(0, |(_, n, _)| *n);
+        if now > limit {
+            worse.push(format!("{role}: {now} unnamed, {limit} allowed"));
+        }
+    }
+    assert!(
+        worse.is_empty(),
+        "a new control has no accessible name; name it with a11y::name_control \
+         or label it, and only as a last resort raise its count in \
+         accessible-name-exemptions.txt with an issue number: {worse:?}\nunnamed now: {:?}",
+        unnamed_controls()?
+    );
+    Ok(())
+}
+
+#[test]
+fn the_exemption_file_has_no_entry_for_a_control_that_is_now_named() -> Result<(), String> {
+    let now = unnamed_by_role()?;
+    let mut stale = Vec::new();
+    for (role, limit, line) in budget() {
+        let have = now.iter().find(|(r, _)| *r == role).map_or(0, |(_, n)| *n);
+        if have < limit {
+            stale.push(format!("{line} (only {have} unnamed now; lower the count)"));
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "controls got names; shrink the list: {stale:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn each_exemption_names_an_issue_number() -> Result<(), String> {
+    for (_, _, line) in budget() {
+        let fields: Vec<&str> = line.splitn(4, '|').map(str::trim).collect();
+        let count_ok = fields.get(1).is_some_and(|n| n.parse::<usize>().is_ok());
+        let issue_ok = fields.get(2).is_some_and(|f| {
+            f.strip_prefix('#')
+                .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        });
+        let reason_ok = fields.get(3).is_some_and(|r| !r.is_empty());
+        assert!(
+            count_ok && issue_ok && reason_ok,
+            "needs `role | count | #issue | reason`: {line}"
+        );
+    }
     Ok(())
 }
 
@@ -619,6 +727,108 @@ fn preferences_ui_scale_clamps_and_persists() -> Result<(), String> {
         ctx.zoom_factor(),
         a11y::MAX_UI_SCALE,
         "absurd values are held in range"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_with_a_screen_reader_finds_the_fit_move_and_rotate_buttons_by_name()
+-> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    app.change_tab(Tab::Pcb);
+    // Move and Rotate appear beside a selected part.
+    app.select(Some(app.project.components[0].id));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let nodes = a11y::audit::interactive_nodes(&out);
+    for name in ["Fit", "Move", "Rotate"] {
+        assert!(
+            nodes
+                .iter()
+                .any(|(role, label)| *role == egui::accesskit::Role::Button && label == name),
+            "a screen reader should find a button named {name}: {nodes:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_accessibility_tree_is_empty_until_the_screen_reader_is_switched_on() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    // `frame` switches the tree on, so run the first pass by hand.
+    let mut off = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(1440.0, 940.0),
+            )),
+            ..Default::default()
+        },
+        |ui| app.show(ui),
+    );
+    off.textures_delta.clear();
+    assert!(
+        off.platform_output.accesskit_update.is_none(),
+        "nothing is built for a person who has no screen reader"
+    );
+    ctx.enable_accesskit();
+    let on = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        on.platform_output.accesskit_update.is_some(),
+        "switching a screen reader on starts the tree"
+    );
+    Ok(())
+}
+
+/// Text of every polite live region in this frame's accessibility tree.
+fn polite_messages(out: &egui::FullOutput) -> Vec<String> {
+    let Some(update) = &out.platform_output.accesskit_update else {
+        return Vec::new();
+    };
+    update
+        .nodes
+        .iter()
+        .filter(|(_, node)| node.live() == Some(egui::accesskit::Live::Polite))
+        .filter_map(|(_, node)| node.label().map(str::to_owned))
+        .collect()
+}
+
+#[test]
+fn a_newcomer_with_a_screen_reader_hears_the_status_after_a_command() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    app.tool_call("sample_design", json!({}));
+    assert!(!app.message.is_empty(), "the command reports itself");
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let heard = polite_messages(&out);
+    assert!(
+        heard.contains(&app.message),
+        "the screen reader is told '{}' without focus moving: {heard:?}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn an_unchanged_message_is_not_announced_twice() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    app.message = "net.create · committed".into();
+    let first = polite_messages(&frame(&ctx, &mut app, vec![], egui::Modifiers::NONE));
+    let again = polite_messages(&frame(&ctx, &mut app, vec![], egui::Modifiers::NONE));
+    assert_eq!(
+        first, again,
+        "same words, same node text, so nothing new is read"
+    );
+    assert!(first.iter().any(|m| m == "net.create · committed"));
+    app.message = "undo · reverted".into();
+    let next = polite_messages(&frame(&ctx, &mut app, vec![], egui::Modifiers::NONE));
+    assert!(
+        next.iter().any(|m| m == "undo · reverted")
+            && !next.iter().any(|m| m == "net.create · committed"),
+        "a new message replaces the old text: {next:?}"
     );
     Ok(())
 }

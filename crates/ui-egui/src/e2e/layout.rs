@@ -247,3 +247,98 @@ fn a_newcomer_lengthens_a_wire_to_match_its_partner() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// One frame at an explicit window size (`support::frame` is fixed at 1440 by 940).
+fn frame_sized(
+    ctx: &egui::Context,
+    app: &mut App,
+    size: Vec2,
+    events: Vec<egui::Event>,
+) -> egui::FullOutput {
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, size)),
+            events,
+            ..Default::default()
+        },
+        |ui| app.show(ui),
+    );
+    output.textures_delta.clear();
+    output
+}
+
+/// Words painted this frame that spill past the window's right edge or past
+/// the clip that was meant to contain them, as `"words" right-edge`.
+fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
+    let mut spilled = Vec::new();
+    for clipped in &output.shapes {
+        if let egui::Shape::Text(text) = &clipped.shape {
+            let rect = text.galley.rect.translate(text.pos.to_vec2());
+            let edge = width.min(clipped.clip_rect.max.x);
+            if rect.max.x > edge + 1.0 && rect.min.x < width {
+                let words: String = text.galley.text().chars().take(30).collect();
+                spilled.push(format!("\"{words}\" ends at {:.0}", rect.max.x));
+            }
+        }
+    }
+    spilled.sort();
+    spilled.dedup();
+    spilled
+}
+
+/// Text that spills past a 320 point window today (issue #647 report). The
+/// walk fails on a new spill and on a listed one that no longer happens, so
+/// the list shrinks as the layout is fixed.
+const KNOWN_REFLOW_DEFECTS: [&str; 4] = [
+    "Schematic: \"Graphics\" ends at 364",
+    "Pcb: \"Cutout\" ends at 354",
+    "Pcb: \"Graphics\" ends at 364",
+    "Board3d: \"Part bodies are default boxes \" ends at 716",
+];
+
+#[test]
+fn a_newcomer_zooms_to_four_hundred_percent_and_every_dock_still_fits() -> Result<(), String> {
+    let size = Vec2::new(320.0, 640.0);
+    let mut walked = Vec::new();
+    let mut defects = Vec::new();
+    for tab in [
+        Tab::Files,
+        Tab::Schematic,
+        Tab::Pcb,
+        Tab::Board3d,
+        Tab::Rules,
+        Tab::Checks,
+        Tab::Settings,
+    ] {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.change_tab(tab);
+        let ctx = egui::Context::default();
+        let mut out = frame_sized(&ctx, &mut app, size, vec![]);
+        for _ in 0..2 {
+            out = frame_sized(&ctx, &mut app, size, vec![]);
+        }
+        walked.push(format!("{tab:?}"));
+        for line in spilled_text(&out, size.x) {
+            defects.push(format!("{tab:?}: {line}"));
+        }
+    }
+    let (new, fixed): (Vec<&String>, Vec<&str>) = (
+        defects
+            .iter()
+            .filter(|d| !KNOWN_REFLOW_DEFECTS.contains(&d.as_str()))
+            .collect(),
+        KNOWN_REFLOW_DEFECTS
+            .iter()
+            .copied()
+            .filter(|k| !defects.iter().any(|d| d == k))
+            .collect(),
+    );
+    assert!(
+        new.is_empty() && fixed.is_empty(),
+        "walked {walked:?}; new spills: {new:?}; fixed, so delete from KNOWN_REFLOW_DEFECTS: {fixed:?}"
+    );
+    Ok(())
+}

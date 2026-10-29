@@ -6213,11 +6213,12 @@ impl App {
             )
             .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
+                let status = ui.label(
                     egui::RichText::new(&self.message)
                         .small()
                         .color(self.muted()),
                 );
+                a11y::announce_status(ui.ctx(), &status, &self.message);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(format!("rev {}", self.revision))
