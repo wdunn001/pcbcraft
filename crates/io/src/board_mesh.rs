@@ -1750,6 +1750,8 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
@@ -2169,6 +2171,7 @@ mod tests {
             cutouts: vec![cut],
             filled: true,
             kind: None,
+            pour: None,
         });
         p.board.zones.push(CopperZone {
             id: 3,
@@ -2178,6 +2181,7 @@ mod tests {
             cutouts: vec![],
             filled: false,
             kind: None,
+            pour: None,
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
