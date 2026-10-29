@@ -1831,6 +1831,7 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         }
     }
     fn body_of(pads: Vec<Pad>) -> Result<Body, String> {

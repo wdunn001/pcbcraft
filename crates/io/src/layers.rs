@@ -652,6 +652,7 @@ mod tests {
             cutouts: vec![],
             filled: true,
             kind: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.board.vias.push(Via {
             id: 4,
@@ -659,6 +660,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),
@@ -702,6 +704,7 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: vec![pad, pad2],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,

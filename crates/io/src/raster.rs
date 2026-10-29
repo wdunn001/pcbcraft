@@ -553,6 +553,7 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: vec![pad],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.components.push(pcbcraft_doc::Component {
             sheet: 0,
