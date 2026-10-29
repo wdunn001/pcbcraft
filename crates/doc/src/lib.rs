@@ -3373,7 +3373,7 @@ mod drill_tests {
             id: 1,
             reference: "J1".into(),
             value: "CONN".into(),
-            kind: "library".into(),
+            kind: "resistor".into(),
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             pins: vec![
