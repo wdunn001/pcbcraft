@@ -893,7 +893,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        Component, Footprint, Net, NoConnectFlag, Pad, Pin, PinRef, Track, Via,
+        component_template,
     };
     fn fixture() -> Project {
         let mut p = Project::default();

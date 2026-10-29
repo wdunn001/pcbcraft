@@ -2040,7 +2040,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
-    const MAX_HITS: usize = 50_000;
     // An inch project gets imperial fabrication files; coordinates are still
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
