@@ -614,10 +614,11 @@ impl App {
         {
             self.canvas_click(pos, camera.zoom);
         }
-        // Floating controls replace the old button bar: Fit in the corner of
-        // the work area, and small handles beside whatever is selected.
+        // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
         egui::Area::new(egui::Id::new("fit-fab"))
-            .fixed_pos(egui::pos2(rect.max.x - 64.0, rect.min.y + 14.0))
+            .pivot(Align2::RIGHT_TOP)
+            .fixed_pos(rect.right_top() + Vec2::new(-12.0, 12.0))
+            .constrain_to(rect)
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
                 ui.horizontal(|ui| {
@@ -628,150 +629,32 @@ impl App {
                     {
                         self.needs_fit = true;
                     }
-                    if self.tab == Tab::Schematic
-                        && ui
-                            .selectable_label(matches!(self.tool, Tool::NoConnect), "No connect")
-                            .on_hover_text(
-                                "Click a pin to mark it deliberately unconnected, or click a mark to clear it.",
-                            )
-                            .clicked()
+                    if ui
+                        .small_button("+")
+                        .on_hover_text("Zoom in on the drawing.")
+                        .clicked()
                     {
-                        self.tool = Tool::NoConnect;
+                        let zoom = if self.tab == Tab::Pcb {
+                            &mut self.pcb.zoom
+                        } else {
+                            &mut self.schematic.zoom
+                        };
+                        *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
                     }
-                    if self.tab == Tab::Pcb
-                        && ui
-                            .selectable_label(matches!(self.tool, Tool::Fiducial), "Assembly mark")
-                            .on_hover_text(
-                                "A bare copper disc the pick-and-place camera finds the board by; then click a clear corner.",
-                            )
-                            .clicked()
+                    if ui
+                        .small_button("\u{2212}")
+                        .on_hover_text("Zoom out on the drawing.")
+                        .clicked()
                     {
-                        self.tool = Tool::Fiducial;
-                    }
-                    if self.tab == Tab::Pcb && matches!(self.tool, Tool::Fiducial) {
-                        ui.add(
-                            egui::DragValue::new(&mut self.fiducial_diameter)
-                                .speed(0.05)
-                                .range(0.2..=10.0)
-                                .suffix(" mm"),
-                        )
-                        .on_hover_text("Disc size for new marks; 1 mm is the usual size.");
-                    }
-                    if self.tab == Tab::Pcb
-                        && ui
-                            .selectable_label(matches!(self.tool, Tool::Hole), "Mounting hole")
-                            .on_hover_text(
-                                "Drill an unplated hole for a screw or spacer; then click the board where it goes.",
-                            )
-                            .clicked()
-                    {
-                        self.tool = Tool::Hole;
-                    }
-                    if self.tab == Tab::Pcb && matches!(self.tool, Tool::Hole) {
-                        ui.add(
-                            egui::DragValue::new(&mut self.hole_diameter)
-                                .speed(0.05)
-                                .range(0.05..=25.0)
-                                .suffix(" mm"),
-                        )
-                        .on_hover_text(
-                            "Drill size for new holes; an M3 spacer usually wants 3.2 mm.",
-                        );
-                    }
-                    if self.tab == Tab::Pcb
-                        && ui
-                            .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
-                            .on_hover_text(command_tip("board.cutout.add"))
-                            .clicked()
-                    {
-                        self.tool = Tool::Cutout;
-                    }
-                    if self.tab == Tab::Pcb
-                        && ui
-                            .selectable_label(matches!(self.tool, Tool::DrawLayer), "Draw shape")
-                            .on_hover_text(
-                                "Draw cut lines, perforations or printed marks on your own layer; pick the layer and the shape in the panel that appears.",
-                            )
-                            .clicked()
-                    {
-                        self.tool = Tool::DrawLayer;
+                        let zoom = if self.tab == Tab::Pcb {
+                            &mut self.pcb.zoom
+                        } else {
+                            &mut self.schematic.zoom
+                        };
+                        *zoom = (*zoom / 1.15).clamp(0.02, 100.0);
                     }
                 });
             });
-        if self.tab == Tab::Pcb && matches!(self.tool, Tool::DrawLayer) {
-            egui::Area::new(egui::Id::new("draw-options"))
-                .fixed_pos(egui::pos2(rect.max.x - 240.0, rect.min.y + 44.0))
-                .order(egui::Order::Foreground)
-                .show(ui.ctx(), |ui| {
-                    ui.vertical(|ui| {
-                        let names: Vec<(Id, String)> = self
-                            .project
-                            .board
-                            .user_layers
-                            .iter()
-                            .map(|l| (l.id, l.name.clone()))
-                            .collect();
-                        let current = self
-                            .art_layer
-                            .and_then(|id| {
-                                names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone())
-                            })
-                            .unwrap_or_else(|| "no layer yet".into());
-                        egui::ComboBox::from_id_salt("art-layer-pick")
-                            .selected_text(current)
-                            .width(150.0)
-                            .show_ui(ui, |ui| {
-                                for (id, name) in &names {
-                                    ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
-                                        .on_hover_text("New figures land on this layer.");
-                                }
-                            });
-                        if ui
-                            .button("New layer")
-                            .on_hover_text(
-                                "Make a new drawn layer and switch to it; give it a real name in the layers list.",
-                            )
-                            .clicked()
-                        {
-                            let name = format!("Art {}", names.len() + 1);
-                            self.run(
-                                "board.layer_add",
-                                json!({"name": name, "kind": "other"}),
-                            );
-                            if self.message.starts_with("board.layer_add") {
-                                self.art_layer = self.selected;
-                            }
-                        }
-                        ui.horizontal(|ui| {
-                            for (shape, label, tip) in [
-                                (DrawShape::Line, "Line", "Two clicks: the start and end of one straight stroke."),
-                                (DrawShape::Rect, "Box", "Two clicks on opposite corners."),
-                                (DrawShape::Circle, "Circle", "Click the centre, then a point on the edge."),
-                                (DrawShape::Poly, "Outline", "Click each corner; click the first point or press Enter to close it."),
-                                (DrawShape::Words, "Words", "Type below, then click once where the text starts."),
-                            ] {
-                                if ui
-                                    .selectable_label(self.art_shape == shape, label)
-                                    .on_hover_text(tip)
-                                    .clicked()
-                                {
-                                    self.art_shape = shape;
-                                    self.art_start = None;
-                                    self.art_points.clear();
-                                }
-                            }
-                        });
-                        if self.art_shape == DrawShape::Words {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.art_text)
-                                    .hint_text("words to print")
-                                    .desired_width(150.0),
-                            )
-                            .on_hover_text("The words a click will print on the active layer.");
-                        }
-                    });
-                });
-        }
         if matches!(self.tab, Tab::Schematic | Tab::Pcb)
             && let Some(id) = self.selected
         {
@@ -783,14 +666,25 @@ impl App {
             if let Some(at) = world {
                 let screen = camera.screen(at, rect);
                 if rect.contains(screen) {
+                    let flip_left = screen.x > rect.right() - 72.0;
+                    let (pivot, fixed) = if flip_left {
+                        (
+                            Align2::RIGHT_BOTTOM,
+                            screen + Vec2::new(-12.0, -34.0),
+                        )
+                    } else {
+                        (Align2::LEFT_BOTTOM, screen + Vec2::new(12.0, -34.0))
+                    };
                     egui::Area::new(egui::Id::new("selection-handles"))
-                        .fixed_pos(screen + egui::vec2(12.0, -34.0))
+                        .pivot(pivot)
+                        .fixed_pos(fixed)
+                        .constrain_to(rect)
                         .order(egui::Order::Foreground)
                         .show(ui.ctx(), |ui| {
                             ui.horizontal(|ui| {
                                 if ui
-                                    .small_button("Move")
-                                    .on_hover_text("Drop the selected object where you click next.")
+                                    .small_button("\u{2725}")
+                                    .on_hover_text("Move: drop the selected object where you click next.")
                                     .clicked()
                                 {
                                     self.tool = Tool::Move;
@@ -1476,14 +1370,35 @@ impl App {
             for pin in library.definition.pins.iter().filter(|p| {
                 (p.unit == 0 && library.unit == 1 || p.unit == library.unit) && p.body_style <= 1
             }) {
-                let end = pin.position.offset(Point::new(
-                    pin.length * pin.angle.to_radians().cos(),
-                    -pin.length * pin.angle.to_radians().sin(),
-                ));
-                painter.line_segment([at(pin.position), at(end)], stroke);
+                if pin.visible {
+                    let end = pin.stem_end();
+                    painter.line_segment([at(pin.position), at(end)], stroke);
+                    for (center, radius) in pin.decoration_bubbles() {
+                        painter.circle_stroke(
+                            at(center),
+                            (radius * f64::from(camera.zoom)) as f32,
+                            stroke,
+                        );
+                    }
+                    for path in pin.decoration_paths() {
+                        if path.len() >= 3 {
+                            painter.add(egui::Shape::closed_line(
+                                path.iter().map(|p| at(*p)).collect(),
+                                stroke,
+                            ));
+                        } else if path.len() == 2 {
+                            painter.line_segment([at(path[0]), at(path[1])], stroke);
+                        }
+                    }
+                }
                 if pin.name != "~" && !pin.name.is_empty() {
+                    let label_at = if pin.visible {
+                        pin.stem_end()
+                    } else {
+                        pin.position
+                    };
                     painter.text(
-                        at(end) + Vec2::new(3.0, -3.0),
+                        at(label_at) + Vec2::new(3.0, -3.0),
                         Align2::LEFT_BOTTOM,
                         &pin.name,
                         FontId::monospace(10.0),
@@ -1631,10 +1546,28 @@ impl App {
             painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
         }
         for h in &p.board.holes {
-            let center = camera.screen(h.position, rect);
             let radius = ((h.diameter / 2.0) as f32 * camera.zoom).max(1.5);
-            painter.circle_filled(center, radius, self.surface());
-            painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+            if h.is_slot() {
+                // A slot is a capsule: a line of the drill width between its
+                // two centres, capped with half circles at each end.
+                let a = camera.screen(h.start(), rect);
+                let b = camera.screen(h.finish(), rect);
+                let dir = (b - a).normalized();
+                let side = egui::vec2(-dir.y, dir.x) * radius;
+                let (a2, b2) = (a + dir * radius, b - dir * radius);
+                painter.line_segment([a, b], Stroke::new(radius * 2.0, self.surface()));
+                painter.circle_filled(a, radius, self.surface());
+                painter.circle_filled(b, radius, self.surface());
+                let ink = Stroke::new(1.0, self.ink());
+                painter.line_segment([a2 + side, b2 + side], ink);
+                painter.line_segment([a2 - side, b2 - side], ink);
+                painter.circle_stroke(a, radius, ink);
+                painter.circle_stroke(b, radius, ink);
+            } else {
+                let center = camera.screen(h.position, rect);
+                painter.circle_filled(center, radius, self.surface());
+                painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+            }
         }
         for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);
