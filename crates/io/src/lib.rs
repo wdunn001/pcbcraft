@@ -11716,6 +11716,7 @@ mod tests {
             id: 2,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
+            end: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -11740,11 +11741,13 @@ mod tests {
             id: 2,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
+            end: None,
         });
         project.validate()?;
         let map = drill_map_plot(&project)?;
         assert!(map.contains("G04 LEGEND T1,"));
-        assert!(map.contains("G04 LEGEND T2,"));        Ok(())
+        assert!(map.contains("G04 LEGEND T2,"));
+        Ok(())
     }
 
     #[test]
@@ -12163,6 +12166,7 @@ mod tests {
                     }),
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
@@ -12186,7 +12190,8 @@ mod tests {
         let files = gerber_files(&project)?;
         assert!(files["pcb-F.Mask.gbr"].contains("%TF.FileFunction,Soldermask,Top*%"));
         assert!(files["pcb-F.Paste.gbr"].contains("%TF.FileFunction,Paste,Top*%"));
-        assert!(files["pcb-F.Paste.gbr"].contains("D03*"));        Ok(())
+        assert!(files["pcb-F.Paste.gbr"].contains("D03*"));
+        Ok(())
     }
 
     #[test]
@@ -12208,6 +12213,7 @@ mod tests {
             name: "L1".into(),
             kind: "copper".into(),
             thickness: 0.035,
+            copper_role: None,
         });
         project.meta.insert("contact".into(), "fab@example.test".into());
         project.validate()?;
