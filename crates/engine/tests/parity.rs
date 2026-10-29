@@ -73,6 +73,34 @@ fn normalised_checks(session: &Session) -> String {
     text
 }
 
+/// Lines longer than this are shown as a window around the first difference.
+const LONG_LINE: usize = 200;
+const WINDOW: usize = 120;
+
+/// One side of a differing line. Short lines print whole; long lines (the SVG
+/// goldens are a single 60 KB line) print about `WINDOW` characters around the
+/// first character where the two sides differ.
+fn excerpt(line: &str, other: &str) -> String {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() <= LONG_LINE && other.chars().count() <= LONG_LINE {
+        return line.to_string();
+    }
+    let first = chars
+        .iter()
+        .zip(other.chars())
+        .position(|(a, b)| *a != b)
+        .unwrap_or_else(|| chars.len().min(other.chars().count()));
+    let start = first.saturating_sub(WINDOW / 2).min(chars.len());
+    let end = (start + WINDOW).min(chars.len());
+    let body: String = chars[start..end].iter().collect();
+    format!(
+        "{}{body}{} (column {})",
+        if start > 0 { "..." } else { "" },
+        if end < chars.len() { "..." } else { "" },
+        first + 1
+    )
+}
+
 fn line_diff(expected: &str, actual: &str) -> String {
     let e: Vec<&str> = expected.lines().collect();
     let a: Vec<&str> = actual.lines().collect();
@@ -84,8 +112,8 @@ fn line_diff(expected: &str, actual: &str) -> String {
             out.push_str(&format!(
                 "  line {}:\n    golden: {}\n    actual: {}\n",
                 i + 1,
-                x.unwrap_or(&"<missing>"),
-                y.unwrap_or(&"<missing>")
+                x.map_or("<missing>".to_string(), |x| excerpt(x, y.unwrap_or(&""))),
+                y.map_or("<missing>".to_string(), |y| excerpt(y, x.unwrap_or(&"")))
             ));
             shown += 1;
             if shown == 20 {
@@ -98,9 +126,22 @@ fn line_diff(expected: &str, actual: &str) -> String {
 }
 
 fn compare(case: &str, name: &str, actual: &str, failures: &mut Vec<String>) -> Result<(), String> {
-    let path = golden_dir(case).join(name);
-    if blessing() {
-        let _ = std::fs::create_dir_all(golden_dir(case));
+    compare_in(&golden_dir(case), blessing(), case, name, actual, failures)
+}
+
+/// The comparison itself, with the golden folder and bless switch passed in so
+/// the harness can be tested against a temporary folder.
+fn compare_in(
+    dir: &Path,
+    bless: bool,
+    case: &str,
+    name: &str,
+    actual: &str,
+    failures: &mut Vec<String>,
+) -> Result<(), String> {
+    let path = dir.join(name);
+    if bless {
+        let _ = std::fs::create_dir_all(dir);
         std::fs::write(&path, actual).map_err(|e| format!("write golden: {e}"))?;
         return Ok(());
     }
@@ -271,11 +312,78 @@ fn all_cases() -> Result<Vec<(&'static str, Session)>, String> {
 fn every_writer_is_deterministic() -> Result<(), String> {
     for (case, session) in all_cases()? {
         let first = outputs(&session)?;
-        let second = outputs(&session)?;
-        assert_eq!(first, second, "{case}: writer output changed between runs");
-        // A rebuilt session from the same source must also match.
-        assert_eq!(first, outputs(&session.clone())?, "{case}");
+        let again = outputs(&session)?;
+        assert_eq!(first, again, "{case}: writer output changed between runs");
     }
+    // Two independent builds from a fresh load must match, which catches hash
+    // order or counter drift that a clone of one session never could.
+    let run_a = all_cases()?;
+    let run_b = all_cases()?;
+    for ((case, a), (_, b)) in run_a.iter().zip(run_b.iter()) {
+        assert_eq!(outputs(a)?, outputs(b)?, "{case}: independent runs differ");
+    }
+    Ok(())
+}
+
+fn diff_failure(golden: &str, actual: &str) -> Result<Vec<String>, String> {
+    let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    std::fs::write(dir.path().join("out.txt"), golden).map_err(|e| format!("write: {e}"))?;
+    let mut failures = Vec::new();
+    compare_in(dir.path(), false, "case", "out.txt", actual, &mut failures)?;
+    Ok(failures)
+}
+
+#[test]
+fn harness_fails_on_a_wrong_golden_with_a_readable_diff() -> Result<(), String> {
+    let failures = diff_failure("one\ntwo\nthree\n", "one\nTWO\nthree\n")?;
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    let text = &failures[0];
+    assert!(text.contains("case/out.txt"), "{text}");
+    assert!(text.contains("line 2"), "{text}");
+    assert!(text.contains("golden: two"), "{text}");
+    assert!(text.contains("actual: TWO"), "{text}");
+    assert!(!text.contains("line 1"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn harness_passes_an_identical_golden_and_flags_a_missing_one() -> Result<(), String> {
+    assert!(diff_failure("same\n", "same\n")?.is_empty());
+    let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    let mut failures = Vec::new();
+    compare_in(dir.path(), false, "case", "none.txt", "x", &mut failures)?;
+    assert!(failures[0].contains("has no golden"), "{failures:?}");
+    Ok(())
+}
+
+#[test]
+fn harness_shows_a_window_for_a_one_line_golden() -> Result<(), String> {
+    let golden = format!("<svg>{}A{}</svg>", "<g/>".repeat(5000), "<g/>".repeat(5000));
+    let actual = golden.replacen('A', "B", 1);
+    let failures = diff_failure(&golden, &actual)?;
+    let text = &failures[0];
+    assert!(text.contains("line 1"), "{text}");
+    assert!(text.len() < 1000, "diff is {} bytes", text.len());
+    assert!(text.contains("A<g/>") && text.contains("B<g/>"), "{text}");
+    assert!(text.contains("column 20006"), "{text}");
+    Ok(())
+}
+
+#[test]
+fn harness_blesses_into_the_given_folder() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    let mut failures = Vec::new();
+    compare_in(
+        dir.path(),
+        true,
+        "case",
+        "new.txt",
+        "blessed\n",
+        &mut failures,
+    )?;
+    assert!(failures.is_empty());
+    let written = std::fs::read_to_string(dir.path().join("new.txt")).map_err(|e| e.to_string())?;
+    assert_eq!(written, "blessed\n");
     Ok(())
 }
 

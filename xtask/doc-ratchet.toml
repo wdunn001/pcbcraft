@@ -1,0 +1,20 @@
+# Missing-docs warnings per crate. CI fails if a count rises above its number.
+# Lower the number in the same commit that removes warnings.
+[missing_docs]
+pcbcraft-geom = 25
+pcbcraft-doc = 255
+pcbcraft-library = 184
+pcbcraft-rules = 19
+pcbcraft-io = 226
+pcbcraft-engine = 49
+pcbcraft-mcp = 12
+pcbcraft-ui-egui = 3
+pcbcraft-assistant = 107
+
+# Traits and registries that do not have a contract block yet.
+# The doc pass for each one deletes its line.
+[pending_traits]
+ChatBackend = true
+Secrets = true
+PartSource = true
+commands = true

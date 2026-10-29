@@ -337,7 +337,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Rules")?;
-    scrolled_to_at(&ctx, &mut app, "Remove this check", 300.0)?;
+    scrolled_to_at(&ctx, &mut app, "Remove this check", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
