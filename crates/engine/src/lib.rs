@@ -5718,9 +5718,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         "netclass.via_rules" => {
             let a: ViaRulesParams = parse(params)?;
             if a.max_vias > 1024 {
-                return Err(Error::Invalid(
-                    "max vias must be between 0 and 1024".into(),
-                ));
+                return Err(Error::Invalid("max vias must be between 0 and 1024".into()));
             }
             let class = p
                 .net_classes

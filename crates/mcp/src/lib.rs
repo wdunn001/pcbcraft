@@ -925,8 +925,9 @@ mod tests {
             "execute",
             &json!({"command":"via.place","params":{"net":net,"position":{"x":50.0,"y":50.0},"diameter":0.8,"drill":0.4}}),
         );
-        let quick_via = call_tool(&session, "checks", &json!({"copper_only": true}))["structuredContent"]
-            .clone();
+        let quick_via =
+            call_tool(&session, "checks", &json!({"copper_only": true}))["structuredContent"]
+                .clone();
         let quick_via_codes: Vec<String> = quick_via["drc"]
             .as_array()
             .ok_or("missing drc")?
