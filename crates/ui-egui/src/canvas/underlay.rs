@@ -117,6 +117,7 @@ mod tests {
                     Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0)),
                     Camera {
                         mirror: false,
+                        turns: 0,
                         center: Point::new(10.0, 10.0),
                         zoom: 20.0,
                     },
