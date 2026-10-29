@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
+mod drill;
 mod silk;
 mod stub;
 
@@ -1276,6 +1277,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(fab_findings(project, board));
     result.extend(courtyard::courtyard_findings(project));
     result.extend(silk::silk_findings(project));
+    result.extend(drill::drill_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
@@ -1489,13 +1491,6 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result
 }
 
-fn pad_outer_radius(pad: &Pad) -> f64 {
-    pad.geometry
-        .as_ref()
-        .map(|g| g.size.x.max(g.size.y) / 2.0)
-        .unwrap_or(pad.diameter / 2.0)
-}
-
 fn pad_drill_diameter(pad: &Pad) -> Option<f64> {
     pad.geometry
         .as_ref()
@@ -1508,10 +1503,9 @@ fn via_annular_ring(rules: &FabRules, via: &Via) -> f64 {
     (via.diameter - tool) / 2.0
 }
 
+/// Thinnest ring around a plated pad hole; see `Pad::min_annular_ring`.
 fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
-    let drill = pad_drill_diameter(pad)?;
-    let tool = rules.drill_tool(drill);
-    Some((pad_outer_radius(pad) * 2.0 - tool) / 2.0)
+    pad.min_annular_ring(rules.plating_allowance.unwrap_or(0.0))
 }
 
 /// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
