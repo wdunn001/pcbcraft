@@ -436,8 +436,8 @@ fn chamfered_and_custom_kicad_pads_import_with_exact_outlines()
 }
 
 #[test]
-fn reader_keeps_inverted_clock_pin_style_off_unsupported_list(
-) -> Result<(), Box<dyn std::error::Error>> {
+fn reader_keeps_inverted_clock_pin_style_off_unsupported_list() -> Result<(), Box<dyn std::error::Error>>
+{
     let source = r#"(kicad_symbol_lib (version 20260206) (generator pcbcraft)
   (symbol "INVCLK"
     (property "Reference" "U" (at 0 0 0)

@@ -42,10 +42,16 @@ pub struct SymbolPin {
     pub body_style: u32,
     /// File token after the electrical type: line, inverted, clock, and the
     /// other standard shape keywords. Not the unit alternate-body index.
-    #[serde(default = "default_pin_graphical_style")]
+    #[serde(
+        default = "default_pin_graphical_style",
+        skip_serializing_if = "pin_graphical_style_is_default"
+    )]
     pub graphical_style: String,
     /// When false the pin may stay in the library but is omitted from schematic views.
-    #[serde(default = "default_pin_visible")]
+    #[serde(
+        default = "default_pin_visible",
+        skip_serializing_if = "pin_visible_is_default"
+    )]
     pub visible: bool,
 }
 fn default_pin_graphical_style() -> String {
@@ -53,6 +59,12 @@ fn default_pin_graphical_style() -> String {
 }
 fn default_pin_visible() -> bool {
     true
+}
+fn pin_graphical_style_is_default(style: &str) -> bool {
+    style == "line"
+}
+fn pin_visible_is_default(visible: &bool) -> bool {
+    *visible
 }
 /// Standard symbol pin shape tokens from the interchange format.
 pub const PIN_GRAPHICAL_STYLES: &[&str] = &[

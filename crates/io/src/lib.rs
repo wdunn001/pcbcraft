@@ -10545,9 +10545,7 @@ mod tests {
         });
         project.validate()?;
         let png = preview_png(&project, "schematic")?;
-        let image = image::load_from_memory(&png)
-            .map_err(|e| e.to_string())?
-            .to_rgb8();
+        let image = image::load_from_memory(&png).map_err(|e| e.to_string())?.to_rgb8();
         let anchor = project.components[0].position.offset(definition.position);
         let (min, max) = preview_bounds(&project, "schematic");
         let scale = (880.0 / (max.x - min.x + 8.0).max(1.0))
