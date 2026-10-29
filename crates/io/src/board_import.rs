@@ -116,9 +116,11 @@ impl ImportCtx {
     fn finish_nets(
         &mut self,
         names: BTreeMap<u32, String>,
-        _board: &mut pcbcraft_doc::Board,
+        board: &mut pcbcraft_doc::Board,
     ) -> Result<(), String> {
+        const NET_ID_BASE: Id = 10_000;
         self.nets.clear();
+        let mut ord_to_id: BTreeMap<u32, Id> = BTreeMap::new();
         for (ord, name) in names {
             if ord == 0 {
                 continue;
@@ -126,13 +128,34 @@ impl ImportCtx {
             if name.is_empty() {
                 return Err(format!("net {ord} needs a name"));
             }
-            let id = ord as Id;
+            let id = NET_ID_BASE.saturating_add(ord as Id);
+            if id > u32::MAX as u64 {
+                return Err("net id out of range".into());
+            }
+            ord_to_id.insert(ord, id);
             self.nets.push(Net {
                 id,
                 name,
                 target_length: None,
                 length_tolerance: None,
             });
+        }
+        let map_net = |raw: Id| -> Id { ord_to_id.get(&(raw as u32)).copied().unwrap_or(0) };
+        for track in &mut board.tracks {
+            track.net = map_net(track.net);
+        }
+        for via in &mut board.vias {
+            via.net = map_net(via.net);
+        }
+        for zone in &mut board.zones {
+            zone.net = map_net(zone.net);
+        }
+        for footprint in &mut board.footprints {
+            for pad in &mut footprint.pads {
+                if let Some(net) = pad.net {
+                    pad.net = Some(map_net(net));
+                }
+            }
         }
         Ok(())
     }
@@ -556,10 +579,10 @@ fn parse_polygon_pts(node: &Node, source: &str) -> Result<Vec<Point>, String> {
     if outline.len() < 3 {
         return Err("zone outline needs at least three points".into());
     }
-    if outline.first() != outline.last() {
-        if let Some(first) = outline.first().copied() {
-            outline.push(first);
-        }
+    if outline.first() != outline.last()
+        && let Some(first) = outline.first().copied()
+    {
+        outline.push(first);
     }
     Ok(outline)
 }
@@ -620,7 +643,7 @@ mod tests {
     #[test]
     fn malformed_board_reports_line_number() {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
-        let err = read_board_interchange(text).expect_err("truncated segment");
+        let err = read_board_interchange(text).unwrap_err();
         assert!(err.contains("line"), "expected a line number in {err:?}");
     }
 }

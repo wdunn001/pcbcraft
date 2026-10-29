@@ -1763,11 +1763,11 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             s.push_str(&format!(
                 " (pad {} {pad_type} {shape} (at {} {} {}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",
                 quote(&pad.number),
-                f64s(pad.offset.x),
-                f64s(pad.offset.y),
-                f64s(rotation),
-                f64s(size.x),
-                f64s(size.y),
+                pad.offset.x,
+                pad.offset.y,
+                rotation,
+                size.x,
+                size.y,
                 ordinal(pad.net),
                 quote(net),
                 uuid(f.id, i + 2),
@@ -9946,7 +9946,7 @@ mod tests {
     #[test]
     fn board_import_malformed_refuses_with_line_number() -> Result<(), String> {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
-        let err = read_board_interchange(text).expect_err("truncated segment");
+        let err = read_board_interchange(text).unwrap_err();
         assert!(err.contains("line"), "expected a line number in {err:?}");
         Ok(())
     }
