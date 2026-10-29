@@ -344,7 +344,9 @@ impl App {
         let inset = crate::canvas::RULER_SIZE + crate::theme::SPACE[2];
         egui::Area::new(egui::Id::new("layout-view-toggles"))
             .fixed_pos(rect.left_top() + egui::vec2(inset, inset))
-            .order(egui::Order::Foreground)
+            // Middle, not Foreground: windows sit at Middle and menus and
+            // popups at Foreground, so the toggles stay under both.
+            .order(egui::Order::Middle)
             .show(ctx, |ui| {
                 egui::Frame::NONE
                     .fill(tokens.panel)

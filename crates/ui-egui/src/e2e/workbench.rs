@@ -451,3 +451,60 @@ fn a_newcomer_turns_the_3d_view_from_the_layout_toolbar() -> Result<(), String> 
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_sees_menus_and_windows_over_the_view_toggles() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Pcb);
+    settled(&ctx, &mut app);
+    let toggles = egui::Id::new("layout-view-toggles");
+    let at = ctx
+        .memory(|m| m.area_rect(toggles))
+        .ok_or("the 2D and 3D toggles should be on screen")?
+        .center();
+    let run = |app: &mut App| {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(1440.0, 940.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                app.show(ui);
+                egui::Window::new("Overlap")
+                    .fixed_pos(at - egui::vec2(20.0, 20.0))
+                    .fixed_size(egui::vec2(200.0, 100.0))
+                    .show(ui.ctx(), |ui| {
+                        ui.label("A window over the toggles");
+                    });
+            },
+        );
+        output.textures_delta.clear();
+    };
+    run(&mut app);
+    run(&mut app);
+    let top = ctx
+        .layer_id_at(at)
+        .ok_or("something should be drawn over the toggles")?;
+    assert_ne!(
+        top.id, toggles,
+        "a window that overlaps the 2D and 3D toggles is drawn over them"
+    );
+    let menu = ctx.layer_id_at(at).map(|l| l.order);
+    assert_eq!(
+        menu,
+        Some(egui::Order::Middle),
+        "the window, not the toggles, is on top"
+    );
+    let toggle_order = egui::LayerId::new(egui::Order::Foreground, toggles);
+    assert!(
+        !ctx.memory(|m| m.areas().visible_layer_ids().contains(&toggle_order)),
+        "the toggles stay below menus and popups, which are Foreground"
+    );
+    Ok(())
+}

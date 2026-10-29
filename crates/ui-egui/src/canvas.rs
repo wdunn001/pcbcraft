@@ -789,7 +789,7 @@ impl App {
             .pivot(Align2::RIGHT_BOTTOM)
             .fixed_pos(rect.right_bottom() + Vec2::new(-16.0, -16.0))
             .constrain_to(rect)
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Middle)
             .show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style())
                     .inner_margin(egui::Margin::same(4))
