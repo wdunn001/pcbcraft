@@ -466,3 +466,159 @@ fn a_newcomer_narrows_the_window_and_the_canvas_buttons_stay_inside() -> Result<
     }
     Ok(())
 }
+
+fn key(key: egui::Key) -> egui::Event {
+    egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+fn practice_app() -> (egui::Context, App) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (ctx, app)
+}
+/// Press Tab until the named control holds focus; the order it took is
+/// returned so a story can say what a keyboard user walks past.
+fn tab_to(ctx: &egui::Context, app: &mut App, name: &str) -> Result<Vec<String>, String> {
+    let mut seen = Vec::new();
+    for _ in 0..250 {
+        let out = frame(ctx, app, vec![key(egui::Key::Tab)], egui::Modifiers::NONE);
+        if let Some(label) = a11y::audit::focused_name(ctx, &out) {
+            seen.push(label.clone());
+            if label == name {
+                return Ok(seen);
+            }
+        }
+    }
+    Err(format!("Tab never reached {name}; it passed {seen:?}"))
+}
+
+#[test]
+fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    let seen = tab_to(&ctx, &mut app, "Settings")?;
+    assert_eq!(
+        seen.first().map(String::as_str),
+        Some("PCBCraft start screen"),
+        "the first stop is the app name: {seen:?}"
+    );
+    assert!(
+        seen.iter().any(|n| n == "File") && seen.iter().any(|n| n == "Edit"),
+        "the app bar menus come in reading order: {seen:?}"
+    );
+    let shown = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        shown.shapes.iter().any(|s| matches!(&s.shape,
+            egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == app.accent())),
+        "the focused control wears a visible ring"
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Enter)],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(app.tab, Tab::Settings, "Enter presses it: {}", app.message);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_view_with_the_keyboard_only() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    tab_to(&ctx, &mut app, "Layout")?;
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Space)],
+        egui::Modifiers::NONE,
+    );
+    assert_eq!(app.tab, Tab::Pcb, "Space opens the layout: {}", app.message);
+    // Tool buttons are reachable too and say what they do, not "tool-route".
+    let seen = tab_to(&ctx, &mut app, "Route")?;
+    assert!(
+        seen.iter().any(|n| n == "Select"),
+        "tool names are spoken: {seen:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn every_interactive_accesskit_node_has_a_name_on_each_tab() -> Result<(), String> {
+    let (ctx, mut app) = practice_app();
+    let mut gaps = Vec::new();
+    for tab in [
+        Tab::Files,
+        Tab::Schematic,
+        Tab::Pcb,
+        Tab::Board3d,
+        Tab::Rules,
+        Tab::Checks,
+        Tab::Settings,
+    ] {
+        app.change_tab(tab);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let nodes = a11y::audit::interactive_nodes(&out);
+        assert!(
+            !nodes.is_empty(),
+            "{tab:?} exposes no controls to a screen reader"
+        );
+        let blank = a11y::audit::unnamed(&out);
+        if !blank.is_empty() {
+            gaps.push(format!("{tab:?}: {blank:?}"));
+        }
+    }
+    assert!(gaps.is_empty(), "unnamed controls: {gaps:?}");
+    Ok(())
+}
+
+#[test]
+fn preferences_ui_scale_clamps_and_persists() -> Result<(), String> {
+    assert_eq!(a11y::clamp_ui_scale(9.0), a11y::MAX_UI_SCALE);
+    assert_eq!(a11y::clamp_ui_scale(0.1), a11y::MIN_UI_SCALE);
+    assert_eq!(a11y::clamp_ui_scale(f32::NAN), a11y::DEFAULT_UI_SCALE);
+    let prefs = Preferences {
+        ui_scale: 1.5,
+        ..Preferences::default()
+    };
+    let text = serde_json::to_string(&prefs).map_err(|e| e.to_string())?;
+    let back: Preferences = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    assert_eq!(back.ui_scale, 1.5, "the scale survives a restart");
+    let mut old = serde_json::to_value(Preferences::default()).map_err(|e| e.to_string())?;
+    if let Some(map) = old.as_object_mut() {
+        map.remove("ui_scale");
+    }
+    let legacy: Preferences = serde_json::from_value(old).map_err(|e| e.to_string())?;
+    assert_eq!(
+        legacy.ui_scale, 1.0,
+        "older saved settings load at normal size"
+    );
+    let (ctx, mut app) = practice_app();
+    app.preferences.ui_scale = 1.5;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        (ctx.zoom_factor() - 1.5).abs() < 1e-3,
+        "the window rescales"
+    );
+    app.preferences.ui_scale = 40.0;
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(
+        ctx.zoom_factor(),
+        a11y::MAX_UI_SCALE,
+        "absurd values are held in range"
+    );
+    Ok(())
+}
