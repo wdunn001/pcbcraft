@@ -79,10 +79,7 @@ fn a_newcomer_picks_japanese_and_sees_no_empty_boxes() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let bytes = std::fs::read(JP_FONT).unwrap_or_default();
-    assert!(
-        !bytes.is_empty(),
-        "{JP_FONT} must ship in the repository"
-    );
+    assert!(!bytes.is_empty(), "{JP_FONT} must ship in the repository");
     crate::fonts::add_fallback(&ctx, "NotoSansJP-Regular", bytes);
     app.set_language(&ctx, "ja");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -126,8 +123,7 @@ fn a_missing_font_file_keeps_the_app_usable_and_says_so() -> Result<(), String> 
     app.set_language(&ctx, "ja");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        app.message.contains("font file")
-            && app.message.contains("NotoSansJP-Regular.otf"),
+        app.message.contains("font file") && app.message.contains("NotoSansJP-Regular.otf"),
         "the status line should say which font file is missing: {}",
         app.message
     );

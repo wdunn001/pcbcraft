@@ -2750,7 +2750,7 @@ name = "pcbcraft-web"
 version = "0.1.0"
 dependencies = [
  "eframe",
- "js_sys",
+ "js-sys",
  "pcbcraft-engine",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",

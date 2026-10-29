@@ -93,7 +93,8 @@ fn fonts_dirs() -> Vec<std::path::PathBuf> {
     vec![dir.join("fonts"), dir.join("../share/pcbcraft/fonts")]
 }
 
-/// Load the fallback font for language `tag` from [`fonts_dirs`].
+/// Load the fallback font for language `tag` from the folders listed by
+/// `fonts_dirs` below.
 ///
 /// Returns `Some(file)` when the language needs a font that is not on
 /// disk, so the caller can keep the default fonts and say so in plain
@@ -152,18 +153,21 @@ mod tests {
         // Words a Japanese user meets in an EDA: board, design, wiring,
         // settings, display, plus both kana scripts and a middle dot.
         let sample = "基板設計配線設定表示回路寸法 かなひらがな カタカナピカ・全角";
-        match skrifa::FontRef::new(&bytes) {
-            Ok(font) => {
-                use skrifa::MetadataProvider;
-                let cmap = font.charmap();
-                for ch in sample.chars() {
-                    assert!(
-                        cmap.map(ch as u32).is_some(),
-                        "NotoSansJP-Regular.otf has no glyph for {ch}"
-                    );
-                }
+        let parsed = skrifa::FontRef::new(&bytes);
+        assert!(
+            parsed.is_ok(),
+            "the font file did not parse: {:?}",
+            parsed.as_ref().err()
+        );
+        if let Ok(font) = &parsed {
+            use skrifa::MetadataProvider;
+            let cmap = font.charmap();
+            for ch in sample.chars() {
+                assert!(
+                    cmap.map(ch as u32).is_some(),
+                    "NotoSansJP-Regular.otf has no glyph for {ch}"
+                );
             }
-            Err(err) => assert!(false, "the font file did not parse: {err:?}"),
         }
     }
 

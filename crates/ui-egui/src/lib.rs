@@ -6,8 +6,8 @@ mod board3d;
 mod canvas;
 mod datums;
 mod editing;
-mod footprint_wizard;
 pub mod fonts;
+mod footprint_wizard;
 mod impedance_panel;
 mod library;
 mod library_quality;
@@ -3543,7 +3543,7 @@ impl App {
 
     /// Load the fallback font for the saved language when it names one
     /// (`ja`, `zh`). A missing file keeps the default fonts and sets a
-    /// plain sentence in [`App::message`]; the app stays usable.
+    /// plain sentence in the status line; the app stays usable.
     /// The browser build fetches its font in `apps/pcbcraft-web` instead.
     fn apply_fallback_font(&mut self, ctx: &egui::Context) {
         #[cfg(not(target_arch = "wasm32"))]
