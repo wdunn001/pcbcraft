@@ -40,7 +40,7 @@ Green **GitHub Actions on the fork** for the commit you report is required proof
 - GPL adaptations: record source, revision, license in ATTRIBUTION.md. Pin craft-libs; no proprietary Craft trademarks/assets.
 - Do not name other EDA products in code, docs, UI, commits, or issue comments.
 - Do not oversell checks or routing; state limits in UI where users hit them.
-- UI: tooltips on controls; real margins; inspect rendered UI for visual changes (`track:ui-design` → screenshots in report).
+- UI: every control gets a tooltip of at most two lines: what it does, why or when, its shortcut, and its limits. Disabled controls say how to enable them. Full rule: [docs/tooltips.md](docs/tooltips.md). Real margins; inspect rendered UI for visual changes (`track:ui-design` → screenshots in report).
 - No AI attribution in commits. No releases or third-party pushes without authorization.
 
 ## Stuck
