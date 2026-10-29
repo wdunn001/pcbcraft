@@ -1374,6 +1374,19 @@ impl App {
         }
         self
     }
+    /// Start the 3D view at a named angle (`top`, `front`, `side`, `bottom`)
+    /// so a `--capture` image shows that view.
+    pub fn with_capture_view3d(mut self, name: Option<String>) -> Self {
+        use std::f64::consts::FRAC_PI_2;
+        self.view3d.start_angle = match name.as_deref() {
+            Some("top") => Some((-FRAC_PI_2, 1.5)),
+            Some("front") => Some((-FRAC_PI_2, 0.0)),
+            Some("side") => Some((0.0, 0.0)),
+            Some("bottom") => Some((-3.0 * FRAC_PI_2 / 2.0, -0.62)),
+            _ => None,
+        };
+        self
+    }
     /// Start with a drawing target (`silk`, `edge` or `copper`) so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
@@ -6421,7 +6434,6 @@ impl App {
             project: &self.project,
             revision: self.revision,
             selected: self.selected,
-            dark: self.preferences.dark,
             bg: self.surface(),
             muted: self.muted(),
         };

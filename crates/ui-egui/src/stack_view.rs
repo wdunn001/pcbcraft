@@ -69,8 +69,11 @@ pub(crate) fn mount_copper(copper: u8, side: Layer) -> Layer {
 /// # Do not
 /// - Hold it across frames; the fade values are animated by [`StackView::new`].
 pub(crate) struct StackView {
+    /// Copper layer count of the board.
     pub copper: u8,
+    /// Looking from the bottom, so the bottom is the near side.
     pub flipped: bool,
+    /// Strength of each level, in [`levels`] order.
     pub alpha: Vec<f32>,
 }
 

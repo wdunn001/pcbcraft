@@ -1,22 +1,29 @@
-//! The 3D View tab: the board mesh from `pcbcraft_io::board_mesh`, drawn by
-//! projecting triangles on the CPU into an `egui::Mesh`. It needs no GPU
-//! renderer, so it runs in headless tests and in the browser build. Camera
-//! state lives here, never in the project document.
+//! The 3D View tab: the board mesh from `pcbcraft_io::board_mesh`, drawn by the
+//! depth-buffered software renderer in `board3d/raster.rs` into one image that
+//! egui paints. It needs no GPU renderer of its own, so it runs in headless
+//! tests and in the browser build. Camera state lives here, never in the
+//! project document.
+//!
+//! Local rules: board coordinates run y down, like the 2D view, and z is up, so
+//! the world is mirrored once on the way in ([`flip`]); that makes the top view
+//! read the same as the Layout canvas. Picking and `fit` stay in board
+//! coordinates.
 
 use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_io::{BoardMesh, MeshLayers, ModelStatus, PartKind};
 
 mod model_cache;
+mod raster;
 use model_cache::ModelCache;
 
 type V = [f64; 3];
 
-/// Above this many triangles only the board and the part bodies are drawn,
-/// so a huge board stays responsive.
-const DRAW_BUDGET: usize = 60_000;
 const FOV_TAN: f64 = 0.364; // tan(20 degrees): a 40 degree vertical view
 const NEAR: f64 = 0.01;
+/// The default angle: isometric from the front-left, a little above the board.
+const FIT_YAW: f64 = -3.0 * std::f64::consts::FRAC_PI_4;
+const FIT_PITCH: f64 = 0.62;
 
 fn sub(a: V, b: V) -> V {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
@@ -30,6 +37,10 @@ fn cross(a: V, b: V) -> V {
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     ]
+}
+/// Board coordinates to the right-handed view world: y runs the other way.
+fn flip(p: V) -> V {
+    [p[0], -p[1], p[2]]
 }
 fn unit(a: V) -> V {
     let n = dot(a, a).sqrt();
@@ -57,12 +68,37 @@ pub(crate) struct View3d {
     error: Option<String>,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
+    /// The last rendered picture and what it was made from.
+    frame: Option<Held>,
+    /// An angle a capture asked for; applied once the first fit has run.
+    pub(crate) start_angle: Option<(f64, f64)>,
+}
+
+/// A rendered picture with its key; `TextureHandle` has no `Debug`.
+#[derive(Clone)]
+struct Held(FrameKey, egui::TextureHandle);
+impl std::fmt::Debug for Held {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Held").field(&self.0).finish()
+    }
+}
+
+/// Everything the picture depends on; equal keys mean the image can be reused.
+#[derive(Clone, Debug, PartialEq)]
+struct FrameKey {
+    revision: u64,
+    model_gen: u64,
+    camera: [f64; 6],
+    size: [usize; 2],
+    ss: usize,
+    selected: Option<Id>,
+    gold: bool,
 }
 impl Default for View3d {
     fn default() -> Self {
         Self {
-            yaw: -std::f64::consts::FRAC_PI_2,
-            pitch: 0.6,
+            yaw: FIT_YAW,
+            pitch: FIT_PITCH,
             dist: 100.0,
             target: [0.0; 3],
             mesh: None,
@@ -71,6 +107,8 @@ impl Default for View3d {
             notes: Default::default(),
             error: None,
             rect: Rect::NOTHING,
+            frame: None,
+            start_angle: None,
         }
     }
 }
@@ -86,10 +124,11 @@ impl View3d {
     fn basis(&self) -> Basis {
         let (cp, sp) = (self.pitch.cos(), self.pitch.sin());
         let dir = [cp * self.yaw.cos(), cp * self.yaw.sin(), sp];
+        let at = flip(self.target);
         let eye = [
-            self.target[0] + dir[0] * self.dist,
-            self.target[1] + dir[1] * self.dist,
-            self.target[2] + dir[2] * self.dist,
+            at[0] + dir[0] * self.dist,
+            at[1] + dir[1] * self.dist,
+            at[2] + dir[2] * self.dist,
         ];
         let fwd = unit([-dir[0], -dir[1], -dir[2]]);
         let right = unit(cross(fwd, [0.0, 0.0, 1.0]));
@@ -109,8 +148,9 @@ impl View3d {
     pub(crate) fn project_point(&self, rect: Rect, p: V) -> Option<(Pos2, f64)> {
         self.project_with(&self.basis(), rect, p)
     }
+    #[cfg(test)]
     fn project_with(&self, b: &Basis, rect: Rect, p: V) -> Option<(Pos2, f64)> {
-        let rel = sub(p, b.eye);
+        let rel = sub(flip(p), b.eye);
         let z = dot(rel, b.fwd);
         if z <= NEAR {
             return None;
@@ -137,7 +177,7 @@ impl View3d {
             b.fwd[1] + b.right[1] * x + b.up[1] * y,
             b.fwd[2] + b.right[2] * x + b.up[2] * y,
         ];
-        (b.eye, unit(d))
+        (flip(b.eye), flip(unit(d)))
     }
     /// The nearest part with an owner under `pos`: its component and distance.
     pub(crate) fn pick(&self, rect: Rect, pos: Pos2) -> Option<(Id, f64)> {
@@ -209,8 +249,8 @@ impl View3d {
             let diag = dot(sub(hi, lo), sub(hi, lo)).sqrt().max(1.0);
             self.dist = diag * 1.3;
         }
-        self.yaw = -std::f64::consts::FRAC_PI_2;
-        self.pitch = 0.6;
+        self.yaw = FIT_YAW;
+        self.pitch = FIT_PITCH;
     }
     /// Rebuild the mesh when the design changed or a model file finished
     /// loading. Model files are only asked for here, never waited on.
@@ -231,6 +271,10 @@ impl View3d {
                 self.mesh = Some((revision, mesh));
                 if !same_design {
                     self.fit();
+                    if let Some((yaw, pitch)) = self.start_angle.take() {
+                        self.yaw = yaw;
+                        self.pitch = pitch;
+                    }
                 }
             }
             Err(e) => {
@@ -247,8 +291,14 @@ impl View3d {
     fn pan(&mut self, dx: f64, dy: f64, rect: Rect) {
         let b = self.basis();
         let k = self.dist * FOV_TAN * 2.0 / f64::from(rect.height()).max(1.0);
-        for i in 0..3 {
-            self.target[i] += (-b.right[i] * dx + b.up[i] * dy) * k;
+        let moved = [
+            (-b.right[0] * dx + b.up[0] * dy) * k,
+            (-b.right[1] * dx + b.up[1] * dy) * k,
+            (-b.right[2] * dx + b.up[2] * dy) * k,
+        ];
+        let moved = flip(moved);
+        for (t, m) in self.target.iter_mut().zip(moved) {
+            *t += m;
         }
     }
     fn zoom(&mut self, scroll: f64) {
@@ -280,102 +330,87 @@ fn ray_triangle(o: V, d: V, a: V, b: V, c: V) -> Option<f64> {
     (t > NEAR).then_some(t)
 }
 
-fn kind_color(kind: PartKind, dark: bool) -> [f32; 3] {
-    match kind {
-        PartKind::Board => {
-            if dark {
-                [24.0, 92.0, 62.0]
-            } else {
-                [40.0, 130.0, 84.0]
-            }
-        }
-        PartKind::CopperTop | PartKind::CopperBottom => [212.0, 160.0, 74.0],
-        PartKind::MaskTop | PartKind::MaskBottom => [30.0, 110.0, 70.0],
-        PartKind::SilkTop | PartKind::SilkBottom => [240.0, 240.0, 232.0],
-        PartKind::Body => [70.0, 74.0, 84.0],
-    }
-}
-
 /// What the tab needs from the app, so this module owns no app state.
 pub(crate) struct Env<'a> {
     pub project: &'a Project,
     pub revision: u64,
     pub selected: Option<Id>,
-    pub dark: bool,
     pub bg: Color32,
     pub muted: Color32,
 }
 
-fn paint_mesh(view: &View3d, painter: &egui::Painter, rect: Rect, env: &Env<'_>) {
-    let Some((_, mesh)) = view.mesh.as_ref() else {
-        return;
-    };
-    let basis = view.basis();
-    let over = mesh.triangle_count() > DRAW_BUDGET;
-    // Painter's order: the board first, then everything else far to near.
-    for pass in 0..2 {
-        let mut tris: Vec<(f64, [Pos2; 3], Color32)> = vec![];
-        for part in &mesh.parts {
-            let is_board = part.kind == PartKind::Board;
-            if (pass == 0) != is_board || (over && !is_board && part.kind != PartKind::Body) {
-                continue;
-            }
-            let base = match (part.kind, part.color) {
-                (PartKind::Body, Some(c)) => [c[0] * 255.0, c[1] * 255.0, c[2] * 255.0],
-                _ => kind_color(part.kind, env.dark),
-            };
-            let picked = part.component.is_some() && part.component == env.selected;
-            for tri in part.indices.as_chunks::<3>().0.iter() {
-                let (Some(a), Some(b), Some(c)) = (
-                    part.positions.get(tri[0] as usize),
-                    part.positions.get(tri[1] as usize),
-                    part.positions.get(tri[2] as usize),
-                ) else {
-                    continue;
-                };
-                let n = unit(cross(sub(*b, *a), sub(*c, *a)));
-                let to_eye = unit(sub(basis.eye, *a));
-                let facing = dot(n, to_eye);
-                if facing <= 0.0 {
-                    continue;
-                }
-                let (Some((pa, za)), Some((pb, zb)), Some((pc, zc))) = (
-                    view.project_with(&basis, rect, *a),
-                    view.project_with(&basis, rect, *b),
-                    view.project_with(&basis, rect, *c),
-                ) else {
-                    continue;
-                };
-                let light = (0.35 + 0.65 * facing) as f32;
-                let mut rgb = base;
-                if picked {
-                    rgb = [255.0, 190.0, 40.0];
-                }
-                let color = Color32::from_rgb(
-                    (rgb[0] * light).min(255.0) as u8,
-                    (rgb[1] * light).min(255.0) as u8,
-                    (rgb[2] * light).min(255.0) as u8,
-                );
-                tris.push(((za + zb + zc) / 3.0, [pa, pb, pc], color));
-            }
-        }
-        tris.sort_by(|x, y| y.0.total_cmp(&x.0));
-        for chunk in tris.chunks(20_000) {
-            let mut m = egui::Mesh::default();
-            for (_, pts, color) in chunk {
-                let base = m.vertices.len() as u32;
-                for p in pts {
-                    m.vertices.push(egui::epaint::Vertex {
-                        pos: *p,
-                        uv: egui::epaint::WHITE_UV,
-                        color: *color,
-                    });
-                }
-                m.indices.extend([base, base + 1, base + 2]);
-            }
-            painter.add(egui::Shape::mesh(m));
-        }
+/// Render the mesh for the current camera, reusing the last picture while
+/// nothing it depends on has changed.
+///
+/// Why: the software renderer is far cheaper than a frame, but a still board
+/// should cost nothing; while the camera moves it draws at one sample per
+/// pixel, and once it rests it redraws at two by two.
+///
+/// # Rules
+/// - Returns none until a mesh exists or while the viewport is too small.
+fn picture(
+    view: &mut View3d,
+    ctx: &egui::Context,
+    rect: Rect,
+    env: &Env<'_>,
+    moving: bool,
+) -> Option<egui::TextureId> {
+    let revision = view.mesh.as_ref().map(|(r, _)| *r)?;
+    let ppp = ctx.pixels_per_point().clamp(1.0, 3.0);
+    let size = [
+        (rect.width() * ppp).round() as usize,
+        (rect.height() * ppp).round() as usize,
+    ];
+    if size[0] < 8 || size[1] < 8 {
+        return None;
     }
+    let gold = {
+        let f = env.project.board.finish.to_ascii_uppercase();
+        f.contains("ENIG") || f.contains("GOLD")
+    };
+    let key = FrameKey {
+        revision,
+        model_gen: view.model_gen,
+        camera: [
+            view.yaw,
+            view.pitch,
+            view.dist,
+            view.target[0],
+            view.target[1],
+            view.target[2],
+        ],
+        size,
+        ss: if moving { 1 } else { 2 },
+        selected: env.selected,
+        gold,
+    };
+    if let Some(Held(held, tex)) = &view.frame
+        && *held == key
+    {
+        return Some(tex.id());
+    }
+    let (_, mesh) = view.mesh.as_ref()?;
+    let image = raster::render(
+        mesh,
+        &view.basis(),
+        size[0],
+        size[1],
+        &raster::Look {
+            gold,
+            selected: env.selected,
+            ss: key.ss,
+        },
+    );
+    let tex = match view.frame.take() {
+        Some(Held(_, mut tex)) => {
+            tex.set(image, egui::TextureOptions::LINEAR);
+            tex
+        }
+        None => ctx.load_texture("board3d", image, egui::TextureOptions::LINEAR),
+    };
+    let id = tex.id();
+    view.frame = Some(Held(key, tex));
+    Some(id)
 }
 
 /// Draw the tab. Returns a component the person picked, by click in the
@@ -497,7 +532,18 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     }
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, env.bg);
-    paint_mesh(view, &painter, rect, env);
+    let moving = response.dragged() || (response.hovered() && scroll != 0.0);
+    if moving {
+        ui.ctx().request_repaint();
+    }
+    if let Some(texture) = picture(view, ui.ctx(), rect, env, moving) {
+        painter.image(
+            texture,
+            rect,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    }
     ui.label(
         egui::RichText::new(if loading {
             t!("board.board3d.loading_models_note")

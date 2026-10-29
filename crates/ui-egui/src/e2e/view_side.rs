@@ -276,3 +276,19 @@ fn a_newcomer_clicks_a_sublayer_and_the_view_stays() -> Result<(), String> {
     assert_eq!(app.pinned_view, None, "Esc unpins");
     Ok(())
 }
+
+#[test]
+fn a_newcomer_flips_the_board_in_3d_and_looks_from_below() -> Result<(), String> {
+    let (mut app, ctx) = open_layout();
+    authoring::tests::tap(&ctx, &mut app, "3D")?;
+    assert!(app.view3d.pitch > 0.0, "3D opens above the board");
+    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.view3d.pitch < 0.0,
+        "Bottom puts the camera under the board"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Top")?;
+    assert!(app.view3d.pitch > 0.0, "Top brings it back");
+    Ok(())
+}
