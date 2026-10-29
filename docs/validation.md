@@ -71,6 +71,12 @@ asserts writer determinism and the native save/load round trip.
 
 After an intentional output change, review the diff and re-bless with
 `cargo xtask bless-parity` (or `PCBCRAFT_BLESS=1 cargo test -p pcbcraft-engine
---test parity`). Never bless in CI; blessing is ignored when `CI` is set.
+--test parity` and `--test m6_artifact_goldens`). Never bless in CI; blessing is
+ignored when `CI` is set.
+
+`crates/engine/tests/m6_artifact_goldens.rs` loads the dual-amplifier reference
+board, seeds every M6 `Artifact.kind`, runs `artifact.generate`, and compares
+text or checksum goldens under `tests/fixtures/artifacts/`. Kinds whose writers
+are not merged yet skip with a plain message (see `kind-owners.txt`).
 
 Gerber and drill output have no goldens yet: the writer is being fixed in #351.

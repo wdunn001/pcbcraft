@@ -1,0 +1,20 @@
+# M6 artifact kind ownership (epic #322). Used by reference_board_generates_all_m6_artifacts.
+copper_plot #325
+mask_plot #325
+silk_plot #325
+paste_plot #325
+profile_plot #325
+drill_plated #276
+drill_unplated #276
+drill_map #325
+placement #326
+bom #326
+assembly_drawing #327
+fab_drawing #327
+raster_image #328
+isolation_gcode #329
+drill_gcode #330
+outline_gcode #331
+stencil #331
+laser_path #358
+package #286

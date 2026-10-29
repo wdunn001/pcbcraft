@@ -1078,6 +1078,176 @@ impl OutputJob {
                 .all(|k| OUTPUT_KINDS.contains(&k.as_str()))
     }
 }
+/// A single fabrication or assembly output file the design can regenerate and
+/// mark stale when the board changes.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Artifact {
+    pub id: Id,
+    pub name: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<String>,
+    #[serde(default)]
+    pub settings: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_at_revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+}
+pub const ARTIFACT_KINDS: &[&str] = &[
+    "copper_plot",
+    "mask_plot",
+    "silk_plot",
+    "paste_plot",
+    "profile_plot",
+    "drill_plated",
+    "drill_unplated",
+    "drill_map",
+    "placement",
+    "bom",
+    "assembly_drawing",
+    "fab_drawing",
+    "raster_image",
+    "isolation_gcode",
+    "drill_gcode",
+    "outline_gcode",
+    "stencil",
+    "laser_path",
+    "package",
+];
+const ARTIFACT_SETTINGS_MAX: usize = 4096;
+impl Artifact {
+    pub fn kind_valid(kind: &str) -> bool {
+        ARTIFACT_KINDS.contains(&kind)
+    }
+    pub fn settings_bytes(settings: &serde_json::Value) -> usize {
+        match serde_json::to_vec(settings) {
+            Ok(bytes) => bytes.len(),
+            Err(_) => usize::MAX,
+        }
+    }
+    pub fn path_valid(path: &str) -> bool {
+        if path.is_empty() || path.len() > 256 || path.contains('\\') {
+            return false;
+        }
+        if path.starts_with('/') || path.starts_with("//") {
+            return false;
+        }
+        for segment in path.split('/') {
+            if segment == ".." {
+                return false;
+            }
+        }
+        true
+    }
+    fn hash_valid(hash: &str) -> bool {
+        hash.len() == 64
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }
+    pub fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 128
+            && Self::kind_valid(&self.kind)
+            && self.layers.len() <= 32
+            && self
+                .layers
+                .iter()
+                .all(|l| !l.is_empty() && l.len() <= 64)
+            && Self::settings_bytes(&self.settings) <= ARTIFACT_SETTINGS_MAX
+            && self
+                .machine
+                .as_ref()
+                .is_none_or(|m| !m.is_empty() && m.len() <= 64)
+            && Self::path_valid(&self.path)
+            && self
+                .generated_hash
+                .as_ref()
+                .is_none_or(|h| Self::hash_valid(h))
+            && self
+                .job
+                .as_ref()
+                .is_none_or(|j| !j.is_empty() && j.len() <= 64)
+    }
+}
+pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &'static str)> {
+    Some(match job_kind {
+        "gerbers" => ("package", "gerber/"),
+        "bom" => ("bom", "bom.csv"),
+        "placement" => ("placement", "placement.txt"),
+        "drill_chart" => ("drill_map", "board-drill-tools.csv"),
+        "pdf" => ("fab_drawing", "board.pdf"),
+        "svg" => ("raster_image", "board.svg"),
+        "odb" => ("package", "board.odb.zip"),
+        "ipc2581" => ("package", "board.xml"),
+        "netlist" => ("package", "pcb-netlist.net"),
+        "dxf" => ("package", "pcb.dxf"),
+        "cmp" => ("package", "pcb.cmp"),
+        "idf" => ("package", "board.idf"),
+        "vrml" => ("package", "board.wrl"),
+        "step" => ("package", "board.step"),
+        "dsn" => ("package", "pcb.dsn"),
+        "ipc356" => ("package", "test.brd"),
+        "gencad" => ("package", "board.gencad"),
+        "hyperlynx" => ("package", "netlist.csv"),
+        "plot" => ("package", "plot-report.csv"),
+        "report" => ("package", "board-report.txt"),
+        "ps" => ("package", "pcb.ps"),
+        "hpgl" => ("package", "board.hpgl"),
+        "stackup" => ("package", "board-stackup.txt"),
+        "stats" => ("package", "board-stats.csv"),
+        _ => return None,
+    })
+}
+impl Project {
+    pub fn migrate_output_jobs_to_artifacts(&mut self, next_id: &mut Id) -> Result<(), String> {
+        if !self.artifacts.is_empty() || self.output_jobs.is_empty() {
+            return Ok(());
+        }
+        for job in &self.output_jobs {
+            for kind in &job.kinds {
+                let Some((artifact_kind, path)) = legacy_output_kind_to_artifact(kind) else {
+                    continue;
+                };
+                let name = if job.kinds.len() == 1 {
+                    job.name.clone()
+                } else {
+                    format!("{} {}", job.name, kind)
+                };
+                if name.len() > 128 {
+                    return Err("migrated artifact name exceeds 128 bytes".into());
+                }
+                if self.artifacts.len() >= MAX_ITEMS {
+                    return Err("artifact limit reached (2048)".into());
+                }
+                let id = *next_id;
+                if id == 0 || id > u32::MAX as u64 {
+                    return Err("artifact id out of range".into());
+                }
+                *next_id = next_id.saturating_add(1);
+                self.artifacts.push(Artifact {
+                    id,
+                    name,
+                    kind: artifact_kind.into(),
+                    layers: vec![],
+                    settings: serde_json::Value::Object(Default::default()),
+                    machine: None,
+                    path: path.into(),
+                    generated_at_revision: None,
+                    generated_hash: None,
+                    job: Some(job.name.clone()),
+                });
+            }
+        }
+        Ok(())
+    }
+}
 /// An unplated through hole: a drill that passes through the board without
 /// plating or a net.
 /// A net tie: two touching round pads that bridge exactly two nets at one
@@ -1912,6 +2082,9 @@ pub struct Project {
     /// Manufacturing panel grid; disabled until the designer enables it.
     #[serde(default)]
     pub panel: PanelSettings,
+    /// Regenerable fabrication outputs, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<Artifact>,
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
@@ -2058,6 +2231,7 @@ impl Default for Project {
             bom_fields: vec![],
             output_jobs: vec![],
             panel: PanelSettings::default(),
+            artifacts: vec![],
             custom_checks: vec![],
             files: vec![],
             variants: vec![],
@@ -2636,6 +2810,7 @@ impl Project {
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
+            .chain(self.artifacts.iter().map(|x| x.id))
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
@@ -2947,6 +3122,23 @@ impl Project {
         for j in &self.output_jobs {
             if !j.valid() || !job_names.insert(&j.name) {
                 return Err("output jobs need a unique name and known export kinds".into());
+            }
+        }
+        if self.artifacts.len() > MAX_ITEMS {
+            return Err("artifact limit reached (2048)".into());
+        }
+        let mut artifact_names = BTreeSet::new();
+        let job_name_set: BTreeSet<&str> = self.output_jobs.iter().map(|j| j.name.as_str()).collect();
+        for a in &self.artifacts {
+            if !a.valid() || !artifact_names.insert(&a.name) {
+                return Err("artifacts need a unique name, a known kind and valid settings".into());
+            }
+            if a
+                .job
+                .as_ref()
+                .is_some_and(|j| !job_name_set.contains(j.as_str()))
+            {
+                return Err("artifact job label must name an existing output job".into());
             }
         }
         if self.bom_fields.len() > 16 {
@@ -3838,6 +4030,54 @@ fn orthogonal_path(a: Point, b: Point, da: Point, db: Point) -> Vec<Point> {
         end,
         b,
     ]
+}
+
+#[cfg(test)]
+mod artifact_tests {
+    use super::*;
+
+    #[test]
+    fn artifact_rejects_unknown_kind_and_oversized_settings() -> Result<(), String> {
+        let big = serde_json::Value::String("x".repeat(5000));
+        let artifact = Artifact {
+            id: 1,
+            name: "plot".into(),
+            kind: "not_a_kind".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "out.gbr".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        assert!(!artifact.valid());
+        let mut ok = artifact.clone();
+        ok.kind = "copper_plot".into();
+        assert!(ok.valid());
+        ok.settings = big;
+        assert!(!ok.valid());
+        Ok(())
+    }
+
+    #[test]
+    fn migrate_output_jobs_creates_equivalent_artifacts() -> Result<(), String> {
+        let mut project = Project::default();
+        project.output_jobs.push(OutputJob {
+            name: "fab".into(),
+            kinds: vec!["gerbers".into(), "bom".into()],
+        });
+        let mut next = 50_u64;
+        project.migrate_output_jobs_to_artifacts(&mut next)?;
+        assert_eq!(project.artifacts.len(), 2);
+        assert_eq!(project.artifacts[0].kind, "package");
+        assert_eq!(project.artifacts[0].path, "gerber/");
+        assert_eq!(project.artifacts[0].job.as_deref(), Some("fab"));
+        assert_eq!(project.artifacts[1].kind, "bom");
+        assert_eq!(project.artifacts[1].name, "fab bom");
+        project.validate()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

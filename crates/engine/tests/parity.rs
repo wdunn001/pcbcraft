@@ -1,4 +1,5 @@
-//! Reference-project parity suite (#293).
+//! Reference-project parity suite (#293). M6 artifact goldens live in
+//! `m6_artifact_goldens.rs` (`reference_board_generates_all_m6_artifacts`, #472).
 //!
 //! Each case builds or loads a project, then snapshots stable outputs and
 //! compares them with goldens under `tests/parity/<case>/`. Text outputs are

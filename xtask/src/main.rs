@@ -429,11 +429,24 @@ fn run() -> Result<(), String> {
         "deny" => deny()?,
         "msrv" => msrv()?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
-        "bless-parity" => run_env(
-            "cargo",
-            &["test", "-p", "pcbcraft-engine", "--test", "parity"],
-            &[("PCBCRAFT_BLESS", "1")],
-        )?,
+        "bless-parity" => {
+            run_env(
+                "cargo",
+                &["test", "-p", "pcbcraft-engine", "--test", "parity"],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+            run_env(
+                "cargo",
+                &[
+                    "test",
+                    "-p",
+                    "pcbcraft-engine",
+                    "--test",
+                    "m6_artifact_goldens",
+                ],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+        }
         "help" | "--help" | "-h" => println!("{USAGE}"),
         _ => return Err(USAGE.into()),
     }

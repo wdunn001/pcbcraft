@@ -9,6 +9,7 @@ use std::path::Path;
 mod board_mesh;
 mod drawn;
 mod fab_export;
+mod generate;
 mod gerber;
 mod layers;
 mod library_render;
@@ -19,6 +20,9 @@ pub use board_mesh::{
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use generate::{
+    generate, migrate_loaded_project, output_hash, write_generated, GeneratedOutput,
+};
 pub use gerber::gerber_copper;
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
@@ -36,7 +40,8 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
-    let project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
 }

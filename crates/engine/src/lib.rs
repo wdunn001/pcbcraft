@@ -1,4 +1,5 @@
 //! The single mutation boundary used by UI, CLI and MCP.
+mod artifacts;
 mod authoring;
 pub mod library;
 pub mod profiles;
@@ -1754,6 +1755,48 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "artifact.add",
+            "Record a regenerable fabrication output with a known kind, relative path under the make folder, optional layer list and settings",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","minLength":1,"maxLength":32},"layers":{"type":"array","items":{"type":"string","minLength":1,"maxLength":64},"maxItems":32},"settings":{"type":"object"},"machine":{"type":"string","minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":256},"job":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name", "kind", "path"],
+            ),
+        ),
+        (
+            "artifact.set",
+            "Replace fields on a recorded output; unknown kinds and settings over 4 KiB are refused",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string","minLength":1,"maxLength":128},"kind":{"type":"string","minLength":1,"maxLength":32},"layers":{"type":"array","items":{"type":"string","minLength":1,"maxLength":64},"maxItems":32},"settings":{"type":"object"},"machine":{"type":["string","null"],"minLength":1,"maxLength":64},"path":{"type":"string","minLength":1,"maxLength":256},"job":{"type":["string","null"],"minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
+            "artifact.remove",
+            "Remove a recorded output by id",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "artifact.generate",
+            "Generate the bytes for one recorded output without changing the design or revision",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "artifact.export",
+            "Generate one recorded output and write it under a directory, recording revision and content hash in the same undo step",
+            schema(
+                json!({"id":id_schema(),"directory":{"type":"string","minLength":1}}),
+                &["id", "directory"],
+            ),
+        ),
+        (
+            "artifact.stale",
+            "List output ids whose stored hash no longer matches a fresh generation",
+            schema(
+                json!({"ids":{"type":"array","items":id_schema(),"maxItems":2048}}),
+                &[],
+            ),
+        ),
+        (
             "variant.create",
             "Define a named assembly variant, optionally with a note and an initial set of component ids to leave unpopulated",
             schema(
@@ -1940,6 +1983,9 @@ impl Session {
         params: Value,
         expected: Option<u64>,
     ) -> Result<Value, Error> {
+        if artifacts::command_is_read_only(id) {
+            return self.query(id, params, expected);
+        }
         let result = self.batch(
             &[Command {
                 command: id.into(),
@@ -1951,11 +1997,42 @@ impl Session {
             json!({"revision":self.revision,"result":result.get("results").and_then(Value::as_array).and_then(|a|a.first()).cloned().unwrap_or(Value::Null)}),
         )
     }
+    pub fn query(
+        &self,
+        id: &str,
+        params: Value,
+        expected: Option<u64>,
+    ) -> Result<Value, Error> {
+        self.check_revision(expected)?;
+        if !artifacts::command_is_read_only(id) {
+            return Err(Error::Invalid(format!("{id} is not a read-only command")));
+        }
+        let mut candidate = self.project.clone();
+        let mut next = self.next_id;
+        let result = run(
+            &mut candidate,
+            &mut next,
+            id,
+            &params,
+            self.revision,
+            false,
+        )?;
+        Ok(json!({"revision": self.revision, "result": result}))
+    }
     pub fn batch(&mut self, commands: &[Command], expected: Option<u64>) -> Result<Value, Error> {
         self.check_revision(expected)?;
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
+        if commands
+            .iter()
+            .any(|c| artifacts::command_is_read_only(&c.command))
+        {
+            return Err(Error::Invalid(
+                "read-only artifact commands cannot be batched".into(),
+            ));
+        }
+        let post_revision = self.revision.saturating_add(1);
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
         let mut results = vec![];
@@ -1965,6 +2042,8 @@ impl Session {
                 &mut next,
                 &command.command,
                 &command.params,
+                post_revision,
+                true,
             )?);
             candidate.validate()?;
         }
@@ -2925,6 +3004,57 @@ struct OutputJobRunParams {
 #[serde(deny_unknown_fields)]
 struct OutputJobRef {
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactAddParams {
+    name: String,
+    kind: String,
+    #[serde(default)]
+    layers: Vec<String>,
+    #[serde(default)]
+    settings: Value,
+    #[serde(default)]
+    machine: Option<String>,
+    path: String,
+    #[serde(default)]
+    job: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactSetParams {
+    id: Id,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    layers: Option<Vec<String>>,
+    #[serde(default)]
+    settings: Option<Value>,
+    #[serde(default)]
+    machine: Option<Option<String>>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    job: Option<Option<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactRef {
+    id: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactExportParams {
+    id: Id,
+    directory: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactStaleParams {
+    #[serde(default)]
+    ids: Vec<Id>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5031,7 +5161,14 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
-fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
+fn run(
+    p: &mut Project,
+    next: &mut Id,
+    command: &str,
+    params: &Value,
+    record_revision: u64,
+    mutating: bool,
+) -> Result<Value, Error> {
     let resolved = resolve_parameters(p, command, params)?;
     let target = BindingTarget::of(command);
     let object = match target {
@@ -5058,7 +5195,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             });
         }
     }
-    let mut result = run_command(p, next, command, &resolved.params)?;
+    let mut result = run_command(
+        p,
+        next,
+        command,
+        &resolved.params,
+        record_revision,
+        mutating,
+    )?;
     p.prune_bindings();
     if !resolved.bound.is_empty() {
         let placed = match target {
@@ -5087,6 +5231,8 @@ fn run_command(
     next: &mut Id,
     command: &str,
     params: &Value,
+    record_revision: u64,
+    mutating: bool,
 ) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
@@ -12328,6 +12474,11 @@ fn run_command(
             Ok(json!({"removed":a.name}))
         }
         "output_job.run" => {
+            if !mutating {
+                return Err(Error::Invalid(
+                    "output_job.run cannot run as a read-only command".into(),
+                ));
+            }
             let a: OutputJobRunParams = parse(params)?;
             let job = p
                 .output_jobs
@@ -12339,6 +12490,26 @@ fn run_command(
             }
             let directory = std::path::Path::new(&a.directory);
             let mut written: Vec<String> = vec![];
+            let linked: Vec<Id> = p
+                .artifacts
+                .iter()
+                .filter(|art| art.job.as_deref() == Some(job.name.as_str()))
+                .map(|art| art.id)
+                .collect();
+            if !linked.is_empty() {
+                for id in linked {
+                    let (files, _hash) = artifacts::export_artifact_record(
+                        p,
+                        id,
+                        directory,
+                        record_revision,
+                    )?;
+                    written.extend(files);
+                }
+                written.sort();
+                written.dedup();
+                return Ok(json!({"job":a.name,"directory":a.directory,"files":written}));
+            }
             let mut skipped: Vec<String> = vec![];
             for kind in &job.kinds {
                 match kind.as_str() {
@@ -12551,6 +12722,229 @@ fn run_command(
             } else {
                 Ok(json!({"job":a.name,"directory":a.directory,"files":written,"skipped":skipped}))
             }
+        }
+        "artifact.add" => {
+            if !mutating {
+                return Err(Error::Invalid(
+                    "artifact.add cannot run as a read-only command".into(),
+                ));
+            }
+            let a: ArtifactAddParams = parse(params)?;
+            let name = a.name.trim();
+            if name.is_empty() || name.len() > 128 {
+                return Err(Error::Invalid(
+                    "an artifact name must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !Artifact::kind_valid(&a.kind) {
+                return Err(Error::Invalid("artifact kind is not recognized".into()));
+            }
+            if a.layers.len() > 32
+                || a.layers.iter().any(|l| l.is_empty() || l.len() > 64)
+            {
+                return Err(Error::Invalid("artifact layers are out of range".into()));
+            }
+            if Artifact::settings_bytes(&a.settings) > 4096 {
+                return Err(Error::Invalid(
+                    "artifact settings must fit in 4 KiB".into(),
+                ));
+            }
+            if a
+                .machine
+                .as_ref()
+                .is_some_and(|m| m.is_empty() || m.len() > 64)
+            {
+                return Err(Error::Invalid("artifact machine id is out of range".into()));
+            }
+            if !Artifact::path_valid(&a.path) {
+                return Err(Error::Invalid(
+                    "artifact path must be relative without parent segments".into(),
+                ));
+            }
+            if a
+                .job
+                .as_ref()
+                .is_some_and(|j| j.is_empty() || j.len() > 64)
+            {
+                return Err(Error::Invalid("artifact job label is out of range".into()));
+            }
+            if a.job.as_ref().is_some_and(|j| !p.output_jobs.iter().any(|job| job.name == *j))
+            {
+                return Err(Error::Invalid(
+                    "artifact job label must name an existing output job".into(),
+                ));
+            }
+            if p.artifacts.len() >= MAX_ITEMS {
+                return Err(Error::Invalid("artifact limit reached (2048)".into()));
+            }
+            if p.artifacts.iter().any(|art| art.name == name) {
+                return Err(Error::Invalid("an artifact with that name exists".into()));
+            }
+            let id = allocate(next)?;
+            p.artifacts.push(Artifact {
+                id,
+                name: name.into(),
+                kind: a.kind,
+                layers: a.layers,
+                settings: a.settings,
+                machine: a.machine,
+                path: a.path,
+                generated_at_revision: None,
+                generated_hash: None,
+                job: a.job,
+            });
+            Ok(json!({"id": id, "name": name}))
+        }
+        "artifact.set" => {
+            if !mutating {
+                return Err(Error::Invalid(
+                    "artifact.set cannot run as a read-only command".into(),
+                ));
+            }
+            let a: ArtifactSetParams = parse(params)?;
+            let Some(artifact) = p.artifacts.iter_mut().find(|art| art.id == a.id) else {
+                return Err(missing());
+            };
+            if let Some(name) = a.name {
+                let name = name.trim();
+                if name.is_empty() || name.len() > 128 {
+                    return Err(Error::Invalid(
+                        "an artifact name must be 1 to 128 bytes".into(),
+                    ));
+                }
+                if p.artifacts.iter().any(|art| art.id != a.id && art.name == name) {
+                    return Err(Error::Invalid("an artifact with that name exists".into()));
+                }
+                artifact.name = name.into();
+            }
+            if let Some(kind) = a.kind {
+                if !Artifact::kind_valid(&kind) {
+                    return Err(Error::Invalid("artifact kind is not recognized".into()));
+                }
+                artifact.kind = kind;
+            }
+            if let Some(layers) = a.layers {
+                if layers.len() > 32 || layers.iter().any(|l| l.is_empty() || l.len() > 64) {
+                    return Err(Error::Invalid("artifact layers are out of range".into()));
+                }
+                artifact.layers = layers;
+            }
+            if let Some(settings) = a.settings {
+                if Artifact::settings_bytes(&settings) > 4096 {
+                    return Err(Error::Invalid(
+                        "artifact settings must fit in 4 KiB".into(),
+                    ));
+                }
+                artifact.settings = settings;
+            }
+            if let Some(machine) = a.machine {
+                artifact.machine = machine.filter(|m| !m.is_empty());
+                if artifact
+                    .machine
+                    .as_ref()
+                    .is_some_and(|m| m.len() > 64)
+                {
+                    return Err(Error::Invalid("artifact machine id is out of range".into()));
+                }
+            }
+            if let Some(path) = a.path {
+                if !Artifact::path_valid(&path) {
+                    return Err(Error::Invalid(
+                        "artifact path must be relative without parent segments".into(),
+                    ));
+                }
+                artifact.path = path;
+            }
+            if let Some(job) = a.job {
+                artifact.job = job.filter(|j| !j.is_empty());
+                if artifact.job.as_ref().is_some_and(|j| j.len() > 64) {
+                    return Err(Error::Invalid("artifact job label is out of range".into()));
+                }
+                if artifact.job.as_ref().is_some_and(|j| {
+                    !p.output_jobs.iter().any(|out| out.name == *j)
+                }) {
+                    return Err(Error::Invalid(
+                        "artifact job label must name an existing output job".into(),
+                    ));
+                }
+            }
+            if !artifact.valid() {
+                return Err(Error::Invalid("artifact fields are inconsistent".into()));
+            }
+            Ok(json!({"id": a.id}))
+        }
+        "artifact.remove" => {
+            if !mutating {
+                return Err(Error::Invalid(
+                    "artifact.remove cannot run as a read-only command".into(),
+                ));
+            }
+            let a: ArtifactRef = parse(params)?;
+            let before = p.artifacts.len();
+            p.artifacts.retain(|art| art.id != a.id);
+            if p.artifacts.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"removed": a.id}))
+        }
+        "artifact.generate" => {
+            let a: ArtifactRef = parse(params)?;
+            let artifact = p
+                .artifacts
+                .iter()
+                .find(|art| art.id == a.id)
+                .ok_or_else(missing)?;
+            let output = pcbcraft_io::generate(p, artifact).map_err(Error::Invalid)?;
+            let hash = pcbcraft_io::output_hash(&output);
+            let mut body = artifacts::format_generate_payload(&output);
+            if let Some(map) = body.as_object_mut() {
+                map.insert("revision".into(), json!(record_revision));
+                map.insert("hash".into(), json!(hash));
+            }
+            Ok(body)
+        }
+        "artifact.export" => {
+            if !mutating {
+                return Err(Error::Invalid(
+                    "artifact.export cannot run as a read-only command".into(),
+                ));
+            }
+            let a: ArtifactExportParams = parse(params)?;
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            let directory = std::path::Path::new(&a.directory);
+            let (files, hash) = artifacts::export_artifact_record(
+                p,
+                a.id,
+                directory,
+                record_revision,
+            )?;
+            Ok(json!({
+                "id": a.id,
+                "directory": a.directory,
+                "files": files,
+                "hash": hash,
+                "revision": record_revision,
+            }))
+        }
+        "artifact.stale" => {
+            let a: ArtifactStaleParams = parse(params)?;
+            if a.ids.len() > MAX_ITEMS {
+                return Err(Error::Invalid("artifact stale filter is out of range".into()));
+            }
+            for id in &a.ids {
+                if !p.artifacts.iter().any(|art| art.id == *id) {
+                    return Err(Error::Invalid(format!("no artifact has id {id}")));
+                }
+            }
+            let filter = if a.ids.is_empty() {
+                None
+            } else {
+                Some(a.ids.as_slice())
+            };
+            let stale = artifacts::stale_artifact_ids(p, filter)?;
+            Ok(json!({"stale": stale}))
         }
         "variant.create" => {
             let a: VariantCreateParams = parse(params)?;
@@ -25901,6 +26295,223 @@ mod tests {
         let _ = std::fs::remove_file(&wrong);
         let _ = std::fs::remove_file(&odd);
         let _ = std::fs::remove_file(&joined);
+        Ok(())
+    }
+
+    #[test]
+    fn copper_plot_artifact_goes_stale_after_edit_and_clears_on_regenerate() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-artifact-stale-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let id = s
+            .execute(
+                "artifact.add",
+                json!({
+                    "name": "front copper",
+                    "kind": "copper_plot",
+                    "path": "pcb-F.Cu.gbr",
+                    "layers": ["F.Cu"],
+                }),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "artifact.export",
+            json!({"id": id, "directory": directory.to_string_lossy()}),
+            None,
+        )?;
+        assert!(
+            s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+                .as_array()
+                .ok_or_else(missing)?
+                .is_empty(),
+            "a fresh export is not stale"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":4,"start":{"x":12.0,"y":32.0},"end":{"x":22.0,"y":32.0},"width":0.3}),
+            None,
+        )?;
+        let stale = s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert!(
+            stale.iter().any(|v| v.as_u64() == Some(id)),
+            "copper edits mark the plot stale"
+        );
+        s.execute(
+            "artifact.export",
+            json!({"id": id, "directory": directory.to_string_lossy()}),
+            None,
+        )?;
+        assert!(
+            s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+                .as_array()
+                .ok_or_else(missing)?
+                .is_empty(),
+            "regenerating clears stale"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn undo_after_regenerate_marks_copper_plot_stale_again() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory = std::env::temp_dir().join(format!(
+            "pcbcraft-artifact-undo-stale-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let id = s
+            .execute(
+                "artifact.add",
+                json!({
+                    "name": "front copper",
+                    "kind": "copper_plot",
+                    "path": "pcb-F.Cu.gbr",
+                    "layers": ["F.Cu"],
+                }),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "artifact.export",
+            json!({"id": id, "directory": directory.to_string_lossy()}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":4,"start":{"x":12.0,"y":32.0},"end":{"x":22.0,"y":32.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "artifact.export",
+            json!({"id": id, "directory": directory.to_string_lossy()}),
+            None,
+        )?;
+        s.undo()?;
+        let stale = s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert!(
+            stale.iter().any(|v| v.as_u64() == Some(id)),
+            "undoing the edit marks the plot stale again"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn artifact_stale_lists_only_outdated_outputs() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory = std::env::temp_dir().join(format!(
+            "pcbcraft-artifact-stale-filter-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let copper = s
+            .execute(
+                "artifact.add",
+                json!({
+                    "name": "front copper",
+                    "kind": "copper_plot",
+                    "path": "pcb-F.Cu.gbr",
+                    "layers": ["F.Cu"],
+                }),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let bom = s
+            .execute(
+                "artifact.add",
+                json!({
+                    "name": "bom",
+                    "kind": "bom",
+                    "path": "bom.csv",
+                }),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for id in [copper, bom] {
+            s.execute(
+                "artifact.export",
+                json!({"id": id, "directory": directory.to_string_lossy()}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.add",
+            json!({"net":4,"start":{"x":12.0,"y":32.0},"end":{"x":22.0,"y":32.0},"width":0.3}),
+            None,
+        )?;
+        let stale = s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert!(stale.iter().any(|v| v.as_u64() == Some(copper)));
+        assert!(!stale.iter().any(|v| v.as_u64() == Some(bom)));
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_project_with_output_jobs_loads_with_artifacts_and_same_files() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"fab","kinds":["dxf","gerbers"]}),
+            None,
+        )?;
+        let mut project = s.project.clone();
+        project.artifacts.clear();
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-legacy-jobs-{}.json",
+            std::process::id()
+        ));
+        pcbcraft_io::save(&project, &path).map_err(Error::Invalid)?;
+        let loaded = pcbcraft_io::load(&path).map_err(Error::Invalid)?;
+        assert_eq!(loaded.artifacts.len(), 2);
+        let directory = std::env::temp_dir().join(format!(
+            "pcbcraft-legacy-export-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut session = Session {
+            project: loaded,
+            ..Session::default()
+        };
+        session.next_id = session
+            .project
+            .ids()
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let out = session.execute(
+            "output_job.run",
+            json!({"name":"fab","directory":directory.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(
+            out["files"],
+            json!([
+                "gerber/pcb-B.Cu.gbr",
+                "gerber/pcb-Drill.drl",
+                "gerber/pcb-DrillMap.gbr",
+                "gerber/pcb-Edge.gbr",
+                "gerber/pcb-F.Cu.gbr",
+                "pcb.dxf"
+            ])
+        );
+        assert!(directory.join("gerber/pcb-F.Cu.gbr").exists());
+        assert!(directory.join("pcb.dxf").exists());
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 
