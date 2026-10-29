@@ -11512,6 +11512,7 @@ mod tests {
             id: 2,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
+            end: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -11536,6 +11537,7 @@ mod tests {
             id: 2,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
+            end: None,
         });
         project.validate()?;
         let map = drill_map_plot(&project)?;

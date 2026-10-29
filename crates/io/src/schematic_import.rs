@@ -490,72 +490,69 @@ impl ImportCtx {
 
         let mut uf = UnionFind::new();
         let mut keys: HashMap<(u64, i64, i64), usize> = HashMap::new();
-        let mut key_of = |sheet: u64, point: Point| -> usize {
-            let key = snap_key(sheet, point);
-            *keys.entry(key).or_insert_with(|| uf.insert())
-        };
 
         for page in &self.pages {
             for wire in &page.wires {
                 for window in wire.windows(2) {
-                    let a = key_of(page.sheet_id, window[0]);
-                    let b = key_of(page.sheet_id, window[1]);
+                    let a = connection_key(&mut keys, &mut uf, page.sheet_id, window[0]);
+                    let b = connection_key(&mut keys, &mut uf, page.sheet_id, window[1]);
                     uf.union(a, b);
                 }
             }
             for junction in &page.junctions {
-                let _ = key_of(page.sheet_id, *junction);
+                let _ = connection_key(&mut keys, &mut uf, page.sheet_id, *junction);
             }
             for component in &page.components {
                 for pin in &component.pins {
                     if let Some(pos) = component.pin_position(&pin.number) {
-                        let _ = key_of(component.sheet, pos);
+                        let _ = connection_key(&mut keys, &mut uf, component.sheet, pos);
                     }
                 }
             }
         }
 
         let mut named: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
-        let mut attach_name = |name: String, sheet: u64, point: Point| {
-            if name.is_empty() || name.len() > 64 {
-                return Err("net name is out of range".into());
-            }
-            let idx = key_of(sheet, point);
-            named.entry(name).or_default().insert(idx);
-            Ok::<(), String>(())
-        };
 
         for page in &self.pages {
             for (kind, text, pos, _, bus) in &page.labels {
                 if kind == "bus" {
                     continue;
                 }
-                attach_name(text.clone(), page.sheet_id, *pos)?;
+                attach_net_name(&mut named, &mut keys, &mut uf, text, page.sheet_id, *pos)?;
                 if !bus.is_empty() {
-                    attach_name(bus.clone(), page.sheet_id, *pos)?;
+                    attach_net_name(&mut named, &mut keys, &mut uf, bus, page.sheet_id, *pos)?;
                 }
             }
             for (text, pos) in &page.global_labels {
-                attach_name(text.clone(), page.sheet_id, *pos)?;
+                attach_net_name(&mut named, &mut keys, &mut uf, text, page.sheet_id, *pos)?;
             }
             for (text, pos) in &page.hierarchical_labels {
-                attach_name(text.clone(), page.sheet_id, *pos)?;
+                attach_net_name(&mut named, &mut keys, &mut uf, text, page.sheet_id, *pos)?;
                 for (pin_name, parent_sheet, parent_pos) in &page.parent_links {
                     if pin_name == text {
-                        let child_idx = key_of(page.sheet_id, *pos);
-                        let parent_idx = key_of(*parent_sheet, *parent_pos);
+                        let child_idx =
+                            connection_key(&mut keys, &mut uf, page.sheet_id, *pos);
+                        let parent_idx =
+                            connection_key(&mut keys, &mut uf, *parent_sheet, *parent_pos);
                         uf.union(child_idx, parent_idx);
                     }
                 }
             }
             for (text, pos) in &page.power_nets {
-                attach_name(text.clone(), page.sheet_id, *pos)?;
+                attach_net_name(&mut named, &mut keys, &mut uf, text, page.sheet_id, *pos)?;
             }
         }
 
         for page in &self.pages {
             for (pin_name, pos, _) in &page.sheet_pins {
-                attach_name(pin_name.clone(), page.sheet_id, *pos)?;
+                attach_net_name(
+                    &mut named,
+                    &mut keys,
+                    &mut uf,
+                    pin_name,
+                    page.sheet_id,
+                    *pos,
+                )?;
             }
         }
 
@@ -596,11 +593,10 @@ impl ImportCtx {
         }
 
         let mut orphan = 1usize;
-        let mut net_for_key = |sheet: u64, point: Point| -> Option<u64> {
-            let idx = keys.get(&snap_key(sheet, point)).copied()?;
-            let root = uf.find(idx);
-            if let Some(id) = net_ids.get(&root) {
-                return Some(*id);
+        let roots: BTreeSet<usize> = keys.values().map(|&idx| uf.find(idx)).collect();
+        for root in roots {
+            if net_ids.contains_key(&root) {
+                continue;
             }
             let id = self.alloc();
             net_ids.insert(root, id);
@@ -611,15 +607,14 @@ impl ImportCtx {
                 length_tolerance: None,
             });
             orphan += 1;
-            Some(id)
-        };
+        }
 
         for page in &self.pages {
             for wire in &page.wires {
                 let id = self.alloc();
-                let net = wire
-                    .first()
-                    .and_then(|p| net_for_key(page.sheet_id, *p));
+                let net = wire.first().and_then(|p| {
+                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *p)
+                });
                 project.drawn_wires.push(DrawnWire {
                     id,
                     net,
@@ -631,7 +626,7 @@ impl ImportCtx {
                 let net = if kind == "bus" {
                     None
                 } else {
-                    net_for_key(page.sheet_id, *pos)
+                    lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos)
                 };
                 project.labels.push(Label {
                     id,
@@ -644,7 +639,7 @@ impl ImportCtx {
             }
             for junction in &page.junctions {
                 let id = self.alloc();
-                let net = net_for_key(page.sheet_id, *junction)
+                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *junction)
                     .ok_or_else(|| "junction is not on a derived net".to_string())?;
                 project.labels.push(Label {
                     id,
@@ -657,7 +652,7 @@ impl ImportCtx {
             }
             for (pin_name, pos, uuid) in &page.sheet_pins {
                 let id = self.alloc();
-                let net = net_for_key(page.sheet_id, *pos).unwrap_or(0);
+                let net = lookup_net_id(&keys, &mut uf, &net_ids, page.sheet_id, *pos).unwrap_or(0);
                 project.ports.push(Port {
                     id,
                     name: pin_name.clone(),
@@ -669,10 +664,25 @@ impl ImportCtx {
             }
         }
 
-        for component in project.components.iter_mut() {
-            for pin in &mut component.pins {
+        let mut pin_nets: Vec<(u64, String, Option<u64>)> = Vec::new();
+        for component in &project.components {
+            for pin in &component.pins {
                 if let Some(pos) = component.pin_position(&pin.number) {
-                    pin.net = net_for_key(component.sheet, pos);
+                    pin_nets.push((
+                        component.id,
+                        pin.number.clone(),
+                        lookup_net_id(&keys, &mut uf, &net_ids, component.sheet, pos),
+                    ));
+                }
+            }
+        }
+        for component in &mut project.components {
+            for pin in &mut component.pins {
+                if let Some((_, _, net)) = pin_nets
+                    .iter()
+                    .find(|(id, number, _)| *id == component.id && *number == pin.number)
+                {
+                    pin.net = *net;
                 }
             }
         }
@@ -697,6 +707,46 @@ impl ImportCtx {
         project.validate()?;
         Ok(project)
     }
+}
+
+fn connection_key(
+    keys: &mut HashMap<(u64, i64, i64), usize>,
+    uf: &mut UnionFind,
+    sheet: u64,
+    point: Point,
+) -> usize {
+    let key = snap_key(sheet, point);
+    *keys
+        .entry(key)
+        .or_insert_with(|| uf.insert())
+}
+
+fn attach_net_name(
+    named: &mut BTreeMap<String, BTreeSet<usize>>,
+    keys: &mut HashMap<(u64, i64, i64), usize>,
+    uf: &mut UnionFind,
+    name: &str,
+    sheet: u64,
+    point: Point,
+) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("net name is out of range".into());
+    }
+    let idx = connection_key(keys, uf, sheet, point);
+    named.entry(name.to_owned()).or_default().insert(idx);
+    Ok(())
+}
+
+fn lookup_net_id(
+    keys: &HashMap<(u64, i64, i64), usize>,
+    uf: &mut UnionFind,
+    net_ids: &BTreeMap<usize, u64>,
+    sheet: u64,
+    point: Point,
+) -> Option<u64> {
+    let idx = keys.get(&snap_key(sheet, point)).copied()?;
+    let root = uf.find(idx);
+    net_ids.get(&root).copied()
 }
 
 fn find_pin_at(
