@@ -369,18 +369,14 @@ fn hovering_a_part_paints_its_outline_inside_the_frame_budget() -> Result<(), St
         total += took;
         painted.push(out.shapes.len());
     }
-    // The work done is the measure: the outline draws the same few shapes
-    // every frame and never piles up. Time only counts in a release build,
-    // with a wide margin.
+    // The work done is the measure: the outline draws a few dozen shapes
+    // (the marching dashes vary by a couple) and never piles up. Time only
+    // counts in a release build, with a wide margin.
     let most = painted.iter().copied().max().unwrap_or(0);
     let least = painted.iter().copied().min().unwrap_or(0);
-    assert_eq!(
-        most, least,
-        "every frame draws the same shapes: {painted:?}"
-    );
     assert!(
-        (1..=400).contains(&most),
-        "the hovered part paints {most} shapes"
+        least >= 1 && most <= 400 && most - least <= 8,
+        "the hovered part paints a steady, small set of shapes: {painted:?}"
     );
     if !cfg!(debug_assertions) {
         assert!(

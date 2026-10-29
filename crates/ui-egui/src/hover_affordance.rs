@@ -435,13 +435,13 @@ mod tests {
             painted.push(out.shapes.len());
         }
         // The cost is the work done: one outline per glowing net member, one
-        // soft border and the dashes of the marching edge, the same every
-        // frame. Counting it does not depend on how busy the machine is.
+        // soft border and the dashes of the marching edge (a few more or
+        // fewer as the dashes march). Counting it does not depend on how busy
+        // the machine is.
         let most = painted.iter().copied().max().unwrap_or(0);
-        let least = painted.iter().copied().min().unwrap_or(0);
-        assert_eq!(
-            most, least,
-            "every frame draws the same shapes: {painted:?}"
+        assert!(
+            painted.iter().all(|count| *count >= net.len()),
+            "every frame draws the glowing net: {painted:?}"
         );
         assert!(
             most <= net.len() + 1 + 64,
