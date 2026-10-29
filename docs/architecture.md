@@ -10,7 +10,7 @@ KiCad implementation ports. Rust-only applies to the delivered application.
 | L1 | doc, library | Stable-ID project model; bounded pure Rust library parsers/DTOs |
 | L2 | rules, io | Connectivity and initial checks; native project, KiCad board and SVG export |
 | L3 | engine | Typed command registry, transactions, revisions, undo/redo |
-| L4 | mcp, ui-egui | MCP over stdio / live bridge; thin tabbed Rust UI using craft-ui |
+| L4 | assistant, mcp, ui-egui | Assistant backend seam and transcript; MCP over stdio / live bridge; thin tabbed Rust UI using craft-ui |
 | Apps | pcbcraft, pcbcraft-cli, pcbcraft-web | Desktop, headless and browser entry points |
 
 ## MCP-first

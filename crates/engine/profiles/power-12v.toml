@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "power-12v"
+name = "12 V rail"
+category = "interface"
+summary = "12 V rail rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "power-12v_default"
