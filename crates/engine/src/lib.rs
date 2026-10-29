@@ -5094,9 +5094,7 @@ fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Res
                 && pcbcraft_geom::point_segment(at, from, to) <= 1e-4
         })
         .ok_or_else(|| {
-            Error::Invalid(
-                "split point must lie on a wire segment, clear of its vertices".into(),
-            )
+            Error::Invalid("split point must lie on a wire segment, clear of its vertices".into())
         })?;
     let tail_id = allocate(next)?;
     let net = wire.net;
@@ -5187,7 +5185,10 @@ fn net_label_for_conflict(p: &Project, id: Id) -> Value {
 }
 
 fn wire_place_net_conflict(p: &Project, nets: &BTreeSet<Id>) -> Error {
-    let candidates: Vec<Value> = nets.iter().map(|id| net_label_for_conflict(p, *id)).collect();
+    let candidates: Vec<Value> = nets
+        .iter()
+        .map(|id| net_label_for_conflict(p, *id))
+        .collect();
     let body = json!({"code": "net_conflict", "candidates": candidates});
     let message = match serde_json::to_string(&body) {
         Ok(text) => text,
@@ -7918,7 +7919,9 @@ fn run_command(
             let a: WirePlaceParams = parse(params)?;
             validate_drawn_wire_points(&a.points)?;
             if a.pins.len() > 2 {
-                return Err(Error::Invalid("wire accepts at most two endpoint pins".into()));
+                return Err(Error::Invalid(
+                    "wire accepts at most two endpoint pins".into(),
+                ));
             }
             if a.pins.len() == 1 {
                 let first = a.points.first().ok_or_else(missing)?;
@@ -7998,9 +8001,11 @@ fn run_command(
                     .map(|tee| tee.at)
                     .or_else(|| a.points.last().copied())
                     .ok_or_else(missing)?;
-                if !p.drawn_wires.iter().any(|w| {
-                    w.net == Some(net) && w.points.contains(&at)
-                }) {
+                if !p
+                    .drawn_wires
+                    .iter()
+                    .any(|w| w.net == Some(net) && w.points.contains(&at))
+                {
                     return Err(Error::Invalid(
                         "junction must sit on a vertex of a drawn wire of its net".into(),
                     ));
@@ -14727,8 +14732,8 @@ mod tests {
             component: 2,
             pin: "1".into(),
         };
-        let start = s.pin_position(&from).ok_or_else(missing)?;
-        let end = s.pin_position(&to).ok_or_else(missing)?;
+        let start = s.project.pin_position(&from).ok_or_else(missing)?;
+        let end = s.project.pin_position(&to).ok_or_else(missing)?;
         let bend = Point::new((start.x + end.x) / 2.0, start.y + 5.0);
         let revision = s.revision;
         s.execute(
@@ -14747,12 +14752,12 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 1);
         assert_eq!(s.project.drawn_wires[0].points.len(), 3);
         let net = s.project.drawn_wires[0].net.ok_or_else(missing)?;
-        assert_eq!(s.pin(&from).ok_or_else(missing)?.net, Some(net));
-        assert_eq!(s.pin(&to).ok_or_else(missing)?.net, Some(net));
+        assert_eq!(s.project.pin(&from).ok_or_else(missing)?.net, Some(net));
+        assert_eq!(s.project.pin(&to).ok_or_else(missing)?.net, Some(net));
         s.undo()?;
         assert!(s.project.drawn_wires.is_empty());
-        assert_eq!(s.pin(&from).ok_or_else(missing)?.net, None);
-        assert_eq!(s.pin(&to).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.pin(&from).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.pin(&to).ok_or_else(missing)?.net, None);
         assert_eq!(s.project.nets.len(), 0);
         Ok(())
     }
@@ -14790,8 +14795,8 @@ mod tests {
             component: 2,
             pin: "1".into(),
         };
-        let start = s.pin_position(&from).ok_or_else(missing)?;
-        let end = s.pin_position(&to).ok_or_else(missing)?;
+        let start = s.project.pin_position(&from).ok_or_else(missing)?;
+        let end = s.project.pin_position(&to).ok_or_else(missing)?;
         let saved = s.inspect();
         let err = match s.execute(
             "wire.place",
@@ -14846,12 +14851,7 @@ mod tests {
                 .iter()
                 .any(|l| l.kind == "junction" && l.net == net && l.position == tee)
         );
-        assert!(
-            s.project
-                .drawn_wires
-                .iter()
-                .all(|w| w.net == Some(net))
-        );
+        assert!(s.project.drawn_wires.iter().all(|w| w.net == Some(net)));
         s.undo()?;
         assert_eq!(s.project.drawn_wires.len(), 1);
         assert!(s.project.labels.is_empty());
