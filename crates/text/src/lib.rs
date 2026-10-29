@@ -8,6 +8,8 @@
 //! Screens read text through [`t!`], which asks the catalog that the running
 //! frame activated with [`activate`].
 
+pub mod numbers;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -21,6 +23,7 @@ pub const CONVERTED_FNS: &str = include_str!("../strings/converted-fns.txt");
 const FIXTURE_FR: &str = include_str!("../strings/fixture-fr.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_RTL: &str = include_str!("../strings/fixture-rtl.txt");
+const FIXTURE_DE: &str = include_str!("../strings/fixture-de.txt");
 
 /// Language tag meaning "follow the computer's language".
 pub const SYSTEM: &str = "system";
@@ -128,6 +131,10 @@ fn fixture_languages() -> Vec<Language> {
             tag: FIXTURE_RTL_TAG.into(),
             name: language_name(FIXTURE_RTL),
         },
+        Language {
+            tag: "de".into(),
+            name: language_name(FIXTURE_DE),
+        },
     ]
 }
 
@@ -175,29 +182,181 @@ fn language_text(tag: &str) -> Option<&'static str> {
         "fr" => Some(FIXTURE_FR),
         #[cfg(feature = "fixture")]
         FIXTURE_RTL_TAG => Some(FIXTURE_RTL),
+        "de" => Some(FIXTURE_DE),
         _ => None,
     }
 }
 
-/// True when the language's "one" form is used for `count`.
+/// A CLDR plural category. A language uses only some of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Category {
+    /// Used by Arabic for 0.
+    Zero,
+    /// The singular-like form.
+    One,
+    /// Used by Arabic and Hebrew for 2.
+    Two,
+    /// Small counts in Russian, Polish and Arabic.
+    Few,
+    /// Large counts in Russian, Polish and Arabic.
+    Many,
+    /// Everything else; mandatory in every language file.
+    Other,
+}
+
+impl Category {
+    /// The key suffix: `one` for `cmp.count.one`.
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Category::Zero => "zero",
+            Category::One => "one",
+            Category::Two => "two",
+            Category::Few => "few",
+            Category::Many => "many",
+            Category::Other => "other",
+        }
+    }
+
+    const ALL: [Category; 6] = [
+        Category::Zero,
+        Category::One,
+        Category::Two,
+        Category::Few,
+        Category::Many,
+        Category::Other,
+    ];
+}
+
+fn primary_tag(tag: &str) -> &str {
+    tag.split(['-', '_']).next().unwrap_or(tag)
+}
+
+/// The plural category of a whole-number `count` in the language `tag`.
 ///
-/// CLDR cardinal rule: French and Portuguese (`fr`, `pt`, `pt-BR` and so on)
-/// use "one" for 0 and 1; every other shipped language only for 1.
+/// Rules are the Unicode CLDR cardinal rules (`plurals.xml`), read for whole
+/// numbers only, so `v = 0` and `i = n`. Research:
+/// `research-602-plural-forms.md`. A tag with no rule here follows the
+/// English rule.
 ///
 /// # Rules
-/// Whole-number counts only; richer categories are #602.
+/// French and Portuguese use `many` only for exact millions and larger; this
+/// app has no such counts, so they map to `other`.
 ///
 /// # Dependencies
 /// None.
 ///
 /// # Do not
-/// Add few or many here.
-fn is_one(tag: &str, count: u64) -> bool {
-    let primary = tag.split(['-', '_']).next().unwrap_or(tag);
-    match primary {
-        "fr" | "pt" => count <= 1,
-        _ => count == 1,
+/// Add fractional counts or an ICU dependency for this short list.
+pub fn plural_category(tag: &str, count: u64) -> Category {
+    let n = count;
+    let last_two = n % 100;
+    let few_digit = (2..=4).contains(&(n % 10)) && !(12..=14).contains(&last_two);
+    match primary_tag(tag) {
+        // other only.
+        "ja" | "zh" => Category::Other,
+        // one: i = 0,1.
+        "fr" | "pt" => {
+            if n <= 1 {
+                Category::One
+            } else {
+                Category::Other
+            }
+        }
+        // one: n % 10 = 1 and n % 100 != 11; few: n % 10 = 2..4 and
+        // n % 100 != 12..14; many: the rest of whole numbers.
+        "ru" => {
+            if n % 10 == 1 && last_two != 11 {
+                Category::One
+            } else if few_digit {
+                Category::Few
+            } else {
+                Category::Many
+            }
+        }
+        // one: n = 1; few: n % 10 = 2..4 and n % 100 != 12..14; many: rest.
+        "pl" => {
+            if n == 1 {
+                Category::One
+            } else if few_digit {
+                Category::Few
+            } else {
+                Category::Many
+            }
+        }
+        // zero: 0; one: 1; two: 2; few: n % 100 = 3..10; many: n % 100 =
+        // 11..99; other: 100, 101, 102 and so on.
+        "ar" => match n {
+            0 => Category::Zero,
+            1 => Category::One,
+            2 => Category::Two,
+            _ => match last_two {
+                3..=10 => Category::Few,
+                11..=99 => Category::Many,
+                _ => Category::Other,
+            },
+        },
+        // one: n = 1; two: n = 2.
+        "he" => match n {
+            1 => Category::One,
+            2 => Category::Two,
+            _ => Category::Other,
+        },
+        // en, de, es and any language without a rule here: one: n = 1.
+        _ => {
+            if n == 1 {
+                Category::One
+            } else {
+                Category::Other
+            }
+        }
     }
+}
+
+/// The categories a language uses, so a file can be checked against them.
+/// Derived from [`plural_category`] over a spread of counts that reaches
+/// every branch. `other` is always included: CLDR keeps it for fractions.
+pub fn plural_categories(tag: &str) -> Vec<Category> {
+    let samples = [0u64, 1, 2, 3, 5, 11, 21, 100, 101, 111];
+    Category::ALL
+        .into_iter()
+        .filter(|c| *c == Category::Other || samples.iter().any(|n| plural_category(tag, *n) == *c))
+        .collect()
+}
+
+/// Problems with the plural keys of a language file, one line each: a base
+/// without `.other`, or a category the language does not use. Keys are the
+/// parsed `(key, value)` pairs.
+///
+/// # Rules
+/// A translator adds exactly the categories the language needs.
+///
+/// # Dependencies
+/// [`plural_categories`].
+///
+/// # Do not
+/// Demand `.few` from every language.
+pub fn plural_problems(tag: &str, entries: &[(String, String)]) -> Vec<String> {
+    let used = plural_categories(tag);
+    let mut bases: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (key, _) in entries {
+        if let Some((base, suffix)) = key.rsplit_once('.')
+            && Category::ALL.iter().any(|c| c.suffix() == suffix)
+        {
+            bases.entry(base).or_default().push(suffix);
+        }
+    }
+    let mut out = Vec::new();
+    for (base, suffixes) in bases {
+        if !suffixes.contains(&"other") {
+            out.push(format!("{base}: no `.other` form"));
+        }
+        for suffix in suffixes {
+            if !used.iter().any(|c| c.suffix() == suffix) {
+                out.push(format!("{base}.{suffix}: `{tag}` does not use `{suffix}`"));
+            }
+        }
+    }
+    out
 }
 
 /// Map a system locale such as `de_DE.UTF-8` to a shipped tag, or `en`.
@@ -274,9 +433,18 @@ impl Catalog {
         self.overrides = parse(text)
             .0
             .into_iter()
-            .filter(|(key, _)| self.english.contains_key(key))
+            .filter(|(key, _)| self.english.contains_key(key) || self.english_plural_form(key))
             .collect();
         self
+    }
+
+    /// True when `key` is `{base}.{category}` and English defines
+    /// `{base}.other`, so a language may add forms English lacks.
+    fn english_plural_form(&self, key: &str) -> bool {
+        key.rsplit_once('.').is_some_and(|(base, suffix)| {
+            Category::ALL.iter().any(|c| c.suffix() == suffix)
+                && self.english.contains_key(&format!("{base}.other"))
+        })
     }
 
     /// The tag of the loaded language.
@@ -315,6 +483,12 @@ impl Catalog {
                 }
             }
         }
+    }
+
+    /// The loaded language tag, for the number and date functions in
+    /// [`numbers`]. `en` when the tag was unknown.
+    pub fn number_tag(&self) -> &str {
+        &self.tag
     }
 
     /// Every key English defines, in sorted order.
@@ -369,12 +543,16 @@ impl Catalog {
             && (self.overrides.contains_key(&zero) || self.english.contains_key(&zero))
         {
             "zero"
-        } else if is_one(&self.tag, count) {
-            "one"
         } else {
-            "other"
+            plural_category(&self.tag, count).suffix()
         };
-        self.format(&format!("{base}.{form}"), &[("count", &count.to_string())])
+        let wanted = format!("{base}.{form}");
+        let key = if self.overrides.contains_key(&wanted) || self.english.contains_key(&wanted) {
+            wanted
+        } else {
+            format!("{base}.other")
+        };
+        self.format(&key, &[("count", &count.to_string())])
     }
 
     /// A length in the project's unit. `value_mm` is millimetres; `unit` is
@@ -618,6 +796,84 @@ mod tests {
         assert_eq!(en.plural("cmp.count", 5), "5 parts");
     }
 
+    /// Counts 0, 1, 2, 5, 11, 21, 101 in order, as category suffixes.
+    fn boundary(tag: &str) -> Vec<&'static str> {
+        [0, 1, 2, 5, 11, 21, 101]
+            .iter()
+            .map(|n| plural_category(tag, *n).suffix())
+            .collect()
+    }
+
+    #[test]
+    fn each_shipped_language_maps_the_boundary_counts_to_the_expected_category() {
+        let one_other = ["other", "one", "other", "other", "other", "other", "other"];
+        assert_eq!(boundary("en"), one_other);
+        assert_eq!(boundary("de"), one_other);
+        assert_eq!(boundary("es"), one_other);
+        let zero_is_one = ["one", "one", "other", "other", "other", "other", "other"];
+        assert_eq!(boundary("fr"), zero_is_one);
+        assert_eq!(boundary("pt"), zero_is_one);
+        assert_eq!(boundary("pt-BR"), zero_is_one);
+        assert_eq!(boundary("ja"), ["other"; 7]);
+        assert_eq!(boundary("zh"), ["other"; 7]);
+        assert_eq!(
+            boundary("ru"),
+            ["many", "one", "few", "many", "many", "one", "one"]
+        );
+        assert_eq!(
+            boundary("pl"),
+            ["many", "one", "few", "many", "many", "many", "many"]
+        );
+        assert_eq!(
+            boundary("ar"),
+            ["zero", "one", "two", "few", "many", "many", "other"]
+        );
+        assert_eq!(
+            boundary("he"),
+            ["other", "one", "two", "other", "other", "other", "other"]
+        );
+    }
+
+    #[test]
+    fn a_russian_file_may_define_few_and_many_and_they_are_kept() {
+        let text = "cmp.count.one = {count} деталь\ncmp.count.few = {count} детали\n\
+                    cmp.count.many = {count} деталей\ncmp.count.other = {count} детали\n";
+        let ru = Catalog::english().with_language("ru", text);
+        assert_eq!(ru.plural("cmp.count", 1), "1 деталь");
+        assert_eq!(ru.plural("cmp.count", 3), "3 детали");
+        assert_eq!(ru.plural("cmp.count", 5), "5 деталей");
+        assert_eq!(ru.plural("cmp.count", 21), "21 деталь");
+        assert!(ru.missing_keys().is_empty());
+        assert!(plural_problems("ru", &parse(text).0).is_empty());
+    }
+
+    #[test]
+    fn a_language_file_must_define_other_for_every_plural_base() {
+        let entries = parse("cmp.count.one = {count} peça\n").0;
+        assert_eq!(
+            plural_problems("pt", &entries),
+            vec!["cmp.count: no `.other` form".to_string()]
+        );
+        assert!(plural_problems("fr", &parse(FIXTURE).0).is_empty());
+    }
+
+    #[test]
+    fn a_language_file_may_not_define_a_category_its_language_does_not_use() {
+        let entries = parse("cmp.count.one = {count}\ncmp.count.other = {count}\n").0;
+        assert_eq!(plural_problems("ja", &entries).len(), 1);
+        assert!(plural_problems("ja", &entries)[0].contains("cmp.count.one"));
+        assert!(plural_problems("en", &entries).is_empty());
+    }
+
+    #[test]
+    fn a_missing_category_falls_back_to_other() {
+        let text = "cmp.count.other = {count} Teile\n";
+        let de = Catalog::english().with_language("de", text);
+        assert_eq!(de.plural("cmp.count", 1), "1 part");
+        let ru = Catalog::english().with_language("ru", text);
+        assert_eq!(ru.plural("cmp.count", 5), "5 Teile");
+    }
+
     #[test]
     fn format_length_honours_project_unit() {
         let c = Catalog::english();
@@ -657,7 +913,7 @@ mod tests {
     #[test]
     fn a_bad_tag_or_the_system_tag_gives_a_working_catalog() {
         assert_eq!(Catalog::for_language("zz").tag(), "en");
-        assert_eq!(match_locale("de_DE.UTF-8"), "en");
+        assert_eq!(match_locale("xx_XX.UTF-8"), "en");
         assert_eq!(Catalog::for_language("").get("menu.file"), "File");
     }
 
@@ -757,6 +1013,47 @@ pub mod scan {
         found
     }
 
+    /// Places in `source` that build a plural by hand: `== 1 {` followed by
+    /// `""` or `"s"`, or the text `(s)` inside a string. Each hit is a short
+    /// excerpt. Use `Catalog::plural` instead.
+    pub fn plural_s_violations(source: &str) -> Vec<String> {
+        let compact: String = source.chars().filter(|c| !c.is_whitespace()).collect();
+        let mut found = Vec::new();
+        for pattern in ["==1{\"\"", "==1{\"s\""] {
+            let mut from = 0;
+            while let Some(at) = compact[from..].find(pattern) {
+                found.push(format!("`{pattern}`"));
+                from += at + pattern.len();
+            }
+        }
+        let (mut in_string, mut escaped) = (false, false);
+        let chars: Vec<char> = source.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == '"' {
+                    in_string = false;
+                } else if c == '('
+                    && chars.get(i + 1) == Some(&'s')
+                    && chars.get(i + 2) == Some(&')')
+                {
+                    found.push("`(s)` in a string".to_string());
+                }
+            } else if c == '\'' && chars.get(i + 2) == Some(&'\'') {
+                i += 2;
+            } else if c == '"' {
+                in_string = true;
+            }
+            i += 1;
+        }
+        found
+    }
+
     /// Every key named in a `t!("key"...)` call in `source`.
     pub fn referenced_keys(source: &str) -> Vec<String> {
         let mut keys = Vec::new();
@@ -833,6 +1130,60 @@ mod area_tests {
             }
         }
         Ok(())
+    }
+
+    /// Hand-built plurals that already exist, as `file count` lines in
+    /// `strings/plural-known.txt`. The list may only shrink.
+    #[test]
+    fn the_ui_source_has_no_inline_plural_s() -> Result<(), String> {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui-egui/src");
+        let known: BTreeMap<String, usize> = include_str!("../strings/plural-known.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .filter_map(|l| {
+                let (file, n) = l.rsplit_once(' ')?;
+                Some((file.to_string(), n.parse().ok()?))
+            })
+            .collect();
+        let mut seen = BTreeMap::new();
+        let mut stack = vec![src.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+                let path = entry.map_err(|e| e.to_string())?.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                    let hits = scan::plural_s_violations(&text).len();
+                    if hits > 0 {
+                        let name = path.strip_prefix(&src).map_err(|e| e.to_string())?;
+                        seen.insert(name.to_string_lossy().replace('\\', "/"), hits);
+                    }
+                }
+            }
+        }
+        let over: Vec<String> = seen
+            .iter()
+            .filter(|(file, hits)| **hits > known.get(*file).copied().unwrap_or(0))
+            .map(|(file, hits)| format!("{file} {hits}"))
+            .collect();
+        if over.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "hand-built plurals beyond plural-known.txt (use Catalog::plural): {over:?}"
+            ))
+        }
+    }
+
+    #[test]
+    fn the_guard_fails_on_a_string_that_builds_a_plural_with_an_inline_s() {
+        let bad = r#"format!("{} item{}", n, if n == 1 { "" } else { "s" })"#;
+        assert_eq!(scan::plural_s_violations(bad).len(), 1);
+        let bad = r#"let m = "Loaded {} file(s)";"#;
+        assert_eq!(scan::plural_s_violations(bad).len(), 1);
+        let fine = r#"let x = Some(s); if n == 1 { one() } else { other() }"#;
+        assert!(scan::plural_s_violations(fine).is_empty());
     }
 
     #[test]
