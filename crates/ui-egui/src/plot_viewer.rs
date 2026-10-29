@@ -2,7 +2,7 @@
 
 use egui::{Color32, Pos2, Rect, Stroke, Vec2};
 use pcbcraft_geom::Point;
-use pcbcraft_io::{distance_mm, layer_bounds, load_plot_folder, PlotPackage};
+use pcbcraft_io::{PlotPackage, distance_mm, layer_bounds, load_plot_folder};
 
 #[derive(Clone, Copy)]
 struct Camera {
@@ -61,6 +61,7 @@ impl State {
         !self.hidden_layers.iter().any(|h| h == id)
     }
 
+    #[cfg(test)]
     pub fn visible_layer_count(&self) -> usize {
         self.package
             .as_ref()
@@ -77,7 +78,6 @@ impl State {
 pub struct Theme {
     pub surface: Color32,
     pub muted: Color32,
-    pub ink: Color32,
     pub accent: Color32,
 }
 
@@ -110,8 +110,7 @@ pub fn ui(
             .on_hover_text(
                 "Type the folder where copper and drill files were written, then load them here.",
             );
-        if path_response.changed() && state.folder_path.trim().is_empty() && !make_dir.is_empty()
-        {
+        if path_response.changed() && state.folder_path.trim().is_empty() && !make_dir.is_empty() {
             state.folder_path = make_dir.to_owned();
         }
         if ui
@@ -125,14 +124,11 @@ pub fn ui(
                     state.hidden_layers.clear();
                     state.measure_pts.clear();
                     state.needs_fit = true;
-                    state.hint_banner = pkg
-                        .hints
-                        .first()
-                        .map(|h| h.message.clone())
-                        .or_else(|| {
-                            pkg.layers.iter().find_map(|l| {
-                                l.hints.first().map(|h| h.message.clone())
-                            })
+                    state.hint_banner =
+                        pkg.hints.first().map(|h| h.message.clone()).or_else(|| {
+                            pkg.layers
+                                .iter()
+                                .find_map(|l| l.hints.first().map(|h| h.message.clone()))
                         });
                     *message = format!(
                         "Loaded {} layer file(s) from {}",
@@ -161,11 +157,7 @@ pub fn ui(
     });
 
     if let Some(hint) = &state.hint_banner {
-        ui.label(
-            egui::RichText::new(hint)
-                .small()
-                .color(theme.muted),
-        );
+        ui.label(egui::RichText::new(hint).small().color(theme.muted));
     }
 
     ui.horizontal(|ui| {
@@ -176,7 +168,9 @@ pub fn ui(
         };
         if ui
             .selectable_label(state.measure_mode, measure_label)
-            .on_hover_text("Click two points on the canvas to read the distance in millimetres. Esc cancels.")
+            .on_hover_text(
+                "Click two points on the canvas to read the distance in millimetres. Esc cancels.",
+            )
             .clicked()
         {
             state.measure_mode = !state.measure_mode;
@@ -214,12 +208,8 @@ pub fn ui(
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.set_min_width(180.0);
-            ui.label(
-                egui::RichText::new("Layers")
-                    .small()
-                    .color(theme.muted),
-            )
-            .on_hover_text("Toggle which files are drawn on the canvas.");
+            ui.label(egui::RichText::new("Layers").small().color(theme.muted))
+                .on_hover_text("Toggle which files are drawn on the canvas.");
             for layer in &package.layers {
                 let visible = state.layer_visible(&layer.id);
                 let label = if visible {
@@ -247,12 +237,8 @@ pub fn ui(
         ui.separator();
         ui.vertical(|ui| {
             ui.set_min_width(200.0);
-            ui.label(
-                egui::RichText::new("Apertures")
-                    .small()
-                    .color(theme.muted),
-            )
-            .on_hover_text("Tooling definitions from the loaded gerber files.");
+            ui.label(egui::RichText::new("Apertures").small().color(theme.muted))
+                .on_hover_text("Tooling definitions from the loaded gerber files.");
             egui::ScrollArea::vertical()
                 .max_height(200.0)
                 .show(ui, |ui| {
@@ -262,10 +248,7 @@ pub fn ui(
                         }
                         ui.label(egui::RichText::new(&layer.id).weak());
                         for ap in &layer.apertures {
-                            let func = ap
-                                .function
-                                .as_deref()
-                                .unwrap_or("—");
+                            let func = ap.function.as_deref().unwrap_or("—");
                             ui.label(format!(
                                 "D{} · {} · {:.3}×{:.3} mm · {func}",
                                 ap.code, ap.template, ap.width_mm, ap.height_mm
@@ -363,7 +346,9 @@ fn paint_canvas(
             }
         }
         for flash in &layer.flashes {
-            let center = state.camera.screen(Point::new(flash.x_mm, flash.y_mm), rect);
+            let center = state
+                .camera
+                .screen(Point::new(flash.x_mm, flash.y_mm), rect);
             let r = (0.15 * state.camera.zoom).clamp(2.0, 12.0);
             if layer.id == "Drill hits" {
                 painter.circle_stroke(center, r, Stroke::new(1.5, color));
@@ -373,16 +358,17 @@ fn paint_canvas(
         }
     }
 
-    if state.measure_mode && response.clicked() {
-        if let Some(pos) = response.interact_pointer_pos() {
-            let world = state.camera.world(pos, rect);
-            state.measure_pts.push(world);
-            if state.measure_pts.len() > 2 {
-                state.measure_pts.remove(0);
-            }
+    if state.measure_mode
+        && response.clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        let world = state.camera.world(pos, rect);
+        state.measure_pts.push(world);
+        if state.measure_pts.len() > 2 {
+            state.measure_pts.remove(0);
         }
     }
-    if state.measure_pts.len() >= 1 {
+    if !state.measure_pts.is_empty() {
         for pt in &state.measure_pts {
             let sp = state.camera.screen(*pt, rect);
             painter.circle_filled(sp, 4.0, theme.accent);

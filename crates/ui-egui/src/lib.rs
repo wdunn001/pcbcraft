@@ -1,19 +1,32 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
+mod board3d;
 mod canvas;
+mod datums;
+mod editing;
+mod impedance_panel;
 mod library;
+mod library_quality;
 mod plot_viewer;
+mod sources;
+mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use pcbcraft_text::t;
+#[cfg(test)]
+use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
 /// staring at a blank list.
+#[cfg(test)]
 const EMPTY_SYMBOLS: &str =
     "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
 const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+#[cfg(test)]
 const EMPTY_BOARD: &str =
     "No packages on the board yet. Run board.sync to place a package for every symbol.";
 const EMPTY_CHECKS: &str =
@@ -61,6 +74,32 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
             "command palette",
         ),
         ("?", "Show or hide this shortcut list", "anywhere"),
+        ("Ctrl+C", "Copy the selected objects as text", "canvas"),
+        (
+            "Ctrl+V",
+            "Paste the copied objects, ready to move",
+            "canvas",
+        ),
+        (
+            "Ctrl+A",
+            "Select every object the pick chips allow",
+            "canvas",
+        ),
+        (
+            "Shift+click",
+            "Add an object to the selection or take it out",
+            "canvas",
+        ),
+        (
+            "Drag on empty canvas",
+            "Draw a box and select what it touches",
+            "canvas",
+        ),
+        (
+            "U",
+            "Measure tool: click two points to read the distance",
+            "canvas",
+        ),
         ("A", "Open the symbol palette", "schematic tab"),
         (
             "W",
@@ -88,7 +127,7 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
             "anywhere",
         ),
         ("Home", "Zoom the view so the whole design fits", "anywhere"),
-        ("Delete", "Delete the selected object", "anywhere"),
+        ("Delete", "Delete every selected object", "anywhere"),
         (
             "Esc",
             "Return to the select tool and close open palettes",
@@ -252,6 +291,9 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
         Tool::DrawLayer => {
             format!("LMB: place the shape on the active layer{common}")
+        }
+        Tool::Measure => {
+            format!("LMB: click two points to read the distance between them{common}")
         }
     }
 }
@@ -422,13 +464,20 @@ use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
+    Files,
     Schematic,
     Pcb,
-    Libraries,
+    Board3d,
     Rules,
     Checks,
     Settings,
+    Libraries,
     PlotFiles,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompareKind {
+    Added,
+    Changed,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -442,19 +491,13 @@ enum PadLabels {
     Off,
 }
 impl PadLabels {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         match self {
-            Self::Number => "Pads: number",
-            Self::Net => "Pads: net",
-            Self::Off => "Pads: off",
+            Self::Number => t!("pad_labels.number"),
+            Self::Net => t!("pad_labels.net"),
+            Self::Off => t!("pad_labels.off"),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CompareKind {
-    Added,
-    Changed,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Preferences {
@@ -464,6 +507,26 @@ struct Preferences {
     pad_labels: PadLabels,
     #[serde(default)]
     hidden_layers: Vec<String>,
+    /// Vertical split in the right aside: fraction for the Layers tree (top).
+    #[serde(default = "default_aside_split")]
+    aside_split: f32,
+    /// Lower right-aside tab: 0 = Properties, 1 = Assistant.
+    #[serde(default)]
+    aside_lower_tab: u8,
+    #[serde(default = "default_true")]
+    library_dock_open: bool,
+    /// Language tag of the text catalog, or `system` to follow the computer.
+    #[serde(default = "default_language")]
+    language: String,
+}
+fn default_language() -> String {
+    pcbcraft_text::SYSTEM.into()
+}
+fn default_aside_split() -> f32 {
+    0.45
+}
+fn default_true() -> bool {
+    true
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -473,6 +536,10 @@ impl Default for Preferences {
             accent: [91, 224, 188],
             pad_labels: PadLabels::Number,
             hidden_layers: Vec::new(),
+            aside_split: default_aside_split(),
+            aside_lower_tab: 0,
+            library_dock_open: true,
+            language: default_language(),
         }
     }
 }
@@ -527,6 +594,7 @@ enum Tool {
     NoConnect,
     Fiducial,
     DrawLayer,
+    Measure,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -565,14 +633,17 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    edit: editing::EditState,
+    view3d: board3d::View3d,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
+    /// Text for the language chosen in Settings.
+    catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
-    left_tab: usize,
     tree_query: String,
     tree_hidden: Vec<String>,
     focus_layer: Option<String>,
@@ -590,11 +661,13 @@ pub struct App {
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
+    datum_ui: datums::DatumUi,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
     pair_a: Id,
     pair_b: Id,
@@ -640,6 +713,8 @@ pub struct App {
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
     anat_open: Vec<String>,
+    /// Optional workspace tabs the user closed; the + menu reopens them.
+    closed_tabs: Vec<Tab>,
     notes_thick: f64,
     notes_er: f64,
     net_editor: Option<pcbcraft_doc::Id>,
@@ -647,10 +722,14 @@ pub struct App {
     net_draft: Option<(pcbcraft_doc::Id, String)>,
     palette: bool,
     part_search: String,
+    part_sources: sources::PartSources,
+    pending_source: Option<pcbcraft_library::sources::PartResult>,
     hidden_sets: Vec<String>,
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// Left edge of the central page, so tests can check text keeps its margin.
+    page_left: f32,
     schematic: Camera,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
@@ -676,12 +755,14 @@ pub struct App {
     command_scroll: bool,
     capture: Option<String>,
     frames: u32,
-    library: library::Browser,
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
+    library: library::Browser,
+    #[cfg(test)]
+    icon_rects: BTreeMap<String, Rect>,
 }
 impl App {
     /// One library part offered as a small card: its name to pick, and a
@@ -780,6 +861,11 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.extend(via_span::via_span_rows(project, v));
+        rows.push((
+            "Protection".into(),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
@@ -900,6 +986,7 @@ impl App {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
+                Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -907,14 +994,18 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            edit: editing::EditState::default(),
+            view3d: board3d::View3d::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
+            catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
+                &preferences.language,
+            )),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
             home_path_focus: false,
-            left_tab: 0,
             tree_query: String::new(),
             tree_hidden: Vec::new(),
             focus_layer: None,
@@ -932,11 +1023,13 @@ impl App {
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
+            datum_ui: datums::DatumUi::default(),
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
             pair_a: 0,
             pair_b: 0,
@@ -981,6 +1074,7 @@ impl App {
             stack_thickness: 1.2,
             stack_edit: None,
             anat_open: vec!["connections".to_owned()],
+            closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
             net_editor: None,
@@ -988,19 +1082,22 @@ impl App {
             net_draft: None,
             palette: false,
             part_search: String::new(),
+            part_sources: sources::PartSources::default(),
+            pending_source: None,
             hidden_sets: Vec::new(),
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
-            plot_viewer: plot_viewer::State::default(),
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
@@ -1023,12 +1120,14 @@ impl App {
             command_scroll: false,
             capture,
             frames: 0,
-            library,
             compare_open: false,
             compare_baseline_path: String::new(),
             compare_report_open: false,
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
+            library,
+            #[cfg(test)]
+            icon_rects: BTreeMap::new(),
         }
     }
     fn refresh(&mut self) {
@@ -1114,6 +1213,11 @@ impl App {
                         self.selected_unit = 1;
                     }
                     self.selected = Some(id);
+                    if command == "component.add" {
+                        self.refresh();
+                        self.attach_pending_source(id);
+                        return;
+                    }
                 }
             }
             Err(e) => self.message = e,
@@ -1199,6 +1303,7 @@ impl App {
     }
     fn select(&mut self, id: Option<Id>) {
         self.selected = id;
+        self.edit.extra.clear();
         self.selected_unit = 1;
         self.load_properties();
     }
@@ -1241,8 +1346,14 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        self.closed_tabs.retain(|t| *t != tab);
+        // Rules, Checks and Settings are pages, not canvases: going to one or
+        // coming back from one keeps the user's zoom and pan.
+        let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
+        if !page(tab) && !page(self.tab) {
+            self.needs_fit = true;
+        }
         self.tab = tab;
-        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -1426,7 +1537,7 @@ impl App {
                     .color(self.muted()),
             );
         }
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.stack_name)
                     .desired_width(70.0)
@@ -1508,6 +1619,7 @@ impl App {
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label("Thickness");
             ui.add(
@@ -1768,6 +1880,8 @@ impl App {
         self.tree_hidden.iter().any(|hidden| hidden == kind)
     }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
+        self.stackup_section(ui);
+        ui.separator();
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.tree_query)
@@ -1786,6 +1900,8 @@ impl App {
                 self.tree_query.clear();
             }
         });
+        self.board_anatomy_section(ui);
+        ui.separator();
         ui.label(
             egui::RichText::new("SHOW IN THE TREE")
                 .size(10.0)
@@ -1825,9 +1941,12 @@ impl App {
             .id_salt("anat-board-root")
             .default_open(true)
             .show(ui, |ui| {
-            self.stackup_section(ui);
             self.holes_section(ui);
+            self.datums_section(ui);
             self.fiducials_section(ui);
+            if self.tab == Tab::Pcb {
+                self.via_spans_section(ui);
+            }
             ui.add_space(16.0);
             let rows: &[&str] = match self.tab {
                 Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -1878,7 +1997,6 @@ impl App {
         board_header.header_response.on_hover_text(
             "The board itself: shape, size, surface finish, holes and what the drawing shows.",
         );
-        self.board_anatomy_section(ui);
     }
     fn board_anatomy_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(16.0);
@@ -1941,10 +2059,11 @@ impl App {
                 (
                     v.id,
                     format!(
-                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
+                        "Via at {}, {} · {} mm hole · {} · {}",
                         v.position.x.round(),
                         v.position.y.round(),
                         v.drill,
+                        via_span::via_tree_span(&self.project, v),
                         self.project.net_name(v.net)
                     ),
                 )
@@ -2404,6 +2523,7 @@ impl App {
             let open = self.anat_open.iter().any(|k| k == "connections");
             let header = egui::CollapsingHeader::new("Connections")
                 .id_salt("anat-connections")
+                .default_open(true)
                 .open(Some(open))
                 .show(ui, |ui| {
                     self.nets_tab(ui);
@@ -2484,6 +2604,7 @@ impl App {
         if ctx.egui_wants_keyboard_input() || ctx.current_pass_index() > 0 {
             return;
         }
+        let mut delete_now = false;
         ctx.input(|i| {
             if i.modifiers.command {
                 if i.key_pressed(egui::Key::F) {
@@ -2534,17 +2655,20 @@ impl App {
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
+                self.edit.measure = None;
+                self.edit.box_from = None;
+                self.edit.box_to = None;
             }
             if i.key_pressed(egui::Key::Slash) {
                 self.shortcuts_open = !self.shortcuts_open;
             }
-            if i.key_pressed(egui::Key::Delete)
-                && let Some(id) = self.selected
-            {
-                self.run("object.delete", json!({"id":id}));
-                self.select(None);
+            if i.key_pressed(egui::Key::Delete) && self.selected.is_some() {
+                delete_now = true;
             }
         });
+        if delete_now {
+            self.delete_selection();
+        }
     }
     fn style(&self, ctx: &egui::Context) {
         let mut visuals = if self.preferences.dark {
@@ -2580,99 +2704,133 @@ impl App {
         ctx.style_mut_of(ctx.theme(), |s| {
             s.spacing.item_spacing = Vec2::new(8.0, 8.0);
             s.spacing.button_padding = Vec2::new(10.0, 6.0);
+            s.spacing.window_margin = egui::Margin::same(12);
+            s.spacing.menu_margin = egui::Margin::same(12);
         });
     }
+    fn dock_frame(style: &egui::Style) -> egui::Frame {
+        egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
+    }
+    const APP_BAR_HEIGHT: f32 = 34.0;
+    /// The slim top bar: the brand and the menus, nothing else. Save, Undo
+    /// and Redo, settings, bug reports and the version live in the menus.
     fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::top("header").exact_size(100.0).show(ui, |ui| {
-            ui.add_space(7.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                let brand = ui.add(
-                    egui::Label::new(
-                        egui::RichText::new("PCBCraft")
-                            .size(20.0)
-                            .strong()
-                            .color(self.accent()),
-                    )
-                    .sense(egui::Sense::click()),
-                );
-                if brand
-                    .on_hover_text("Back to the start screen, where you open or begin a design.")
-                    .clicked()
-                {
-                    self.home_open = true;
-                }
-                if self.library.editor.mode == 0 {
-                    ui.separator();
-                    self.file_menu(ui);
-                    self.edit_menu(ui);
-                    self.settings_menu(ui);
-                    self.help_menu(ui);
-                }
-            });
-            ui.add_space(5.0);
-            ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                for (tab, label) in [
-                    (Tab::Schematic, "Schematic"),
-                    (Tab::Pcb, "PCB Layout"),
-                    (Tab::Libraries, "Libraries"),
-                    (Tab::Rules, "Rules"),
-                    (Tab::Checks, "Checks"),
-                    (Tab::Settings, "Settings"),
-                    (Tab::PlotFiles, "Plot files"),
-                ] {
-                    let (_, rect) = ui.allocate_space(Vec2::new(132.0, 30.0));
-                    let selected = self.tab == tab;
-                    let accent = self.accent();
-                    let ink = self.ink();
-                    let muted = self.muted();
-                    let response = craft_ui::tabs::Tab::new(ui.id().with(label), label, selected)
-                        .show_at(ui, rect, |ui, response| {
-                            if selected || response.hovered() {
-                                ui.painter().rect_filled(
-                                    rect,
-                                    6.0,
-                                    accent.gamma_multiply(if selected { 0.16 } else { 0.08 }),
-                                );
-                            }
-                            ui.painter().text(
-                                rect.center(),
-                                Align2::CENTER_CENTER,
-                                label,
-                                FontId::proportional(13.0),
-                                if selected { ink } else { muted },
-                            );
-                            if selected {
-                                ui.painter().line_segment(
-                                    [rect.left_bottom(), rect.right_bottom()],
-                                    Stroke::new(2.0, accent),
-                                );
-                            }
-                        });
-                    if response.clicked() {
-                        self.change_tab(tab);
-                    }
-                    if tab == Tab::PlotFiles {
-                        response.on_hover_text(
-                            "Open and inspect copper, outline, and drill files before ordering.",
-                        );
-                    }
-                }
-                ui.add_enabled(false, egui::Button::new("3D Board"))
-                    .on_hover_text("A real Rust 3D viewer is planned.");
-            });
-            if !matches!(self.tool, Tool::Select) {
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
+        egui::Panel::top("app-bar")
+            .exact_size(Self::APP_BAR_HEIGHT)
+            .frame(Self::dock_frame(ui.style()))
+            .show(ui, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let brand = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(t!("app.name"))
+                                .size(15.0)
+                                .strong()
+                                .color(self.accent()),
+                        )
+                        .sense(egui::Sense::click()),
                     );
+                    if brand.on_hover_text(t!("app.brand.tip")).clicked() {
+                        self.home_open = true;
+                    }
+                    if self.library.editor.mode == 0 {
+                        ui.separator();
+                        self.file_menu(ui);
+                        self.edit_menu(ui);
+                        self.help_menu(ui);
+                    }
                 });
+            });
+    }
+    fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
+        let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
+        let mut shown: Vec<(Tab, &str)> = vec![
+            (Tab::Files, "Files"),
+            (Tab::Schematic, "Schematic"),
+            (Tab::Pcb, "Layout"),
+            (Tab::Board3d, "3D View"),
+        ];
+        if self.tab == Tab::Libraries {
+            shown.push((Tab::Libraries, "Libraries"));
+        }
+        for (tab, label) in [
+            (Tab::Rules, "Rules"),
+            (Tab::Checks, "Checks"),
+            (Tab::PlotFiles, "Plot files"),
+            (Tab::Settings, "Settings"),
+        ] {
+            if !self.closed_tabs.contains(&tab) {
+                shown.push((tab, label));
             }
+        }
+        let used = shown.len() as f32 * 90.0 + 40.0;
+        let mut close = None;
+        ui.horizontal(|ui| {
+            ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
+            for (tab, label) in shown.iter().copied() {
+                let selected = self.tab == tab;
+                let response = ui.selectable_label(selected, label).on_hover_text(
+                    if optional.contains(&tab) {
+                        format!("Switch to the {label} view. Right-click to close it.")
+                    } else {
+                        format!("Switch to the {label} view.")
+                    },
+                );
+                if response.clicked() {
+                    self.change_tab(tab);
+                }
+                if optional.contains(&tab) {
+                    response.context_menu(|ui| {
+                        if ui
+                            .button("Close")
+                            .on_hover_text("Hide this view; the + menu brings it back.")
+                            .clicked()
+                        {
+                            close = Some(tab);
+                            ui.close();
+                        }
+                    });
+                }
+            }
+            let closed = self.closed_tabs.clone();
+            ui.menu_button("+", |ui| {
+                if closed.is_empty() {
+                    ui.add_enabled(false, egui::Label::new("Every view is open"));
+                }
+                for tab in closed {
+                    let name = match tab {
+                        Tab::Rules => "Rules",
+                        Tab::Checks => "Checks",
+                        _ => "Settings",
+                    };
+                    if ui
+                        .button(name)
+                        .on_hover_text("Open this view again.")
+                        .clicked()
+                    {
+                        self.change_tab(tab);
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Open a view you closed.");
         });
+        if let Some(tab) = close {
+            self.closed_tabs.push(tab);
+            if self.tab == tab {
+                self.change_tab(Tab::Schematic);
+            }
+        }
+        if !matches!(self.tool, Tool::Select) && !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            });
+        }
     }
     fn start_home(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default()
@@ -2839,6 +2997,7 @@ impl App {
             self.home_open = false;
         }
     }
+
     fn compare_kind_color(&self, kind: CompareKind) -> Color32 {
         match kind {
             CompareKind::Added => Color32::from_rgb(72, 187, 120),
@@ -2991,44 +3150,40 @@ impl App {
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("File", |ui| {
+        ui.menu_button(t!("menu.file"), |ui| {
             if ui
-                .button("New")
-                .on_hover_text("Start a fresh empty design.")
+                .button(t!("menu.file.new"))
+                .on_hover_text(t!("menu.file.new.tip"))
                 .clicked()
             {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
             }
             if ui
-                .button("Open")
-                .on_hover_text(
-                    "Choose a design to open; your recent designs are listed on the screen that appears.",
-                )
+                .button(t!("menu.file.open"))
+                .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
                 self.home_open = true;
             }
             if ui
-                .button("Save")
-                .on_hover_text("Write the design to its file on disk. (Ctrl+S works too.)")
+                .button(t!("menu.file.save"))
+                .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
             }
             if ui
-                .button("Compare with another design…")
-                .on_hover_text(
-                    "Diff the open design against an older saved file; highlights show on the canvas.",
-                )
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
             {
                 self.compare_open = true;
             }
             ui.separator();
             if ui
-                .button("Export interchange board")
-                .on_hover_text("Write the board out so other design tools can open it.")
+                .button(t!("menu.file.export"))
+                .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
             {
                 let path = std::path::Path::new(&self.path)
@@ -3038,8 +3193,8 @@ impl App {
                 self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
             }
             if ui
-                .button("Copy view picture to clipboard")
-                .on_hover_text("Copy a PNG snapshot of the current view, the same picture a plotter would draw, so it can be pasted into a document.")
+                .button(t!("menu.file.copy_picture"))
+                .on_hover_text(t!("menu.file.copy_picture.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
@@ -3047,30 +3202,63 @@ impl App {
             }
         })
         .response
-        .on_hover_text("Start, open, save, export and share this design.");
+        .on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Edit", |ui| {
+        ui.menu_button(t!("menu.edit"), |ui| {
+            let (can_undo, can_redo) = self
+                .session
+                .lock()
+                .map(|s| (s.can_undo(), s.can_redo()))
+                .unwrap_or((false, false));
             if ui
-                .button("Undo")
-                .on_hover_text("Step back one action; every edit here is one undoable step.")
+                .add_enabled(can_undo, egui::Button::new(t!("menu.edit.undo")))
+                .on_hover_text(if can_undo {
+                    t!("menu.edit.undo.tip")
+                } else {
+                    t!("menu.edit.undo.none")
+                })
+                .on_disabled_hover_text(t!("menu.edit.undo.none"))
                 .clicked()
             {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .button("Redo")
-                .on_hover_text("Step forward to the action you undid.")
+                .add_enabled(can_redo, egui::Button::new(t!("menu.edit.redo")))
+                .on_hover_text(t!("menu.edit.redo.tip"))
+                .on_disabled_hover_text(t!("menu.edit.redo.none"))
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
             }
             ui.separator();
             if ui
-                .button("Update board from schematic")
-                .on_hover_text(
-                    "Copy every symbol, wire and net onto the board, then show the board.",
-                )
+                .button(t!("menu.edit.copy"))
+                .on_hover_text(t!("menu.edit.copy.tip"))
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_selection(&ctx);
+            }
+            if ui
+                .button(t!("menu.edit.paste"))
+                .on_hover_text(t!("menu.edit.paste.tip"))
+                .clicked()
+            {
+                self.paste_last_copy();
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .button(t!("menu.edit.cleanup"))
+                    .on_hover_text(t!("menu.edit.cleanup.tip"))
+                    .clicked()
+            {
+                self.cleanup_tracks();
+            }
+            ui.separator();
+            if ui
+                .button(t!("menu.edit.sync"))
+                .on_hover_text(t!("menu.edit.sync.tip"))
                 .clicked()
             {
                 self.run("board.sync", json!({}));
@@ -3082,182 +3270,183 @@ impl App {
             {
                 let name = net.name.clone();
                 if ui
-                    .button(format!("Clear wiring on {name}"))
-                    .on_hover_text(
-                        "Lift every piece of copper drawn for the lit connection. The connection itself stays.",
-                    )
+                    .button(t!("menu.edit.clear_net", name = name))
+                    .on_hover_text(t!("menu.edit.clear_net.tip"))
                     .clicked()
                 {
                     self.run("net.unroute", json!({"net": lit}));
                 }
             }
             if ui
-                .button("Clear all wiring")
-                .on_hover_text(
-                    "Start the copper over on the whole board. Parts, connections and copper zones stay.",
-                )
+                .button(t!("menu.edit.clear_all"))
+                .on_hover_text(t!("menu.edit.clear_all.tip"))
                 .clicked()
             {
                 self.run("board.unroute", json!({}));
             }
         })
         .response
-        .on_hover_text(
-            "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
-        );
+        .on_hover_text(t!("menu.edit.tip"));
     }
-    fn settings_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Settings", |ui| {
+    /// Switch the app's language; the next frame paints in it.
+    fn set_language(&mut self, tag: &str) {
+        self.preferences.language = tag.to_string();
+        self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
+        pcbcraft_text::activate(&self.catalog);
+    }
+    fn language_menu(&mut self, ui: &mut egui::Ui) {
+        let mut picked = None;
+        ui.menu_button(t!("menu.settings.language"), |ui| {
+            let current = self.preferences.language.clone();
             if ui
-                .button("Appearance & settings…")
-                .on_hover_text(
-                    "Open the settings page: theme, accent colour and everything for the project.",
+                .selectable_label(
+                    current == pcbcraft_text::SYSTEM,
+                    t!("menu.settings.language.system"),
                 )
+                .on_hover_text(t!("menu.settings.language.system.tip"))
                 .clicked()
             {
-                self.change_tab(Tab::Settings);
+                picked = Some(pcbcraft_text::SYSTEM.to_string());
             }
-            if ui
-                .button(if self.preferences.dark {
-                    "Switch to the light theme"
-                } else {
-                    "Switch to the dark theme"
-                })
-                .on_hover_text("Change between the dark and light look.")
-                .clicked()
-            {
-                self.preferences.dark = !self.preferences.dark;
-            }
-            if ui
-                .button(if self.preferences.grid {
-                    "Hide the grid"
-                } else {
-                    "Show the grid"
-                })
-                .on_hover_text("Show or hide the placement grid in the work area.")
-                .clicked()
-            {
-                self.preferences.grid = !self.preferences.grid;
-            }
-            ui.menu_button("Route on", |ui| {
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top");
-                ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom");
-            })
-            .response
-            .on_hover_text("Choose which copper layer new tracks are drawn on.");
-            ui.menu_button("Pad labels", |ui| {
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Number,
-                    PadLabels::Number.name(),
-                )
-                .on_hover_text("Draw each pad's own number on the board.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Net,
-                    PadLabels::Net.name(),
-                )
-                .on_hover_text("Draw the net name on each pad, useful when debugging.");
-                ui.selectable_value(
-                    &mut self.preferences.pad_labels,
-                    PadLabels::Off,
-                    PadLabels::Off.name(),
-                )
-                .on_hover_text("Hide the pad labels for a clean picture.");
-            })
-            .response
-            .on_hover_text(
-                "Pick what sits at each pad centre on the board: its number, its net, or nothing.",
-            );
-            ui.separator();
-            if ui
-                .button("Library sources…")
-                .on_hover_text("Manage the folders that feed the component list.")
-                .clicked()
-            {
-                self.change_tab(Tab::Libraries);
+            for language in pcbcraft_text::shipped_languages() {
+                if ui
+                    .selectable_label(current == language.tag, language.name)
+                    .on_hover_text(t!("menu.settings.language.pick.tip"))
+                    .clicked()
+                {
+                    picked = Some(language.tag);
+                }
             }
         })
         .response
-        .on_hover_text("Theme, grid and library folders.");
+        .on_hover_text(t!("menu.settings.language.tip"));
+        if let Some(tag) = picked {
+            self.set_language(&tag);
+            ui.ctx().request_repaint();
+        }
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Help", |ui| {
+        ui.menu_button(t!("menu.help"), |ui| {
             if ui
-                .button("Keyboard shortcuts")
-                .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                .button(t!("menu.help.shortcuts"))
+                .on_hover_text(t!("menu.help.shortcuts.tip"))
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands  Ctrl+K")
-                .on_hover_text(
-                    "Search every command by name and run it, with its parameters explained.",
-                )
+                .button(t!("menu.help.commands"))
+                .on_hover_text(t!("menu.help.commands.tip"))
                 .clicked()
             {
                 self.command_open = !self.command_open;
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.separator();
+            if ui
+                .button(t!("app.report_bug"))
+                .on_hover_text(t!("app.report_bug.tip"))
+                .clicked()
+            {
+                let url = format!(
+                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    env!("CARGO_PKG_VERSION")
+                );
+                ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            }
+            ui.label(
+                egui::RichText::new(t!("app.version", version = env!("CARGO_PKG_VERSION")))
+                    .small()
+                    .color(self.muted()),
+            )
+            .on_hover_text(t!("app.version.tip"));
         })
         .response
-        .on_hover_text("Shortcuts list and the command search.");
+        .on_hover_text(t!("menu.help.tip"));
+    }
+    /// The datasheet address when the field holds a plain web link.
+    fn datasheet_url(field: Option<&str>) -> Option<String> {
+        let url = field?.trim();
+        let lower = url.to_ascii_lowercase();
+        ((lower.starts_with("http://") || lower.starts_with("https://"))
+            && url.len() <= 2048
+            && !url.chars().any(char::is_whitespace))
+        .then(|| url.to_owned())
+    }
+    /// How many check findings are errors, warnings and notes.
+    fn finding_counts(checks: &Value) -> (usize, usize, usize) {
+        let mut counts = (0, 0, 0);
+        for key in ["erc", "drc"] {
+            let Some(findings) = checks.get(key).and_then(Value::as_array) else {
+                continue;
+            };
+            for f in findings {
+                match f.get("severity").and_then(Value::as_str) {
+                    Some("error") => counts.0 += 1,
+                    Some("warning") => counts.1 += 1,
+                    _ => counts.2 += 1,
+                }
+            }
+        }
+        counts
     }
     fn browser(&mut self, ui: &mut egui::Ui) {
-        egui::Panel::left("browser")
-            .default_size(210.0)
-            .min_size(170.0)
+        egui::Panel::left("left-rail")
+            .exact_size(44.0)
+            .resizable(false)
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(4, 12)),
+            )
             .show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("PROJECT")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                ui.label(egui::RichText::new(&self.project.name).strong());
-                ui.add_space(12.0);
-                ui.horizontal(|ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
                     if ui
-                        .selectable_label(self.left_tab == 0, "Parts")
-                        .on_hover_text(
-                            "Everything placed in this design, and quick ways to add more.",
-                        )
+                        .selectable_label(self.preferences.library_dock_open, "Lib")
+                        .on_hover_text("Show or hide the component library.")
                         .clicked()
                     {
-                        self.left_tab = 0;
+                        self.preferences.library_dock_open = !self.preferences.library_dock_open;
                     }
-                    if ui
-                        .selectable_label(self.left_tab == 1, "Layers")
-                        .on_hover_text(
-                            "The whole board in one tree: the board itself, its layers, every connection and every part. Pick any row to find it on the drawing.",
-                        )
-                        .clicked()
-                    {
-                        self.left_tab = 1;
-                    }
-                    if ui
-                        .selectable_label(self.left_tab == 2, "Builds")
-                        .on_hover_text(
-                            "Extra versions of this board: parts left off or swapped for another package.",
-                        )
-                        .clicked()
-                    {
-                        self.left_tab = 2;
+                    ui.add_space(8.0);
+                    let counts = Self::finding_counts(&self.checks);
+                    for (count, name, help) in [
+                        (counts.0, "errors", "Mistakes the checks say you must fix."),
+                        (counts.1, "warnings", "Warnings worth a look, but not blockers."),
+                        (counts.2, "notes", "Notes from the checks that need no action."),
+                    ] {
+                        if ui
+                            .button(format!("{count}"))
+                            .on_hover_text(format!(
+                                "{count} {name} from the checks. {help} Click to open the Checks tab."
+                            ))
+                            .clicked()
+                        {
+                            self.change_tab(Tab::Checks);
+                        }
                     }
                 });
-                ui.separator();
-                let dock = self.left_tab;
-                if dock > 0 {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| match dock {
-                            1 => self.layers_tab(ui),
-                            _ => self.builds_tab(ui),
-                        });
-                    return;
-                }
+            });
+        if !self.preferences.library_dock_open {
+            return;
+        }
+        egui::Panel::left("library-dock")
+            .default_size(280.0)
+            .min_size(260.0)
+            .frame(Self::dock_frame(ui.style()))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Library").strong());
+                    if ui
+                        .small_button("Hide")
+                        .on_hover_text("Close the library dock.")
+                        .clicked()
+                    {
+                        self.preferences.library_dock_open = false;
+                    }
+                });
+                ui.add_space(8.0);
                 if ui
                     .button("Add part")
                     .on_hover_text("Search for a part to place on the schematic.")
@@ -3272,11 +3461,9 @@ impl App {
                         .add(
                             egui::TextEdit::singleline(&mut self.part_search)
                                 .hint_text("Search parts by name")
-                                .desired_width(190.0),
+                                .desired_width(f32::INFINITY),
                         )
-                        .on_hover_text(
-                            "Type any part name; the list below narrows as you type.",
-                        );
+                        .on_hover_text("Type any part name; the list below narrows as you type.");
                     if self.part_search_focus {
                         query_box.request_focus();
                         self.part_search_focus = false;
@@ -3284,11 +3471,11 @@ impl App {
                     if ui
                         .button("Browse component libraries →")
                         .on_hover_text(
-                            "Open the library panel to browse installed symbol and footprint collections.",
+                            "Open library sources in Settings to browse symbol and footprint collections.",
                         )
                         .clicked()
                     {
-                        self.change_tab(Tab::Libraries);
+                        self.change_tab(Tab::Settings);
                         self.palette = false;
                     }
                     let query = self.part_search.trim().to_lowercase();
@@ -3314,98 +3501,96 @@ impl App {
                         })
                         .cloned()
                         .collect();
-                    if built_in.is_empty() && saved.is_empty() {
-                        ui.label(
-                            egui::RichText::new(format!(
-                                "Nothing here matches \"{}\" yet.",
-                                self.part_search.trim()
-                            ))
-                            .small()
-                            .color(self.muted()),
-                        );
-                    }
-                    if !built_in.is_empty() {
-                        ui.label(
-                            egui::RichText::new("Common parts")
-                                .size(10.0)
-                                .color(self.muted()),
-                        );
-                        for (kind, label) in built_in {
-                            if ui
-                                .button(label)
-                                .on_hover_text(
-                                    "Pick this part; the next click on the schematic places it.",
-                                )
-                                .clicked()
-                            {
-                                self.change_tab(Tab::Schematic);
-                                self.tool = Tool::Place(kind.into());
-                                self.palette = false;
-                                self.part_search.clear();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if built_in.is_empty() && saved.is_empty() {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Nothing here matches \"{}\" yet.",
+                                        self.part_search.trim()
+                                    ))
+                                    .small()
+                                    .color(self.muted()),
+                                );
                             }
-                        }
-                    }
-                    if !saved.is_empty() {
-                        ui.label(
-                            egui::RichText::new("From this project's library")
-                                .size(10.0)
-                                .color(self.muted()),
-                        );
-                        let mut sets: std::collections::BTreeMap<
-                            String,
-                            Vec<pcbcraft_library::SymbolDefinition>,
-                        > = std::collections::BTreeMap::new();
-                        for definition in saved {
-                            sets.entry(definition.set.trim().to_owned())
-                                .or_default()
-                                .push(definition);
-                        }
-                        let loose = sets.remove("");
-                        for (set, definitions) in &sets {
-                            let mut shown = !self.hidden_sets.iter().any(|h| h == set);
-                            let row = ui.checkbox(
-                                &mut shown,
-                                egui::RichText::new(format!(
-                                    "{set} ({} part{})",
-                                    definitions.len(),
-                                    if definitions.len() == 1 {
-                                        ""
-                                    } else {
-                                        "s"
+                            if !built_in.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("Common parts")
+                                        .size(10.0)
+                                        .color(self.muted()),
+                                );
+                                for (kind, label) in built_in {
+                                    if ui
+                                        .button(label)
+                                        .on_hover_text(
+                                            "Pick this part; the next click on the schematic places it.",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.change_tab(Tab::Schematic);
+                                        self.tool = Tool::Place(kind.into());
+                                        self.palette = false;
+                                        self.part_search.clear();
                                     }
-                                ))
-                                .strong(),
-                            )
-                            .on_hover_text(
-                                "Parts grouped under this name. Untick to hide the whole group while you add parts.",
-                            );
-                            if row.changed() {
-                                if shown {
-                                    self.hidden_sets.retain(|h| h != set);
-                                } else {
-                                    self.hidden_sets.push(set.clone());
                                 }
                             }
-                            if !shown {
-                                continue;
+                            if !saved.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("From this project's library")
+                                        .size(10.0)
+                                        .color(self.muted()),
+                                );
+                                let mut sets: std::collections::BTreeMap<
+                                    String,
+                                    Vec<pcbcraft_library::SymbolDefinition>,
+                                > = std::collections::BTreeMap::new();
+                                for definition in saved {
+                                    sets.entry(definition.set.trim().to_owned())
+                                        .or_default()
+                                        .push(definition);
+                                }
+                                let loose = sets.remove("");
+                                for (set, definitions) in &sets {
+                                    let mut shown = !self.hidden_sets.iter().any(|h| h == set);
+                                    let row = ui.checkbox(
+                                        &mut shown,
+                                        egui::RichText::new(format!(
+                                            "{set} ({} part{})",
+                                            definitions.len(),
+                                            if definitions.len() == 1 {
+                                                ""
+                                            } else {
+                                                "s"
+                                            }
+                                        ))
+                                        .strong(),
+                                    )
+                                    .on_hover_text(
+                                        "Parts grouped under this name. Untick to hide the whole group while you add parts.",
+                                    );
+                                    if row.changed() {
+                                        if shown {
+                                            self.hidden_sets.retain(|h| h != set);
+                                        } else {
+                                            self.hidden_sets.push(set.clone());
+                                        }
+                                    }
+                                    if !shown {
+                                        continue;
+                                    }
+                                    for definition in definitions {
+                                        self.part_card(ui, definition);
+                                    }
+                                }
+                                for definition in loose.unwrap_or_default() {
+                                    self.part_card(ui, &definition);
+                                }
                             }
-                            for definition in definitions {
-                                self.part_card(ui, definition);
-                            }
-                        }
-                        for definition in loose.unwrap_or_default() {
-                            self.part_card(ui, &definition);
-                        }
-                    }
-                    if ui
-                        .small_button("Close")
-                        .on_hover_text("Hide the part search without changing anything.")
-                        .clicked()
-                    {
-                        self.palette = false;
-                    }
-                    ui.separator();
+                            self.source_section(ui);
+                        });
                 }
+                ui.add_space(12.0);
                 ui.label(
                     egui::RichText::new("COMPONENTS")
                         .size(10.0)
@@ -3437,9 +3622,7 @@ impl App {
                         .field("Description")
                         .map(str::to_owned)
                         .or_else(|| {
-                            c.library_symbol.as_ref().map(|ls| {
-                                ls.definition.description.clone()
-                            })
+                            c.library_symbol.as_ref().map(|ls| ls.definition.description.clone())
                         })
                         .map(|d| d.trim().to_owned())
                         .filter(|d| !d.is_empty());
@@ -3457,11 +3640,8 @@ impl App {
                             .color(self.muted()),
                     );
                 }
-                if self.project.components.is_empty() {
-                    empty_state(ui, EMPTY_SYMBOLS, self.muted());
-                }
                 if self.project.components.len() >= 2 {
-                    ui.add_space(20.0);
+                    ui.add_space(12.0);
                     ui.label(
                         egui::RichText::new("RENUMBER PARTS")
                             .size(10.0)
@@ -3559,13 +3739,6 @@ impl App {
                                     .color(self.muted()),
                             );
                         }
-                        if plan.len() > 12 {
-                            ui.label(
-                                egui::RichText::new(format!("… and {} more", plan.len() - 12))
-                                    .small()
-                                    .color(self.muted()),
-                            );
-                        }
                         ui.horizontal(|ui| {
                             if ui
                                 .button("Renumber")
@@ -3590,21 +3763,6 @@ impl App {
                         });
                     }
                 }
-                ui.add_space(20.0);
-                ui.label(egui::RichText::new("BOARD").size(10.0).color(self.muted()));
-                self.board_body(ui);
-                ui.add_space(20.0);
-                ui.separator();
-                ui.label(
-                    egui::RichText::new("One project. One window.")
-                        .small()
-                        .color(self.muted()),
-                );
-                ui.label(
-                    egui::RichText::new("Scroll to zoom · middle-drag to pan")
-                        .small()
-                        .color(self.muted()),
-                );
             });
     }
     /// The Nets tab of the left dock: add, spotlight and rename connections.
@@ -3873,6 +4031,24 @@ impl App {
     }
     /// Room for a full-page panel to breathe: wide side margins and one
     /// readable column, so nothing sits flush against the window edge.
+    /// Padding for a full-width tab body: 16 px at the sides, 12 above.
+    fn padded<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin {
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: 12,
+            })
+            .show(ui, add)
+            .inner
+    }
+    /// A dock section title: 8 px of air above and 4 below.
+    fn section_heading(&self, ui: &mut egui::Ui, text: &str) {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new(text).strong().color(self.ink()));
+        ui.add_space(4.0);
+    }
     fn margined<T>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> T) -> T {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(28, 20))
@@ -3901,8 +4077,23 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.horizontal(|ui| {
+            ui.label("Route on");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
+                .on_hover_text("New tracks are drawn on the top copper layer.");
+            ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Back, "Bottom")
+                .on_hover_text("New tracks are drawn on the bottom copper layer.");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Pad labels");
+            for labels in [PadLabels::Number, PadLabels::Net, PadLabels::Off] {
+                ui.selectable_value(&mut self.preferences.pad_labels, labels, labels.name())
+                    .on_hover_text("Choose what is drawn at each pad centre on the board.");
+            }
+        });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
+        self.language_menu(ui);
         ui.label(
             egui::RichText::new("Appearance is saved automatically.")
                 .small()
@@ -5574,26 +5765,60 @@ impl App {
             self.message = format!("{label} saved in {directory}");
         }
     }
-    fn board_body(&mut self, ui: &mut egui::Ui) {
-        if self.project.board.footprints.is_empty() {
-            empty_state(ui, EMPTY_BOARD, self.muted());
-        }
-    }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         egui::Panel::right("inspector")
-            .default_size(250.0)
-            .min_size(220.0)
+            .default_size(280.0)
+            .min_size(280.0)
+            .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
+                let split = self.preferences.aside_split.clamp(0.25, 0.75);
+                let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), top_h),
+                    egui::Layout::top_down(egui::Align::LEFT),
+                    |ui| {
+                        self.section_heading(ui, "Layers");
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| self.layers_tab(ui));
+                    },
+                );
+                ui.add(
+                    egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
+                        .show_value(false)
+                        .text("Resize"),
+                )
+                .on_hover_text("Drag to give the Layers tree more or less room.");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.preferences.aside_lower_tab,
+                        0,
+                        "Properties",
+                    )
+                    .on_hover_text("Details for whatever is selected on the drawing.");
+                    ui.selectable_value(
+                        &mut self.preferences.aside_lower_tab,
+                        1,
+                        "Assistant",
+                    )
+                    .on_hover_text("How to connect an external agent through MCP.");
+                });
+                if self.preferences.aside_lower_tab == 1 {
+                    ui.add_space(12.0);
+                    ui.label(
+                        "Connect an agent through the live MCP bridge described in docs/mcp.md. \
+                         The desktop session exposes the same typed commands the UI uses.",
+                    );
+                    return;
+                }
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                ui.add_space(12.0);
-                ui.label(
-                    egui::RichText::new("PROPERTIES")
-                        .size(10.0)
-                        .color(self.muted()),
-                );
-                if let Some(id) = self.selected {
+                self.draw_tool_options(ui);
+                self.section_heading(ui, "Details");
+                if let Some(id) = self.selected.filter(|id| datums::is_datum(&self.project, *id)) {
+                    self.datum_inspector(ui, id);
+                } else if let Some(id) = self.selected {
                     let c = self.project.component(id).cloned().or_else(|| {
                         self.project
                             .footprint(id)
@@ -5668,12 +5893,20 @@ impl App {
                             )
                             .clicked()
                         {
-                            let target =
-                                self.project.footprint(id).map_or(id, |fp| fp.component);
-                            self.run(
-                                "object.duplicate",
-                                json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
-                            );
+                            self.duplicate_selection();
+                        }
+                        let sheet = Self::datasheet_url(c.field("Datasheet"));
+                        if ui
+                            .add_enabled(sheet.is_some(), egui::Button::new("View datasheet"))
+                            .on_hover_text(if sheet.is_some() {
+                                "Open this part's datasheet in your browser."
+                            } else {
+                                "This part has no web address in its Datasheet field yet."
+                            })
+                            .clicked()
+                            && let Some(url) = sheet
+                        {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
                         }
                         if self.project.footprint(id).is_some() {
                             ui.label("Dock to board edge");
@@ -5756,6 +5989,8 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_span_controls(ui, id);
+                        self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
@@ -5875,6 +6110,7 @@ impl App {
                                     json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
                                 );
                             }
+                            self.impedance_section(ui, id, net);
                         }
                         if let Some(zone) =
                             self.project.board.zones.iter().find(|z| z.id == id)
@@ -5927,8 +6163,7 @@ impl App {
                     }
                     ui.add_space(10.0);
                     if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
-                        self.run("object.delete", json!({"id":id}));
-                        self.select(None);
+                        self.delete_selection();
                     }
                     ui.separator();
                 } else {
@@ -5948,13 +6183,10 @@ impl App {
         for key in ["erc", "drc"] {
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 for f in findings {
-                    let code = f.get("code").and_then(Value::as_str).unwrap_or("finding");
-                    // Built-in checks follow the designer's chosen loudness;
-                    // a check of their own reports at the volume it was set.
-                    let loud = match code.strip_prefix("custom_") {
-                        Some(_) => f.get("severity").and_then(Value::as_str) == Some("error"),
-                        None => self.project.rule_severity(code, "warning") == "error",
-                    };
+                    // Every finding carries the loudness its check resolved to,
+                    // so the footer agrees with the review list instead of
+                    // guessing a default per code.
+                    let loud = f.get("severity").and_then(Value::as_str) == Some("error");
                     if loud {
                         fix += 1;
                     } else {
@@ -5981,8 +6213,14 @@ impl App {
             Tool::NoConnect => "No connection".to_owned(),
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
+            Tool::Measure => "Measure".to_owned(),
         };
-        egui::Panel::bottom("status").show(ui, |ui| {
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::side_top_panel(ui.style())
+                    .inner_margin(egui::Margin::symmetric(16, 4)),
+            )
+            .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(&self.message)
@@ -5998,6 +6236,10 @@ impl App {
                     .on_hover_text(
                         "Every edit raises this number; undo and redo step it back and forth.",
                     );
+                    if let Some(reading) = self.measure_readout() {
+                        ui.label(egui::RichText::new(reading).small().strong())
+                            .on_hover_text("The last measurement. Press Esc to clear it.");
+                    }
                     if let Some(p) = self.cursor {
                         ui.label(
                             egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
@@ -6036,6 +6278,7 @@ impl App {
         });
         if self.command_open {
             egui::Panel::bottom("commands")
+                .frame(Self::dock_frame(ui.style()))
                 .resizable(true)
                 .default_size(220.0)
                 .show(ui, |ui| {
@@ -6392,6 +6635,7 @@ impl App {
             }
             ui.add_space(20.0);
         }
+        self.library_checks_section(ui);
         let silenced: Vec<(String, usize)> = self
             .project
             .rule_exclusions
@@ -6527,11 +6771,289 @@ impl App {
         }
     }
 
+    fn record_icon(&mut self, _id: &str, _rect: Rect) {
+        #[cfg(test)]
+        self.icon_rects.insert(_id.to_owned(), _rect);
+    }
+
+    fn tool_strip_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        label: &str,
+        tip: &str,
+        selected: bool,
+    ) -> egui::Response {
+        let response = ui.selectable_label(selected, label).on_hover_text(tip);
+        self.record_icon(id, response.rect);
+        response
+    }
+
+    fn draw_tool_options(&mut self, ui: &mut egui::Ui) {
+        if self.tab != Tab::Pcb {
+            return;
+        }
+        if matches!(self.tool, Tool::DrawLayer) {
+            ui.label(
+                egui::RichText::new("DRAW ON LAYER")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            let names: Vec<(Id, String)> = self
+                .project
+                .board
+                .user_layers
+                .iter()
+                .map(|l| (l.id, l.name.clone()))
+                .collect();
+            let current = self
+                .art_layer
+                .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
+                .unwrap_or_else(|| "no layer yet".into());
+            egui::ComboBox::from_id_salt("art-layer-pick")
+                .selected_text(current)
+                .width(150.0)
+                .show_ui(ui, |ui| {
+                    for (id, name) in &names {
+                        ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
+                            .on_hover_text("New figures land on this layer.");
+                    }
+                });
+            if ui
+                .button("New layer")
+                .on_hover_text(
+                    "Make a new drawn layer and switch to it; give it a real name in the layers list.",
+                )
+                .clicked()
+            {
+                let name = format!("Art {}", names.len() + 1);
+                self.run("board.layer_add", json!({"name": name, "kind": "other"}));
+                if self.message.starts_with("board.layer_add") {
+                    self.art_layer = self.selected;
+                }
+            }
+            ui.horizontal(|ui| {
+                for (shape, label, tip) in [
+                    (DrawShape::Line, "Line", "Two clicks: start and end."),
+                    (DrawShape::Rect, "Box", "Two clicks on opposite corners."),
+                    (DrawShape::Circle, "Circle", "Centre, then edge."),
+                    (DrawShape::Poly, "Outline", "Corners; Enter to close."),
+                    (DrawShape::Words, "Words", "Type below, then click once."),
+                ] {
+                    if ui
+                        .selectable_label(self.art_shape == shape, label)
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.art_shape = shape;
+                        self.art_start = None;
+                        self.art_points.clear();
+                    }
+                }
+            });
+            if self.art_shape == DrawShape::Words {
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.art_text)
+                        .hint_text("words to print")
+                        .desired_width(f32::INFINITY),
+                )
+                .on_hover_text("The words a click will print on the active layer.");
+            }
+            ui.separator();
+        }
+        if matches!(self.tool, Tool::Hole) {
+            ui.label("Mounting hole size");
+            ui.add(
+                egui::DragValue::new(&mut self.hole_diameter)
+                    .speed(0.05)
+                    .range(0.05..=25.0)
+                    .suffix(" mm"),
+            )
+            .on_hover_text("Drill size for new holes; an M3 spacer usually wants 3.2 mm.");
+            ui.separator();
+        }
+        if matches!(self.tool, Tool::Fiducial) {
+            ui.label("Assembly mark size");
+            ui.add(
+                egui::DragValue::new(&mut self.fiducial_diameter)
+                    .speed(0.05)
+                    .range(0.2..=10.0)
+                    .suffix(" mm"),
+            )
+            .on_hover_text("Disc size for new marks; 1 mm is the usual size.");
+            ui.separator();
+        }
+    }
+
+    fn tool_strip(&mut self, ui: &mut egui::Ui) {
+        if !matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+            return;
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.add_space(8.0);
+            let select = |app: &mut App| {
+                app.tool = Tool::Select;
+            };
+            if self
+                .tool_strip_button(ui, "tool-select", "Select", "Select objects on the drawing.", matches!(self.tool, Tool::Select))
+                .clicked()
+            {
+                select(self);
+            }
+            if self
+                .tool_strip_button(ui, "tool-move", "Move", "Move tool: drop the selection at the cursor.", matches!(self.tool, Tool::Move))
+                .clicked()
+            {
+                self.tool = Tool::Move;
+            }
+            if self.tab == Tab::Schematic {
+                if self
+                    .tool_strip_button(
+                        ui,
+                        "tool-wire",
+                        "Wire",
+                        "Wire tool: click two pins to connect them.",
+                        matches!(self.tool, Tool::Wire(_)),
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::Wire(None);
+                }
+                if self
+                    .tool_strip_button(
+                        ui,
+                        "tool-noconnect",
+                        "No connect",
+                        "Mark a pin deliberately unconnected.",
+                        matches!(self.tool, Tool::NoConnect),
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::NoConnect;
+                }
+            }
+            if self.tab == Tab::Pcb {
+                if self
+                    .tool_strip_button(
+                        ui,
+                        "tool-route",
+                        "Route",
+                        "Route tool: click two pads to start a track.",
+                        matches!(self.tool, Tool::Route(_)),
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::Route(None);
+                }
+                for (shape, id, glyph, tip) in [
+                    (DrawShape::Line, "tool-line", "Line", "Draw a straight line on a user layer."),
+                    (DrawShape::Rect, "tool-box", "Box", "Draw a box on a user layer."),
+                    (DrawShape::Circle, "tool-circle", "Circle", "Draw a circle on a user layer."),
+                    (DrawShape::Poly, "tool-outline", "Outline", "Draw an outline on a user layer."),
+                    (DrawShape::Words, "tool-words", "Text", "Print words on a user layer."),
+                ] {
+                    let armed =
+                        matches!(self.tool, Tool::DrawLayer) && self.art_shape == shape;
+                    if self.tool_strip_button(ui, id, glyph, tip, armed).clicked() {
+                        self.tool = Tool::DrawLayer;
+                        self.art_shape = shape;
+                        self.art_start = None;
+                        self.art_points.clear();
+                    }
+                }
+                if ui
+                    .selectable_label(matches!(self.tool, Tool::DrawLayer), "Draw shape")
+                    .on_hover_text(
+                        "Draw cut lines, perforations or printed marks on your own layer.",
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::DrawLayer;
+                    self.art_shape = DrawShape::Line;
+                    self.art_start = None;
+                    self.art_points.clear();
+                }
+                if ui
+                    .selectable_label(matches!(self.tool, Tool::Cutout), "Cutout")
+                    .on_hover_text(command_tip("board.cutout.add"))
+                    .clicked()
+                {
+                    self.tool = Tool::Cutout;
+                }
+                if ui
+                    .selectable_label(matches!(self.tool, Tool::Hole), "Mounting hole")
+                    .on_hover_text(
+                        "Drill an unplated hole for a screw or spacer; then click the board where it goes.",
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::Hole;
+                }
+                if ui
+                    .selectable_label(matches!(self.tool, Tool::Fiducial), "Assembly mark")
+                    .on_hover_text(
+                        "A bare copper disc the pick-and-place camera finds the board by; then click a clear corner.",
+                    )
+                    .clicked()
+                {
+                    self.tool = Tool::Fiducial;
+                }
+            }
+            ui.separator();
+            self.editing_controls(ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if !matches!(self.tool, Tool::Select) {
+                    ui.label(
+                        egui::RichText::new(tool_hint(&self.tool))
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+            });
+        });
+        ui.separator();
+    }
+
+    fn files_tab(&mut self, ui: &mut egui::Ui) {
+        Self::margined(ui, |ui| {
+            ui.heading("Project files");
+            ui.label(format!("Design file: {}", self.path.trim()));
+            ui.add_space(8.0);
+            if ui
+                .button("Library sources")
+                .on_hover_text("Manage the folders that feed the component list.")
+                .clicked()
+            {
+                self.change_tab(Tab::Libraries);
+            }
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new("Builds").size(10.0).color(self.muted()));
+            self.builds_tab(ui);
+        });
+    }
+    fn board3d_tab(&mut self, ui: &mut egui::Ui) {
+        let env = board3d::Env {
+            project: &self.project,
+            revision: self.revision,
+            selected: self.selected,
+            dark: self.preferences.dark,
+            bg: self.surface(),
+            muted: self.muted(),
+        };
+        if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
+            self.select(Some(id));
+        }
+    }
+
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        pcbcraft_text::activate(&self.catalog);
+        #[cfg(test)]
+        self.icon_rects.clear();
         self.refresh();
         self.style(&ctx);
         self.shortcuts(&ctx);
+        self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
         if self.compare_open {
@@ -6544,34 +7066,41 @@ impl App {
             self.inspector(ui);
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(self.surface()))
-                .show(ui, |ui| match self.tab {
-                    Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                    Tab::Libraries => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.library(ui))
-                            .inner
-                    }
-                    Tab::Rules => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
-                    }
-                    Tab::Checks => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.checks_view(ui))
-                            .inner
-                    }
-                    Tab::Settings => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
-                    }
-                    Tab::PlotFiles => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| {
+                .show(ui, |ui| {
+                    self.workbench_tabs(ui);
+                    self.tool_strip(ui);
+                    self.page_left = ui.max_rect().left();
+                    match self.tab {
+                        Tab::Schematic | Tab::Pcb => self.canvas(ui),
+                        Tab::Files => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::padded(ui, |ui| self.files_tab(ui)))
+                                .inner
+                        }
+                        Tab::Board3d => self.board3d_tab(ui),
+                        Tab::Libraries => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
+                                .inner
+                        }
+                        Tab::Rules => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
+                        }
+                        Tab::Checks => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
+                        }
+                        Tab::Settings => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                        }
+                        Tab::PlotFiles => {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
                                 Self::margined(ui, |ui| {
                                     let theme = plot_viewer::Theme {
                                         surface: self.surface(),
                                         muted: self.muted(),
-                                        ink: self.ink(),
                                         accent: self.accent(),
                                     };
                                     plot_viewer::ui(
@@ -6582,8 +7111,8 @@ impl App {
                                         self.make_dir.trim(),
                                     );
                                 });
-                            })
-                            .inner
+                            });
+                        }
                     }
                 });
         }
@@ -6611,8 +7140,8 @@ fn pcbcraft_io_limit() -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::e2e::support::*;
     use super::*;
-    use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, tap};
 
     #[test]
     fn selected_board_objects_describe_themselves_in_the_properties_panel() -> Result<(), String> {
@@ -6751,7 +7280,7 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
-        tap(&ctx, &mut app, "Add folder")?;
+        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
         let mut added = false;
         for _ in 0..80 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -6811,7 +7340,7 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
-        tap(&ctx, &mut app, "Remove source")?;
+        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
         let mut removed = false;
         for _ in 0..80 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -6851,13 +7380,13 @@ mod tests {
             "the old bottom file strip is gone; file jobs live in the File menu"
         );
         app.tool_call("sample_design", json!({}));
-        tap(&ctx, &mut app, "File")?;
+        authoring::tests::tap(&ctx, &mut app, "File")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !paints_text(&ctx, &mut app, "Load LED example")?,
             "the example lives on the start screen, not in the menu"
         );
-        tap(&ctx, &mut app, "Save")?;
+        authoring::tests::tap(&ctx, &mut app, "Save")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.message.starts_with("save"),
@@ -6868,18 +7397,18 @@ mod tests {
             std::fs::metadata(&file).is_ok_and(|m| m.len() > 0),
             "the design lands in the file the menu names"
         );
-        tap(&ctx, &mut app, "File")?;
+        authoring::tests::tap(&ctx, &mut app, "File")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "New")?;
+        authoring::tests::tap(&ctx, &mut app, "New")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.project.components.is_empty(),
             "New empties the design: {} parts left",
             app.project.components.len()
         );
-        tap(&ctx, &mut app, "Edit")?;
+        authoring::tests::tap(&ctx, &mut app, "Edit")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Undo")?;
+        authoring::tests::tap(&ctx, &mut app, "Undo")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.message.starts_with("undo"),
@@ -6908,9 +7437,9 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Settings")?;
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 700.0)?,
             "the board's edge lives in its own plain-language section"
         );
         app.svg_path = file.to_string_lossy().into_owned();
@@ -6930,7 +7459,7 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
-        tap(&ctx, &mut app, "Import as board edge")?;
+        authoring::tests::tap(&ctx, &mut app, "Import as board edge")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let corners = app.project.board.outline.as_ref().map_or(0, |o| o.len());
         assert!(
@@ -6941,7 +7470,7 @@ mod tests {
             paints_text(&ctx, &mut app, "Back to a plain rectangle")?,
             "the shape explains itself and offers a way back"
         );
-        tap(&ctx, &mut app, "Back to a plain rectangle")?;
+        authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.project.board.outline.is_none_or(|o| o.len() < 3),
@@ -6978,12 +7507,12 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        tap(&ctx, &mut app, "Layers")?;
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "Wires")?,
             "the layers page lists wires as its own row"
         );
-        tap(&ctx, &mut app, "Wires")?;
+        authoring::tests::tap(&ctx, &mut app, "Wires")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
@@ -7021,19 +7550,30 @@ mod tests {
             !paints_text(&ctx, &mut app, "Sync to PCB >")?,
             "sync moved into the Edit menu"
         );
+        let fit = app
+            .icon_rects
+            .get("canvas-fit")
+            .copied()
+            .ok_or("a floating Fit icon sits in the work area")?;
         assert!(
-            paints_text(&ctx, &mut app, "Fit")?,
-            "a floating Fit control sits in the work area"
+            fit.max.x <= 1440.0 - 280.0 && fit.min.y > 60.0,
+            "the Fit icon stays inside the canvas, left of the right aside: {fit:?}"
         );
         let first = app.project.components[0].id;
         let before = app.project.components[0].rotation;
         app.select(Some(first));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let handle = app
+            .icon_rects
+            .get("handle-rotate")
+            .copied()
+            .ok_or("a selected part grows a Rotate handle beside it")?;
         assert!(
-            paints_text(&ctx, &mut app, "Rotate")?,
-            "a selected part grows a Rotate handle beside it"
+            handle.max.x <= 1440.0 - 280.0,
+            "the handle stays inside the canvas: {handle:?}"
         );
-        tap(&ctx, &mut app, "Rotate")?;
+        authoring::tests::tap_icon(&ctx, &mut app, "handle-rotate")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let after = app
             .project
@@ -7056,12 +7596,12 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Layers")?;
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
         );
-        tap(&ctx, &mut app, "New net")?;
+        authoring::tests::tap(&ctx, &mut app, "New net")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
             app.project.nets.len(),
@@ -7070,7 +7610,11 @@ mod tests {
         );
         let added = app.project.nets.len() - 1;
         let fresh = app.project.nets[added].name.clone();
-        tap(&ctx, &mut app, &fresh)?;
+        assert!(
+            scrolled_to(&ctx, &mut app, &fresh)?,
+            "the new connection appears in the tree: {fresh}"
+        );
+        authoring::tests::tap(&ctx, &mut app, &fresh)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
             app.highlight_net,
@@ -7080,7 +7624,7 @@ mod tests {
         let fresh_id = app.project.nets[added].id;
         app.net_draft = Some((fresh_id, "Flashlight".into()));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Use name")?;
+        authoring::tests::tap(&ctx, &mut app, "Use name")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.project
@@ -7121,12 +7665,12 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
-        tap(&ctx, &mut app, "Settings")?;
+        authoring::tests::tap(&ctx, &mut app, "Settings")?;
         assert!(
-            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
+            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 700.0)?,
             "the settings page should offer the factory files"
         );
-        tap(&ctx, &mut app, "Copper & drill files")?;
+        authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let listed = |directory: &std::path::Path| -> Result<Vec<String>, String> {
             std::fs::read_dir(directory)
@@ -7141,13 +7685,13 @@ mod tests {
             "copper and drill files should land in the folder: {}",
             app.message
         );
-        tap(&ctx, &mut app, "Parts list (CSV)")?;
+        authoring::tests::tap(&ctx, &mut app, "Parts list (CSV)")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Net list")?;
+        authoring::tests::tap(&ctx, &mut app, "Net list")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Pick and place file")?;
+        authoring::tests::tap(&ctx, &mut app, "Pick and place file")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Design report")?;
+        authoring::tests::tap(&ctx, &mut app, "Design report")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let names = listed(&directory)?;
         assert!(
@@ -7181,7 +7725,7 @@ mod tests {
             paints_text(&ctx, &mut app, "Worked example")?,
             "the start screen offers something to explore"
         );
-        tap(&ctx, &mut app, "Worked example")?;
+        authoring::tests::tap(&ctx, &mut app, "Worked example")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !app.home_open,
@@ -7224,7 +7768,7 @@ mod tests {
             "a design you saved is listed for one-click return"
         );
         let want = app.path.clone();
-        tap(&ctx, &mut app, &want)?;
+        authoring::tests::tap(&ctx, &mut app, &want)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !app.home_open,
@@ -7589,7 +8133,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn the_nets_tab_reports_the_copper_each_net_carries() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -7602,7 +8145,7 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        tap(&ctx, &mut app, "Layers")?;
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",
@@ -7974,23 +8517,8 @@ mod tests {
             1,
             "editor must have only its root window"
         );
-        let pos = egui::Pos2::new(220.0, 64.0);
-        for pressed in [true, false] {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        authoring::tests::tap(&ctx, &mut app, "Layout")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(matches!(app.tab, Tab::Pcb));
         assert_eq!(app.selected, Some(11));
         let key = |key, modifiers| egui::Event::Key {
@@ -8120,10 +8648,7 @@ mod tests {
         );
         Ok(())
     }
-
 }
 
-#[cfg(test)]
-mod test_support;
 #[cfg(test)]
 mod e2e;

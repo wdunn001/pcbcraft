@@ -16,9 +16,14 @@ pcbcraft-engine.workspace = true
 pcbcraft-io.workspace = true
 pcbcraft-rules.workspace = true
 pcbcraft-mcp.workspace = true
+pcbcraft-text.workspace = true
 egui.workspace = true
 eframe.workspace = true
 craft-ui.workspace = true
 serde_json.workspace = true
 image.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+pcbcraft-text = { workspace = true, features = ["fixture"] }
+base64.workspace = true

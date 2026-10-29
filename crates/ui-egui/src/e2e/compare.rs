@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text};
+use super::support::{frame, paints_text};
 use serde_json::json;
 
 #[test]

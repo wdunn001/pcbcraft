@@ -4,7 +4,7 @@ use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::{read_text, MAX_FILE_BYTES};
+use crate::{MAX_FILE_BYTES, read_text};
 
 /// Total extracted bytes allowed when reading a plot zip (same budget as one file).
 pub const MAX_PLOT_ZIP_BYTES: u64 = MAX_FILE_BYTES;
@@ -92,23 +92,117 @@ pub struct PlotPackage {
     pub hints: Vec<PlotHint>,
 }
 
-fn gerber_statements(text: &str) -> Vec<String> {
+/// Split a plot file into statements. The flag is true for extended
+/// commands, the ones written between `%` marks.
+fn gerber_statements(text: &str) -> Vec<(bool, String)> {
     let mut out = Vec::new();
     let mut cur = String::new();
+    let mut extended = false;
+    // A comment closed by `*%` is a known quirk of some writers; the stray
+    // percent sign must not open an extended command.
+    let mut after_comment = false;
     for ch in text.chars() {
-        if ch == '*' {
-            if !cur.is_empty() {
-                out.push(cur.clone());
+        if ch == '%' && after_comment {
+            after_comment = false;
+            continue;
+        }
+        after_comment = false;
+        match ch {
+            '%' => {
+                extended = !extended;
                 cur.clear();
             }
-        } else if ch != '\r' {
-            cur.push(ch);
+            '*' => {
+                let t = cur.trim();
+                if !t.is_empty() {
+                    after_comment = !extended && t.starts_with("G04");
+                    out.push((extended, t.to_owned()));
+                }
+                cur.clear();
+            }
+            '\r' | '\n' if extended => {}
+            _ => cur.push(ch),
         }
     }
-    if !cur.trim().is_empty() {
-        out.push(cur);
-    }
     out
+}
+
+/// One plot statement split into its letter-number words.
+#[derive(Default)]
+struct Words {
+    d: Vec<u32>,
+    g: Option<u32>,
+    x: Option<f64>,
+    y: Option<f64>,
+    i: Option<f64>,
+    j: Option<f64>,
+}
+
+/// Parse a coordinate word. Decimal text is taken as written; whole numbers
+/// are scaled by the file's decimal count.
+fn coordinate(text: &str, decimals: i32) -> Option<f64> {
+    if text.contains('.') {
+        text.parse().ok()
+    } else {
+        let v: f64 = text.parse().ok()?;
+        Some(v / 10f64.powi(decimals))
+    }
+}
+
+fn split_words(stmt: &str, decimals: i32) -> Words {
+    let mut w = Words::default();
+    let chars: Vec<char> = stmt.chars().collect();
+    let mut at = 0;
+    while at < chars.len() {
+        let letter = chars[at];
+        at += 1;
+        let start = at;
+        while at < chars.len()
+            && (chars[at].is_ascii_digit() || matches!(chars[at], '.' | '-' | '+'))
+        {
+            at += 1;
+        }
+        let num: String = chars[start..at].iter().collect();
+        match letter {
+            'D' => {
+                if let Ok(n) = num.parse::<u32>() {
+                    w.d.push(n);
+                }
+            }
+            'G' => w.g = num.parse().ok(),
+            'X' => w.x = coordinate(&num, decimals),
+            'Y' => w.y = coordinate(&num, decimals),
+            'I' => w.i = coordinate(&num, decimals),
+            'J' => w.j = coordinate(&num, decimals),
+            _ => {}
+        }
+    }
+    w
+}
+
+/// The number of decimals in `FSLAX<i><d>Y<i><d>`, six when absent.
+fn format_decimals(text: &str) -> i32 {
+    text.find("FSLAX")
+        .or_else(|| text.find("FSLNX"))
+        .or_else(|| text.find("FSLA"))
+        .and_then(|at| {
+            let rest = &text[at..];
+            let x = rest.find('X')?;
+            let digits: Vec<char> = rest[x + 1..].chars().take(2).collect();
+            digits.get(1).and_then(|c| c.to_digit(10)).map(|d| d as i32)
+        })
+        .unwrap_or(6)
+}
+
+/// True when the statement draws, flashes or moves.
+fn statement_op(w: &Words) -> Option<u32> {
+    if let Some(op) = w.d.iter().copied().find(|d| (1..=3).contains(d)) {
+        return Some(op);
+    }
+    if matches!(w.g, Some(2 | 3)) && (w.x.is_some() || w.y.is_some() || w.i.is_some()) {
+        return Some(1);
+    }
+    None
 }
 
 fn parse_coord_pair(stmt: &str) -> Option<(f64, f64)> {
@@ -260,28 +354,64 @@ fn parse_add_aperture(stmt: &str, inch: bool) -> Option<(u32, PlotAperture)> {
 
 /// Count semantic flashes (`D03`) and draw segments (`D01`) in gerber text.
 pub fn count_flashes_and_draws(text: &str) -> Result<(usize, usize), String> {
+    let decimals = format_decimals(text);
     let mut flashes = 0usize;
     let mut draws = 0usize;
-    for stmt in gerber_statements(text) {
-        let s = stmt.trim();
-        if s.is_empty() || s.starts_with('G') && !s.contains('D') {
+    for (extended, stmt) in gerber_statements(text) {
+        if extended || stmt.starts_with("G04") {
             continue;
         }
-        if s.contains("D03") {
-            flashes += 1;
-        } else if s.contains("D01") {
-            draws += 1;
+        let words = split_words(&stmt, decimals);
+        match statement_op(&words) {
+            Some(3) => flashes += 1,
+            Some(1) => draws += 1,
+            _ => {}
         }
     }
     Ok((flashes, draws))
 }
 
+/// Points along an arc from `from` to `to` about `center`, `to` included.
+/// Equal ends make a full circle.
+fn arc_points(
+    from: (f64, f64),
+    to: (f64, f64),
+    center: (f64, f64),
+    clockwise: bool,
+) -> Vec<(f64, f64)> {
+    let radius = (from.0 - center.0).hypot(from.1 - center.1);
+    if !radius.is_finite() || radius <= 0.0 {
+        return vec![to];
+    }
+    let start = (from.1 - center.1).atan2(from.0 - center.0);
+    let end = (to.1 - center.1).atan2(to.0 - center.0);
+    let tau = std::f64::consts::TAU;
+    let mut sweep = if clockwise { start - end } else { end - start };
+    while sweep < 0.0 {
+        sweep += tau;
+    }
+    while sweep > tau {
+        sweep -= tau;
+    }
+    if sweep < 1e-9 {
+        sweep = tau;
+    }
+    let steps = ((sweep / 0.1).ceil() as usize).clamp(2, 128);
+    let mut out = Vec::with_capacity(steps);
+    for n in 1..steps {
+        let t = sweep * n as f64 / steps as f64;
+        let a = if clockwise { start - t } else { start + t };
+        out.push((center.0 + radius * a.cos(), center.1 + radius * a.sin()));
+    }
+    out.push(to);
+    out
+}
+
 /// Parse one gerber layer file into counts and drawable geometry.
 pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, String> {
-    let mut inch = text.contains("MOIN") || text.contains("%MOIN");
-    if text.contains("MOMM") || text.contains("%MOMM") {
-        inch = false;
-    }
+    let inch = text.contains("MOIN") && !text.contains("MOMM");
+    let decimals = format_decimals(text);
+    let unit = if inch { 25.4 } else { 1.0 };
     let mut kind = PlotLayerKind::Unknown;
     let mut polarity_negative = false;
     let mut saw_x2 = false;
@@ -289,119 +419,115 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
     let mut apertures: BTreeMap<u32, PlotAperture> = BTreeMap::new();
     let mut flashes = Vec::new();
     let mut strokes = Vec::new();
-    let mut regions = Vec::new();
+    let mut regions: Vec<Vec<(f64, f64)>> = Vec::new();
     let mut current_ap: u32 = 10;
     let mut ops = 0usize;
-    let mut region_pts: Vec<(f64, f64)> = Vec::new();
     let mut in_region = false;
-    let mut pending: Option<(f64, f64)> = None;
-    let mut stroke_pts: Vec<(f64, f64)> = Vec::new();
+    let mut contour: Vec<(f64, f64)> = Vec::new();
+    let mut at = (0.0f64, 0.0f64);
+    let mut clockwise = true;
 
-    for stmt in gerber_statements(text) {
-        let s = stmt.trim();
-        if s.is_empty() {
-            continue;
-        }
-        if let Some(rest) = s.strip_prefix("%TF.FileFunction,") {
-            saw_x2 = true;
-            kind = classify_from_x2(rest);
-            continue;
-        }
-        if s.starts_with("%TF.FilePolarity,Negative") {
-            polarity_negative = true;
-            saw_x2 = true;
-            continue;
-        }
-        if s.starts_with("%TF.") {
-            saw_x2 = true;
-            continue;
-        }
-        if s.starts_with("%TA.AperFunction,") {
-            saw_x2 = true;
-            if let Some(ap) = apertures.get_mut(&current_ap) {
-                ap.function = Some(s.strip_prefix("%TA.AperFunction,").unwrap_or("").into());
-            }
-            continue;
-        }
-        if s.starts_with("%ADD") {
-            if apertures.len() >= MAX_APERTURES {
-                return Err("plot layer exceeds the aperture limit".into());
-            }
-            if let Some((code, ap)) = parse_add_aperture(s, inch) {
-                apertures.insert(code, ap);
-            }
-            continue;
-        }
-        if s.starts_with("G36") {
-            in_region = true;
-            region_pts.clear();
-            stroke_pts.clear();
-            continue;
-        }
-        if s.starts_with("G37") {
-            in_region = false;
-            if region_pts.len() >= 3 {
-                regions.push(region_pts.clone());
-            }
-            ops += 1;
-            if ops > MAX_OPS {
-                return Err("plot layer exceeds the object limit".into());
-            }
-            continue;
-        }
-        if let Some(d_only) = s.strip_prefix('D') {
-            if d_only.len() <= 3 && d_only.chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(code) = d_only.parse::<u32>() {
-                    current_ap = code;
+    for (extended, stmt) in gerber_statements(text) {
+        let s = stmt.as_str();
+        if extended {
+            if let Some(rest) = s.strip_prefix("TF.FileFunction,") {
+                saw_x2 = true;
+                kind = classify_from_x2(rest);
+            } else if s.starts_with("TF.FilePolarity,Negative") {
+                polarity_negative = true;
+                saw_x2 = true;
+            } else if s.starts_with("TF.") {
+                saw_x2 = true;
+            } else if let Some(rest) = s.strip_prefix("TA.AperFunction,") {
+                saw_x2 = true;
+                if let Some(ap) = apertures.get_mut(&current_ap) {
+                    ap.function = Some(rest.into());
                 }
+            } else if s.starts_with("ADD") {
+                if apertures.len() >= MAX_APERTURES {
+                    return Err("plot layer exceeds the aperture limit".into());
+                }
+                if let Some((code, ap)) = parse_add_aperture(&format!("%{s}*"), inch) {
+                    apertures.insert(code, ap);
+                }
+            }
+            continue;
+        }
+        if s.starts_with("G04") {
+            continue;
+        }
+        let words = split_words(s, decimals);
+        if let Some(code) = words.d.iter().copied().find(|d| *d >= 10) {
+            current_ap = code;
+        }
+        match words.g {
+            Some(2) => clockwise = true,
+            Some(3) => clockwise = false,
+            Some(36) => {
+                in_region = true;
+                contour.clear();
                 continue;
             }
+            Some(37) => {
+                if contour.len() >= 3 {
+                    regions.push(std::mem::take(&mut contour));
+                }
+                contour.clear();
+                in_region = false;
+                continue;
+            }
+            _ => {}
         }
-        if let Some((x, y)) = parse_coord_pair(s) {
-            let (x_mm, y_mm) = inch_to_mm(inch, x, y);
-            if s.contains("D03") {
-                ops += 1;
-                if ops > MAX_OPS {
-                    return Err("plot layer exceeds the object limit".into());
+        let Some(op) = statement_op(&words) else {
+            continue;
+        };
+        let to = (
+            words.x.map_or(at.0, |v| v * unit),
+            words.y.map_or(at.1, |v| v * unit),
+        );
+        ops += 1;
+        if ops > MAX_OPS {
+            return Err("plot layer exceeds the object limit".into());
+        }
+        match op {
+            3 => flashes.push(PlotFlash {
+                x_mm: to.0,
+                y_mm: to.1,
+                aperture: current_ap,
+            }),
+            2 => {
+                if in_region && contour.len() >= 3 {
+                    regions.push(std::mem::take(&mut contour));
                 }
-                flashes.push(PlotFlash {
-                    x_mm,
-                    y_mm,
-                    aperture: current_ap,
-                });
-                pending = Some((x_mm, y_mm));
-            } else if s.contains("D02") {
-                stroke_pts.clear();
-                stroke_pts.push((x_mm, y_mm));
-                pending = Some((x_mm, y_mm));
-            } else if s.contains("D01") {
-                ops += 1;
-                if ops > MAX_OPS {
-                    return Err("plot layer exceeds the object limit".into());
-                }
-                if stroke_pts.is_empty() {
-                    if let Some(p) = pending {
-                        stroke_pts.push(p);
-                    }
-                }
-                stroke_pts.push((x_mm, y_mm));
+                contour.clear();
                 if in_region {
-                    region_pts.push((x_mm, y_mm));
-                } else if stroke_pts.len() >= 2 {
+                    contour.push(to);
+                }
+            }
+            _ => {
+                let arc = (words.i.is_some() || words.j.is_some())
+                    .then(|| (words.i.unwrap_or(0.0) * unit, words.j.unwrap_or(0.0) * unit));
+                let mut path = vec![at];
+                match arc {
+                    Some((i, j)) => {
+                        path.extend(arc_points(at, to, (at.0 + i, at.1 + j), clockwise))
+                    }
+                    None => path.push(to),
+                }
+                if in_region {
+                    if contour.is_empty() {
+                        contour.push(at);
+                    }
+                    contour.extend(path.into_iter().skip(1));
+                } else {
                     strokes.push(PlotStroke {
-                        points: stroke_pts.clone(),
+                        points: path,
                         aperture: current_ap,
                     });
-                    stroke_pts.clear();
-                    stroke_pts.push((x_mm, y_mm));
                 }
-                pending = Some((x_mm, y_mm));
-            }
-        } else if s.contains('D') && s.len() < 8 {
-            if let Some(num) = s.strip_prefix('D').and_then(|t| t.parse::<u32>().ok()) {
-                current_ap = num;
             }
         }
+        at = to;
     }
 
     if !saw_x2 {
@@ -448,31 +574,31 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
             continue;
         }
         if in_header {
-            if let Some(rest) = line.strip_prefix('T') {
-                if let Some((num, diam)) = rest.split_once('C') {
-                    if let Ok(n) = num.parse::<u32>() {
-                        if let Ok(d) = diam.parse::<f64>() {
-                            tools.insert(n, d * scale);
-                        }
-                    }
-                }
+            if let Some(rest) = line.strip_prefix('T')
+                && let Some((num, diam)) = rest.split_once('C')
+                && let Ok(n) = num.parse::<u32>()
+                && let Ok(d) = diam.parse::<f64>()
+            {
+                tools.insert(n, d * scale);
             }
             continue;
         }
-        if let Some(rest) = line.strip_prefix('T') {
-            if let Ok(n) = rest.parse::<u32>() {
-                current_tool = n;
-                continue;
-            }
+        if let Some(rest) = line.strip_prefix('T')
+            && let Ok(n) = rest.parse::<u32>()
+        {
+            current_tool = n;
+            continue;
         }
         if line.starts_with('X') {
             if hits.len() >= MAX_HITS {
                 return Err("drill file exceeds the hit limit".into());
             }
             if let Some(g85) = line.find("G85") {
-                let start = parse_coord_pair(line)?;
+                let start = parse_coord_pair(line)
+                    .ok_or_else(|| "slot start has no coordinates".to_string())?;
                 let end_part = &line[g85 + 3..];
-                let end = parse_coord_pair(end_part)?;
+                let end = parse_coord_pair(end_part)
+                    .ok_or_else(|| "slot end has no coordinates".to_string())?;
                 let (sx, sy) = inch_to_mm(inch, start.0, start.1);
                 let (ex, ey) = inch_to_mm(inch, end.0, end.1);
                 hits.push(PlotDrillHit {
@@ -517,11 +643,42 @@ fn safe_zip_name(name: &[u8]) -> Result<String, String> {
     if name.starts_with(b"/") || name.windows(2).any(|w| w == b"..") {
         return Err("archive entry path is not allowed".into());
     }
-    let text = std::str::from_utf8(name).map_err(|_| "archive entry name is not UTF-8".into())?;
+    let text =
+        std::str::from_utf8(name).map_err(|_| "archive entry name is not UTF-8".to_string())?;
     if text.contains('\\') || text.contains(':') {
         return Err("archive entry path is not allowed".into());
     }
     Ok(text.split('/').next_back().unwrap_or(text).to_owned())
+}
+
+/// True for a combined drill file when separate plated and unplated files
+/// sit beside it, so its holes are not counted twice.
+fn skip_combined_drill(name: &str, drill_names: &[String]) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let split = drill_names.iter().any(|n| {
+        let n = n.to_ascii_lowercase();
+        n.contains("plated") || n.contains("npth")
+    });
+    split && !lower.contains("plated") && !lower.contains("npth")
+}
+
+/// Add one drill file to the running set, renumbering its tools so two files
+/// never share a tool number.
+fn merge_drill(
+    tools: &mut Vec<PlotDrillTool>,
+    hits: &mut Vec<PlotDrillHit>,
+    new_tools: Vec<PlotDrillTool>,
+    new_hits: Vec<PlotDrillHit>,
+) {
+    let offset = tools.iter().map(|t| t.number).max().unwrap_or(0);
+    tools.extend(new_tools.into_iter().map(|mut t| {
+        t.number += offset;
+        t
+    }));
+    hits.extend(new_hits.into_iter().map(|mut h| {
+        h.tool += offset;
+        h
+    }));
 }
 
 /// Load every plot/drill file in a folder.
@@ -537,6 +694,11 @@ pub fn load_plot_folder(path: &Path) -> Result<PlotPackage, String> {
         .filter(|p| p.is_file())
         .collect();
     entries.sort();
+    let drill_names: Vec<String> = entries
+        .iter()
+        .filter_map(|e| e.file_name().and_then(|n| n.to_str()).map(str::to_owned))
+        .filter(|n| n.to_ascii_lowercase().ends_with(".drl"))
+        .collect();
     for entry in entries {
         let Some(name) = entry.file_name().and_then(|n| n.to_str()) else {
             continue;
@@ -546,10 +708,12 @@ pub fn load_plot_folder(path: &Path) -> Result<PlotPackage, String> {
         }
         let lower = name.to_ascii_lowercase();
         if lower.ends_with(".drl") {
+            if skip_combined_drill(name, &drill_names) {
+                continue;
+            }
             let text = read_text(&entry)?;
             let (tools, hits) = parse_excellon_drill(&text)?;
-            drill_tools = tools;
-            drill_hits = hits;
+            merge_drill(&mut drill_tools, &mut drill_hits, tools, hits);
             continue;
         }
         let text = read_text(&entry)?;
@@ -663,14 +827,23 @@ pub fn load_plot_zip(bytes: &[u8]) -> Result<PlotPackage, String> {
     let mut drill_hits = Vec::new();
     let mut hints = Vec::new();
     collected.sort_by(|a, b| a.0.cmp(&b.0));
+    let drill_names: Vec<String> = collected
+        .iter()
+        .map(|(n, _)| n.clone())
+        .filter(|n| n.to_ascii_lowercase().ends_with(".drl"))
+        .collect();
     for (name, data) in collected {
         if name.to_ascii_lowercase().ends_with(".drl") {
-            let text = std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".into())?;
+            if skip_combined_drill(&name, &drill_names) {
+                continue;
+            }
+            let text =
+                std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".to_string())?;
             let (tools, hits) = parse_excellon_drill(text)?;
-            drill_tools = tools;
-            drill_hits = hits;
+            merge_drill(&mut drill_tools, &mut drill_hits, tools, hits);
         } else {
-            let text = std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".into())?;
+            let text =
+                std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".to_string())?;
             let layer = parse_gerber_layer(text, &name)?;
             hints.extend(layer.hints.clone());
             layers.push(layer);
@@ -727,8 +900,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn arcs_and_whole_number_coordinates_scale_to_millimetres() -> Result<(), String> {
+        let text = "%FSLAX24Y24*%\n%MOMM*%\n%ADD10C,0.2*%\nG01*\nD10*\nX100000Y100000D02*\nX200000Y100000D01*\nG03*\nX300000Y200000I0J100000D01*\nD10*\nX50000Y50000D03*\nM02*\n";
+        let layer = parse_gerber_layer(text, "arc.gbr")?;
+        assert_eq!(layer.flash_count, 1);
+        assert_eq!(layer.draw_count, 2);
+        assert_eq!(layer.flashes[0].x_mm, 5.0);
+        assert!(layer.strokes[1].points.len() > 3, "the arc is sampled");
+        let last = layer.strokes[1].points.last().copied().unwrap_or_default();
+        assert!((last.0 - 30.0).abs() < 1e-6 && (last.1 - 20.0).abs() < 1e-6);
+        Ok(())
+    }
+
+    #[test]
+    fn slot_lines_in_a_drill_file_read_as_spans() -> Result<(), String> {
+        let text = "M48\nFMAT,2\nMETRIC,TZ\nT1C0.800\n%\nG90\nG05\nT1\nX1.000Y2.000\nX9.850Y10.000G85X10.150Y10.000\n";
+        let (tools, hits) = parse_excellon_drill(text)?;
+        assert_eq!(tools.len(), 1);
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[1].slot_end, Some((10.15, 10.0)));
+        Ok(())
+    }
+
+    #[test]
     fn shaped_pads_fixture_has_x2_copper_top() -> Result<(), String> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shaped_pads_F_Cu.gbr");
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/shaped_pads_F_Cu.gbr");
         let text = read_text(&path)?;
         let layer = parse_gerber_layer(&text, "shaped_pads_F_Cu.gbr")?;
         assert_eq!(layer.kind, PlotLayerKind::FrontCopper);
