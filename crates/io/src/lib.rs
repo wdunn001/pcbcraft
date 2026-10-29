@@ -2410,8 +2410,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         map.finish(false, "drill hole map"),
     );
     files.insert("pcb-Drill.drl".into(), drill);
-    files.insert("pcb-Plated.drl".into(), plated_drill);
-    files.insert("pcb-NPTH.drl".into(), npth_drill);
+    files.insert("pcb-Plated.drl".into(), plated_drill.clone());
+    files.insert("pcb-NPTH.drl".into(), npth_drill.clone());
     for (name, text) in drawn::gerber_layer_files(p)? {
         files.insert(name, text);
     }
