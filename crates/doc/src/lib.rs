@@ -35,6 +35,9 @@ pub struct SymbolUnitPlacement {
 fn passive() -> String {
     "passive".into()
 }
+fn default_decoupling_max_mm() -> f64 {
+    3.0
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -1416,6 +1419,12 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Maximum pad-centre distance in millimetres from an IC power pin to a
+    /// decoupling capacitor on the same net when that IC has a board footprint.
+    /// Schematic-only designs ignore distance and only require a capacitor on
+    /// the net.
+    #[serde(default = "default_decoupling_max_mm")]
+    pub decoupling_max_mm: f64,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1544,6 +1553,7 @@ impl Default for Project {
             variants: vec![],
             graphic_groups: vec![],
             meta: Default::default(),
+            decoupling_max_mm: default_decoupling_max_mm(),
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -1934,6 +1944,12 @@ impl Project {
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
+        }
+        if !self.decoupling_max_mm.is_finite()
+            || self.decoupling_max_mm < 0.5
+            || self.decoupling_max_mm > 50.0
+        {
+            return Err("decoupling distance must be 0.5 to 50 mm".into());
         }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
