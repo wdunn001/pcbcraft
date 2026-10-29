@@ -162,6 +162,7 @@ impl HttpFetcher {
     }
 }
 
+/// Contract: crates/library/src/open_library.rs
 impl Fetcher for HttpFetcher {
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError> {
         if self.offline.load(Ordering::SeqCst) {
