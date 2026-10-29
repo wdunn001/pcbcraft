@@ -27,10 +27,7 @@ fn nominal_params() -> LandPatternParams {
 fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
     for g in &def.graphics {
         if let Graphic::Rectangle {
-            start,
-            end,
-            layer,
-            ..
+            start, end, layer, ..
         } = g
             && layer == "pcbcraft.courtyard"
         {
