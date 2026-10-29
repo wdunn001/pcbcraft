@@ -9,6 +9,7 @@
 //! # Dependencies
 //! - docs/doc-standard.md
 //! - xtask/doc-ratchet.toml
+//! - xtask/src/guide_check.rs
 //! - xtask/src/main.rs
 //!
 //! # Do not
@@ -407,6 +408,8 @@ impl Ratchet {
                         pending.insert(key);
                     }
                 }
+                // Read by guide_check.rs.
+                "guide_coverage" => {}
                 _ => return Err(format!("{RATCHET_FILE}:{}: unknown section", i + 1)),
             }
         }

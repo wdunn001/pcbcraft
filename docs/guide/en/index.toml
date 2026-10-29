@@ -1,0 +1,20 @@
+# Titles and order of the user guide. Every page file must be listed here.
+[[section]]
+dir = "start"
+title = "Start here"
+pages = ["install-and-open"]
+
+[[section]]
+dir = "howto"
+title = "How-to guides"
+pages = []
+
+[[section]]
+dir = "reference"
+title = "Reference"
+pages = []
+
+[[section]]
+dir = "concepts"
+title = "Concepts"
+pages = []

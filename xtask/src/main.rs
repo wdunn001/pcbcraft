@@ -9,12 +9,14 @@
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
 //! - xtask/src/doc_check.rs
+//! - xtask/src/guide_check.rs
 //! - xtask/src/tooltips.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
 mod e2e;
+mod guide_check;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -33,6 +35,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
+  guide-check  [--write-ratchet] user guide: labels, shot ids, prose rules, links, coverage ratchet
   deny         cargo-deny licenses, advisories, bans and sources
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
@@ -512,6 +515,7 @@ fn run() -> Result<(), String> {
             wasm()?;
             docs()?;
             doc_check::run(&[])?;
+            guide_check::run(&[])?;
         }
         "policy" => {
             layers()?;
@@ -527,6 +531,7 @@ fn run() -> Result<(), String> {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
         }
         "docs" => docs()?,
+        "guide-check" => guide_check::run(args.get(1..).unwrap_or(&[]))?,
         "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
         "deny" => deny()?,
         "msrv" => msrv()?,
