@@ -77,7 +77,7 @@ s_start = next(
 s_end = s_start + 1
 while s_end < len(out) and not (out[s_end].startswith("    fn ") and s_end > s_start + 5):
     s_end += 1
-out[s_start:s_end] = feat[3301:3375] + [""]
+out[s_start:s_end] = feat[3132:3375] + [""]
 
 settings = next(
     x for x, l in enumerate(out) if l.startswith("    fn settings_tab(&mut self, ui: &mut egui::Ui) {")

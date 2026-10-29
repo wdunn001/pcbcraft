@@ -2420,6 +2420,175 @@ impl App {
             }
         }
     }
+    fn dispatch_shortcut(&mut self, action: keymap::KeyAction) {
+        use keymap::KeyAction;
+        match action {
+            KeyAction::Undo => {
+                self.tool_call("undo", json!({}));
+            }
+            KeyAction::Redo => {
+                self.tool_call("redo", json!({}));
+            }
+            KeyAction::Save => {
+                self.tool_call("save", json!({"path": self.path}));
+            }
+            KeyAction::CommandPalette => {
+                self.command_open = !self.command_open;
+                self.command_focus = self.command_open;
+                self.command_index = 0;
+            }
+            KeyAction::ToggleShortcutsHelp => {
+                self.shortcuts_open = !self.shortcuts_open;
+            }
+            KeyAction::SymbolPalette => {
+                self.palette = true;
+            }
+            KeyAction::WireTool => {
+                self.tool = Tool::Wire(None);
+            }
+            KeyAction::RouteTool => {
+                self.tool = Tool::Route(None);
+            }
+            KeyAction::MoveTool => {
+                self.select_hover();
+                self.tool = Tool::Move;
+            }
+            KeyAction::Rotate => {
+                self.select_hover();
+                self.rotate();
+            }
+            KeyAction::OpenInspector => {
+                self.select_hover();
+                self.load_properties();
+            }
+            KeyAction::ZoomFitDesign => {
+                self.needs_fit = true;
+            }
+            KeyAction::ZoomToSelection => {
+                self.needs_zoom_selection = true;
+            }
+            KeyAction::DeleteSelection => {
+                if let Some(id) = self.selected {
+                    self.run("object.delete", json!({"id": id}));
+                    self.select(None);
+                }
+            }
+            KeyAction::ReturnToSelect => {
+                self.tool = Tool::Select;
+                self.drag = None;
+                self.palette = false;
+                self.shortcuts_open = false;
+                self.binding_capture = None;
+                self.canvas_menu = None;
+                self.edit.measure = None;
+                self.edit.box_from = None;
+                self.edit.box_to = None;
+            }
+            KeyAction::ViaTool => {
+                self.tool = Tool::Via;
+            }
+            KeyAction::FlipHorizontal | KeyAction::MirrorVertical => {
+                self.select_hover();
+                let Some(id) = self.selected else {
+                    return;
+                };
+                let axis = if matches!(action, KeyAction::FlipHorizontal) {
+                    "horizontal"
+                } else {
+                    "vertical"
+                };
+                if self.project.footprint(id).is_some() {
+                    self.run("footprint.mirror", json!({"id": id, "axis": axis}));
+                } else if self.project.component(id).is_some() {
+                    self.run("component.mirror", json!({"id": id, "axis": axis}));
+                }
+            }
+            KeyAction::SelectConnected => {
+                let Some(sel) = self.selected else {
+                    return;
+                };
+                let Some(net) = self.net_for_selection(sel) else {
+                    return;
+                };
+                let mut ids: Vec<Id> = self
+                    .project
+                    .board
+                    .tracks
+                    .iter()
+                    .filter(|t| t.net == net)
+                    .map(|t| t.id)
+                    .collect();
+                for via in &self.project.board.vias {
+                    if via.net == net {
+                        ids.push(via.id);
+                    }
+                }
+                ids.sort_unstable();
+                ids.dedup();
+                if ids.is_empty() {
+                    return;
+                }
+                if ids.len() == 1 {
+                    self.highlight_net = Some(net);
+                    self.select(Some(ids[0]));
+                    return;
+                }
+                let at = ids.iter().position(|id| *id == sel).unwrap_or(0);
+                let next = ids[(at + 1) % ids.len()];
+                self.connected_cycle = at + 1;
+                self.select(Some(next));
+            }
+            KeyAction::ToggleNetHighlight => {
+                let Some(sel) = self.selected else {
+                    return;
+                };
+                let Some(net) = self.net_for_selection(sel) else {
+                    return;
+                };
+                self.highlight_net = if self.highlight_net == Some(net) {
+                    None
+                } else {
+                    Some(net)
+                };
+            }
+            KeyAction::LayerNext => {
+                self.route_layer = match self.route_layer {
+                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
+                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
+                    other => other,
+                };
+            }
+            KeyAction::LayerPrev => {
+                self.route_layer = match self.route_layer {
+                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
+                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
+                    other => other,
+                };
+            }
+            KeyAction::RepeatLastCommand => {
+                if let Some((command, params)) = self.last_repeat.clone() {
+                    self.run(&command, params);
+                }
+            }
+            KeyAction::FindInTree => {
+                self.tree_search_focus = true;
+            }
+            KeyAction::PaletteLineUp | KeyAction::PaletteLineDown | KeyAction::PaletteRun => {}
+            KeyAction::ToggleAutoSync => {
+                let next = !self.project.auto_sync;
+                self.run("project.set_auto_sync", json!({"auto_sync": next}));
+            }
+            KeyAction::UpdateBoardFromSchematic => {
+                if !self.project.auto_sync {
+                    self.run("board.sync", json!({}));
+                }
+            }
+            KeyAction::ToggleAssistant => {
+                self.assistant_toggle();
+            }
+        }
+    }
+
     fn shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.current_pass_index() > 0 {
             return;
