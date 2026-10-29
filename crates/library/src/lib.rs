@@ -2,6 +2,7 @@
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod listing;
 mod paths;
 mod reader;
 mod sexpr;

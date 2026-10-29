@@ -92,21 +92,24 @@ impl App {
             );
         let (text, colour, tip) = if errors > 0 {
             (
-                format!("{errors} to fix"),
+                t!("library.quality_badge.errors_to_fix", errors = errors),
                 Color32::LIGHT_RED,
-                "This footprint has mistakes that can make a bad board. Open the Checks tab for what to change.",
+                t!("library.quality_badge.this_footprint_has_mistakes_that"),
             )
         } else if warnings > 0 {
             (
-                format!("{warnings} to review"),
+                t!(
+                    "library.quality_badge.warnings_to_review",
+                    warnings = warnings
+                ),
                 Color32::from_rgb(230, 180, 60),
-                "This footprint is usable but breaks a common good habit. Open the Checks tab for the details.",
+                t!("library.quality_badge.this_footprint_is_usable_but"),
             )
         } else {
             (
-                "Clean".to_owned(),
+                t!("library.quality_badge.clean"),
                 self.accent(),
-                "The library checks found nothing wrong with this footprint.",
+                t!("library.quality_badge.the_library_checks_found_nothing"),
             )
         };
         ui.label(egui::RichText::new(text).color(colour).small())
@@ -117,18 +120,25 @@ impl App {
     /// and wiring checks, each place with a plain way to fix it.
     pub(super) fn library_checks_section(&mut self, ui: &mut egui::Ui) {
         self.refresh_footprint_quality();
-        ui.label(egui::RichText::new("Library").size(18.0).strong());
         ui.label(
-            egui::RichText::new(
-                "Whether the footprints in this project's library follow good drawing habits: pad numbers, silkscreen, courtyard and the like.",
-            )
+            egui::RichText::new(t!("library.library_checks_section.library"))
+                .size(18.0)
+                .strong(),
+        );
+        ui.label(
+            egui::RichText::new(t!(
+                "library.library_checks_section.whether_the_footprints_in_this"
+            ))
             .small()
             .color(self.muted()),
         );
         let findings = self.library.quality.findings.clone();
         if findings.is_empty() {
             ui.label(
-                egui::RichText::new("No findings in the implemented checks").color(self.accent()),
+                egui::RichText::new(t!(
+                    "library.library_checks_section.no_findings_in_the_implemented"
+                ))
+                .color(self.accent()),
             );
         }
         let mut groups: Vec<(String, Vec<QualityFinding>)> = Vec::new();
@@ -158,16 +168,20 @@ impl App {
                 egui::RichText::new(title)
             };
             ui.label(title).on_hover_text(if must {
-                "A mistake in a library footprint. Fix it before parts using this footprint go on a board."
+                t!("library.library_checks_section.a_mistake_in_a_library")
             } else {
-                "Worth a look, but it does not stop a board being built."
+                t!("library.library_checks_section.worth_a_look_but_it")
             });
             for f in rows {
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(14.0);
                     if ui
-                        .button(format!("{}: {}", f.footprint, f.message))
-                        .on_hover_text("Open this footprint in the library editor.")
+                        .button(t!(
+                            "library.library_checks_section.footprint_message",
+                            footprint = f.footprint,
+                            message = f.message
+                        ))
+                        .on_hover_text(t!("library.library_checks_section.footprint_message.tip"))
                         .clicked()
                         && let Some(def) = self
                             .project
@@ -183,9 +197,12 @@ impl App {
                         self.change_tab(Tab::Libraries);
                     }
                     ui.label(
-                        egui::RichText::new(format!("Fix: {}", f.hint))
-                            .small()
-                            .color(self.muted()),
+                        egui::RichText::new(t!(
+                            "library.library_checks_section.fix_hint",
+                            hint = f.hint
+                        ))
+                        .small()
+                        .color(self.muted()),
                     );
                 });
             }

@@ -72,7 +72,7 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.datum_ui.add_name)
+                        crate::targets::text_field(&mut self.datum_ui.add_name)
                             .hint_text("Datum name")
                             .desired_width(90.0),
                     )
@@ -139,7 +139,7 @@ impl App {
                             self.select(Some(d.id));
                         }
                         if ui
-                            .small_button("\u{d7}")
+                            .tap_button("\u{d7}")
                             .on_hover_text("Take this datum off the board.")
                             .clicked()
                         {
@@ -177,7 +177,7 @@ impl App {
         );
         ui.add_space(8.0);
         ui.label("Name");
-        ui.text_edit_singleline(&mut self.datum_ui.name)
+        ui.add(crate::targets::text_field(&mut self.datum_ui.name))
             .on_hover_text("The name written into the enclosure files.");
         if ui
             .button("Rename")
@@ -192,10 +192,10 @@ impl App {
         ui.horizontal(|ui| {
             ui.label("X");
             ui.add(egui::DragValue::new(&mut self.datum_ui.x).speed(0.1))
-                .on_hover_text("Across the board, in millimetres.");
+                .on_hover_text("Set where the datum sits across the board, in millimetres. It must stay on the board.");
             ui.label("Y");
             ui.add(egui::DragValue::new(&mut self.datum_ui.y).speed(0.1))
-                .on_hover_text("Up the board, in millimetres.");
+                .on_hover_text("Set where the datum sits up the board, in millimetres. It must stay on the board.");
         });
         if ui
             .button("Move")

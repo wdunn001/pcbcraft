@@ -8,10 +8,8 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
-[dev-dependencies]
-pcbcraft-library.workspace = true
-
 [dependencies]
 pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
+pcbcraft-library.workspace = true
 serde.workspace = true
