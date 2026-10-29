@@ -49,7 +49,7 @@ fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
 
 /// Zoom and centre that fit a world rectangle inside a panel, keeping the
 /// whole design visible instead of a postage stamp at the minimum zoom.
-fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
+pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
     let w = (hi.x - lo.x).max(1.0);
     let h = (hi.y - lo.y).max(1.0);
     let zoom = ((panel.0 * 0.92) as f64 / w)
@@ -156,7 +156,7 @@ fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: 
     }
 }
 /// Ray-cast point-in-polygon test for closed outlines (first vertex repeated).
-fn polygon_contains(points: &[Point], pos: Point) -> bool {
+pub(crate) fn polygon_contains(points: &[Point], pos: Point) -> bool {
     let mut inside = false;
     for edge in points.windows(2) {
         let (a, b) = (edge[0], edge[1]);
@@ -214,7 +214,7 @@ impl App {
             self.load_properties();
         }
     }
-    fn paint_graphic(
+    pub(super) fn paint_graphic(
         &self,
         painter: &egui::Painter,
         rect: Rect,
@@ -1755,18 +1755,22 @@ impl App {
                 ));
             }
             for pad in f.pads.iter().filter(|_| shown("Pads")) {
-                if let Some(pos) = f.pad_position(&pad.number) {
+                {
+                    let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
-                    let outline: Vec<Pos2> = pad
-                        .outline_points()
-                        .into_iter()
-                        .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
-                        .collect();
-                    painter.add(pad_shape(
-                        outline,
-                        pad.outline_is_convex(),
-                        self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
-                    ));
+                    let mechanical = is_mechanical_pad(pad);
+                    if !mechanical {
+                        let outline: Vec<Pos2> = pad
+                            .outline_points()
+                            .into_iter()
+                            .map(|p| camera.screen(f.position.offset(p.rotate(-f.rotation)), rect))
+                            .collect();
+                        painter.add(pad_shape(
+                            outline,
+                            pad.outline_is_convex(),
+                            self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
+                        ));
+                    }
                     let hole = pad.drill_outline_points();
                     if !hole.is_empty() {
                         painter.add(egui::Shape::convex_polygon(
@@ -1776,7 +1780,11 @@ impl App {
                                 })
                                 .collect(),
                             self.surface(),
-                            Stroke::NONE,
+                            if mechanical {
+                                Stroke::new(1.0, color)
+                            } else {
+                                Stroke::NONE
+                            },
                         ));
                     }
                     if self.preferences.pad_labels != PadLabels::Off {
@@ -2119,4 +2127,11 @@ fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     let along = ((point.x - from.x) * dx + (point.y - from.y) * dy) / span;
     let along = along.clamp(0.0, 1.0);
     point.distance(Point::new(from.x + dx * along, from.y + dy * along))
+}
+
+/// True for a bare drilled hole inside a footprint: no copper, no net.
+pub(crate) fn is_mechanical_pad(pad: &pcbcraft_doc::Pad) -> bool {
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| g.pad_type == "unplated")
 }
