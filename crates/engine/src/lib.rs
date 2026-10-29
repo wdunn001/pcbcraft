@@ -3095,9 +3095,7 @@ fn bom_export_options(a: &BomParams) -> Result<pcbcraft_io::BomOptions, String> 
         pcbcraft_io::DnpMode::Section | pcbcraft_io::DnpMode::Column
     ) && house != pcbcraft_io::BomHouse::Generic
     {
-        return Err(
-            "only the generic bill accepts do-not-populate sections or columns".into(),
-        );
+        return Err("only the generic bill accepts do-not-populate sections or columns".into());
     }
     if let Some(format) = a.format.as_deref() {
         if format != "csv" && format != "xlsx" {
@@ -11375,7 +11373,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let items: Vec<Value> = table
                 .rows
                 .iter()
-                .filter(|row| !(row.refs.len() == 1 && row.refs[0] == "DNP") && !row.refs.is_empty())
+                .filter(|row| {
+                    !(row.refs.len() == 1 && row.refs[0] == "DNP") && !row.refs.is_empty()
+                })
                 .map(|row| {
                     let mut fields = serde_json::Map::new();
                     for (key, value) in keys.iter().zip(row.fields.iter()) {
@@ -11409,7 +11409,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 out["bytes"] = json!(bytes.len());
                 out["hex"] = json!(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>());
             } else {
-                out["csv"] = json!(pcbcraft_io::bom_csv_with_options(p, &opts).map_err(Error::Invalid)?);
+                out["csv"] =
+                    json!(pcbcraft_io::bom_csv_with_options(p, &opts).map_err(Error::Invalid)?);
             }
             Ok(out)
         }
@@ -20131,9 +20132,16 @@ mod tests {
             None,
         )?["result"]
             .clone();
-        assert!(out["csv"].as_str().is_some_and(|t| t.starts_with("Comment,")));
+        assert!(
+            out["csv"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("Comment,"))
+        );
         assert_eq!(out["lines"], 1);
-        assert!(s.execute("bom.export", json!({"house":"unknown"}), None).is_err());
+        assert!(
+            s.execute("bom.export", json!({"house":"unknown"}), None)
+                .is_err()
+        );
         Ok(())
     }
     #[test]
@@ -20145,12 +20153,8 @@ mod tests {
             None,
         )?;
         assert!(
-            s.execute(
-                "bom.export",
-                json!({"house":"jlc","dnp":"section"}),
-                None,
-            )
-            .is_err(),
+            s.execute("bom.export", json!({"house":"jlc","dnp":"section"}), None,)
+                .is_err(),
             "fabricator presets only accept excluded do-not-populate lines"
         );
         Ok(())

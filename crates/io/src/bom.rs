@@ -135,14 +135,8 @@ fn push_dist(list: &mut Vec<(String, String)>, name: &str, value: &str) {
 pub fn bom_rows(p: &Project, opts: &BomOptions) -> Result<BomTable, String> {
     p.validate()?;
     validate_fields(&opts.fields)?;
-    if matches!(
-        opts.dnp,
-        DnpMode::Section | DnpMode::Column
-    ) && opts.house != BomHouse::Generic
-    {
-        return Err(
-            "only the generic bill accepts do-not-populate sections or columns".into(),
-        );
+    if matches!(opts.dnp, DnpMode::Section | DnpMode::Column) && opts.house != BomHouse::Generic {
+        return Err("only the generic bill accepts do-not-populate sections or columns".into());
     }
     let variant = resolve_variant(p, opts.variant.as_deref())?;
     let columns = bom_columns(p, &opts.fields)?;
@@ -174,18 +168,15 @@ pub fn bom_rows(p: &Project, opts: &BomOptions) -> Result<BomTable, String> {
         if row_dnp {
             key.dnp_line = true;
         }
-        groups
-            .entry(key)
-            .or_default()
-            .push(ComponentLine {
-                reference: c.reference.clone(),
-                value: c.value.clone(),
-                kind: c.kind.clone(),
-                footprint,
-                pf,
-                field_values,
-                dnp: row_dnp,
-            });
+        groups.entry(key).or_default().push(ComponentLine {
+            reference: c.reference.clone(),
+            value: c.value.clone(),
+            kind: c.kind.clone(),
+            footprint,
+            pf,
+            field_values,
+            dnp: row_dnp,
+        });
     }
     let mut rows = Vec::new();
     let mut dnp_rows = Vec::new();
@@ -193,7 +184,13 @@ pub fn bom_rows(p: &Project, opts: &BomOptions) -> Result<BomTable, String> {
         if lines.is_empty() {
             continue;
         }
-        lines.sort_by(|a, b| reference_cmp(a.reference.as_str(), b.reference.as_str(), opts.legacy_reference_order));
+        lines.sort_by(|a, b| {
+            reference_cmp(
+                a.reference.as_str(),
+                b.reference.as_str(),
+                opts.legacy_reference_order,
+            )
+        });
         let sample = &lines[0];
         let refs: Vec<String> = lines.iter().map(|l| l.reference.clone()).collect();
         let quantity = lines.len();
@@ -268,7 +265,10 @@ pub fn bom_rows(p: &Project, opts: &BomOptions) -> Result<BomTable, String> {
     if rows.len() > MAX_BOM_ROWS {
         return Err("bill of materials exceeds the row limit".into());
     }
-    let lines = rows.iter().filter(|r| !r.refs.is_empty() || r.quantity > 0).count();
+    let lines = rows
+        .iter()
+        .filter(|r| !r.refs.is_empty() || r.quantity > 0)
+        .count();
     Ok(BomTable {
         columns: columns.into_iter().map(|(_, label)| label).collect(),
         rows,
@@ -692,7 +692,11 @@ fn render_seeed_csv(table: &BomTable) -> Result<String, String> {
             continue;
         }
         let refs = format_references(&row.refs, false, false);
-        let sku = if row.mpn.is_empty() { row.value.clone() } else { row.mpn.clone() };
+        let sku = if row.mpn.is_empty() {
+            row.value.clone()
+        } else {
+            row.mpn.clone()
+        };
         let link = if row.link.is_empty() {
             row.distributor
                 .first()
@@ -771,7 +775,7 @@ pub fn format_references(refs: &[String], ranges: bool, legacy_order: bool) -> S
     let mut i = 0;
     while i < sorted.len() {
         let start = i;
-            let mut end = i;
+        let mut end = i;
         if let Some((prefix, num)) = parse_designator(&sorted[i]) {
             let mut j = i + 1;
             let mut expect = num + 1;
@@ -871,7 +875,9 @@ mod tests {
     fn bom_rows_groups_same_mpn_into_one_line_with_quantity_and_ranges() -> Result<(), String> {
         let mut project = Project::default();
         for (id, reference) in [(1, "R1"), (2, "R2"), (3, "R3"), (4, "R4")] {
-            project.components.push(resistor(id, reference, "10k", "RC0603"));
+            project
+                .components
+                .push(resistor(id, reference, "10k", "RC0603"));
         }
         project.validate()?;
         let opts = BomOptions {
@@ -882,10 +888,7 @@ mod tests {
         let table = bom_rows(&project, &opts)?;
         assert_eq!(table.rows.len(), 1);
         assert_eq!(table.rows[0].quantity, 4);
-        assert_eq!(
-            format_references(&table.rows[0].refs, true, false),
-            "R1-R4"
-        );
+        assert_eq!(format_references(&table.rows[0].refs, true, false), "R1-R4");
         Ok(())
     }
 
@@ -965,8 +968,15 @@ mod tests {
     #[test]
     fn seeed_rows_never_collapse_references() -> Result<(), String> {
         let mut project = Project::default();
-        for (id, reference) in [(1, "C1"), (2, "C2"), (3, "C3"), (4, "C4"), (5, "C5"), (6, "C6"), (7, "C7")]
-        {
+        for (id, reference) in [
+            (1, "C1"),
+            (2, "C2"),
+            (3, "C3"),
+            (4, "C4"),
+            (5, "C5"),
+            (6, "C6"),
+            (7, "C7"),
+        ] {
             project.components.push(resistor(id, reference, "10k", "P"));
         }
         project.validate()?;

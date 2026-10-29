@@ -41,7 +41,7 @@ pub fn tool_list() -> Value {
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
+        json!({"name":"bom.write","description":"Write a bill-of-materials CSV or spreadsheet, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"grouping":{"type":"string","enum":["value_footprint","value_footprint_mpn","mpn"]},"dnp":{"type":"string","enum":["exclude","section","column"]},"house":{"type":"string","enum":["generic","jlc","pcbway","seeed"]},"ranges":{"type":"boolean"},"format":{"type":"string","enum":["csv","xlsx"]},"summary":{"type":"boolean"}}),&["path"])}),
         json!({"name":"dxf.export","description":"Write the board drawing as an ASCII DXF file (copper tracks, vias, pads, zones, board graphics, outline and labels) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"placement.write","description":"Write a pick-and-place centroid file (reference, position, rotation, side, package per placed part) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.export_footprints","description":"Write every project-library footprint to a directory as one library text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -392,60 +392,52 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 .get("variant")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            let grouping = args
-                .get("grouping")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let grouping = args.get("grouping").and_then(|v| v.as_str()).unwrap_or("");
             let dnp = args.get("dnp").and_then(|v| v.as_str()).unwrap_or("");
             let house = args.get("house").and_then(|v| v.as_str()).unwrap_or("");
             let ranges = args.get("ranges").and_then(|v| v.as_bool()).unwrap_or(true);
-            let format = args
-                .get("format")
-                .and_then(|v| v.as_str())
-                .unwrap_or("csv");
-            let summary = args.get("summary").and_then(|v| v.as_bool()).unwrap_or(false);
-            let legacy_layout = grouping.is_empty()
-                && dnp.is_empty()
-                && house.is_empty()
-                && format == "csv";
+            let format = args.get("format").and_then(|v| v.as_str()).unwrap_or("csv");
+            let summary = args
+                .get("summary")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let legacy_layout =
+                grouping.is_empty() && dnp.is_empty() && house.is_empty() && format == "csv";
             let path = Path::new(directory);
             if legacy_layout {
-                let text = pcbcraft_io::bom_csv(
-                    &s.project,
-                    &fields,
-                    variant.as_deref(),
-                )?;
-                pcbcraft_io::atomic_write(&path.join("bom.csv"), text.as_bytes())?;
-                return Ok(json!({"directory":directory,"files":["bom.csv"]}));
-            }
-            let opts = pcbcraft_io::BomOptions {
-                grouping: pcbcraft_io::parse_bom_grouping(grouping)?,
-                dnp: pcbcraft_io::parse_dnp_mode(dnp)?,
-                fields,
-                variant,
-                house: pcbcraft_io::parse_bom_house(house)?,
-                ranges,
-                summary,
-                legacy_reference_order: false,
-                legacy_generic_columns: false,
-            };
-            if matches!(
-                opts.dnp,
-                pcbcraft_io::DnpMode::Section | pcbcraft_io::DnpMode::Column
-            ) && opts.house != pcbcraft_io::BomHouse::Generic
-            {
-                return Err(
-                    "only the generic bill accepts do-not-populate sections or columns".into(),
-                );
-            }
-            if format == "xlsx" {
-                let bytes = pcbcraft_io::bom_xlsx(&s.project, &opts)?;
-                pcbcraft_io::atomic_write(&path.join("bom.xlsx"), &bytes)?;
-                json!({"directory":directory,"files":["bom.xlsx"]})
-            } else {
-                let text = pcbcraft_io::bom_csv_with_options(&s.project, &opts)?;
+                let text = pcbcraft_io::bom_csv(&s.project, &fields, variant.as_deref())?;
                 pcbcraft_io::atomic_write(&path.join("bom.csv"), text.as_bytes())?;
                 json!({"directory":directory,"files":["bom.csv"]})
+            } else {
+                let opts = pcbcraft_io::BomOptions {
+                    grouping: pcbcraft_io::parse_bom_grouping(grouping)?,
+                    dnp: pcbcraft_io::parse_dnp_mode(dnp)?,
+                    fields,
+                    variant,
+                    house: pcbcraft_io::parse_bom_house(house)?,
+                    ranges,
+                    summary,
+                    legacy_reference_order: false,
+                    legacy_generic_columns: false,
+                };
+                if matches!(
+                    opts.dnp,
+                    pcbcraft_io::DnpMode::Section | pcbcraft_io::DnpMode::Column
+                ) && opts.house != pcbcraft_io::BomHouse::Generic
+                {
+                    return Err(
+                        "only the generic bill accepts do-not-populate sections or columns".into(),
+                    );
+                }
+                if format == "xlsx" {
+                    let bytes = pcbcraft_io::bom_xlsx(&s.project, &opts)?;
+                    pcbcraft_io::atomic_write(&path.join("bom.xlsx"), &bytes)?;
+                    json!({"directory":directory,"files":["bom.xlsx"]})
+                } else {
+                    let text = pcbcraft_io::bom_csv_with_options(&s.project, &opts)?;
+                    pcbcraft_io::atomic_write(&path.join("bom.csv"), text.as_bytes())?;
+                    json!({"directory":directory,"files":["bom.csv"]})
+                }
             }
         }
         "dxf.export" => {

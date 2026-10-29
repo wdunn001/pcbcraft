@@ -6,18 +6,17 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
-mod bom;
 mod board_mesh;
+mod bom;
 mod gerber;
 mod library_render;
-pub use bom::{
-    bom_csv_with_options, bom_rows, bom_xlsx, csv_cell, parse_bom_grouping, parse_bom_house,
-    parse_dnp_mode, part_fields, BomGrouping, BomHouse, BomOptions, BomRow, BomTable, DnpMode,
-    PartFields,
-};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+};
+pub use bom::{
+    BomGrouping, BomHouse, BomOptions, BomRow, BomTable, DnpMode, PartFields, bom_csv_with_options,
+    bom_rows, bom_xlsx, csv_cell, parse_bom_grouping, parse_bom_house, parse_dnp_mode, part_fields,
 };
 pub use gerber::gerber_copper;
 use library_render::*;
