@@ -30,6 +30,14 @@ const CANCEL_POLL: Duration = Duration::from_millis(40);
 const ANTHROPIC_MAX_TOKENS: u64 = 8192;
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const TEST_TIMEOUT_S: u64 = 60;
+/// Shown when the model ran out of room for its answer (`length`, `max_tokens`).
+const NOTE_CUT_BY_LENGTH: &str = "The model stopped early because the answer hit its length limit. Ask for a shorter answer or a smaller step.";
+/// Shown when the endpoint filtered the answer (`content_filter`).
+const NOTE_FILTERED: &str =
+    "The endpoint filtered the answer, so it may be missing or partial. Try rewording the request.";
+/// Shown when the model declined to answer (`refusal`).
+const NOTE_REFUSED: &str =
+    "The model declined to answer this request. Try rewording it or asking for a smaller step.";
 /// Tools the model is not offered. None today.
 const HIDDEN_TOOLS: &[&str] = &[];
 
@@ -270,6 +278,26 @@ impl Worker {
             };
             for (thought, text) in reply.text {
                 self.emit(Event::Text { thought, text });
+            }
+            let stop = reply.stop.as_deref().unwrap_or("");
+            let cut_by_length = matches!(stop, "length" | "max_tokens");
+            let note = stop_note(stop);
+            // A cut-off answer may hold cut-off tool arguments: none of its calls run, and the
+            // message goes back to the model without them so the history stays well formed.
+            if note.is_some() && (reply.calls.is_empty() || cut_by_length) {
+                let kept = if reply.calls.is_empty() {
+                    reply.assistant
+                } else {
+                    without_calls(reply.assistant)
+                };
+                self.history.push(kept);
+                if let Some(note) = note {
+                    self.emit(Event::Note(note.to_string()));
+                }
+                self.emit(Event::TurnEnded {
+                    reason: stop.to_string(),
+                });
+                return;
             }
             self.history.push(reply.assistant);
             if reply.calls.is_empty() {
@@ -590,6 +618,39 @@ struct Reply {
     text: Vec<(bool, String)>,
     calls: Vec<Call>,
     assistant: Value,
+    /// `finish_reason` (OpenAI) or `stop_reason` (Anthropic), when the endpoint sent one.
+    stop: Option<String>,
+}
+
+/// The note for a stop value that means the answer was cut off or held back, else `None`.
+fn stop_note(stop: &str) -> Option<&'static str> {
+    match stop {
+        "length" | "max_tokens" => Some(NOTE_CUT_BY_LENGTH),
+        "content_filter" => Some(NOTE_FILTERED),
+        "refusal" => Some(NOTE_REFUSED),
+        _ => None,
+    }
+}
+
+/// An assistant message with its tool calls taken out. An emptied message gets a short placeholder,
+/// because both protocols refuse an assistant message with nothing in it.
+fn without_calls(mut message: Value) -> Value {
+    const PLACEHOLDER: &str = "(answer cut off)";
+    if let Some(obj) = message.as_object_mut() {
+        obj.remove("tool_calls");
+    }
+    match message.get_mut("content") {
+        Some(Value::Array(blocks)) => {
+            blocks.retain(|b| b["type"] != "tool_use");
+            if blocks.is_empty() {
+                blocks.push(json!({"type": "text", "text": PLACEHOLDER}));
+            }
+        }
+        Some(Value::String(t)) if t.is_empty() => *t = PLACEHOLDER.to_string(),
+        Some(Value::Null) | None => message["content"] = json!(PLACEHOLDER),
+        _ => {}
+    }
+    message
 }
 
 fn reply(protocol: Protocol, body: &Value) -> Reply {
@@ -635,10 +696,15 @@ fn openai_reply(body: &Value) -> Reply {
     if !raw.is_empty() {
         assistant["tool_calls"] = Value::Array(raw);
     }
+    let stop = body
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Reply {
         text,
         calls,
         assistant,
+        stop,
     }
 }
 
@@ -704,10 +770,15 @@ fn anthropic_reply(body: &Value) -> Reply {
         }
         _ => json!({"role": "assistant", "content": content.clone()}),
     };
+    let stop = body
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Reply {
         text,
         calls,
         assistant,
+        stop,
     }
 }
 
