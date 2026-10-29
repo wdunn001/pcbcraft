@@ -3740,12 +3740,10 @@ impl App {
         self.compare_diff = Some(diff);
         self.refresh_compare_tints();
         self.message = if count == 0 {
-            "Compare: the open design matches the baseline.".into()
+            t!("menu.file.compare.matches_baseline").into()
         } else {
-            format!(
-                "Compare: {count} change{} from the baseline.",
-                if count == 1 { "" } else { "s" }
-            )
+            self.catalog
+                .plural("menu.file.compare.changes", count as u64)
         };
         Ok(())
     }
@@ -3807,10 +3805,10 @@ impl App {
                     "Legend: green tint means added, amber tint means changed. Removed items appear in the text report only.",
                 );
                 if let Some(diff) = &self.compare_diff {
-                    ui.label(format!(
-                        "{} change record(s) in the report.",
-                        diff.changes.len()
-                    ));
+                    ui.label(
+                        self.catalog
+                            .plural("menu.file.compare.report_records", diff.changes.len() as u64),
+                    );
                 }
             });
         self.compare_open = open;

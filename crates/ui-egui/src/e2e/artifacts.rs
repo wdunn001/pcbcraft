@@ -418,8 +418,7 @@ fn gbrjob_bytes_for_compare(bytes: &[u8]) -> Result<Vec<u8>, String> {
     if !bytes.starts_with(b"{") {
         return Ok(bytes.to_vec());
     }
-    let mut value: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
     if let Some(header) = value
         .get_mut("Header")
         .and_then(|header| header.as_object_mut())

@@ -15988,7 +15988,10 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn disable_auto_sync(s: &mut Session) {
-        s.project.auto_sync = false;
+        if s.project.auto_sync {
+            s.execute("project.set_auto_sync", json!({"auto_sync": false}), None)
+                .expect("test fixture disables automatic sync");
+        }
     }
 
     static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -24324,16 +24327,20 @@ mod tests {
     fn auto_net_and_wire_commit_as_one_undo_step() -> Result<(), Error> {
         let mut s = Session::default();
         disable_auto_sync(&mut s);
+        let mut ids = Vec::new();
         for x in [10, 30] {
-            s.execute(
+            let id = s.execute(
                 "component.add",
                 json!({"kind":"resistor","position":{"x":x,"y":10}}),
                 None,
-            )?;
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            ids.push(id);
         }
         s.execute(
             "wire.connect",
-            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"1"}}),
+            json!({"from":{"component":ids[0],"pin":"2"},"to":{"component":ids[1],"pin":"1"}}),
             None,
         )?;
         assert_eq!(s.project.nets.len(), 1);
@@ -26682,35 +26689,55 @@ mod tests {
             json!({"definition": pair_pitch_footprint("PairConn", pitch)?}),
             None,
         )?;
-        s.execute(
+        let j1 = s.execute(
             "component.add",
             json!({"kind":"connector","reference":"J1","position":{"x":10.0,"y":20.0}}),
             None,
-        )?;
-        s.execute(
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let j2 = s.execute(
             "component.add",
             json!({"kind":"connector","reference":"J2","position":{"x":50.0,"y":20.0}}),
             None,
-        )?;
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
         s.execute(
             "wire.connect",
-            json!({"from":{"component":1,"pin":"1"},"to":{"component":2,"pin":"1"}}),
+            json!({"from":{"component":j1,"pin":"1"},"to":{"component":j2,"pin":"1"}}),
             None,
         )?;
-        let net_p = s.project.components[0].pins[0].net.ok_or_else(missing)?;
+        let net_p = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == j1)
+            .ok_or_else(missing)?
+            .pins[0]
+            .net
+            .ok_or_else(missing)?;
         s.execute(
             "wire.connect",
-            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"2"}}),
+            json!({"from":{"component":j1,"pin":"2"},"to":{"component":j2,"pin":"2"}}),
             None,
         )?;
-        let net_n = s.project.components[0].pins[1].net.ok_or_else(missing)?;
+        let net_n = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == j1)
+            .ok_or_else(missing)?
+            .pins[1]
+            .net
+            .ok_or_else(missing)?;
         s.execute(
             "board.set_diffpair",
             json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap}),
             None,
         )?;
         s.execute("board.sync", json!({}), None)?;
-        for component in [1_u64, 2] {
+        for component in [j1, j2] {
             s.execute(
                 "footprint.assign_custom",
                 json!({"id":component,"name":"PairConn"}),
@@ -26722,7 +26749,7 @@ mod tests {
             .board
             .footprints
             .iter()
-            .find(|f| f.component == 1)
+            .find(|f| f.component == j1)
             .ok_or_else(missing)?
             .id;
         let fp_j2 = s
@@ -26730,7 +26757,7 @@ mod tests {
             .board
             .footprints
             .iter()
-            .find(|f| f.component == 2)
+            .find(|f| f.component == j2)
             .ok_or_else(missing)?
             .id;
         Ok((fp_j1, fp_j2, net_p, net_n))

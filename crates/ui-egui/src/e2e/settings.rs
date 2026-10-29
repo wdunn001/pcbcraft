@@ -375,7 +375,10 @@ fn a_newcomer_brings_in_a_drawing_and_uses_its_edge_as_the_board() -> Result<(),
 #[test]
 fn a_newcomer_toggles_schematic_board_sync_in_settings() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
-    assert!(app.project.auto_sync, "sample designs keep automatic sync on");
+    assert!(
+        app.project.auto_sync,
+        "sample designs keep automatic sync on"
+    );
     tap_id(
         &ctx,
         &mut app,
