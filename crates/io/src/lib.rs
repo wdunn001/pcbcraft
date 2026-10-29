@@ -14,6 +14,7 @@ mod fab_export;
 mod generate;
 mod gerber;
 mod gerber_job;
+mod gerber_pour;
 mod laser;
 mod layers;
 mod library_render;
@@ -2302,7 +2303,9 @@ fn excellon_drill_file(
 }
 
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
-/// text. Copper layers carry zones, tracks, via and pad copper; the outline
+/// text. One copper file per copper layer (`pcb-F.Cu.gbr`, `pcb-In<n>.Cu.gbr`,
+/// `pcb-B.Cu.gbr`) carries that layer's poured regions, tracks, via and pad
+/// copper (`gerber_files_report` also returns the warnings); the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
 /// every plated and unplated hole, round holes as single hits and oval holes
 /// as G85 spans along the rotated long axis. Back-copper coordinates are
@@ -2314,8 +2317,40 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
 pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
+    gerber_files_report(p, creation).map(|(files, _notes)| files)
+}
+/// The files of `gerber_files_at` plus the export warnings. A warning names a
+/// pour left out of a copper layer because it would not fit the layer's
+/// operation budget even thinned; it is also a G04 comment in that layer file
+/// and a line in the README.
+///
+/// # Rules
+/// - A warning never stops the export: every other file and object still ships.
+/// - Only the bottom copper file is mirrored about x=0.
+///
+/// # Dependencies
+/// - crates/io/src/gerber_pour.rs simplify_piece, order_containers_first
+/// - crates/doc/src/fill.rs zone_fill
+///
+/// # Do not
+/// - Raise `MAX_COPPER_LAYER_OPS` to hide a pour that will not fit; thin it or
+///   report it.
+pub fn gerber_files_report(
+    p: &Project,
+    creation: &str,
+) -> Result<(BTreeMap<String, String>, Vec<String>), String> {
+    gerber_files_with_budget(p, creation, gerber_pour::MAX_COPPER_LAYER_OPS)
+}
+/// `gerber_files_report` with the per-layer operation budget stated by the
+/// caller. The default budget is `MAX_COPPER_LAYER_OPS`; a smaller one lets a
+/// test or a low-memory caller see the over-budget behaviour on a small board.
+pub fn gerber_files_with_budget(
+    p: &Project,
+    creation: &str,
+    max_ops: usize,
+) -> Result<(BTreeMap<String, String>, Vec<String>), String> {
     p.validate()?;
-    const MAX_OPS: usize = 100_000;
+    let max_ops_limit = max_ops;
     const MAX_APERTURES: usize = 64;
     // An inch project gets imperial fabrication files; coordinates are still
     // stored in millimetres, so every written value is rescaled here.
@@ -2338,16 +2373,34 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         arcs: String,
         ops: usize,
         scale: f64,
+        /// Operations the file may carry.
+        limit: usize,
+        /// Plain file label for error text, for example `F.Cu`.
+        name: String,
+        /// Warnings written as G04 comments after the header.
+        notes: Vec<String>,
     }
     impl LayerFile {
-        fn new(scale: f64) -> Self {
+        fn new(scale: f64, limit: usize) -> Self {
+            Self::named(scale, "layer", limit)
+        }
+        fn named(scale: f64, name: &str, limit: usize) -> Self {
             Self {
                 apertures: BTreeMap::new(),
                 body: String::new(),
                 arcs: String::new(),
                 ops: 0,
                 scale,
+                limit,
+                name: name.to_owned(),
+                notes: Vec::new(),
             }
+        }
+        fn over_limit(&self) -> String {
+            format!(
+                "gerber export exceeds the object limit: layer {} needs more than {} operations; split the board's copper into fewer or smaller objects",
+                self.name, self.limit
+            )
         }
         fn code(&mut self, ap: Ap) -> Result<u32, String> {
             if let Some(code) = self.apertures.get(&ap) {
@@ -2362,8 +2415,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
             self.ops += 1;
-            if self.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if self.ops > self.limit {
+                return Err(self.over_limit());
             }
             self.body.push_str(&format!(
                 "D{code}X{:.6}Y{:.6}D03*\n",
@@ -2374,8 +2427,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         }
         fn stroke(&mut self, code: u32, points: &[(f64, f64)], closed: bool) -> Result<(), String> {
             self.ops += points.len();
-            if self.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if self.ops > self.limit {
+                return Err(self.over_limit());
             }
             self.body.push_str(&format!("D{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
@@ -2397,8 +2450,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         }
         fn fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
             self.ops += points.len();
-            if self.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if self.ops > self.limit {
+                return Err(self.over_limit());
             }
             self.body.push_str(&format!("G36*\nD{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
@@ -2407,6 +2460,16 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                     x * self.scale,
                     y * self.scale,
                     if i == 0 { 2 } else { 1 }
+                ));
+            }
+            // A region contour ends where it began.
+            if let (Some((fx, fy)), Some((lx, ly))) = (points.first(), points.last())
+                && (fx != lx || fy != ly)
+            {
+                self.body.push_str(&format!(
+                    "X{:.6}Y{:.6}D01*\n",
+                    fx * self.scale,
+                    fy * self.scale
                 ));
             }
             self.body.push_str("G37*\n");
@@ -2421,6 +2484,9 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             let mut out = format!("G04 {name} generated by PCBCraft *\n%FSLAX46Y46*%\n{mo}\n");
             if let Some(ff) = file_function {
                 out.push_str(&format!("%TF.FileFunction,{ff}*%\n"));
+            }
+            for note in &self.notes {
+                out.push_str(&format!("G04 {note} *\n"));
             }
             for (ap, code) in &self.apertures {
                 if matches!(ap, Ap::Track(_)) {
@@ -2460,50 +2526,125 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             out
         }
     }
-    let mut front = LayerFile::new(scale);
-    let mut back = LayerFile::new(scale);
-    let mirror =
-        |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x + 0.0, y) } else { (x, y) } };
+    // One file per copper layer, top first. Copper layers beyond the two
+    // outer ones are inner layers; the last one is the bottom.
+    let layer_count = usize::from(p.copper_layer_count()).max(2);
+    let bottom = layer_count - 1;
+    let layer_label = |index: usize| -> String {
+        if index == 0 {
+            "F.Cu".into()
+        } else if index == bottom {
+            "B.Cu".into()
+        } else {
+            let raw = pcbcraft_doc::Layer::from_index(index as u8)
+                .map(|l| p.layer_name(l))
+                .unwrap_or_else(|_| format!("In{index}.Cu"));
+            let clean: String = raw
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '.' || c == '_' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            if clean.is_empty() {
+                format!("In{index}.Cu")
+            } else {
+                clean
+            }
+        }
+    };
+    let mut copper: Vec<LayerFile> = (0..layer_count)
+        .map(|i| LayerFile::named(scale, &layer_label(i), max_ops_limit))
+        .collect();
+    let mut warnings: Vec<String> = Vec::new();
+    let mirror_for = |x: f64, y: f64, index: usize| -> (f64, f64) {
+        if index == bottom {
+            (-x + 0.0, y)
+        } else {
+            (x, y)
+        }
+    };
+    // Pours first, so a clear-polarity hole never erases a track or pad that is
+    // written after it. The fill is what ships: gaps round foreign copper,
+    // thermal spokes and the island policy are already applied.
+    let mut pours: BTreeMap<usize, Vec<(u64, Vec<pcbcraft_geom::poly::Piece>)>> = BTreeMap::new();
     for z in &p.board.zones {
         if !z.filled {
             continue;
         }
-        let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let index = usize::from(z.layer.index()).min(bottom);
         let fill = pcbcraft_doc::zone_fill(p, z)?;
-        let file = if is_back { &mut back } else { &mut front };
+        pours.entry(index).or_default().push((z.id, fill.pieces));
+    }
+    for (index, zones) in pours {
+        let file = &mut copper[index];
         let code = file.code(Ap::Circle(1))?;
-        // The fill is what ships: gaps round foreign copper, thermal spokes and
-        // the island policy are already applied. Each piece is one G36 region
-        // and each hole is cleared with LPC immediately after it, before any
-        // track or pad is drawn, because LPC would clear those too.
-        for piece in &fill.pieces {
-            for (index, ring) in piece.iter().enumerate() {
+        // Every zone of the layer is thinned and checked against the layer
+        // budget on its own, so one oversized pour cannot sink the rest.
+        let mut layer_pieces: Vec<pcbcraft_geom::poly::Piece> = Vec::new();
+        let mut used = file.ops;
+        for (zone_id, pieces) in zones {
+            let mut chosen: Option<Vec<pcbcraft_geom::poly::Piece>> = None;
+            let mut best = usize::MAX;
+            for tolerance in gerber_pour::TOLERANCES_MM {
+                let thinned: Vec<pcbcraft_geom::poly::Piece> = pieces
+                    .iter()
+                    .filter_map(|piece| gerber_pour::simplify_piece(piece, tolerance))
+                    .collect();
+                let vertices: usize = thinned.iter().map(gerber_pour::piece_vertices).sum();
+                best = vertices;
+                if used.saturating_add(vertices) <= max_ops_limit {
+                    used += vertices;
+                    chosen = Some(thinned);
+                    break;
+                }
+            }
+            match chosen {
+                Some(thinned) => layer_pieces.extend(thinned),
+                None => {
+                    let note = format!(
+                        "Pour (zone {zone_id}) on {} was left out: it needs {best} operations at the coarsest tolerance and the layer allows {max_ops_limit}. Split the zone into smaller zones or raise its minimum width, then export again.",
+                        file.name
+                    );
+                    file.notes.push(note.clone());
+                    warnings.push(note);
+                }
+            }
+        }
+        // Containers first: a hole is cleared with LPC right after its piece,
+        // which would also erase anything already written inside it.
+        gerber_pour::order_containers_first(&mut layer_pieces);
+        for piece in &layer_pieces {
+            for (ring_index, ring) in piece.iter().enumerate() {
                 let points: Vec<(f64, f64)> =
-                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
-                if index > 0 {
+                    ring.iter().map(|q| mirror_for(q.x, q.y, index)).collect();
+                if ring_index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }
                 file.fill(code, &points)?;
-                if index > 0 {
+                if ring_index > 0 {
                     file.body.push_str("%LPD*%\n");
                 }
             }
         }
     }
     for t in &p.board.tracks {
-        let is_back = t.layer == pcbcraft_doc::Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
+        let index = usize::from(t.layer.index()).min(bottom);
+        let file = &mut copper[index];
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
             file.ops += 1;
-            if file.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
+            if file.ops > file.limit {
+                return Err(file.over_limit());
             }
-            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
-            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
-            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
-            let clockwise = if is_back {
+            let (sx, sy) = mirror_for(t.start.x, t.start.y, index);
+            let (ex, ey) = mirror_for(t.end.x, t.end.y, index);
+            let (cx, cy) = mirror_for(arc.center.x, arc.center.y, index);
+            let clockwise = if index == bottom {
                 arc.sweep > 0.0
             } else {
                 arc.sweep < 0.0
@@ -2522,8 +2663,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             file.stroke(
                 code,
                 &[
-                    mirror(t.start.x, t.start.y, is_back),
-                    mirror(t.end.x, t.end.y, is_back),
+                    mirror_for(t.start.x, t.start.y, index),
+                    mirror_for(t.end.x, t.end.y, index),
                 ],
                 false,
             )?;
@@ -2570,43 +2711,37 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 }
                 _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
             };
-            let (front_code, back_code) = if through {
-                (front.code(ap.clone())?, back.code(ap.clone())?)
+            let targets: Vec<usize> = if through {
+                (0..layer_count).collect()
             } else if is_back {
-                (0, back.code(ap)?)
+                vec![bottom]
             } else {
-                (front.code(ap)?, 0)
+                vec![0]
             };
-            if front_code != 0 {
-                front.flash(front_code, world.x, world.y)?;
-            }
-            if back_code != 0 {
-                let (x, y) = mirror(world.x, world.y, true);
-                back.flash(back_code, x, y)?;
+            for index in targets {
+                let code = copper[index].code(ap.clone())?;
+                let (x, y) = mirror_for(world.x, world.y, index);
+                copper[index].flash(code, x, y)?;
             }
         }
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
         let ap = Ap::Circle(d.max(1));
-        let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
-        if reaches_top {
-            let front_code = front.code(ap.clone())?;
-            front.flash(front_code, v.position.x, v.position.y)?;
-        }
-        if reaches_bottom {
-            let back_code = back.code(ap)?;
-            let (x, y) = mirror(v.position.x, v.position.y, true);
-            back.flash(back_code, x, y)?;
+        for layer in p.via_span_layers(v) {
+            let index = usize::from(layer.index()).min(bottom);
+            let code = copper[index].code(ap.clone())?;
+            let (x, y) = mirror_for(v.position.x, v.position.y, index);
+            copper[index].flash(code, x, y)?;
         }
     }
-    let mut outline = LayerFile::new(scale);
+    let mut outline = LayerFile::new(scale, max_ops_limit);
     let edge_code = outline.code(Ap::Circle(100))?;
     outline.stroke(edge_code, &board_edge_points(p), true)?;
     for c in &p.board.cutouts {
         outline.ops += 1;
-        if outline.ops > MAX_OPS {
-            return Err("gerber export exceeds the object limit".into());
+        if outline.ops > outline.limit {
+            return Err(outline.over_limit());
         }
         outline.arcs.push_str(&format!(
             "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
@@ -2623,14 +2758,23 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
     let drill_map = fab_export::drill_map_plot(p)?;
     let mut files = BTreeMap::new();
-    files.insert(
-        "pcb-F.Cu.gbr".into(),
-        front.finish(false, "front copper layer", Some("Copper,L1,Top")),
-    );
-    files.insert(
-        "pcb-B.Cu.gbr".into(),
-        back.finish(true, "back copper layer", Some("Copper,L2,Bot")),
-    );
+    for (index, file) in copper.iter().enumerate() {
+        let (side, comment) = if index == 0 {
+            ("Top", "front copper layer".to_owned())
+        } else if index == bottom {
+            ("Bot", "back copper layer".to_owned())
+        } else {
+            ("Inr", format!("inner copper layer {}", file.name))
+        };
+        files.insert(
+            format!("pcb-{}.gbr", file.name),
+            file.finish(
+                index == bottom,
+                &comment,
+                Some(&format!("Copper,L{},{side}", index + 1)),
+            ),
+        );
+    }
     for (layer, name) in [
         (pcbcraft_doc::Layer::Front, "F"),
         (pcbcraft_doc::Layer::Back, "B"),
@@ -2691,11 +2835,15 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
-    files.insert(
-        "README-fabrication.txt".into(),
-        fab_export::fab_readme_text(p, &names)?,
-    );
-    Ok(files)
+    let mut readme = fab_export::fab_readme_text(p, &names)?;
+    if !warnings.is_empty() {
+        readme.push_str("\nExport warnings\n");
+        for warning in &warnings {
+            readme.push_str(&format!("- {warning}\n"));
+        }
+    }
+    files.insert("README-fabrication.txt".into(), readme);
+    Ok((files, warnings))
 }
 
 /// Gerber drill-map layer with one marker per tool and a legend table.
