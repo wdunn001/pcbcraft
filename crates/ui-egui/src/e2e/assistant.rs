@@ -92,9 +92,9 @@ fn has_r1(app: &App) -> bool {
 
 #[test]
 fn a_newcomer_opens_the_assistant_and_is_told_how_to_connect_a_model() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
+    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, b"{}".to_vec())));
+    let mut app = app_with_http(&http, false);
+    app.preferences.aside_lower_tab = 0;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Assistant")?;
@@ -273,6 +273,7 @@ fn settings_app(
         secrets: Some(keys),
     });
     app.refresh();
+    app.assistant.settings_open = true;
     app.change_tab(Tab::Settings);
     app
 }
@@ -282,6 +283,11 @@ fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
     let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    // Fold the section away and open it again, as a first-time visitor would.
+    authoring::tests::tap(&ctx, &mut app, "v Assistant settings")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "> Assistant settings")?;
     settle(&ctx, &mut app);
     authoring::tests::tap(&ctx, &mut app, "Add connection")?;
     settle(&ctx, &mut app);
@@ -425,5 +431,276 @@ fn a_newcomer_selects_a_part_and_the_assistant_already_knows_which_one() -> Resu
         text.ends_with("move this part right by 5 mm"),
         "the user's words come last"
     );
+    Ok(())
+}
+
+/// A design path no other test uses, so the saved conversation is ours alone.
+fn own_design_path(tag: &str) -> String {
+    format!("/tmp/pcbcraft-story-{}-{tag}.pcbcraft", std::process::id())
+}
+
+fn forget_file(path: &str) {
+    if let Some(file) = pcbcraft_assistant::transcript_path(Some(path)) {
+        pcbcraft_assistant::clear_transcript(&file);
+    }
+}
+
+#[test]
+fn a_newcomer_closes_the_app_and_finds_the_conversation_where_she_left_it() -> Result<(), String> {
+    let path = own_design_path("reopen");
+    let mut app = with_fake_model();
+    app.path = path.clone();
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a 10k resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    settle(&ctx, &mut app);
+    app.assistant_save();
+    drop(app);
+
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut reopened = App::create(shared, Preferences::default(), None, None)
+        .with_project_path(Some(path.clone()));
+    reopened.refresh();
+    reopened.preferences.aside_lower_tab = 1;
+    let found = paints_text(&ctx, &mut reopened, "add a 10k resistor")?;
+    forget_file(&path);
+    assert!(found, "the earlier message is on screen again");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_forgets_a_conversation_and_the_design_stays() -> Result<(), String> {
+    let path = own_design_path("forget");
+    let mut app = with_fake_model();
+    app.path = path.clone();
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a 10k resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    settle(&ctx, &mut app);
+    app.assistant_save();
+    let revision = app.revision;
+    authoring::tests::tap(&ctx, &mut app, "Clear")?;
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "Forget this conversation?")?,
+        "she is asked first"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Forget")?;
+    settle(&ctx, &mut app);
+    let file = pcbcraft_assistant::transcript_path(Some(&path));
+    let gone = file.as_ref().is_some_and(|f| !f.exists());
+    forget_file(&path);
+    assert!(app.assistant.transcript.items.is_empty());
+    assert!(gone, "the saved file is gone too");
+    assert_eq!(app.revision, revision, "the design did not change");
+    Ok(())
+}
+
+fn local_connection() -> pcbcraft_assistant::Connection {
+    pcbcraft_assistant::Connection {
+        id: "api-1".into(),
+        name: "Local model".into(),
+        protocol: pcbcraft_assistant::Protocol::OpenAi,
+        base_url: "http://localhost:11434/v1".into(),
+        model: "small-model".into(),
+        has_key: false,
+        images: false,
+    }
+}
+
+fn app_with_http(http: &pcbcraft_assistant::CountingHttp, connected: bool) -> App {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None).with_host(Host {
+        http: Some(http.http()),
+        secrets: None,
+    });
+    app.refresh();
+    app.preferences.aside_lower_tab = 1;
+    if connected {
+        app.preferences
+            .assistant_connections
+            .push(local_connection());
+        app.preferences.assistant_default = "api-1".into();
+    }
+    app
+}
+
+fn wait_for(ctx: &egui::Context, app: &mut App, text: &str) -> Result<bool, String> {
+    for _ in 0..60 {
+        if paints_text(ctx, app, text)? {
+            return Ok(true);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    Ok(false)
+}
+
+#[test]
+fn a_newcomer_opens_the_assistant_and_learns_how_to_connect_it() -> Result<(), String> {
+    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, b"{}".to_vec())));
+    let mut app = app_with_http(&http, false);
+    let ctx = egui::Context::default();
+    assert!(paints_text(&ctx, &mut app, "Nothing leaves this computer")?);
+    authoring::tests::tap(&ctx, &mut app, "Open Settings")?;
+    settle(&ctx, &mut app);
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "v Assistant settings", 700.0)?,
+        "the Assistant section is on screen"
+    );
+    for _ in 0..20 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert_eq!(http.calls(), 0, "nothing was sent");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_works_offline_with_a_local_model_and_nothing_complains() -> Result<(), String> {
+    let reply = br#"{"choices":[{"message":{"role":"assistant","content":"Hello from the local model"},"finish_reason":"stop"}]}"#;
+    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, reply.to_vec())));
+    let mut app = app_with_http(&http, true);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "hello".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    assert!(
+        wait_for(&ctx, &mut app, "Hello from the local model")?,
+        "the answer arrives"
+    );
+    assert!(
+        !app.assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, pcbcraft_assistant::Item::Note { error: true, .. })),
+        "no error text"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_loses_the_endpoint_and_gets_a_plain_reason_and_a_retry_button() -> Result<(), String>
+{
+    let http = pcbcraft_assistant::CountingHttp::new(Err("connection refused".into()));
+    let mut app = app_with_http(&http, true);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "hello".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    assert!(
+        wait_for(&ctx, &mut app, "connection refused")?,
+        "the reason is shown"
+    );
+    assert!(
+        wait_for(&ctx, &mut app, "Retry")?,
+        "a Retry button is offered"
+    );
+    let before = http.calls();
+    authoring::tests::tap(&ctx, &mut app, "Retry")?;
+    for _ in 0..60 {
+        settle(&ctx, &mut app);
+        if http.calls() > before {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(http.calls() > before, "Retry sent the message again");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_presses_stop_and_the_assistant_stops_within_a_frame() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.preferences.aside_lower_tab = 1;
+    let script = pcbcraft_assistant::ScriptBackend::default();
+    script.report(Event::Ready {
+        agent: "script".into(),
+        images: false,
+    });
+    app.assistant_use(Box::new(script.clone()));
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "first".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    app.assistant.input = "second".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Stop")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        script.calls().iter().any(|c| c == "cancel"),
+        "the model was told to stop"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Stopped")?,
+        "the state word reads Stopped"
+    );
+    assert!(
+        app.assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, pcbcraft_assistant::Item::Queued { text } if text == "second")),
+        "the queued message stays"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_in_the_browser_build_is_told_the_assistant_needs_the_desktop_app()
+-> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app =
+        App::create(shared, Preferences::default(), None, None).with_host(Host::default());
+    app.refresh();
+    app.preferences.aside_lower_tab = 1;
+    let ctx = egui::Context::default();
+    assert!(paints_text(&ctx, &mut app, "needs the desktop app")?);
+    app.assistant.input = "hello".into();
+    app.assistant_send();
+    assert!(
+        app.assistant.transcript.items.is_empty(),
+        "the composer sends nothing"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_the_assistant_off_and_every_trace_of_it_goes() -> Result<(), String> {
+    let http = pcbcraft_assistant::CountingHttp::new(Ok((200, b"{}".to_vec())));
+    let mut app = app_with_http(&http, true);
+    app.preferences.aside_lower_tab = 0;
+    app.preferences.assistant_enabled = false;
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    assert!(!paints_text(&ctx, &mut app, "Assistant")?, "no tab");
+    let shortcut = egui::Modifiers {
+        command: true,
+        ctrl: true,
+        shift: true,
+        ..Default::default()
+    };
+    let key = egui::Event::Key {
+        key: egui::Key::A,
+        physical_key: Some(egui::Key::A),
+        pressed: true,
+        repeat: false,
+        modifiers: shortcut,
+    };
+    frame(&ctx, &mut app, vec![key], shortcut);
+    assert_eq!(
+        app.preferences.aside_lower_tab, 0,
+        "the shortcut does nothing"
+    );
+    assert_eq!(http.calls(), 0);
     Ok(())
 }
