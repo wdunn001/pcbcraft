@@ -206,7 +206,7 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" => Some(0),
+            "pcbcraft-geom" | "pcbcraft-calc" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
