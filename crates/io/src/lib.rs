@@ -2980,8 +2980,8 @@ pub fn netlist_text(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 /// Plain-text design report: a board summary, one row per component with
-/// its package and placement, and one row per net listing every pin that
-/// sits on it.
+/// its package and placement, one row per net listing every pin that sits on
+/// it, and a manufacturability block from `manufacturability_lines`.
 pub fn report_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PINS: usize = 50_000;
@@ -3057,7 +3057,103 @@ pub fn report_text(p: &Project) -> Result<String, String> {
         list.sort();
         out.push_str(&format!("{},\"{}\"\n", name, list.join(" ")));
     }
+    out.push_str("\nMANUFACTURABILITY\n");
+    for line in manufacturability_lines(p) {
+        out.push_str(&line);
+        out.push('\n');
+    }
     Ok(out)
+}
+
+/// The manufacturability block of the design report, one plain line per fact.
+///
+/// With fabrication rules on the board it names the preset and where its
+/// limits came from, and adds the smallest ring and track. Without rules it
+/// states only what the document itself knows: board size, hole counts and the
+/// smallest drill. No metric that needs a limit is guessed.
+///
+/// # Rules
+/// Reads document data only; `pcbcraft-rules` is not a dependency of this
+/// crate (`crates/io/Cargo.toml`), so no finding is used.
+///
+/// # Dependencies
+/// `FabRules` in `crates/doc/src/fab.rs`, `Pad::drill_capsule` and
+/// `Pad::min_annular_ring` in `crates/doc/src/lib.rs`.
+///
+/// # Do not
+/// Do not print a limit the board does not record.
+pub fn manufacturability_lines(p: &Project) -> Vec<String> {
+    let rules = p.board.rules.as_ref();
+    let allowance = rules.and_then(|r| r.plating_allowance).unwrap_or(0.0);
+    let mut plated = 0usize;
+    let mut unplated = 0usize;
+    let mut slots = 0usize;
+    let mut smallest: Option<f64> = None;
+    let mut note = |d: f64| smallest = Some(smallest.map_or(d, |s| s.min(d)));
+    let mut via_ring: Option<f64> = None;
+    for v in p.board.vias.iter().filter(|v| v.drill > 0.0) {
+        plated += 1;
+        note(v.drill);
+        let ring = (v.diameter - (v.drill + allowance)) / 2.0;
+        via_ring = Some(via_ring.map_or(ring, |r: f64| r.min(ring)));
+    }
+    for h in &p.board.holes {
+        unplated += 1;
+        slots += usize::from(h.is_slot());
+        note(h.diameter);
+    }
+    let mut pad_ring: Option<f64> = None;
+    for pad in p.board.footprints.iter().flat_map(|f| &f.pads) {
+        let Some(d) = pad.drill_capsule() else {
+            continue;
+        };
+        if d.plated {
+            plated += 1;
+        } else {
+            unplated += 1;
+        }
+        slots += usize::from(d.start.distance(d.end) > 1e-9);
+        note(d.radius * 2.0);
+        if let Some(ring) = pad.min_annular_ring(allowance) {
+            pad_ring = Some(pad_ring.map_or(ring, |r: f64| r.min(ring)));
+        }
+    }
+    let mut lines = vec![
+        format!(
+            "Board size: {:.3} x {:.3} mm",
+            p.board.width, p.board.height
+        ),
+        format!("Holes: {plated} plated, {unplated} unplated, {slots} slots"),
+    ];
+    match smallest {
+        Some(d) => lines.push(format!("Smallest finished drill: {d:.3} mm")),
+        None => lines.push("Smallest finished drill: no holes".into()),
+    }
+    let Some(rules) = rules else {
+        lines.push("Fabrication limits: none recorded for this board".into());
+        return lines;
+    };
+    if let Some(name) = &rules.preset {
+        lines.push(format!("Fabrication preset: {name}"));
+    }
+    if let Some(url) = &rules.source_url {
+        lines.push(format!("Limits source: {url}"));
+    }
+    if let Some(date) = &rules.retrieved {
+        lines.push(format!("Limits retrieved: {date}"));
+    }
+    let ring = |label: &str, value: Option<f64>| match value {
+        Some(r) => format!("{label}: {r:.3} mm"),
+        None => format!("{label}: none on this board"),
+    };
+    lines.push(ring("Smallest via annular ring", via_ring));
+    lines.push(ring("Smallest plated pad annular ring", pad_ring));
+    let track = p.board.tracks.iter().map(|t| t.width).reduce(f64::min);
+    lines.push(match track {
+        Some(w) => format!("Smallest track width: {w:.3} mm"),
+        None => "Smallest track width: no tracks".into(),
+    });
+    lines
 }
 /// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
 /// the net name followed by every `reference.pin` that sits on it, comma
@@ -6909,6 +7005,90 @@ mod tests {
         Ok(())
     }
 
+    fn drilled_project() -> Project {
+        let mut project = Project::default();
+        project.board.width = 50.0;
+        project.board.height = 30.0;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 500,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 501,
+            net: 500,
+            position: Point::new(10.0, 10.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 502,
+            position: Point::new(5.0, 5.0),
+            diameter: 3.2,
+            end: None,
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 503,
+            net: 500,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(5.0, 0.0),
+            width: 0.15,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
+        project
+    }
+    #[test]
+    fn report_summary_lists_limits_and_source_when_rules_are_set() -> Result<(), String> {
+        let mut project = drilled_project();
+        project.board.rules = Some(pcbcraft_doc::FabRules {
+            preset: Some("Test House Standard".into()),
+            source_url: Some("https://example.com/capabilities".into()),
+            retrieved: Some("2026-10-29".into()),
+            plating_allowance: Some(0.1),
+            ..Default::default()
+        });
+        let text = report_text(&project)?;
+        let block = text
+            .split("MANUFACTURABILITY\n")
+            .nth(1)
+            .ok_or("no manufacturability block")?;
+        for line in [
+            "Board size: 50.000 x 30.000 mm",
+            "Holes: 1 plated, 1 unplated, 0 slots",
+            "Smallest finished drill: 0.400 mm",
+            "Fabrication preset: Test House Standard",
+            "Limits source: https://example.com/capabilities",
+            "Limits retrieved: 2026-10-29",
+            "Smallest via annular ring: 0.150 mm",
+            "Smallest plated pad annular ring: none on this board",
+            "Smallest track width: 0.150 mm",
+        ] {
+            assert!(
+                block.lines().any(|l| l == line),
+                "missing {line:?} in {block}"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn report_summary_omits_unknown_metrics_without_rules() -> Result<(), String> {
+        let text = report_text(&drilled_project())?;
+        let block = text
+            .split("MANUFACTURABILITY\n")
+            .nth(1)
+            .ok_or("no manufacturability block")?;
+        assert!(block.contains("Board size: 50.000 x 30.000 mm"));
+        assert!(block.contains("Holes: 1 plated, 1 unplated, 0 slots"));
+        assert!(block.contains("Smallest finished drill: 0.400 mm"));
+        assert!(!block.contains("annular ring"));
+        assert!(!block.contains("track width"));
+        assert!(!block.contains("preset"));
+        Ok(())
+    }
     #[test]
     fn stats_text_counts_parts_nets_and_routing() -> Result<(), String> {
         let mut project = Project::default();
