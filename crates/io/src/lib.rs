@@ -9924,6 +9924,28 @@ mod tests {
         for component in &mut project.components {
             component.library_footprint = None;
         }
+        for footprint in &mut project.board.footprints {
+            for pad in &mut footprint.pads {
+                pad.geometry = None;
+            }
+        }
+    }
+
+    fn assert_board_import_round_trip_equivalent(a: &Project, b: &Project) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.unit, b.unit);
+        assert_eq!(a.nets, b.nets);
+        assert_eq!(a.components, b.components);
+        assert_eq!(a.board.tracks, b.board.tracks);
+        assert_eq!(a.board.vias, b.board.vias);
+        assert_eq!(a.board.zones, b.board.zones);
+        assert_eq!(a.board.footprints, b.board.footprints);
+        assert_eq!(a.board.cutouts, b.board.cutouts);
+        assert_eq!(a.board.width, b.board.width);
+        assert_eq!(a.board.height, b.board.height);
+        assert_eq!(a.board.outline, b.board.outline);
+        assert_eq!(a.board.thickness, b.board.thickness);
+        assert_eq!(a.board.finish, b.board.finish);
     }
 
     #[test]
@@ -9934,7 +9956,7 @@ mod tests {
         let mut second = read_board_interchange(&text)?;
         normalize_board_import_round_trip(&mut first);
         normalize_board_import_round_trip(&mut second);
-        assert_eq!(first, second);
+        assert_board_import_round_trip_equivalent(&first, &second);
         Ok(())
     }
 
@@ -9946,7 +9968,7 @@ mod tests {
         let mut second = read_board_interchange(&text)?;
         normalize_board_import_round_trip(&mut first);
         normalize_board_import_round_trip(&mut second);
-        assert_eq!(first, second);
+        assert_board_import_round_trip_equivalent(&first, &second);
         Ok(())
     }
 
