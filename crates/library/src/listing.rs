@@ -6,7 +6,8 @@
 //! the currency the source returned. The record keeps the source's raw text
 //! beside every normalized form. No network, no keys, no UI here.
 //! Dependencies: `./sources.rs` for `PartResult`, `PriceBreak`, `Attribution`.
-//! The filter and `library.list` that read this record are separate children.
+//! `PartFilter` below selects listings; `library.list` in
+//! `crates/engine/src/library.rs` serves it.
 use crate::sources::{Attribution, PartResult, PriceBreak};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -833,6 +834,195 @@ pub fn listing_from_result(
         model3d: None,
         attribution: None,
     }
+}
+
+/// Most categories one filter may name.
+pub const MAX_FILTER_CATEGORIES: usize = 16;
+/// Most entries in any other list field of a filter.
+pub const MAX_FILTER_LIST: usize = 64;
+/// Longest text a filter may search for, in bytes.
+pub const MAX_FILTER_TEXT: usize = 256;
+
+/// One query over listings from any source. Every field that is set must
+/// match; a field left out does not restrict.
+///
+/// # Rules
+/// A numeric field that is empty on the listing never matches a set numeric
+/// filter. The value range applies to categories that have a value unit
+/// (resistor, capacitor, inductor, crystal); a listing in another category
+/// never matches it. `temp_range` is `(low, high)` and the part must cover
+/// all of it. Stock given only as text is an empty count.
+/// # Dependencies
+/// [`PartListing`] above; `package_key` for package spellings.
+/// # Do not
+/// Rank, sort or merge results here, and never treat a missing field as a match.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PartFilter {
+    /// Words to find in the part number, maker, description or source key.
+    pub text: Option<String>,
+    /// Allowed categories; at most [`MAX_FILTER_CATEGORIES`].
+    pub categories: Vec<Category>,
+    /// Allowed packages, in any spelling `package_key` reads.
+    pub packages: Vec<String>,
+    /// Lowest value in SI base units.
+    pub value_min: Option<f64>,
+    /// Highest value in SI base units.
+    pub value_max: Option<f64>,
+    /// Lowest acceptable rated voltage in volts.
+    pub voltage_min: Option<f64>,
+    /// Temperature span in degrees Celsius the part must cover, low then high.
+    pub temp_range: Option<(f32, f32)>,
+    /// Lowest acceptable stock count.
+    pub stock_min: Option<u64>,
+    /// Allowed lifecycles.
+    pub lifecycle: Vec<Lifecycle>,
+    /// Allowed kinds of source.
+    pub sources: Vec<ListingSource>,
+    /// Required RoHS answer.
+    pub rohs: Option<bool>,
+}
+
+fn has_value_unit(category: Category) -> bool {
+    matches!(
+        category,
+        Category::Resistor | Category::Capacitor | Category::Inductor | Category::Crystal
+    )
+}
+
+impl PartFilter {
+    /// Refuse a filter that is out of bounds or contradicts itself.
+    ///
+    /// # Rules
+    /// At most [`MAX_FILTER_CATEGORIES`] categories, [`MAX_FILTER_LIST`]
+    /// entries elsewhere, text up to [`MAX_FILTER_TEXT`] bytes, finite numbers,
+    /// ranges in order. The error is a plain sentence.
+    /// # Dependencies
+    /// None.
+    /// # Do not
+    /// Repair a bad filter silently.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.categories.len() > MAX_FILTER_CATEGORIES {
+            return Err(format!(
+                "a filter may name at most {MAX_FILTER_CATEGORIES} categories"
+            ));
+        }
+        if self.packages.len() > MAX_FILTER_LIST
+            || self.lifecycle.len() > MAX_FILTER_LIST
+            || self.sources.len() > MAX_FILTER_LIST
+        {
+            return Err(format!(
+                "a filter list may hold at most {MAX_FILTER_LIST} entries"
+            ));
+        }
+        if self
+            .text
+            .as_ref()
+            .is_some_and(|t| t.len() > MAX_FILTER_TEXT)
+            || self.packages.iter().any(|p| p.len() > MAX_FILTER_TEXT)
+        {
+            return Err(format!(
+                "filter text may be at most {MAX_FILTER_TEXT} bytes"
+            ));
+        }
+        let numbers = [self.value_min, self.value_max, self.voltage_min];
+        if numbers.iter().flatten().any(|n| !n.is_finite()) {
+            return Err("filter numbers must be finite".into());
+        }
+        if let (Some(lo), Some(hi)) = (self.value_min, self.value_max)
+            && lo > hi
+        {
+            return Err("value_min must not exceed value_max".into());
+        }
+        if let Some((lo, hi)) = self.temp_range
+            && (!lo.is_finite() || !hi.is_finite() || lo > hi)
+        {
+            return Err("temp_range must be a low then a high temperature".into());
+        }
+        Ok(())
+    }
+
+    /// Whether one listing passes every field that is set.
+    ///
+    /// # Rules
+    /// See the type: empty numeric fields on the listing never match.
+    /// # Dependencies
+    /// `package_key` in this file.
+    /// # Do not
+    /// Call this on a filter that failed `validate`.
+    pub fn matches(&self, listing: &PartListing) -> bool {
+        if let Some(text) = self
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            let hay = format!(
+                "{} {} {} {}",
+                listing.mpn, listing.manufacturer, listing.description, listing.source_ref
+            )
+            .to_lowercase();
+            if !text
+                .to_lowercase()
+                .split_whitespace()
+                .all(|word| hay.contains(word))
+            {
+                return false;
+            }
+        }
+        if !self.categories.is_empty() && !self.categories.contains(&listing.category) {
+            return false;
+        }
+        if !self.packages.is_empty() && !self.packages.iter().any(|p| package_matches(p, listing)) {
+            return false;
+        }
+        if (self.value_min.is_some() || self.value_max.is_some())
+            && !(has_value_unit(listing.category)
+                && listing.value.is_some_and(|v| {
+                    self.value_min.is_none_or(|lo| v >= lo)
+                        && self.value_max.is_none_or(|hi| v <= hi)
+                }))
+        {
+            return false;
+        }
+        if let Some(min) = self.voltage_min
+            && !listing.rated_voltage_v.is_some_and(|v| v >= min)
+        {
+            return false;
+        }
+        if let Some((lo, hi)) = self.temp_range
+            && !(listing.temp_min_c.is_some_and(|t| t <= lo)
+                && listing.temp_max_c.is_some_and(|t| t >= hi))
+        {
+            return false;
+        }
+        if let Some(min) = self.stock_min
+            && !listing.stock.is_some_and(|s| s >= min)
+        {
+            return false;
+        }
+        if !self.lifecycle.is_empty() && !self.lifecycle.contains(&listing.lifecycle) {
+            return false;
+        }
+        if !self.sources.is_empty() && !self.sources.contains(&listing.source) {
+            return false;
+        }
+        if let Some(want) = self.rohs
+            && listing.rohs != Some(want)
+        {
+            return false;
+        }
+        true
+    }
+}
+
+fn package_matches(wanted: &str, listing: &PartListing) -> bool {
+    let wanted = package_key(wanted);
+    if !wanted.key.is_empty() {
+        return listing.package_key == wanted.key;
+    }
+    let text = wanted.text.trim().to_lowercase();
+    !text.is_empty() && listing.package_text.trim().to_lowercase() == text
 }
 
 #[cfg(test)]
