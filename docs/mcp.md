@@ -83,6 +83,10 @@ independent schematic unit placement. All package pins still use the same
 component ID and physical pin number. `track.route` accepts `layer` (`F.Cu` default
 or `B.Cu`) and requires copper on that layer at both endpoints. Plated through-hole
 pads connect their own front/back copper; two different pads are never bridged.
+`track.route_pair` takes four pad refs (`from_p`, `from_n`, `to_p`, `to_n`) for a
+declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
+routes both nets with coupled orthogonal L geometry and refuses when the pair gap
+cannot be kept.
 
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
