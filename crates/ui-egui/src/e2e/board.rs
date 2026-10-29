@@ -1342,3 +1342,161 @@ fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     );
     Ok(())
 }
+
+fn board_app_with_via(layers: u32) -> Result<(App, Point), String> {
+    let mut app = sample_board_app();
+    if layers > 2 {
+        let mut session = app.session.lock().map_err(|_| "session busy")?;
+        let records = &mut session.project.board.layer_records;
+        records.clear();
+        for i in 1..=layers {
+            records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            });
+            if i < layers {
+                records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.4,
+                    copper_role: None,
+                });
+            }
+        }
+    }
+    let at = Point::new(20.0, 14.0);
+    app.tool_call(
+        "via.place",
+        json!({"net":4,"position":{"x":at.x,"y":at.y},"diameter":0.8,"drill":0.4}),
+    );
+    if app.project.board.vias.is_empty() {
+        return Err(format!("the via should be placed: {}", app.message));
+    }
+    Ok((app, at))
+}
+
+#[test]
+fn a_newcomer_sees_one_span_on_a_two_layer_board() -> Result<(), String> {
+    let (mut app, at) = board_app_with_via(2)?;
+    let ctx = egui::Context::default();
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Assign layers")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top to bottom (current)")?,
+        "the only span is top to bottom and says it is current: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_right_clicks_a_via_and_assigns_its_layers() -> Result<(), String> {
+    let (mut app, at) = board_app_with_via(4)?;
+    let ctx = egui::Context::default();
+    for _ in 0..8 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Assign layers")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "L1 to L2")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    let via = app.project.board.vias.first().ok_or("via missing")?;
+    assert_eq!(
+        app.project.via_span(via).1.index(),
+        1,
+        "the via now ends on the second layer: {}",
+        app.message
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    let via = app.project.board.vias.first().ok_or("via missing")?;
+    assert_eq!(
+        app.project.via_span(via).1.index(),
+        3,
+        "one undo restores the old span: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cannot_paste_before_copying() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let screen = pcb_screen(&app, Point::new(1.0, 1.0));
+    right_click(&ctx, &mut app, screen);
+    let parts = app.project.board.footprints.len();
+    authoring::tests::tap(&ctx, &mut app, "Paste")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        parts,
+        "Paste does nothing while nothing is copied: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_copies_a_part_and_pastes_it_from_the_right_click_menu() -> Result<(), String> {
+    let mut app = sample_board_app();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let at = app
+        .project
+        .board
+        .footprints
+        .first()
+        .map(|f| f.position)
+        .ok_or("the sample board has parts")?;
+    let before = app.project.board.footprints.len();
+    let screen = pcb_screen(&app, at);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Copy")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.edit.clip.is_some(),
+        "Copy keeps the text: {}",
+        app.message
+    );
+    let spot = Point::new(at.x + 12.0, at.y + 9.0);
+    let screen = pcb_screen(&app, spot);
+    right_click(&ctx, &mut app, screen);
+    authoring::tests::tap(&ctx, &mut app, "Paste")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.refresh();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before + 1,
+        "Paste adds one part: {}",
+        app.message
+    );
+    let copy = app.project.board.footprints.last().ok_or("copy missing")?;
+    assert!(
+        (copy.position.x - spot.x).abs() < 1.0 && (copy.position.y - spot.y).abs() < 1.0,
+        "the copy lands at the click: {:?}",
+        copy.position
+    );
+    app.tool_call("undo", json!({}));
+    app.refresh();
+    assert_eq!(
+        app.project.board.footprints.len(),
+        before,
+        "one undo removes the paste: {}",
+        app.message
+    );
+    Ok(())
+}
