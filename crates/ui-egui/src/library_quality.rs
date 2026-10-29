@@ -1,5 +1,5 @@
 //! Library footprint quality: a badge beside each project footprint and a
-//! grouped list of findings on the Checks tab. Findings come from the
+//! list of findings in the Findings sheet (rows are built in `finding_set.rs`). Findings come from the
 //! engine command `library.footprint.check`; nothing is judged here.
 use super::*;
 
@@ -17,7 +17,7 @@ pub(super) struct QualityFinding {
 #[derive(Default)]
 pub(super) struct Quality {
     revision: Option<u64>,
-    findings: Vec<QualityFinding>,
+    pub(super) findings: Vec<QualityFinding>,
 }
 
 impl Quality {
@@ -114,100 +114,5 @@ impl App {
         };
         ui.label(egui::RichText::new(text).color(colour).small())
             .on_hover_text(tip);
-    }
-
-    /// Library findings on the Checks tab, grouped by rule like the board
-    /// and wiring checks, each place with a plain way to fix it.
-    pub(super) fn library_checks_section(&mut self, ui: &mut egui::Ui) {
-        self.refresh_footprint_quality();
-        ui.label(
-            egui::RichText::new(t!("library.library_checks_section.library"))
-                .size(App::SECTION)
-                .strong(),
-        );
-        ui.add_space(2.0);
-        ui.label(
-            egui::RichText::new(t!(
-                "library.library_checks_section.whether_the_footprints_in_this"
-            ))
-            .size(App::CAPTION)
-            .color(self.muted()),
-        );
-        ui.add_space(8.0);
-        let findings = self.library.quality.findings.clone();
-        if findings.is_empty() {
-            ui.label(
-                egui::RichText::new(t!("checks.checks_view.no_problems"))
-                    .size(App::BODY)
-                    .color(self.accent()),
-            );
-        }
-        let mut groups: Vec<(String, Vec<QualityFinding>)> = Vec::new();
-        for f in findings {
-            if let Some(group) = groups.iter_mut().find(|(c, _)| *c == f.code) {
-                group.1.push(f);
-            } else {
-                groups.push((f.code.clone(), vec![f]));
-            }
-        }
-        groups.sort_by(|a, b| {
-            let loud = |g: &(String, Vec<QualityFinding>)| !g.1.iter().any(|f| f.error);
-            loud(a).cmp(&loud(b)).then(a.0.cmp(&b.0))
-        });
-        for (code, rows) in groups {
-            let must = rows.iter().any(|f| f.error);
-            let title = format!(
-                "{} · {} {}",
-                human_code(&code),
-                rows.len(),
-                if rows.len() == 1 { "place" } else { "places" }
-            );
-            ui.add_space(6.0);
-            let title = if must {
-                egui::RichText::new(title).strong()
-            } else {
-                egui::RichText::new(title)
-            };
-            ui.label(title).on_hover_text(if must {
-                t!("library.library_checks_section.a_mistake_in_a_library")
-            } else {
-                t!("library.library_checks_section.worth_a_look_but_it")
-            });
-            for f in rows {
-                ui.horizontal_wrapped(|ui| {
-                    ui.add_space(14.0);
-                    if ui
-                        .button(t!(
-                            "library.library_checks_section.footprint_message",
-                            footprint = f.footprint,
-                            message = f.message
-                        ))
-                        .on_hover_text(t!("library.library_checks_section.footprint_message.tip"))
-                        .clicked()
-                        && let Some(def) = self
-                            .project
-                            .library
-                            .footprints
-                            .iter()
-                            .find(|d| d.name == f.footprint)
-                            .cloned()
-                    {
-                        self.library.editor.draft = Some(authoring::Draft::Footprint(def));
-                        self.library.editor.mode = 2;
-                        self.library.editor.notice = None;
-                        self.change_tab(Tab::Libraries);
-                    }
-                    ui.label(
-                        egui::RichText::new(t!(
-                            "library.library_checks_section.fix_hint",
-                            hint = f.hint
-                        ))
-                        .small()
-                        .color(self.muted()),
-                    );
-                });
-            }
-        }
-        ui.add_space(20.0);
     }
 }

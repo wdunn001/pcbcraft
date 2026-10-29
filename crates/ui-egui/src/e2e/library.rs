@@ -495,7 +495,6 @@ fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<()
     app.change_tab(Tab::Checks);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for needle in [
-        "Lib pad overlap · 1 place",
         "SquashedPair: Two pads share the same copper area",
         "Fix: Move or resize the pads so their outlines no longer overlap",
     ] {

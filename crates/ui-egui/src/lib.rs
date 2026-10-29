@@ -13,6 +13,7 @@ mod contrast;
 mod datums;
 mod draw_target;
 mod editing;
+mod finding_set;
 pub mod fonts;
 mod footprint_wizard;
 mod hover_affordance;
@@ -1436,7 +1437,7 @@ impl App {
     }
     /// Capture option: start with the bottom sheet open. Ignored outside capture mode.
     pub fn with_capture_sheet(mut self, open: bool) -> Self {
-        self.capture_sheet = open;
+        self.capture_sheet |= open;
         self
     }
     /// Fill the Library tab's search box and open that tab, so a `--capture`
@@ -1550,11 +1551,10 @@ impl App {
             revision: u64::MAX,
             checks: json!({}),
             tab: match tab {
-                Some("pcb" | "layout") => Tab::Pcb,
+                Some("pcb" | "layout" | "checks") => Tab::Pcb,
                 Some("files") => Tab::Files,
                 Some("rules") => Tab::Rules,
                 Some("settings") => Tab::Settings,
-                Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
                 Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
@@ -1711,7 +1711,8 @@ impl App {
             capture,
             capture_select: None,
             capture_menu: false,
-            capture_sheet: false,
+            // `--tab checks` is Layout with the Findings sheet expanded.
+            capture_sheet: tab == Some("checks"),
             frames: 0,
             binding_capture: None,
             profile_name_draft: String::new(),
@@ -2799,7 +2800,6 @@ impl App {
     /// Left edge shared by the tab row, the tool strip and the page content.
     const PAGE_GUTTER: f32 = 28.0;
     /// The type scale: page title, section title, body, caption.
-    const SECTION: f32 = 18.0;
     const BODY: f32 = 14.0;
     const CAPTION: f32 = 12.0;
     fn header(&mut self, ui: &mut egui::Ui) {
@@ -3372,23 +3372,6 @@ impl App {
             && url.len() <= 2048
             && !url.chars().any(char::is_whitespace))
         .then(|| url.to_owned())
-    }
-    /// How many check findings are errors, warnings and notes.
-    fn finding_counts(checks: &Value) -> (usize, usize, usize) {
-        let mut counts = (0, 0, 0);
-        for key in ["erc", "drc"] {
-            let Some(findings) = checks.get(key).and_then(Value::as_array) else {
-                continue;
-            };
-            for f in findings {
-                match f.get("severity").and_then(Value::as_str) {
-                    Some("error") => counts.0 += 1,
-                    Some("warning") => counts.1 += 1,
-                    _ => counts.2 += 1,
-                }
-            }
-        }
-        counts
     }
     /// True when the window is too narrow to put the library dock beside the
     /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
@@ -6479,8 +6462,7 @@ impl App {
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
         // Notes count with the warnings: the bar says only "warnings" and "errors".
-        let (fix, warnings, notes) = Self::finding_counts(&self.checks);
-        let mind = warnings + notes;
+        let (fix, mind) = self.findings().counts().strip();
         let (base, zoom) = match self.tab {
             Tab::Schematic => (15.0, self.schematic.zoom),
             _ => (11.0, self.pcb.zoom),

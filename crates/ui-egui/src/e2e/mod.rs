@@ -14,6 +14,7 @@ mod builds;
 mod checks;
 mod compare;
 mod editing;
+mod findings_counts;
 mod images;
 mod keymap;
 mod layers;
