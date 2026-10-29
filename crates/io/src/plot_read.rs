@@ -470,9 +470,11 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
                 return Err("drill file exceeds the hit limit".into());
             }
             if let Some(g85) = line.find("G85") {
-                let start = parse_coord_pair(line)?;
+                let start = parse_coord_pair(line)
+                    .ok_or_else(|| "drill slot start coordinates are missing".to_string())?;
                 let end_part = &line[g85 + 3..];
-                let end = parse_coord_pair(end_part)?;
+                let end = parse_coord_pair(end_part)
+                    .ok_or_else(|| "drill slot end coordinates are missing".to_string())?;
                 let (sx, sy) = inch_to_mm(inch, start.0, start.1);
                 let (ex, ey) = inch_to_mm(inch, end.0, end.1);
                 hits.push(PlotDrillHit {
@@ -517,7 +519,8 @@ fn safe_zip_name(name: &[u8]) -> Result<String, String> {
     if name.starts_with(b"/") || name.windows(2).any(|w| w == b"..") {
         return Err("archive entry path is not allowed".into());
     }
-    let text = std::str::from_utf8(name).map_err(|_| "archive entry name is not UTF-8".into())?;
+    let text = std::str::from_utf8(name)
+        .map_err(|_| "archive entry name is not UTF-8".to_string())?;
     if text.contains('\\') || text.contains(':') {
         return Err("archive entry path is not allowed".into());
     }
@@ -665,12 +668,12 @@ pub fn load_plot_zip(bytes: &[u8]) -> Result<PlotPackage, String> {
     collected.sort_by(|a, b| a.0.cmp(&b.0));
     for (name, data) in collected {
         if name.to_ascii_lowercase().ends_with(".drl") {
-            let text = std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".into())?;
+            let text = std::str::from_utf8(&data).map_err(|_| "drill file is not UTF-8".to_string())?;
             let (tools, hits) = parse_excellon_drill(text)?;
             drill_tools = tools;
             drill_hits = hits;
         } else {
-            let text = std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".into())?;
+            let text = std::str::from_utf8(&data).map_err(|_| "plot file is not UTF-8".to_string())?;
             let layer = parse_gerber_layer(text, &name)?;
             hints.extend(layer.hints.clone());
             layers.push(layer);

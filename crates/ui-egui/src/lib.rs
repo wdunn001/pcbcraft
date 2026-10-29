@@ -420,12 +420,18 @@ fn default_keymap_profiles() -> HashMap<String, keymap::Keymap> {
     map.insert("Default".into(), keymap::Keymap::default_bindings());
     map
 }
+
+fn builtin_default_keymap() -> &'static keymap::Keymap {
+    static MAP: std::sync::OnceLock<keymap::Keymap> = std::sync::OnceLock::new();
+    MAP.get_or_init(keymap::Keymap::default_bindings)
+}
+
 impl Preferences {
     fn active_keymap(&self) -> &keymap::Keymap {
         self.keymap_profiles
             .get(&self.active_keymap_profile)
             .or_else(|| self.keymap_profiles.get("Default"))
-            .expect("keymap profiles always include Default after normalize")
+            .unwrap_or_else(builtin_default_keymap)
     }
     fn active_keymap_mut(&mut self) -> &mut keymap::Keymap {
         let name = if self.keymap_profiles.contains_key(&self.active_keymap_profile) {

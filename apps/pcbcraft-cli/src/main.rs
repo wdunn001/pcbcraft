@@ -99,7 +99,9 @@ fn run() -> Result<(), String> {
             println!("{}", json!({"path":path,"view":view}));
         }
         "diff" => {
-            let path_a = args.get(1).ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let path_a = args
+                .get(1)
+                .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
             let path_b = args
                 .get(2)
                 .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;

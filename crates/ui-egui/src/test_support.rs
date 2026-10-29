@@ -100,7 +100,7 @@ pub(crate) fn self_names(app: &App) -> Vec<String> {
 
 /// Find the button whose label reads exactly `label`, scrolling the page
 /// down and then up if needed, and click it like a person would.
-pub(crate) pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
     // Two quiet passes first: hit-testing always trails the painter by a
     // frame, and a scroll area only grows its scrollbar on the second
     // pass, which shifts every row a hair.

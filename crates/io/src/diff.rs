@@ -1,5 +1,5 @@
 //! Read-only comparison of two saved designs for review and automation.
-use pcbcraft_doc::{Component, Footprint, Id, Net, Project};
+use pcbcraft_doc::{Component, Footprint, Id, Project};
 use pcbcraft_geom::Point;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -186,18 +186,18 @@ fn diff_component_fields(
             id,
             format!("component {reference}"),
             Some("rotation"),
-            Some(format!("{old:.6}")),
-            Some(format!("{new:.6}")),
+            Some(format!("{:.6}", old.rotation)),
+            Some(format!("{:.6}", new.rotation)),
         );
     }
     let old_sym = old
         .library_symbol
         .as_ref()
-        .map(|s| format!("{}/{}", s.library, s.name));
+        .map(|s| format!("{}/{}", s.library, s.definition.name));
     let new_sym = new
         .library_symbol
         .as_ref()
-        .map(|s| format!("{}/{}", s.library, s.name));
+        .map(|s| format!("{}/{}", s.library, s.definition.name));
     if old_sym != new_sym {
         push_change(
             changes,
@@ -212,11 +212,11 @@ fn diff_component_fields(
     let old_fp = old
         .library_footprint
         .as_ref()
-        .map(|s| format!("{}/{}", s.library, s.name));
+        .map(|s| format!("{}/{}", s.library, s.definition.name));
     let new_fp = new
         .library_footprint
         .as_ref()
-        .map(|s| format!("{}/{}", s.library, s.name));
+        .map(|s| format!("{}/{}", s.library, s.definition.name));
     if old_fp != new_fp {
         push_change(
             changes,
@@ -320,7 +320,7 @@ fn diff_nets(changes: &mut Vec<DesignChange>, old: &Project, new: &Project) {
             push_change(
                 changes,
                 "changed",
-                id,
+                *id,
                 format!("net {}", o.name),
                 Some("name"),
                 Some(o.name.clone()),
