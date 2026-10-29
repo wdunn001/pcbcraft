@@ -9,10 +9,13 @@
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
 //! - xtask/src/doc_check.rs
+//! - xtask/src/tooltips.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
+mod e2e;
+mod tooltips;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -27,12 +30,14 @@ const USAGE: &str = "usage: cargo xtask <command>
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
   wasm         WebAssembly check of the shared UI and browser entry point
+  tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
   deny         cargo-deny licenses, advisories, bans and sources
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
+  e2e          full a_newcomer suite plus the tooltip and story coverage gate
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -143,6 +148,65 @@ fn test() -> Result<(), String> {
     } else {
         cargo(&["test", "--workspace", "--locked"])
     }
+}
+
+/// Run every `a_newcomer_*` story and walk the whole UI, then fail on any
+/// control without a tooltip, a story or an id that is not exempted.
+fn e2e() -> Result<(), String> {
+    let root = root()?;
+    let dir = root.join("target").join("e2e");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let touch = dir.join("touched.log");
+    let walk = dir.join("walk.log");
+    let _ = std::fs::remove_file(&touch);
+    let _ = std::fs::remove_file(&walk);
+    // A failing story still leaves its touches in the log, so the gap report
+    // below is printed either way and the run fails on both.
+    let stories = run_env(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "pcbcraft-ui-egui",
+            "--locked",
+            "--",
+            "a_newcomer_",
+            "e2e_audit_walk",
+        ],
+        &[
+            ("PCBCRAFT_E2E_TOUCH_LOG", &touch.to_string_lossy()),
+            ("PCBCRAFT_E2E_WALK_LOG", &walk.to_string_lossy()),
+        ],
+    );
+    let walk_text = std::fs::read_to_string(&walk)
+        .map_err(|e| format!("the UI walk wrote no log ({}): {e}", walk.display()))?;
+    let touch_text = std::fs::read_to_string(&touch).unwrap_or_default();
+    let exempt_path = root.join("e2e-exemptions.txt");
+    let exemptions = match std::fs::read_to_string(&exempt_path) {
+        Ok(text) => e2e::Exemptions::parse(&text)?,
+        Err(_) => e2e::Exemptions::default(),
+    };
+    let report = e2e::diff(&walk_text, &touch_text, &exemptions);
+    let lines = report.lines();
+    let summary = dir.join("report.txt");
+    let _ = std::fs::write(&summary, lines.join("\n"));
+    println!(
+        "e2e gate: {} controls painted, {} gaps (report: {})",
+        report.painted,
+        lines.len(),
+        summary.display()
+    );
+    for line in &lines {
+        eprintln!("{line}");
+    }
+    stories?;
+    if report.is_clean() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} controls lack a tooltip, a story or an id; fix them or add a reviewed entry to e2e-exemptions.txt",
+        lines.len()
+    ))
 }
 
 /// Checks the wasm packages for the wasm32 target.
@@ -457,11 +521,13 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "e2e" => e2e()?,
         "wasm" => wasm()?,
         "docs" if args.get(1).map(String::as_str) == Some("check") => {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
         }
         "docs" => docs()?,
+        "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
         "deny" => deny()?,
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,
