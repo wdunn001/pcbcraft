@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
 pub mod library;
+mod meander;
 pub mod recents;
 mod route;
 use pcbcraft_doc::*;
@@ -1209,6 +1210,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "track.tune_skew",
+            "Add meander bumps on the shorter net of a declared differential pair until routed length skew is within the pair length tolerance",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string","maxLength":64},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &[],
+            ),
+        ),
+        (
             "footprint.mirror",
             "Mirror a board footprint left-to-right or top-to-bottom about its own origin",
             schema(
@@ -2163,7 +2172,7 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
     }
     Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
 }
-fn allocate(next: &mut Id) -> Result<Id, Error> {
+pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
     if id == 0 || id > u32::MAX as u64 {
         return Err(Error::Invalid("object ID space exhausted".into()));
@@ -4174,6 +4183,16 @@ struct RoutePairParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct TuneSkewParams {
+    #[serde(default)]
+    id: Option<Id>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default = "front")]
+    layer: Layer,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Object {
     id: Id,
 }
@@ -4319,6 +4338,39 @@ fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
         .diff_pairs
         .iter()
         .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
+}
+fn diff_pair_by_ref(p: &Project, id: Option<Id>, name: Option<&str>) -> Result<&DiffPair, Error> {
+    match (id, name.map(str::trim).filter(|s| !s.is_empty())) {
+        (Some(id), None) => p
+            .board
+            .diff_pairs
+            .iter()
+            .find(|pair| pair.id == id)
+            .ok_or_else(missing),
+        (None, Some(name)) => p
+            .board
+            .diff_pairs
+            .iter()
+            .find(|pair| pair.name == name)
+            .ok_or_else(missing),
+        (Some(id), Some(name)) => {
+            let by_id = p.board.diff_pairs.iter().find(|pair| pair.id == id);
+            let by_name = p
+                .board
+                .diff_pairs
+                .iter()
+                .find(|pair| pair.name == name);
+            match (by_id, by_name) {
+                (Some(a), Some(b)) if a.id == b.id => Ok(a),
+                _ => Err(Error::Invalid(
+                    "id and name must refer to the same differential pair".into(),
+                )),
+            }
+        }
+        (None, None) => Err(Error::Invalid(
+            "give the differential pair id or name".into(),
+        )),
+    }
 }
 fn orthogonal_route_segments(start: Point, end: Point) -> Vec<(Point, Point)> {
     let bend = Point::new(end.x, start.y);
@@ -12157,6 +12209,96 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "net_n": net_n,
                 "gap": pair_gap,
                 "width": width,
+            }))
+        }
+        "track.tune_skew" => {
+            let a: TuneSkewParams = parse(params)?;
+            let pair = diff_pair_by_ref(p, a.id, a.name.as_deref())?;
+            let Some(tolerance) = pair.length_tolerance else {
+                return Err(Error::Invalid(
+                    "the pair needs a length tolerance before skew can be tuned".into(),
+                ));
+            };
+            if tolerance <= 0.0 {
+                return Err(Error::Invalid(
+                    "the pair length tolerance must be greater than zero".into(),
+                ));
+            }
+            let pair_id = pair.id;
+            let net_p = pair.net_p;
+            let net_n = pair.net_n;
+            let len_p = meander::net_routed_length(p, net_p);
+            let len_n = meander::net_routed_length(p, net_n);
+            let skew_before = (len_p - len_n).abs();
+            if skew_before <= tolerance + 1e-9 {
+                return Ok(json!({
+                    "pair": pair_id,
+                    "net_p": net_p,
+                    "net_n": net_n,
+                    "length_p": len_p,
+                    "length_n": len_n,
+                    "skew": skew_before,
+                    "tolerance": tolerance,
+                    "bumps": 0,
+                    "ids": [],
+                }));
+            }
+            if meander::partner_center_on_layer(p, net_p, a.layer).is_none()
+                && meander::partner_center_on_layer(p, net_n, a.layer).is_none()
+            {
+                return Err(Error::Invalid(
+                    "both nets need routed copper on the chosen layer".into(),
+                ));
+            }
+            let mut bump_ids: Vec<Id> = vec![];
+            let mut bumps = 0usize;
+            let amplitude = 0.5_f64;
+            let span = 1.0_f64;
+            while (meander::net_routed_length(p, net_p) - meander::net_routed_length(p, net_n))
+                .abs()
+                > tolerance + 1e-9
+            {
+                if bumps >= meander::MAX_BUMPS {
+                    return Err(Error::Invalid(
+                        "skew tuning stopped after too many meander bumps".into(),
+                    ));
+                }
+                let len_p_now = meander::net_routed_length(p, net_p);
+                let len_n_now = meander::net_routed_length(p, net_n);
+                let (short_net, partner_net) = if len_p_now <= len_n_now {
+                    (net_p, net_n)
+                } else {
+                    (net_n, net_p)
+                };
+                let partner_center = meander::partner_center_on_layer(p, partner_net, a.layer)
+                    .ok_or_else(|| {
+                        Error::Invalid(
+                            "the partner net needs routed copper on the chosen layer".into(),
+                        )
+                    })?;
+                let Some((index, track)) = meander::pick_longest_track(p, short_net, a.layer)
+                else {
+                    return Err(Error::Invalid(
+                        "the shorter net needs a straight track on the chosen layer".into(),
+                    ));
+                };
+                let outward = meander::outward_from_partner(track, partner_center)?;
+                let added = meander::push_bump_on_track(p, next, index, outward, amplitude, span)?;
+                bump_ids.extend(added);
+                bumps += 1;
+            }
+            let len_p_after = meander::net_routed_length(p, net_p);
+            let len_n_after = meander::net_routed_length(p, net_n);
+            Ok(json!({
+                "pair": pair_id,
+                "net_p": net_p,
+                "net_n": net_n,
+                "length_p": len_p_after,
+                "length_n": len_n_after,
+                "skew": (len_p_after - len_n_after).abs(),
+                "tolerance": tolerance,
+                "bumps": bumps,
+                "ids": bump_ids,
             }))
         }
         "footprint.mirror" => {
@@ -22859,6 +23001,52 @@ mod tests {
             "pad spacing cannot honour a 5 mm coupling gap"
         );
         assert_eq!(s.project.board.tracks, tracks_before);
+        Ok(())
+    }
+
+    #[test]
+    fn tune_skew_brings_pair_inside_tolerance_and_undo_restores() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap,"length_tolerance":0.5}),
+            None,
+        )?;
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net_p,"start":{"x":50.0,"y":20.0},"end":{"x":55.0,"y":20.0},"width":width}),
+            None,
+        )?;
+        assert!(
+            drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "extra positive-side copper should exceed the tolerance"
+        );
+        let tracks_before = s.project.board.tracks.clone();
+        s.execute("track.tune_skew", json!({"name":"USB"}), None)?;
+        assert!(
+            !drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "tuning should bring skew inside tolerance"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.tracks, tracks_before);
+        assert!(
+            drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "undo should restore the pre-tune skew finding"
+        );
         Ok(())
     }
 

@@ -88,6 +88,10 @@ declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
 
+`track.tune_skew` takes a differential pair `id` or `name`, optional `layer`
+(default `F.Cu`), and a declared `length_tolerance`. It adds meander bumps on the
+shorter net until skew is within tolerance, in one undo step.
+
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
 nodes report `source_truncated`. The GUI disables copying truncated definitions.
