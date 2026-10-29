@@ -73,6 +73,11 @@ pub(super) struct EditState {
     /// What was selected when the clip was taken, to select the copies.
     pub clip_sources: Vec<Id>,
     pub pastes: u32,
+    /// Centre of the objects when they were copied; Paste from the menu moves
+    /// the copies from here to where the menu was opened.
+    pub clip_origin: Option<Point>,
+    /// Where the right-click menu was opened, in world millimetres.
+    pub menu_at: Option<Point>,
 }
 
 /// Distance, dx, dy and angle between two points, as one plain sentence.
@@ -429,21 +434,54 @@ impl App {
             self.edit.clip = Some(text.to_owned());
             self.edit.clip_sources = self.selection();
             self.edit.pastes = 0;
+            self.edit.clip_origin = self.selection_centre();
             self.message = format!("Copied {} objects", ids.len());
         }
+    }
+
+    /// The middle of everything selected, in world millimetres.
+    fn selection_centre(&self) -> Option<Point> {
+        let boxes: Vec<(Point, Point)> = self
+            .selection()
+            .into_iter()
+            .filter_map(|id| self.bounds_of(id))
+            .collect();
+        let points: Vec<Point> = boxes.iter().flat_map(|(a, b)| [*a, *b]).collect();
+        let (lo, hi) = bounds_of_points(&points)?;
+        Some(Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0))
     }
 
     /// Paste clipboard text at a step away from the originals, then select
     /// the new copies so they can be moved straight away.
     pub(super) fn paste_text(&mut self, text: &str) -> bool {
+        self.paste_text_at(text, None)
+    }
+
+    /// Paste the last copy so its middle lands on `at` (the right-click spot).
+    pub(super) fn paste_last_copy_at(&mut self, at: Point) {
+        if let Some(text) = self.edit.clip.clone() {
+            self.paste_text_at(&text, Some(at));
+        } else {
+            self.message = "Nothing copied yet".into();
+        }
+    }
+
+    fn paste_text_at(&mut self, text: &str, at: Option<Point>) -> bool {
         if !text.starts_with("PCBCRAFT selection/") {
+            self.message = "That text is not copied objects, so nothing was pasted".into();
             return false;
         }
-        self.edit.pastes += 1;
-        let step = PASTE_STEP * f64::from(self.edit.pastes);
+        let (dx, dy) = match (at, self.edit.clip_origin) {
+            (Some(at), Some(from)) => (at.x - from.x, at.y - from.y),
+            _ => {
+                self.edit.pastes += 1;
+                let step = PASTE_STEP * f64::from(self.edit.pastes);
+                (step, step)
+            }
+        };
         let result = self.run_and_keep(
             "selection.paste",
-            json!({"text":text,"offset":{"x":step,"y":step},"renumber":true}),
+            json!({"text":text,"offset":{"x":dx,"y":dy},"renumber":true}),
         );
         self.refresh();
         let Some(map) = result.get("ids").and_then(Value::as_object) else {
