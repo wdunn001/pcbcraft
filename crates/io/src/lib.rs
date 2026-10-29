@@ -2902,7 +2902,12 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
             "<LAYER name=\"{name}\" copper=\"{layer_name}\">\n"
         ));
         count(1)?;
-        for track in p.board.tracks.iter().filter(|t| t.layer == p.face_layer(layer)) {
+        for track in p
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.layer == p.face_layer(layer))
+        {
             out.push_str(&format!(
                 "<TRACK start_x=\"{:.3}\" start_y=\"{:.3}\" end_x=\"{:.3}\" end_y=\"{:.3}\" width=\"{:.3}\" net=\"{}\"/>\n",
                 track.start.x,
@@ -3512,11 +3517,7 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
             i + 1,
             f.position.x,
             f.position.y,
-            if p.is_bottom(f.layer) {
-                "B"
-            } else {
-                "T"
-            }
+            if p.is_bottom(f.layer) { "B" } else { "T" }
         ));
     }
     rows.sort_by(|a, b| {
@@ -4041,11 +4042,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for t in &p.board.tracks {
         bump(&mut count)?;
-        let layer = if p.is_bottom(t.layer) {
-            "B.Cu"
-        } else {
-            "F.Cu"
-        };
+        let layer = if p.is_bottom(t.layer) { "B.Cu" } else { "F.Cu" };
         let width = um(t.width)?;
         let net = net_number(Some(t.net))?;
         let segments: Vec<(Point, Point)> = match t.curve() {
@@ -4080,11 +4077,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for z in &p.board.zones {
         bump(&mut count)?;
-        let layer = if p.is_bottom(z.layer) {
-            "B.Cu"
-        } else {
-            "F.Cu"
-        };
+        let layer = if p.is_bottom(z.layer) { "B.Cu" } else { "F.Cu" };
         let net = net_number(Some(z.net))?;
         let path: Result<Vec<String>, String> = z.outline.iter().map(point).collect();
         out.push_str(&format!(
@@ -4095,11 +4088,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     for area in &p.board.rule_areas {
         bump(&mut count)?;
         let layers: Vec<&str> = match area.layer {
-            Some(l) => vec![if p.is_bottom(l) {
-                "B.Cu"
-            } else {
-                "F.Cu"
-            }],
+            Some(l) => vec![if p.is_bottom(l) { "B.Cu" } else { "F.Cu" }],
             None => vec!["F.Cu", "B.Cu"],
         };
         let lo = Point::new(area.region.x, area.region.y);
@@ -4300,11 +4289,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
     }
     for t in &p.board.tracks {
-        let layer = if p.is_bottom(t.layer) {
-            "B_Cu"
-        } else {
-            "F_Cu"
-        };
+        let layer = if p.is_bottom(t.layer) { "B_Cu" } else { "F_Cu" };
         match t.curve() {
             Some(arc) => {
                 let deg = |a: f64| {
@@ -4375,11 +4360,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for z in &p.board.zones {
-        let layer = if p.is_bottom(z.layer) {
-            "B_Cu"
-        } else {
-            "F_Cu"
-        };
+        let layer = if p.is_bottom(z.layer) { "B_Cu" } else { "F_Cu" };
         w.polyline(layer, &z.outline.iter().map(xy).collect::<Vec<_>>(), true)?;
         for cutout in &z.cutouts {
             w.polyline(layer, &cutout.iter().map(xy).collect::<Vec<_>>(), true)?;

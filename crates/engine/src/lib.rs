@@ -12475,7 +12475,7 @@ fn run_command(
                 return Err(Error::Invalid("that zone is already on the layer".into()));
             }
             zone.layer = layer;
-            Ok(json!({"id":a.id,"layer":p.layer_name(zone.layer)}))
+            Ok(json!({"id":a.id,"layer":p.layer_name(layer)}))
         }
         "zone.set_net" => {
             let a: ZoneSetNetParams = parse(params)?;
@@ -12495,14 +12495,21 @@ fn run_command(
                 return Err(Error::Invalid("that zone already pours on the net".into()));
             }
             zone.net = a.net;
+            let (id, filled, vertices, cutouts, zone_layer) = (
+                zone.id,
+                zone.filled,
+                zone.outline.len(),
+                zone.cutouts.len(),
+                zone.layer,
+            );
             Ok(json!({
-                "id": zone.id,
-                "net": zone.net,
+                "id": id,
+                "net": a.net,
                 "net_name": name,
-                "layer": p.layer_name(zone.layer),
-                "filled": zone.filled,
-                "outline_vertices": zone.outline.len(),
-                "cutouts": zone.cutouts.len(),
+                "layer": p.layer_name(zone_layer),
+                "filled": filled,
+                "outline_vertices": vertices,
+                "cutouts": cutouts,
             }))
         }
         "zone.set_point" => {
@@ -13194,7 +13201,9 @@ fn run_command(
                         if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}));
+                        found.push(
+                            json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "via" => {
@@ -13242,7 +13251,9 @@ fn run_command(
                         if !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}));
+                        found.push(
+                            json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "component" => {
@@ -17158,7 +17169,7 @@ fn run_command(
                 return Err(Error::Invalid("that track is already on the layer".into()));
             }
             track.layer = layer;
-            Ok(json!({"id":a.id,"layer":p.layer_name(track.layer)}))
+            Ok(json!({"id":a.id,"layer":p.layer_name(layer)}))
         }
         "track.set_width_net" => {
             let a: TrackNetWidthParams = parse(params)?;
@@ -17397,8 +17408,10 @@ fn run_command(
             if let Some(rotation) = a.rotation {
                 text.rotation = rotation;
             }
+            let (id, words, size, rotation) =
+                (text.id, text.text.clone(), text.size, text.rotation);
             Ok(
-                json!({"id":text.id,"text":text.text,"size":text.size,"layer":p.layer_name(text.layer),"rotation":text.rotation}),
+                json!({"id":id,"text":words,"size":size,"layer":p.layer_name(layer),"rotation":rotation}),
             )
         }
         "text.rotate" => {
@@ -36007,15 +36020,24 @@ mod tests {
         assert!(s.project.is_bottom(track.layer));
         assert_eq!(s.project.layer_name(track.layer), "B.Cu");
         let found = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?;
-        assert_eq!(found["result"][0]["layer"], "B.Cu", "{found} after {added}");
+        assert_eq!(
+            found["result"]["items"][0]["layer"], "B.Cu",
+            "{found} after {added}"
+        );
         // The layer it lands on in fabrication output is the last copper file.
         let bottom = pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())
             .map_err(Error::Invalid)?;
         assert!(bottom.contains("Copper,L4,Bot"), "{bottom}");
-        assert!(bottom.contains("D01*"), "the track is drawn on the bottom file");
+        assert!(
+            bottom.contains("D01*"),
+            "the track is drawn on the bottom file"
+        );
         let inner = pcbcraft_io::gerber_copper(&s.project, Layer::Back).map_err(Error::Invalid)?;
         assert!(inner.contains("Copper,L2,Inr"), "{inner}");
-        assert!(!inner.contains("D01*"), "inner copper carries no bottom track");
+        assert!(
+            !inner.contains("D01*"),
+            "inner copper carries no bottom track"
+        );
         Ok(())
     }
     #[test]
