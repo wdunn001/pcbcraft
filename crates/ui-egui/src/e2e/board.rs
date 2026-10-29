@@ -1536,3 +1536,102 @@ fn a_newcomer_copies_a_part_and_pastes_it_from_the_right_click_menu() -> Result<
     );
     Ok(())
 }
+
+fn sample_on(tab: Tab) -> (App, egui::Context) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.change_tab(tab);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (app, ctx)
+}
+
+#[test]
+fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Pcb);
+    for (id, name) in [
+        ("checkbox:Top copper", "Top copper"),
+        ("checkbox:Bottom copper", "Bottom copper"),
+        ("checkbox:Pads", "Pads"),
+        ("checkbox:Vias", "Vias"),
+        ("checkbox:Copper zones", "Copper zones"),
+        ("checkbox:Cutouts", "Cutouts"),
+        ("checkbox:Package artwork", "Package artwork"),
+    ] {
+        tap_id(&ctx, &mut app, id)?;
+        assert!(
+            !app.layer_shown(name),
+            "ticking {name} off hides it from the drawing"
+        );
+        tap_id(&ctx, &mut app, id)?;
+        assert!(app.layer_shown(name), "ticking {name} again shows it");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Pcb);
+    tap_id(&ctx, &mut app, "icon:tool-route")?;
+    assert!(
+        matches!(app.tool, Tool::Route(_)),
+        "Route arms the track tool"
+    );
+    for (id, shape) in [
+        ("icon:tool-box", DrawShape::Rect),
+        ("icon:tool-circle", DrawShape::Circle),
+        ("icon:tool-outline", DrawShape::Poly),
+        ("icon:tool-words", DrawShape::Words),
+    ] {
+        tap_id(&ctx, &mut app, id)?;
+        assert!(
+            matches!(app.tool, Tool::DrawLayer) && app.art_shape == shape,
+            "{id} arms its shape on the machine layer"
+        );
+    }
+    tap_id(&ctx, &mut app, "button:Cutout")?;
+    assert!(
+        matches!(app.tool, Tool::Cutout),
+        "Cutout arms the hole tool"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Schematic);
+    tap_id(&ctx, &mut app, "icon:tool-wire")?;
+    assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
+    for (id, read) in [
+        (
+            "button:Text",
+            (|a: &App| a.edit.filter.text) as fn(&App) -> bool,
+        ),
+        ("button:Graphics", |a: &App| a.edit.filter.graphics),
+        ("button:Copper", |a: &App| a.edit.filter.copper),
+        ("button:Parts", |a: &App| a.edit.filter.parts),
+    ] {
+        let before = read(&app);
+        tap_id(&ctx, &mut app, id)?;
+        assert_ne!(read(&app), before, "{id} flips what a click may pick up");
+    }
+    tap_id(&ctx, &mut app, "button:Measure")?;
+    assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
+    let (mut app, ctx) = sample_on(Tab::Schematic);
+    let before = app.schematic.zoom;
+    tap_id(&ctx, &mut app, "button:\u{2212}")?;
+    assert!(app.schematic.zoom < before, "the minus button zooms out");
+    tap_id(&ctx, &mut app, "icon:canvas-fit")?;
+    assert!(
+        app.needs_fit || app.schematic.zoom > 0.0,
+        "Fit frames the design"
+    );
+    Ok(())
+}

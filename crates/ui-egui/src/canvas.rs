@@ -2581,9 +2581,9 @@ impl App {
         }
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
-        painter.text(
-            board.left_bottom() + Vec2::new(0.0, 18.0),
-            Align2::LEFT_TOP,
+        // Wrap at the canvas edge so a narrow window never cuts the note off.
+        let note_at = board.left_bottom() + Vec2::new(0.0, 18.0);
+        let galley = painter.layout(
             t!(
                 "board.paint_board.width_height_mm_top_bottom",
                 width = p.board.width,
@@ -2592,7 +2592,9 @@ impl App {
             ),
             FontId::monospace(11.0),
             self.muted(),
+            (rect.right() - note_at.x).max(80.0),
         );
+        painter.galley(note_at, galley, self.muted());
     }
 }
 

@@ -85,6 +85,11 @@ pub(crate) fn self_names(app: &App) -> Vec<String> {
         .map(|r| r.name.clone())
         .collect()
 }
+thread_local! {
+    /// When set, `frame` paints on a screen tall enough to show a whole page,
+    /// so the tooltip walk can hover controls that sit below the usual fold.
+    pub(crate) static TALL_SCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 pub(crate) fn frame(
     ctx: &egui::Context,
     app: &mut App,
@@ -98,7 +103,14 @@ pub(crate) fn frame(
         egui::RawInput {
             screen_rect: Some(Rect::from_min_size(
                 egui::Pos2::ZERO,
-                Vec2::new(1440.0, 940.0),
+                Vec2::new(
+                    1440.0,
+                    if TALL_SCREEN.with(std::cell::Cell::get) {
+                        6000.0
+                    } else {
+                        940.0
+                    },
+                ),
             )),
             events,
             ..Default::default()
@@ -162,4 +174,112 @@ pub(crate) fn interactive_rects(ctx: &egui::Context, app: &mut App) -> Vec<(Stri
         }
     }
     out
+}
+
+/// Make the tall-screen mode last for one scope, even when a story bails out.
+struct TallScope;
+impl TallScope {
+    fn enter() -> Self {
+        TALL_SCREEN.with(|tall| tall.set(true));
+        Self
+    }
+}
+impl Drop for TallScope {
+    fn drop(&mut self) {
+        TALL_SCREEN.with(|tall| tall.set(false));
+    }
+}
+
+/// Where the control the gate calls `id` (for example `spinbutton:Board
+/// width`) sits right now, found on a screen tall enough for the whole page
+/// so a control below the fold needs no scrolling.
+fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::Pos2, String> {
+    // A tooltip left by the last control must not cover this one.
+    for _ in 0..3 {
+        frame(
+            ctx,
+            app,
+            vec![egui::Event::PointerGone],
+            egui::Modifiers::NONE,
+        );
+    }
+    let found: Vec<_> = super::audit::controls(ctx, app)
+        .into_iter()
+        .filter(|c| c.enabled && c.rect.height() >= 1.0 && c.id.as_deref() == Some(id))
+        .collect();
+    found
+        .into_iter()
+        .next_back()
+        .map(|c| c.rect.center())
+        .ok_or_else(|| format!("{id} is not on screen, or is switched off"))
+}
+
+/// Click the control the gate calls `id`, like a person pressing it.
+pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
+    let _tall = TallScope::enter();
+    let pos = control_center(ctx, app, id)?;
+    // Rest the pointer on it first, as a hand does, before pressing.
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(pos)],
+        egui::Modifiers::NONE,
+    );
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+/// Click into a field, replace what it holds with `text` and press Enter.
+/// Works for number fields and text boxes alike.
+pub(crate) fn type_into(
+    ctx: &egui::Context,
+    app: &mut App,
+    id: &str,
+    text: &str,
+) -> Result<(), String> {
+    tap_id(ctx, app, id)?;
+    let _tall = TallScope::enter();
+    let key = |key: egui::Key, modifiers: egui::Modifiers| egui::Event::Key {
+        key,
+        physical_key: Some(key),
+        pressed: true,
+        repeat: false,
+        modifiers,
+    };
+    frame(
+        ctx,
+        app,
+        vec![key(egui::Key::A, egui::Modifiers::COMMAND)],
+        egui::Modifiers::COMMAND,
+    );
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::Text(text.to_owned())],
+        egui::Modifiers::NONE,
+    );
+    frame(
+        ctx,
+        app,
+        vec![key(egui::Key::Enter, egui::Modifiers::NONE)],
+        egui::Modifiers::NONE,
+    );
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
 }

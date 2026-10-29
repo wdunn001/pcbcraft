@@ -348,3 +348,28 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_jumps_from_a_finding_to_the_copper_it_names() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    for name in ["GND", "LED", "VCC"] {
+        app.change_tab(Tab::Checks);
+        app.selected = None;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap_id(
+            &ctx,
+            &mut app,
+            &format!("button:{name} has disconnected copper islands"),
+        )?;
+        assert_eq!(app.tab, Tab::Pcb, "{name}: the finding opens the board");
+        assert!(
+            app.selected.is_some(),
+            "{name}: the finding picks its copper"
+        );
+    }
+    Ok(())
+}

@@ -2,6 +2,7 @@
 //! change goes through the typed `board.datum_*` commands.
 
 use super::*;
+use crate::a11y::Named;
 
 /// Free-text and number fields the datum controls edit before a command runs.
 #[derive(Default)]
@@ -75,7 +76,7 @@ impl App {
                         crate::targets::text_field(&mut self.datum_ui.add_name)
                             .hint_text("Datum name")
                             .desired_width(90.0),
-                    )
+                    ).named("Datum name")
                     .on_hover_text(
                         "Letters, digits, dash or underscore, up to 32 characters. Each name is used once.",
                     );
@@ -97,7 +98,7 @@ impl App {
                                 .on_hover_text("The datum sits at this hole and follows it.");
                             }
                         })
-                        .response
+                        .response.named("Add datum at")
                         .on_hover_text("Where the new datum goes: on a drilled hole, or free.");
                     if ui
                         .button("Add datum")
@@ -178,6 +179,7 @@ impl App {
         ui.add_space(8.0);
         ui.label("Name");
         ui.add(crate::targets::text_field(&mut self.datum_ui.name))
+            .named("Datum name")
             .on_hover_text("The name written into the enclosure files.");
         if ui
             .button("Rename")
@@ -191,10 +193,12 @@ impl App {
         ui.label("Position · mm");
         ui.horizontal(|ui| {
             ui.label("X");
-            ui.add(egui::DragValue::new(&mut self.datum_ui.x).speed(0.1))
+            ui.add(crate::number_entry::localized_active(egui::DragValue::new(&mut self.datum_ui.x).speed(0.1), 3))
+                .named("Datum X")
                 .on_hover_text("Set where the datum sits across the board, in millimetres. It must stay on the board.");
             ui.label("Y");
-            ui.add(egui::DragValue::new(&mut self.datum_ui.y).speed(0.1))
+            ui.add(crate::number_entry::localized_active(egui::DragValue::new(&mut self.datum_ui.y).speed(0.1), 3))
+                .named("Datum Y")
                 .on_hover_text("Set where the datum sits up the board, in millimetres. It must stay on the board.");
         });
         if ui
@@ -229,6 +233,7 @@ impl App {
                 }
             })
             .response
+            .named("Follow hole")
             .on_hover_text("Tie the datum to a drilled hole so it moves with the hole.");
         if pick != d.hole {
             match pick {

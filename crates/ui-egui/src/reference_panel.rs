@@ -2,6 +2,7 @@
 //! board, and trace its dark parts into silk, mask, a machine layer or copper.
 //! The form values live in the egui context so the app struct stays small.
 use super::*;
+use crate::a11y::Named;
 use std::collections::BTreeMap;
 
 const TARGETS: [(&str, &str, &str); 6] = [
@@ -84,6 +85,7 @@ impl App {
                 .hint_text("PNG file path")
                 .desired_width(180.0),
         )
+        .named("PNG file path")
         .on_hover_text("The path of a PNG picture on this computer, up to 4096 pixels on a side.");
         if ui
             .button("Attach PNG")
@@ -131,7 +133,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Opacity");
                 let resp = ui
-                    .add(egui::DragValue::new(&mut edit[0]).range(0.0..=1.0).speed(0.01))
+                    .add(egui::DragValue::new(&mut edit[0]).range(0.0..=1.0).speed(0.01)).named("Picture opacity")
                     .on_hover_text("How strongly the picture shows through, from 0 (hidden) to 1 (solid).");
                 commit |= resp.drag_stopped() || resp.lost_focus();
                 ui.label("Size");
@@ -141,7 +143,7 @@ impl App {
                             .range(0.001..=100.0)
                             .speed(0.005)
                             .suffix(" mm/px"),
-                    )
+                    ).named("Picture size")
                     .on_hover_text("Set how many millimetres one picture pixel covers; larger makes the picture bigger. From 0.001 to 100 millimetres per pixel.");
                 commit |= resp.drag_stopped() || resp.lost_focus();
             });
@@ -157,6 +159,11 @@ impl App {
                                 .speed(0.1)
                                 .suffix(" mm"),
                         )
+                        .named(if slot == 2 {
+                            "Picture left edge"
+                        } else {
+                            "Picture top edge"
+                        })
                         .on_hover_text(tip);
                     commit |= resp.drag_stopped() || resp.lost_focus();
                 }
@@ -308,6 +315,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label("Threshold");
                 ui.add(egui::DragValue::new(&mut form.threshold).range(0..=255))
+                    .named("Threshold")
                     .on_hover_text(
                         "Pixels darker than this count as ink. Raise it to catch lighter greys.",
                     );
@@ -318,6 +326,7 @@ impl App {
                         .speed(0.01)
                         .suffix(" mm"),
                 )
+                .named("Smoothing")
                 .on_hover_text("Round off pixel steps; larger gives fewer, straighter corners. From 0 to 10 millimetres.");
             });
             if ui

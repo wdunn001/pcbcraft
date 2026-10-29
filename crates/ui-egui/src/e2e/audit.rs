@@ -15,7 +15,7 @@
 //! icons published through `App::record_icon`.
 
 use super::super::*;
-use super::support::frame;
+use super::support::{TALL_SCREEN, frame};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::Path;
@@ -131,9 +131,13 @@ pub(crate) fn controls(ctx: &egui::Context, app: &App) -> Vec<Control> {
                 let disabled = node.is_some_and(|(_, _, off)| *off);
                 let (id, kind) = if let Some(icon) = icon {
                     (Some(format!("icon:{icon}")), "icon".to_owned())
-                } else if let (Some((_, label, _)), Some(kind)) = (node, kind) {
+                } else if let (Some((_, label, _)), Some(kind)) = (node, kind.clone()) {
                     let label = label.clone().filter(|l| !l.trim().is_empty());
                     (label.map(|l| format!("{kind}:{}", fold_label(&l))), kind)
+                } else if node.is_some() && kind.is_none() {
+                    // Text, groups and panes that only sense a click because egui
+                    // lets people select words. A screen reader reads their text.
+                    continue;
                 } else if w.sense.senses_click() && w.rect.size().max_elem() <= 48.0 {
                     (None, "small".to_owned())
                 } else {
@@ -226,10 +230,17 @@ fn settle(ctx: &egui::Context, app: &mut App) {
 
 /// Hover the control for two frames and say whether a tooltip appeared.
 /// The control is looked up again after the pointer leaves, because panels
-/// can still be moving when the page is first listed. A control scrolled out
-/// of its panel has no visible area to hover, so it cannot show a tooltip
-/// here and is reported until a test scrolls it into view (#520).
+/// can still be moving when the page is first listed. The hover runs on a
+/// screen tall enough for the whole page, so a control below the usual fold
+/// still has an area to hover (#520).
 fn shows_tooltip(ctx: &egui::Context, app: &mut App, control: &Control) -> bool {
+    TALL_SCREEN.with(|tall| tall.set(true));
+    let shown = shows_tooltip_on_tall_screen(ctx, app, control);
+    TALL_SCREEN.with(|tall| tall.set(false));
+    shown
+}
+
+fn shows_tooltip_on_tall_screen(ctx: &egui::Context, app: &mut App, control: &Control) -> bool {
     // Clear the previous control's tooltip first: it can sit over this control.
     for _ in 0..2 {
         frame(
@@ -283,7 +294,7 @@ fn walk(path: &Path) {
         ("footprint-editor", Some("footprint-editor"), None),
         ("project-library", Some("project-library"), None),
     ];
-    let mut painted = BTreeSet::new();
+    let mut painted: BTreeMap<String, &str> = BTreeMap::new();
     let mut no_tip: BTreeMap<String, String> = BTreeMap::new();
     let mut unnamed: BTreeMap<String, usize> = BTreeMap::new();
     for (name, arg, tab) in pages {
@@ -291,9 +302,12 @@ fn walk(path: &Path) {
         if let Some(tab) = tab {
             app.tab = tab;
         }
+        TALL_SCREEN.with(|tall| tall.set(true));
         settle(&ctx, &mut app);
+        let listed = controls(&ctx, &app);
+        TALL_SCREEN.with(|tall| tall.set(false));
         let mut checked = BTreeSet::new();
-        for control in controls(&ctx, &app) {
+        for control in listed {
             if !control.enabled {
                 continue;
             }
@@ -305,7 +319,7 @@ fn walk(path: &Path) {
                 *unnamed.entry(key).or_default() += 1;
                 continue;
             };
-            painted.insert(id.clone());
+            painted.entry(id.clone()).or_insert(name);
             if !checked.insert(id.clone()) || no_tip.contains_key(&id) {
                 continue;
             }
@@ -314,7 +328,10 @@ fn walk(path: &Path) {
             }
         }
     }
-    let mut lines: Vec<String> = painted.iter().map(|id| format!("P\t{id}")).collect();
+    let mut lines: Vec<String> = painted
+        .iter()
+        .map(|(id, page)| format!("P\t{id}\t{page}"))
+        .collect();
     lines.extend(no_tip.iter().map(|(id, page)| format!("T\t{id}\t{page}")));
     lines.extend(unnamed.keys().map(|key| format!("N\t{key}")));
     append(path, &lines);

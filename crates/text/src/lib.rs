@@ -609,6 +609,22 @@ pub fn activate(catalog: &Arc<Catalog>) {
     ACTIVE.with(|slot| *slot.borrow_mut() = Some(Arc::clone(catalog)));
 }
 
+/// The language tag the number and date functions use on this thread: the
+/// active catalog's, or `en` when none is active.
+///
+/// # Rules
+/// Read it where a widget formats or parses a number.
+/// # Dependencies
+/// [`Catalog::number_tag`].
+/// # Do not
+/// Call it from the io or mcp crates; machine output never localizes.
+pub fn active_number_tag() -> String {
+    ACTIVE.with(|slot| match slot.borrow().as_ref() {
+        Some(catalog) => catalog.number_tag().to_string(),
+        None => "en".to_string(),
+    })
+}
+
 /// Look up `key` in the active catalog (English when none is active).
 pub fn lookup(key: &str, args: &[(&str, &str)]) -> String {
     ACTIVE.with(|slot| match slot.borrow().as_ref() {

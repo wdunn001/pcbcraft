@@ -10,6 +10,7 @@
 
 use super::text;
 use crate::App;
+use crate::a11y::Named;
 use pcbcraft_assistant::{
     Connection, HttpFn, Mode, PRESETS, Protocol, anthropic_model_list, key_safe_for, model_list,
     new_id, normalize_url, test_anthropic_endpoint,
@@ -205,6 +206,7 @@ fn body(app: &mut App, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(text::limit());
         ui.add(egui::DragValue::new(&mut app.preferences.assistant_turn_limit).range(1..=200))
+            .named(&text::limit())
             .on_hover_text(text::limit_tip());
     });
     if ui
