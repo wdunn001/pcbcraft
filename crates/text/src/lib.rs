@@ -19,6 +19,8 @@ use std::sync::{Arc, Mutex};
 pub const ENGLISH: &str = include_str!("../strings/en.txt");
 /// Functions whose text already goes through the catalog; see the file.
 pub const CONVERTED_FNS: &str = include_str!("../strings/converted-fns.txt");
+/// The Spanish catalog, the first real translation, shipped in every build.
+const SPANISH_ES: &str = include_str!("../strings/es.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_FR: &str = include_str!("../strings/fixture-fr.txt");
 #[cfg(feature = "fixture")]
@@ -111,11 +113,26 @@ pub struct Language {
 
 /// The language files this build carries, English first. A test-only
 /// fixture language is listed only with the `fixture` feature.
+/// # Rules
+/// - English comes first; every tag listed also resolves in `language_text`.
+/// - The `name` is the language's own name, read from its `language.name`.
+/// # Dependencies
+/// - `crates/text/strings/en.txt`
+/// - `crates/text/strings/es.txt`
+/// # Do not
+/// - Do not gate a real translation behind a feature; only the test
+///   fixture is optional.
 pub fn shipped_languages() -> Vec<Language> {
-    let mut list = vec![Language {
-        tag: "en".into(),
-        name: language_name(ENGLISH),
-    }];
+    let mut list = vec![
+        Language {
+            tag: "en".into(),
+            name: language_name(ENGLISH),
+        },
+        Language {
+            tag: "es".into(),
+            name: language_name(SPANISH_ES),
+        },
+    ];
     list.extend(fixture_languages());
     list
 }
@@ -178,6 +195,7 @@ fn language_name(text: &str) -> String {
 fn language_text(tag: &str) -> Option<&'static str> {
     match tag {
         "en" => Some(ENGLISH),
+        "es" => Some(SPANISH_ES),
         #[cfg(feature = "fixture")]
         "fr" => Some(FIXTURE_FR),
         #[cfg(feature = "fixture")]
@@ -652,6 +670,35 @@ mod tests {
                 "the fixture really translates {key}"
             );
         }
+    }
+
+    #[test]
+    fn loading_spanish_swaps_menu_labels_and_keeps_placeholders() {
+        let english = Catalog::english();
+        let spanish = Catalog::english().with_language("es", SPANISH_ES);
+        assert_eq!(english.get("menu.file"), "File");
+        assert_eq!(spanish.get("menu.file"), "Archivo");
+        assert_eq!(spanish.get("menu.help"), "Ayuda");
+        assert_eq!(
+            spanish.format("menu.edit.clear_net", &[("name", "GND")]),
+            "Quitar el ruteo de GND",
+            "the name placeholder still fills"
+        );
+        assert_eq!(spanish.plural("cmp.count", 1), "1 componente");
+        assert_eq!(spanish.plural("cmp.count", 7), "7 componentes");
+        assert_eq!(match_locale("es_ES.UTF-8"), "es");
+        for (key, value) in parse(SPANISH_ES).0 {
+            let base = english.get(&key);
+            assert_eq!(
+                placeholders(&base),
+                placeholders(&value),
+                "es.txt keeps the placeholders of {key}"
+            );
+        }
+        assert!(
+            spanish.missing_keys().is_empty(),
+            "es.txt defines every key, so nothing falls back"
+        );
     }
 
     #[test]
