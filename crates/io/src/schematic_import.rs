@@ -1,8 +1,9 @@
 //! Read interchange schematic text into a native [`Project`].
 use pcbcraft_doc::{
-    Component, ComponentField, DrawnWire, Label, LibrarySymbol, Net, NoConnectFlag, Point,
-    Port, Project, ProjectLibrary, Sheet,
+    Component, ComponentField, DrawnWire, Label, LibrarySymbol, Net, NoConnectFlag, Port,
+    Project, ProjectLibrary, Sheet,
 };
+use pcbcraft_geom::Point;
 use pcbcraft_library::{parse_sexpr, read_symbols, Node, SymbolDefinition};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};

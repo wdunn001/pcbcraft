@@ -12005,7 +12005,7 @@ mod tests {
         let golden = load_schematic_golden("schematic_import_bus.golden.json")?;
         let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
         nets.sort();
-        assert_eq!(nets, golden["member_nets"]);
+        assert_eq!(serde_json::to_value(&nets).map_err(|e| e.to_string())?, golden["member_nets"]);
         assert_eq!(
             project.labels.iter().filter(|l| l.kind == "bus").count(),
             golden["bus_labels"].as_u64().unwrap_or(0) as usize
@@ -12122,6 +12122,7 @@ mod tests {
             name: "L1".into(),
             kind: "copper".into(),
             thickness: 0.035,
+            copper_role: None,
         });
         project.meta.insert("contact".into(), "fab@example.test".into());
         project.validate()?;
