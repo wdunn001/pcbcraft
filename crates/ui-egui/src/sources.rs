@@ -4,19 +4,27 @@
 //! lists parts (`PartSource`) and imports them (`CadSource`).
 //!
 //! # Rules
-//! - Runtime reads are cache-only until the live transport lands: `CacheOnly`
-//!   never touches the network. Tests inject a recorded fetcher through
+//! - The desktop app brings a blocking transport (`with_online_fetcher`), the
+//!   browser build a non-blocking one (`with_web_transport`); `CacheOnly` never
+//!   touches the network. Tests inject a recorded fetcher through
 //!   `App::use_open_source`.
+//! - With a browser transport a search is repeated every frame until the
+//!   transport has nothing waiting, and a transport that was refused by the
+//!   host's cross-origin rules shows its explanation instead of an empty list.
+//! - The line under the Online results says what is kept on this computer, how
+//!   old the oldest saved list is, and, offline, that only saved parts are shown.
 //!
 //! # Dependencies
 //! - crates/library/src/open_library.rs
 //! - crates/library/src/cad_cache.rs
 //! - crates/library/src/sources.rs
+//! - crates/library/src/web_transport.rs
 use super::*;
 use pcbcraft_library::cad::CadSource;
-use pcbcraft_library::cad_cache::{CadCache, default_cache_dir};
+use pcbcraft_library::cad_cache::{CacheStats, CadCache, default_cache_dir, now_secs};
 use pcbcraft_library::open_library::{CardScope, FetchError, Fetcher, OpenLibrarySource};
 use pcbcraft_library::sources::{PartResult, PartSource};
+use pcbcraft_library::web_transport::WebTransport;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
@@ -41,6 +49,8 @@ struct Search {
     query: String,
     scope: CardScope,
     rx: Receiver<Result<Value, String>>,
+    /// Set by the worker when the browser transport left a request unanswered during this search.
+    partial: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
@@ -48,6 +58,8 @@ pub(super) struct PartSources {
     source: Option<Arc<OpenLibrarySource>>,
     /// Set by the desktop app so the Offline toggle can stop all requests.
     offline: Option<Arc<AtomicBool>>,
+    /// The browser transport, when this is the web build.
+    web: Option<Arc<WebTransport>>,
     /// The search in flight, and the last answer with the query it was for.
     search: Option<Search>,
     answer: Option<(String, Result<Vec<PartResult>, String>)>,
@@ -60,6 +72,19 @@ impl PartSources {
     /// The open source, when it is switched on.
     pub(super) fn open(&self) -> Option<Arc<OpenLibrarySource>> {
         self.source.clone()
+    }
+}
+
+/// Bytes as a short size: `812 KB`, `3.2 MB`, `1.5 GB`.
+fn short_size(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    let b = bytes as f64;
+    if b < KB * KB {
+        format!("{:.0} KB", (b / KB).max(if bytes > 0 { 1.0 } else { 0.0 }))
+    } else if b < KB * KB * KB {
+        format!("{:.1} MB", b / (KB * KB))
+    } else {
+        format!("{:.1} GB", b / (KB * KB * KB))
     }
 }
 
@@ -83,6 +108,27 @@ pub(super) fn stock_line(part: &PartResult) -> String {
 }
 
 impl App {
+    /// The line about the online cache: what it holds against its cap, and how
+    /// old the oldest saved list is. `now` is seconds since the Unix epoch.
+    ///
+    /// # Rules
+    /// - Ages are whole hours below two days and whole days above, never a date.
+    /// - The text comes from the catalog; this only picks the key and the numbers.
+    pub(super) fn cache_line(&self, stats: &CacheStats, now: u64) -> String {
+        let size = short_size(stats.bytes);
+        let cap = short_size(stats.cap);
+        let age = match stats.oldest_age_secs(now) {
+            None => t!("library.dock.cache_age.none"),
+            Some(s) if s < 3600 => t!("library.dock.cache_age.fresh"),
+            Some(s) if s < 48 * 3600 => self
+                .catalog
+                .plural("library.dock.cache_age.hours", s / 3600),
+            Some(s) => self
+                .catalog
+                .plural("library.dock.cache_age.days", s / 86_400),
+        };
+        t!("library.dock.cache_line", size = size, cap = cap, age = age)
+    }
     /// The remote half of the part list. Local parts are drawn by the caller.
     /// The online part source behind the Online toggle: the sample source
     /// until a live one is wired in, asked for the typed query. Returns the
@@ -91,19 +137,18 @@ impl App {
     ///
     /// # Rules
     /// - Reads go through the cached source; nothing is fetched without a query.
-    /// - In the browser build part sources are not available.
+    /// - In the browser build the transport never blocks: a search that left requests waiting is dropped and
+    ///   asked again next frame, and a refused host shows its explanation.
     pub(super) fn online_parts(&mut self, ui: &mut egui::Ui) -> Vec<(PartResult, String)> {
         let muted = self.muted();
         let note = |ui: &mut egui::Ui, text: &str| {
             ui.label(egui::RichText::new(text).small().color(muted));
         };
-        #[cfg(target_arch = "wasm32")]
         {
-            note(ui, "Part sources are available in the desktop app.");
-            Vec::new()
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
+            if let Some(why) = self.part_sources.web.as_ref().and_then(|w| w.blocked()) {
+                note(ui, &why);
+                return Vec::new();
+            }
             if self.part_sources.source.is_none() {
                 note(
                     ui,
@@ -139,6 +184,10 @@ impl App {
             // Collect a finished search, then start the next one when the box changed.
             if let Some(search) = self.part_sources.search.take() {
                 match search.rx.try_recv() {
+                    Ok(_) if search.partial.load(Ordering::SeqCst) => {
+                        // Requests are still out: this answer is partial, ask again next frame.
+                        ui.ctx().request_repaint();
+                    }
                     Ok(result) => {
                         let parts = result.and_then(|v| {
                             serde_json::from_value::<Vec<PartResult>>(v).map_err(|e| e.to_string())
@@ -160,21 +209,42 @@ impl App {
                     .is_some_and(|(q, _)| *q == query);
             if !answered && self.part_sources.search.is_none() {
                 let (worker, asked) = (source.clone(), query.clone());
+                let partial = Arc::new(AtomicBool::new(false));
+                let (flag, web) = (partial.clone(), self.part_sources.web.clone());
                 let reply = library_dock::spawn_read(ui.ctx(), move || {
-                    worker
+                    let before = web.as_ref().map(|w| w.pending_served());
+                    let out = worker
                         .search_cards(scope, &asked)
                         .map_err(|e| e.to_string())
-                        .and_then(|p| serde_json::to_value(p).map_err(|e| e.to_string()))
+                        .and_then(|p| serde_json::to_value(p).map_err(|e| e.to_string()));
+                    if before != web.as_ref().map(|w| w.pending_served()) {
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                    out
                 });
                 self.part_sources.search = Some(Search {
                     query,
                     scope,
                     rx: reply,
+                    partial,
                 });
             }
             if self.part_sources.search.is_some() {
                 note(ui, "Searching the open library...");
             }
+            let offline = self
+                .part_sources
+                .offline
+                .as_ref()
+                .is_some_and(|f| f.load(Ordering::SeqCst));
+            let line = self.cache_line(&source.cache().stats(), now_secs());
+            let line = if offline {
+                t!("library.dock.offline_note", line = line)
+            } else {
+                line
+            };
+            ui.label(egui::RichText::new(line).small().color(muted))
+                .on_hover_text(t!("library.dock.cache_line.tip"));
             let name = PartSource::name(source.as_ref()).to_owned();
             let credit = format!(
                 "{}. {}",
@@ -221,6 +291,23 @@ impl App {
         self.use_open_source(fetcher, None);
         self.part_sources.offline = Some(offline);
         self
+    }
+    /// Hand the open source the browser's transport. Called by the web build;
+    /// the Online source is then on from the start.
+    pub fn with_web_transport(
+        mut self,
+        transport: Arc<WebTransport>,
+        offline: Arc<AtomicBool>,
+    ) -> Self {
+        self.use_open_source(Box::new(transport.clone()), None);
+        self.part_sources.web = Some(transport);
+        self.part_sources.offline = Some(offline);
+        self
+    }
+    /// Give the open source an offline switch, as the desktop app does. Tests only.
+    #[cfg(test)]
+    pub(super) fn part_sources_offline_for_test(&mut self, flag: Arc<AtomicBool>) {
+        self.part_sources.offline = Some(flag);
     }
     /// True when no online search is wanted or the one wanted has answered;
     /// a `--capture` image waits for it.
