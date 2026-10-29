@@ -1,10 +1,10 @@
-# PCBCraft — agent instructions
+# PCBCraft agent instructions
 
-Rust EDA app, GPL-3.0-or-later, MCP-first. **Codebase of record:** [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft) branch `main` (not upstream tangency-labs until integrator opens a PR). Onboarding: fork issue [#1](https://github.com/wdunn001/pcbcraft/issues/1), full pipeline in CONTRIBUTING.md.
+Rust EDA app, GPL-3.0-or-later, MCP-first. **Codebase of record:** [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft) branch `main` (not upstream tangency-labs until integrator opens a PR). Onboarding: [docs/getting-started.md](docs/getting-started.md), fork issue [#1](https://github.com/wdunn001/pcbcraft/issues/1), full pipeline in CONTRIBUTING.md.
 
 ## Before coding
 
-Read README.md (what works), ROADMAP.md, docs/architecture.md. For a claimed issue, read its body plus every `### Research` and `### Enrichment` comment.
+Read docs/getting-started.md, docs/capabilities.md, ROADMAP.md, docs/architecture.md. For a claimed issue, read its body plus every `### Research` and `### Enrichment` comment.
 
 ## Parallel agents
 
