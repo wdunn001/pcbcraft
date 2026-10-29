@@ -5,7 +5,7 @@
 //! `crates/ui-egui/src/e2e/audit.rs`); this module only reads text, so the
 //! rules are unit tested without a window.
 //!
-//! Walk log lines: `P<TAB>id` painted, `T<TAB>id<TAB>page` painted with no
+//! Walk log lines: `P<TAB>id<TAB>page` painted, `T<TAB>id<TAB>page` painted with no
 //! tooltip, `N<TAB>description` painted with no usable id. Touch log lines:
 //! one control id each.
 //!

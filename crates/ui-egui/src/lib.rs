@@ -12,6 +12,7 @@ mod impedance_panel;
 mod library;
 mod library_quality;
 mod motion;
+mod number_entry;
 mod palette;
 mod plot_viewer;
 mod reference_panel;
@@ -22,6 +23,7 @@ mod target_size;
 mod targets;
 mod via_covering;
 mod via_span;
+use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -30,6 +32,8 @@ use pcbcraft_text::t;
 #[cfg(test)]
 use std::collections::BTreeMap;
 use targets::TapButton;
+/// Window width in points under which side docks give way to the drawing.
+const NARROW_WINDOW: f32 = 640.0;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -1819,14 +1823,17 @@ impl App {
                                 }
                             })
                             .response
-                            .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
-                        ui.add(
+                            .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"))
+                            .named("Layer kind");
+                        ui.add(crate::number_entry::localized_active(
                             egui::DragValue::new(thickness)
                                 .speed(0.01)
                                 .range(0.0..=100.0)
                                 .suffix(format!(" {}", t!("unit.mm"))),
-                        )
-                        .on_hover_text(t!("unit.mm.tip"));
+                            2,
+                        ))
+                        .on_hover_text(t!("unit.mm.tip"))
+                        .named("Layer thickness");
                     });
                     let apply = ui
                         .button(t!("board.stackup_section.apply"))
@@ -1874,6 +1881,7 @@ impl App {
                     .desired_width(70.0)
                     .hint_text(t!("board.stackup_section.layer_name")),
             )
+            .named(&t!("board.stackup_section.layer_name"))
             .on_hover_text(t!("board.stackup_section.layer_name.tip"));
             egui::ComboBox::from_id_salt("stack-add-kind")
                 .selected_text(self.stack_kind.clone())
@@ -1890,14 +1898,17 @@ impl App {
                     }
                 })
                 .response
-                .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"));
-            ui.add(
+                .on_hover_text(t!("board.stackup_section.pick_what_this_layer_is.tip"))
+                .named("New layer kind");
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.stack_thickness)
                     .speed(0.01)
                     .range(0.0..=100.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            )
-            .on_hover_text(t!("unit.mm.tip"));
+                2,
+            ))
+            .on_hover_text(t!("unit.mm.tip"))
+            .named("New layer thickness");
             if ui
                 .add_enabled(
                     !self.stack_name.trim().is_empty(),
@@ -1946,18 +1957,21 @@ impl App {
                 .response
                 .on_hover_text(t!(
                     "board.stackup_section.the_coating_on_exposed_copper.tip"
-                ));
+                ))
+                .named("Surface finish");
         });
         self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label(t!("board.stackup_section.thickness"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.notes_thick)
                     .speed(0.01)
                     .range(0.2..=100.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            )
-            .on_hover_text(t!("unit.mm2.tip"));
+                2,
+            ))
+            .on_hover_text(t!("unit.mm2.tip"))
+            .named("Thickness");
             if ui
                 .button(t!("board.stackup_section.set_thickness"))
                 .on_hover_text(t!("board.stackup_section.set_thickness.tip"))
@@ -1969,14 +1983,16 @@ impl App {
         });
         ui.horizontal(|ui| {
             ui.label(t!("board.stackup_section.substrate"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.notes_er)
                     .speed(0.05)
                     .range(1.0..=20.0),
-            )
+                3,
+            ))
             .on_hover_text(t!(
                 "board.stackup_section.how_the_material_between_layers.tip"
-            ));
+            ))
+            .named("Substrate dielectric constant");
             if ui
                 .button(t!("board.stackup_section.set_substrate"))
                 .on_hover_text(t!("board.stackup_section.set_substrate.tip"))
@@ -2020,12 +2036,14 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(format!("{} ", t!("board.holes_section.text")));
                 if let Some((_, mut diameter)) = edit {
-                    ui.add(
+                    ui.add(crate::number_entry::localized_active(
                         egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.05..=25.0)
                             .suffix(format!(" {}", t!("unit.mm"))),
-                    )
+                        3,
+                    ))
+                    .named("Hole size")
                     .on_hover_text(t!("unit.mm3.tip"));
                     if ui
                         .button(t!("board.holes_section.apply"))
@@ -2107,13 +2125,15 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(format!("{} ", t!("board.fiducials_section.text")));
                 if let Some((_, mut diameter, mut front)) = edit {
-                    ui.add(
+                    ui.add(crate::number_entry::localized_active(
                         egui::DragValue::new(&mut diameter)
                             .speed(0.05)
                             .range(0.2..=10.0)
                             .suffix(format!(" {}", t!("unit.mm"))),
-                    )
-                    .on_hover_text(t!("unit.mm4.tip"));
+                        3,
+                    ))
+                    .on_hover_text(t!("unit.mm4.tip"))
+                    .named("Assembly mark size");
                     if ui
                         .selectable_label(front, t!("board.fiducials_section.top"))
                         .on_hover_text(t!("board.fiducials_section.top.tip"))
@@ -2211,6 +2231,7 @@ impl App {
                     .hint_text(t!("board.layers_tab.search_the_whole_board"))
                     .desired_width(150.0),
             )
+            .named("Search the whole board")
             .on_hover_text(t!("board.layers_tab.search_the_whole_board.tip"));
             if !self.tree_query.is_empty()
                 && ui
@@ -3132,7 +3153,7 @@ impl App {
         }
         let used = shown.len() as f32 * 90.0 + 40.0;
         let mut close = None;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.add_space(((ui.available_width() - used) / 2.0).max(8.0));
             for (tab, label) in shown.iter().cloned() {
                 let selected = self.tab == tab;
@@ -3308,6 +3329,7 @@ impl App {
                                             .hint_text(t!("dialogs.start_home.design_file_path"))
                                             .desired_width(240.0),
                                     )
+                                    .named("design file path")
                                     .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
                                 if self.home_path_focus {
                                     path_box.request_focus();
@@ -3603,6 +3625,12 @@ impl App {
         }
         counts
     }
+    /// True when the window is too narrow to put the library dock beside the
+    /// drawing (WCAG 1.4.10 reflow at 320 points). The dock steps aside and the
+    /// Lib button opens the Libraries page instead.
+    fn narrow_window(ctx: &egui::Context) -> bool {
+        ctx.content_rect().width() < NARROW_WINDOW
+    }
     fn browser(&mut self, ui: &mut egui::Ui) {
         egui::Panel::left("left-rail")
             .exact_size(44.0)
@@ -3622,7 +3650,12 @@ impl App {
                         .on_hover_text(t!("library.browser.lib.tip"))
                         .clicked()
                     {
-                        self.preferences.library_dock_open = !self.preferences.library_dock_open;
+                        if Self::narrow_window(ui.ctx()) {
+                            self.change_tab(Tab::Libraries);
+                        } else {
+                            self.preferences.library_dock_open =
+                                !self.preferences.library_dock_open;
+                        }
                     }
                     ui.add_space(8.0);
                     let counts = Self::finding_counts(&self.checks);
@@ -3658,7 +3691,7 @@ impl App {
                     }
                 });
             });
-        if !self.preferences.library_dock_open {
+        if !self.preferences.library_dock_open || Self::narrow_window(ui.ctx()) {
             return;
         }
         egui::Panel::left("library-dock")
@@ -3693,6 +3726,7 @@ impl App {
                                 .hint_text(t!("library.browser.search_parts_by_name"))
                                 .desired_width(f32::INFINITY),
                         )
+                        .named("Search parts by name")
                         .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
                     if self.part_search_focus {
                         query_box.request_focus();
@@ -3932,6 +3966,7 @@ impl App {
                                 }
                             })
                             .response
+                            .named("Renumber prefix")
                             .on_hover_text(t!("library.browser.renumber_one_kind_of_part.tip"));
                         if ui
                             .button(t!("library.browser.preview"))
@@ -4083,6 +4118,7 @@ impl App {
                             .desired_width(120.0)
                             .hint_text(t!("schematic.nets_tab.net_name")),
                     )
+                    .named(&t!("schematic.nets_tab.net_name"))
                     .on_hover_text(t!("schematic.nets_tab.net_name.tip"));
                     if ui
                         .button(t!("schematic.nets_tab.use_name"))
@@ -4229,6 +4265,7 @@ impl App {
                                 }
                             })
                             .response
+                            .named("Pin to connect")
                             .on_hover_text(t!("schematic.nets_tab.pick_a_pin_to_add.tip"));
                         if ui
                             .add_enabled(
@@ -4294,7 +4331,7 @@ impl App {
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(28, 20))
             .show(ui, |ui| {
-                ui.set_max_width(720.0);
+                ui.set_max_width(ui.available_width().min(720.0));
                 add(ui)
             })
             .inner
@@ -4328,9 +4365,10 @@ impl App {
         ui.checkbox(
             &mut self.preferences.grid,
             t!("settings.settings_tab.show_grid"),
-        );
+        )
+        .on_hover_text(t!("settings.settings_tab.show_grid.tip"));
         ui.label(t!("settings.settings_tab.interface_size"));
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (label, scale) in a11y::UI_SCALE_STEPS {
                 let on = (self.preferences.ui_scale - scale).abs() < 0.01;
                 if ui
@@ -4368,7 +4406,9 @@ impl App {
             }
         });
         ui.label(t!("settings.settings_tab.accent_color"));
-        ui.color_edit_button_srgb(&mut self.preferences.accent);
+        ui.color_edit_button_srgb(&mut self.preferences.accent)
+            .named(&t!("settings.settings_tab.accent_color"))
+            .on_hover_text(t!("settings.settings_tab.accent_color.tip"));
         ui.checkbox(
             &mut self.preferences.reduced_motion,
             t!("settings.settings_tab.reduce_motion"),
@@ -4404,19 +4444,25 @@ impl App {
         field_help(ui, FIELD_HELP_BOARD, self.muted());
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.w"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.width)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Board width")
+            .on_hover_text(t!("settings.settings_tab.how_wide_the_board_is.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.h"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.height)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Board height")
+            .on_hover_text(t!("settings.settings_tab.how_tall_the_board_is.tip"));
         });
         if ui
             .button(t!("settings.settings_tab.apply_board_dimensions"))
@@ -4441,26 +4487,35 @@ impl App {
         );
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.x"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.cut_x)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Cutout X")
+            .on_hover_text(t!("settings.settings_tab.cutout_x.tip"));
             ui.label(t!("settings.settings_tab.y"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.cut_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Cutout Y")
+            .on_hover_text(t!("settings.settings_tab.where_the_centre_of_the.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.radius"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.cut_r)
                     .speed(0.1)
                     .range(0.1..=50.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Cutout radius")
+            .on_hover_text(t!("settings.settings_tab.how_big_the_round_hole.tip"));
         });
         if ui
             .button(t!("settings.settings_tab.add_hole"))
@@ -4489,33 +4544,47 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.x"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.pour_x)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Pour X")
+            .on_hover_text(t!("settings.settings_tab.pour_x.tip"));
             ui.label(t!("settings.settings_tab.y"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.pour_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Pour Y")
+            .on_hover_text(t!("settings.settings_tab.where_the_bottom_side_of.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.w"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.pour_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Pour width")
+            .on_hover_text(t!("settings.settings_tab.pour_width.tip"));
             ui.label(t!("settings.settings_tab.h"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.pour_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Pour height")
+            .on_hover_text(t!(
+                "settings.settings_tab.how_tall_the_copper_rectangle.tip"
+            ));
         });
         let pour_net = self.pour_net;
         let net_choices: Vec<(Id, String)> = self
@@ -4534,7 +4603,12 @@ impl App {
                 for (id, name) in net_choices {
                     ui.selectable_value(&mut self.pour_net, id, name);
                 }
-            });
+            })
+            .response
+            .named("Pour connection")
+            .on_hover_text(t!(
+                "settings.settings_tab.choose_which_connection_the_poured.tip"
+            ));
         if ui
             .button(t!("settings.settings_tab.pour_copper"))
             .on_hover_text(t!("settings.settings_tab.pour_copper.tip"))
@@ -4568,27 +4642,36 @@ impl App {
                     .desired_width(110.0)
                     .hint_text(t!("settings.settings_tab.what_to_print")),
             )
+            .named(&t!("settings.settings_tab.what_to_print"))
             .on_hover_text(t!("settings.settings_tab.what_to_print.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.at"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.label_x)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
-            ui.add(
+                3,
+            ))
+            .named("Text X")
+            .on_hover_text(t!("settings.settings_tab.where_the_words_start_across.tip"));
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.label_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
-            ui.add(
+                3,
+            ))
+            .named("Text Y")
+            .on_hover_text(t!("settings.settings_tab.where_the_words_sit_up.tip"));
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.label_size)
                     .range(0.3..=20.0)
                     .speed(0.1)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            )
-            .on_hover_text(t!("unit.mm15.tip"));
+                3,
+            ))
+            .on_hover_text(t!("unit.mm15.tip"))
+            .named("Text size");
         });
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.side"));
@@ -4677,6 +4760,7 @@ impl App {
                     .hint_text(t!("settings.settings_tab.drawing_file_path_svg"))
                     .desired_width(150.0),
             )
+            .named("drawing file path (.svg)")
             .on_hover_text(t!("settings.settings_tab.drawing_file_path_svg.tip"));
         });
         if ui
@@ -4701,11 +4785,14 @@ impl App {
         }
         ui.horizontal(|ui| {
             ui.label(t!("settings.settings_tab.cutout_radius"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.cutout_radius)
                     .speed(0.1)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Cutout tool radius")
+            .on_hover_text(t!("settings.settings_tab.the_radius_of_the_circle.tip"));
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
@@ -4760,6 +4847,7 @@ impl App {
                 .hint_text(t!("settings.settings_tab.folder_for_the_files_blank"))
                 .desired_width(220.0),
         )
+        .named(&t!("settings.settings_tab.folder_for_the_files_blank"))
         .on_hover_text(t!("settings.settings_tab.folder_for_the_files_blank.tip"));
         if ui
             .button(t!("settings.settings_tab.copper_drill_files"))
@@ -4884,30 +4972,36 @@ impl App {
                     .suffix(format!(" {}", t!("settings.settings_tab.across")))
                     .speed(1.0),
             )
-            .on_hover_text(t!("settings.settings_tab.across.tip"));
+            .on_hover_text(t!("settings.settings_tab.across.tip"))
+            .named("Copies across");
             ui.add(
                 egui::DragValue::new(&mut self.panel_rows)
                     .range(1..=32)
                     .suffix(format!(" {}", t!("settings.settings_tab.down")))
                     .speed(1.0),
             )
-            .on_hover_text(t!("settings.settings_tab.down.tip"));
+            .on_hover_text(t!("settings.settings_tab.down.tip"))
+            .named("Copies down");
         });
         ui.horizontal(|ui| {
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.panel_gap)
                     .range(0.0..=25.0)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("settings.settings_tab.mm_gap"))),
-            )
-            .on_hover_text(t!("settings.settings_tab.mm_gap.tip"));
-            ui.add(
+                3,
+            ))
+            .on_hover_text(t!("settings.settings_tab.mm_gap.tip"))
+            .named("Gap between copies");
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.panel_rail)
                     .range(0.0..=25.0)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("settings.settings_tab.mm_rail"))),
-            )
-            .on_hover_text(t!("settings.settings_tab.mm_rail.tip"));
+                3,
+            ))
+            .on_hover_text(t!("settings.settings_tab.mm_rail.tip"))
+            .named("Rail width");
         });
         if ui
             .button(t!("settings.settings_tab.preview_panel"))
@@ -5017,22 +5111,26 @@ impl App {
                     };
                     ui.horizontal(|ui| {
                         ui.label(t!("rules.rules_tab.gap"));
-                        ui.add(
+                        ui.add(crate::number_entry::localized_active(
                             egui::DragValue::new(clearance)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
                                 .suffix(format!(" {}", t!("unit.mm"))),
-                        )
+                            2,
+                        ))
+                        .named("Gap")
                         .on_hover_text(t!("unit.mm10.tip"));
                     });
                     ui.horizontal(|ui| {
                         ui.label(t!("rules.rules_tab.wire_width"));
-                        ui.add(
+                        ui.add(crate::number_entry::localized_active(
                             egui::DragValue::new(width)
                                 .speed(0.01)
                                 .range(0.001..=100.0)
                                 .suffix(format!(" {}", t!("unit.mm"))),
-                        )
+                            2,
+                        ))
+                        .named("Wire width")
                         .on_hover_text(t!("unit.mm11.tip"));
                     });
                     ui.horizontal(|ui| {
@@ -5103,6 +5201,7 @@ impl App {
                                 }
                             })
                             .response
+                            .named("Rule set for connection")
                             .on_hover_text(t!("rules.rules_tab.pick_a_connection_then_assign.tip"));
                         if ui
                             .add_enabled(
@@ -5170,13 +5269,15 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
-        ui.horizontal(|ui| {
-            ui.add(
+        ui.horizontal_wrapped(|ui| {
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.teardrop_depth)
                     .range(0.05..=5.0)
                     .speed(0.05)
                     .suffix(format!(" {}", t!("rules.rules_tab.mm_deep"))),
-            )
+                3,
+            ))
+            .named("Teardrop depth")
             .on_hover_text(t!("rules.rules_tab.mm_deep.tip"));
             if ui
                 .button(t!("rules.rules_tab.harden_junctions"))
@@ -5231,11 +5332,13 @@ impl App {
         }
         if self.project.custom_checks.len() < 32 {
             ui.horizontal(|ui| {
-                let response = ui.add(
-                    crate::targets::text_field(&mut self.custom_name)
-                        .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
-                        .desired_width(150.0),
-                );
+                let response = ui
+                    .add(
+                        crate::targets::text_field(&mut self.custom_name)
+                            .hint_text(t!("rules.rules_tab.what_this_check_means_in"))
+                            .desired_width(150.0),
+                    )
+                    .named(&t!("rules.rules_tab.what_this_check_means_in"));
                 response.on_hover_text(t!("rules.rules_tab.the_name_this_check_reports.tip"));
                 egui::ComboBox::from_id_salt("custom-measure")
                     .selected_text(pcbcraft_text::lookup(
@@ -5252,6 +5355,7 @@ impl App {
                         }
                     })
                     .response
+                    .named("Custom check measure")
                     .on_hover_text(t!("rules.rules_tab.the_one_thing_this_check.tip"));
                 let unit = if CUSTOM_MEASURES[self.custom_measure.min(4)]
                     .1
@@ -5261,12 +5365,14 @@ impl App {
                 } else {
                     " mm"
                 };
-                ui.add(
+                ui.add(crate::number_entry::localized_active(
                     egui::DragValue::new(&mut self.custom_limit)
                         .range(0.01..=100000.0)
                         .speed(0.05)
                         .suffix(unit),
-                )
+                    3,
+                ))
+                .named("Custom check limit")
                 .on_hover_text(t!("rules.rules_tab.the_limit_millimetres_for_wire.tip"));
                 if ui
                     .selectable_label(self.custom_loud, t!("rules.rules_tab.must_fix"))
@@ -5396,7 +5502,10 @@ impl App {
                             ui.selectable_value(&mut self.pair_a, *id, name)
                                 .on_hover_text(t!("rules.rules_tab.pick_the_first_net_of.tip"));
                         }
-                    });
+                    })
+                    .response
+                    .named("First net of the pair")
+                    .on_hover_text(t!("rules.rules_tab.pair_first_net.tip"));
                 ui.label(t!("rules.rules_tab.away_from"));
                 egui::ComboBox::from_id_salt("pair_b")
                     .selected_text(name_of(self.pair_b))
@@ -5405,17 +5514,22 @@ impl App {
                             ui.selectable_value(&mut self.pair_b, *id, name)
                                 .on_hover_text(t!("rules.rules_tab.pick_the_second_net_of.tip"));
                         }
-                    });
+                    })
+                    .response
+                    .named("Second net of the pair")
+                    .on_hover_text(t!("rules.rules_tab.choose_the_second_connection_of.tip"));
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.keep_apart_by"));
-                ui.add(
+                ui.add(crate::number_entry::localized_active(
                     egui::DragValue::new(&mut self.pair_clearance)
                         .range(0.05..=25.0)
                         .speed(0.05)
                         .suffix(format!(" {}", t!("unit.mm"))),
-                )
-                .on_hover_text(t!("unit.mm12.tip"));
+                    3,
+                ))
+                .on_hover_text(t!("unit.mm12.tip"))
+                .named("Keep apart by");
             });
             if ui
                 .button(t!("rules.rules_tab.set_spacing"))
@@ -5488,6 +5602,7 @@ impl App {
                         .hint_text(t!("rules.rules_tab.usb"))
                         .desired_width(90.0),
                 )
+                .named("USB")
                 .on_hover_text(t!("rules.rules_tab.usb.tip"));
             });
             ui.horizontal(|ui| {
@@ -5498,7 +5613,10 @@ impl App {
                             ui.selectable_value(&mut self.dp_p, *id, name)
                                 .on_hover_text(t!("rules.rules_tab.pick_the_net_that_carries.tip"));
                         }
-                    });
+                    })
+                    .response
+                    .named("Positive net")
+                    .on_hover_text(t!("rules.rules_tab.pair_positive_net.tip"));
                 ui.label(t!("rules.rules_tab.text3"));
                 egui::ComboBox::from_id_salt("dp_n")
                     .selected_text(name_of(self.dp_n))
@@ -5509,16 +5627,21 @@ impl App {
                                     "rules.rules_tab.pick_the_net_that_carries2.tip"
                                 ));
                         }
-                    });
+                    })
+                    .response
+                    .named("Negative net")
+                    .on_hover_text(t!("rules.rules_tab.choose_the_connection_that_carries.tip"));
             });
             ui.horizontal(|ui| {
                 ui.label(t!("rules.rules_tab.run_together_with_a_gap"));
-                ui.add(
+                ui.add(crate::number_entry::localized_active(
                     egui::DragValue::new(&mut self.dp_gap)
                         .range(0.02..=10.0)
                         .speed(0.02)
                         .suffix(format!(" {}", t!("unit.mm"))),
-                )
+                    3,
+                ))
+                .named("Run together gap")
                 .on_hover_text(t!("unit.mm13.tip"));
             });
             if ui
@@ -5577,39 +5700,53 @@ impl App {
         );
         ui.horizontal(|ui| {
             ui.label(t!("rules.rules_tab.corner"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.area_x)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
-            ui.add(
+                3,
+            ))
+            .named("Area corner X")
+            .on_hover_text(t!("rules.rules_tab.where_the_left_edge_of.tip"));
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.area_y)
                     .speed(0.5)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Area corner Y")
+            .on_hover_text(t!("rules.rules_tab.area_corner_y.tip"));
             ui.label(t!("rules.rules_tab.size"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.area_w)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
-            ui.add(
+                3,
+            ))
+            .named("Area width")
+            .on_hover_text(t!("rules.rules_tab.how_wide_the_stricter_area.tip"));
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.area_h)
                     .speed(0.5)
                     .range(1.0..=500.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            );
+                3,
+            ))
+            .named("Area height")
+            .on_hover_text(t!("rules.rules_tab.how_tall_the_stricter_area.tip"));
         });
         ui.horizontal(|ui| {
             ui.label(t!("rules.rules_tab.copper_stays_apart_by_at"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.area_gap)
                     .range(0.05..=25.0)
                     .speed(0.05)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            )
-            .on_hover_text(t!("unit.mm14.tip"));
+                3,
+            ))
+            .on_hover_text(t!("unit.mm14.tip"))
+            .named("Copper stays apart by");
         });
         ui.horizontal(|ui| {
             ui.checkbox(
@@ -5618,12 +5755,14 @@ impl App {
             )
             .on_hover_text(t!("rules.rules_tab.parts_here_stand_no_taller.tip"));
             if self.area_limited {
-                ui.add(
+                ui.add(crate::number_entry::localized_active(
                     egui::DragValue::new(&mut self.area_height)
                         .range(0.1..=100.0)
                         .speed(0.5)
                         .suffix(format!(" {}", t!("unit.mm"))),
-                );
+                    3,
+                ))
+                .named("Tallest part allowed");
             }
         });
         if ui
@@ -5779,6 +5918,7 @@ impl App {
                             .desired_width(200.0)
                             .hint_text(t!("docks.builds_tab.what_this_build_changes")),
                     )
+                    .named(&t!("docks.builds_tab.what_this_build_changes"))
                     .on_hover_text(t!("docks.builds_tab.what_this_build_changes.tip"));
                     let save = ui
                         .button(t!("docks.builds_tab.save_note"))
@@ -5856,7 +5996,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Part to populate")
                             .on_hover_text(
                                 t!("docks.builds_tab.pick_a_part_then_leave.tip"),
                             );
@@ -5938,7 +6078,7 @@ impl App {
                                     }
                                 }
                             })
-                            .response
+                            .response.named("Part to swap")
                             .on_hover_text(
                                 t!("docks.builds_tab.pick_a_part_name_its.tip"),
                             );
@@ -5946,7 +6086,7 @@ impl App {
                             crate::targets::text_field(&mut self.swap_name)
                                 .desired_width(80.0)
                                 .hint_text(t!("docks.builds_tab.package_name")),
-                        )
+                        ).named(&t!("docks.builds_tab.package_name"))
                         .on_hover_text(
                             t!("docks.builds_tab.package_name.tip"),
                         );
@@ -6009,7 +6149,16 @@ impl App {
             self.message = t!("status.write_make_files.that_folder_could_not_be");
             return;
         }
-        self.tool_call(tool, json!({"path": directory}));
+        // The report is a single text file; every other tool takes the folder.
+        let path = if tool == "report.write" {
+            std::path::Path::new(&directory)
+                .join("report.txt")
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            directory
+        };
+        self.tool_call(tool, json!({"path": path}));
     }
     /// Write the UV print artwork for one side into the make folder.
     fn write_uv_print_files(&mut self, side: &str, label: &str) {
@@ -6053,6 +6202,17 @@ impl App {
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
+        if Self::narrow_window(ui.ctx()) {
+            egui::Panel::bottom("inspector-narrow")
+                .default_size(260.0)
+                .frame(Self::dock_frame(ui.style()))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| self.inspector_body(ui, 220.0));
+                });
+            return;
+        }
         egui::Panel::right("inspector")
             .default_size(280.0)
             .min_size(280.0)
@@ -6060,456 +6220,458 @@ impl App {
             .show(ui, |ui| {
                 let split = self.preferences.aside_split.clamp(0.25, 0.75);
                 let top_h = (ui.available_height() * split).min(ui.available_height() - 160.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), top_h),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        self.section_heading(ui, &t!("board.inspector.layers"));
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.layers_tab(ui));
-                    },
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
-                        .show_value(false)
-                        .text(t!("board.inspector.resize")),
-                )
-                .on_hover_text(t!("board.inspector.resize.tip"));
-                ui.horizontal(|ui| {
-                    ui.selectable_value(
-                        &mut self.preferences.aside_lower_tab,
-                        0,
-                        t!("board.inspector.properties"),
-                    )
-                    .on_hover_text(t!("board.inspector.properties.tip"));
-                    if assistant::shown(self) {
-                        ui.selectable_value(
-                            &mut self.preferences.aside_lower_tab,
-                            1,
-                            assistant::tab_label(self.assistant.waiting()),
-                        )
-                        .on_hover_text(assistant::tab_tip());
-                    }
-                });
-                if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
-                    assistant::pane::show(self, ui);
-                    return;
-                }
+                self.inspector_body(ui, top_h);
+            });
+    }
+    /// The layers tree over the properties page, in the side dock or, in a
+    /// narrow window, in the strip under the drawing. `top_h` is the height
+    /// the layers tree gets.
+    fn inspector_body(&mut self, ui: &mut egui::Ui, top_h: f32) {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), top_h),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                self.section_heading(ui, &t!("board.inspector.layers"));
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        self.draw_tool_options(ui);
-                        self.section_heading(ui, &t!("board.inspector.details"));
-                        if let Some(id) = self
-                            .selected
-                            .filter(|id| datums::is_datum(&self.project, *id))
-                        {
-                            self.datum_inspector(ui, id);
-                        } else if let Some(id) = self.selected {
-                            let c = self.project.component(id).cloned().or_else(|| {
-                                self.project
-                                    .footprint(id)
-                                    .and_then(|f| self.project.component(f.component))
-                                    .cloned()
-                            });
-                            if let Some(c) = c {
-                                ui.heading(&c.reference);
-                                if !c.units.is_empty() && self.project.component(id).is_some() {
-                                    let before = self.selected_unit;
-                                    egui::ComboBox::from_id_salt("selected-symbol-unit")
-                                        .selected_text(t!(
-                                            "board.inspector.unit_selected_unit",
-                                            selected_unit = self.selected_unit
-                                        ))
-                                        .show_ui(ui, |ui| {
-                                            for unit in std::iter::once(1)
-                                                .chain(c.units.iter().map(|u| u.unit))
-                                            {
-                                                ui.selectable_value(
-                                                    &mut self.selected_unit,
-                                                    unit,
-                                                    t!("board.inspector.unit_unit", unit = unit),
-                                                )
-                                                .on_hover_text(t!("board.inspector.unit_unit.tip"));
-                                            }
-                                        });
-                                    if before != self.selected_unit {
-                                        self.load_properties();
-                                    }
-                                }
-                                ui.label(&c.kind);
-                                ui.label(
-                                    egui::RichText::new(t!(
-                                        "board.inspector.stable_id_id",
-                                        id = id
-                                    ))
-                                    .small()
-                                    .color(self.muted()),
-                                );
-                                ui.add_space(10.0);
-                                ui.label(t!("board.inspector.value"));
-                                ui.add(crate::targets::text_field(&mut self.value));
-                                field_help(ui, FIELD_HELP_VALUE, self.muted());
-                                if ui
-                                    .button(t!("board.inspector.apply_value"))
-                                    .on_hover_text(command_tip("component.value"))
-                                    .clicked()
-                                {
-                                    self.run(
-                                        "component.value",
-                                        json!({"id":c.id,"value":self.value}),
-                                    );
-                                }
-                                ui.add_space(12.0);
-                                ui.label(t!("board.inspector.position_mm"));
-                                field_help(ui, FIELD_HELP_POSITION, self.muted());
-                                ui.horizontal(|ui| {
-                                    ui.label(t!("board.inspector.x"));
-                                    ui.add(egui::DragValue::new(&mut self.x).speed(0.1));
-                                    ui.label(t!("board.inspector.y"));
-                                    ui.add(egui::DragValue::new(&mut self.y).speed(0.1));
-                                });
-                                if ui
-                                    .button(t!("board.inspector.apply_position"))
-                                    .on_hover_text(t!("board.inspector.apply_position.tip"))
-                                    .clicked()
-                                {
-                                    let mut params =
-                                        json!({"id":id,"position":{"x":self.x,"y":self.y}});
-                                    if self.project.component(id).is_some() {
-                                        params["unit"] = json!(self.selected_unit);
-                                    }
-                                    self.run(
-                                        if self.project.footprint(id).is_some() {
-                                            "footprint.move"
-                                        } else {
-                                            "component.move"
-                                        },
-                                        params,
-                                    );
-                                }
-                                if ui
-                                    .button(t!("board.inspector.rotate_90_r"))
-                                    .on_hover_text(command_tip("component.rotate"))
-                                    .clicked()
-                                {
-                                    self.rotate();
-                                }
-                                if ui
-                                    .button(t!("board.inspector.duplicate"))
-                                    .on_hover_text(t!("board.inspector.duplicate.tip"))
-                                    .clicked()
-                                {
-                                    self.duplicate_selection();
-                                }
-                                let sheet =
-                                    Self::datasheet_url(c.field(&t!("board.inspector.datasheet")));
-                                if ui
-                                    .add_enabled(
-                                        sheet.is_some(),
-                                        egui::Button::new(t!("board.inspector.view_datasheet")),
-                                    )
-                                    .on_hover_text(if sheet.is_some() {
-                                        t!("board.inspector.open_this_part_s_datasheet")
-                                    } else {
-                                        t!("board.inspector.this_part_has_no_web")
-                                    })
-                                    .clicked()
-                                    && let Some(url) = sheet
-                                {
-                                    ui.ctx().open_url(egui::OpenUrl::new_tab(url));
-                                }
-                                if self.project.footprint(id).is_some() {
-                                    ui.label(t!("board.inspector.dock_to_board_edge"));
-                                    field_help(
-                                        ui,
-                                        &t!("board.inspector.for_an_edge_connector_the"),
-                                        self.muted(),
-                                    );
-                                    ui.horizontal(|ui| {
-                                        for edge in ["left", "right", "top", "bottom"] {
-                                            if ui
-                                                .button(t!(
-                                                    "board.inspector.dock_edge",
-                                                    edge = edge
-                                                ))
-                                                .on_hover_text(t!(
-                                                    "board.inspector.dock_edge.tip",
-                                                    edge = edge
-                                                ))
-                                                .clicked()
-                                            {
-                                                self.run(
-                                                    "footprint.dock_edge",
-                                                    json!({"id": id, "edge": edge}),
-                                                );
-                                            }
-                                        }
-                                    });
-                                    let locked = self
-                                        .project
-                                        .footprint(id)
-                                        .is_some_and(|fp| fp.locked == Some(true));
-                                    if ui
-                                        .button(if locked {
-                                            t!("board.inspector.unlock")
-                                        } else {
-                                            t!("board.inspector.lock_in_place")
-                                        })
-                                        .on_hover_text(if locked {
-                                            t!("board.inspector.let_this_part_move_rotate")
-                                        } else {
-                                            t!("board.inspector.freeze_this_part_so_no")
-                                        })
-                                        .clicked()
+                    .show(ui, |ui| self.layers_tab(ui));
+            },
+        );
+        ui.add(
+            egui::Slider::new(&mut self.preferences.aside_split, 0.25..=0.75)
+                .show_value(false)
+                .text(t!("board.inspector.resize")),
+        )
+        .on_hover_text(t!("board.inspector.resize.tip"));
+        ui.horizontal(|ui| {
+            ui.selectable_value(
+                &mut self.preferences.aside_lower_tab,
+                0,
+                t!("board.inspector.properties"),
+            )
+            .on_hover_text(t!("board.inspector.properties.tip"));
+            if assistant::shown(self) {
+                ui.selectable_value(
+                    &mut self.preferences.aside_lower_tab,
+                    1,
+                    assistant::tab_label(self.assistant.waiting()),
+                )
+                .on_hover_text(assistant::tab_tip());
+            }
+        });
+        if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
+            assistant::pane::show(self, ui);
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                self.draw_tool_options(ui);
+                self.section_heading(ui, &t!("board.inspector.details"));
+                if let Some(id) = self
+                    .selected
+                    .filter(|id| datums::is_datum(&self.project, *id))
+                {
+                    self.datum_inspector(ui, id);
+                } else if let Some(id) = self.selected {
+                    let c = self.project.component(id).cloned().or_else(|| {
+                        self.project
+                            .footprint(id)
+                            .and_then(|f| self.project.component(f.component))
+                            .cloned()
+                    });
+                    if let Some(c) = c {
+                        ui.heading(&c.reference);
+                        if !c.units.is_empty() && self.project.component(id).is_some() {
+                            let before = self.selected_unit;
+                            egui::ComboBox::from_id_salt("selected-symbol-unit")
+                                .selected_text(t!(
+                                    "board.inspector.unit_selected_unit",
+                                    selected_unit = self.selected_unit
+                                ))
+                                .show_ui(ui, |ui| {
+                                    for unit in
+                                        std::iter::once(1).chain(c.units.iter().map(|u| u.unit))
                                     {
-                                        self.run(
-                                            "footprint.set_locked",
-                                            json!({"id": id, "locked": !locked}),
-                                        );
-                                    }
-                                }
-                                ui.label(
-                                    c.library_footprint
-                                        .as_ref()
-                                        .map(|f| {
-                                            t!(
-                                                "board.inspector.footprint_name",
-                                                name = f.definition.name
-                                            )
-                                        })
-                                        .unwrap_or_else(|| {
-                                            if c.library_symbol.is_some() {
-                                                t!("board.inspector.footprint_unassigned")
-                                            } else {
-                                                t!("board.inspector.footprint_starter_package")
-                                            }
-                                        }),
-                                );
-                                if ui
-                                    .button(t!("board.inspector.assign_footprint_in_libraries"))
-                                    .on_hover_text(t!(
-                                        "board.inspector.assign_footprint_in_libraries.tip"
-                                    ))
-                                    .clicked()
-                                {
-                                    self.change_tab(Tab::Libraries);
-                                    self.library.kind = true;
-                                    self.library.pending = None;
-                                    self.library.path.clear();
-                                    self.library.results = None;
-                                    self.library.preview = None;
-                                    self.library.query.clear();
-                                }
-                                ui.add_space(12.0);
-                                ui.label(t!("board.inspector.pin_net"));
-                                for pin in &c.pins {
-                                    ui.label(t!(
-                                        "board.inspector.number_v1",
-                                        number = pin.number,
-                                        v1 = pin
-                                            .net
-                                            .map(|n| self.project.net_name(n))
-                                            .unwrap_or("unassigned")
-                                    ));
-                                }
-                            } else {
-                                ui.heading(t!("board.inspector.selected_object"));
-                                ui.label(t!("board.inspector.stable_id_id", id = id));
-                                for (name, value) in object_detail_rows(&self.project, id) {
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            egui::RichText::new(name).small().color(self.muted()),
-                                        );
-                                        ui.label(value);
-                                    });
-                                }
-                                self.via_span_controls(ui, id);
-                                self.via_covering_controls(ui, id);
-                                if let Some(track) =
-                                    self.project.board.tracks.iter().find(|t| t.id == id)
-                                {
-                                    let curved = track.arc.is_some();
-                                    let net = track.net;
-                                    let mid = (
-                                        (track.start.x + track.end.x) / 2.0,
-                                        (track.start.y + track.end.y) / 2.0,
-                                    );
-                                    let near = |a: Point, b: Point| {
-                                        (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
-                                    };
-                                    let span = |a: Point, b: Point| {
-                                        ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
-                                    };
-                                    let own_len = span(track.start, track.end);
-                                    let mate = self
-                                        .project
-                                        .board
-                                        .tracks
-                                        .iter()
-                                        .filter(|o| o.id != id && o.net == track.net)
-                                        .filter_map(|o| {
-                                            let joined = near(o.start, track.start)
-                                                || near(o.start, track.end)
-                                                || near(o.end, track.start)
-                                                || near(o.end, track.end);
-                                            joined.then(|| (o.id, span(o.start, o.end)))
-                                        })
-                                        .min_by(|a, b| a.1.total_cmp(&b.1));
-                                    let max_cut =
-                                        mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
-                                    ui.add_space(10.0);
-                                    ui.label(t!("board.inspector.wire_width"));
-                                    ui.add(
-                                        egui::DragValue::new(&mut self.track_width)
-                                            .range(0.05..=10.0)
-                                            .speed(0.05)
-                                            .suffix(format!(" {}", t!("unit.mm"))),
-                                    )
-                                    .on_hover_text(t!("unit.mm7.tip"));
-                                    if ui
-                                        .button(t!("board.inspector.set_width"))
-                                        .on_hover_text(command_tip("track.set_width"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.set_width",
-                                            json!({"id": id, "width": self.track_width}),
-                                        );
-                                    }
-                                    if ui
-                                        .button(t!("board.inspector.thicken_whole_connection"))
-                                        .on_hover_text(t!(
-                                            "board.inspector.thicken_whole_connection.tip"
-                                        ))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.set_width_net",
-                                            json!({"net": net, "width": self.track_width}),
-                                        );
-                                    }
-                                    if ui
-                                        .add_enabled(
-                                            curved,
-                                            egui::Button::new(t!("board.inspector.straighten")),
+                                        ui.selectable_value(
+                                            &mut self.selected_unit,
+                                            unit,
+                                            t!("board.inspector.unit_unit", unit = unit),
                                         )
-                                        .on_hover_text(if curved {
-                                            t!("board.inspector.pull_this_curved_wire_into")
-                                        } else {
-                                            t!("board.inspector.this_wire_is_already_straight")
-                                        })
-                                        .clicked()
-                                    {
-                                        self.run("track.straighten", json!({"id": id}));
+                                        .on_hover_text(t!("board.inspector.unit_unit.tip"));
                                     }
-                                    let corner_ready = mate.is_some();
-                                    ui.horizontal(|ui| {
-                                        ui.add_enabled(
-                                            corner_ready,
-                                            egui::DragValue::new(&mut self.chamfer_size)
-                                                .range(0.05..=1.5)
-                                                .speed(0.05)
-                                                .suffix(format!(" {}", t!("unit.mm"))),
-                                        )
-                                        .on_hover_text(t!("unit.mm8.tip"));
-                                        if ui
-                                            .add_enabled(
-                                                corner_ready,
-                                                egui::Button::new(t!("board.inspector.cut_corner")),
-                                            )
-                                            .on_hover_text(if corner_ready {
-                                                t!("board.inspector.trade_the_sharp_angle_where")
-                                            } else {
-                                                t!("board.inspector.this_wire_does_not_meet")
-                                            })
-                                            .clicked()
-                                            && let Some((other, _)) = mate
-                                        {
-                                            let size = self.chamfer_size.min(max_cut);
-                                            self.run(
-                                                "track.chamfer",
-                                                json!({"a": id, "b": other, "size": size}),
-                                            );
-                                        }
-                                    });
-                                    if ui
-                                        .button(t!("board.inspector.cut_in_half"))
-                                        .on_hover_text(t!("board.inspector.cut_in_half.tip"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.split",
-                                            json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
-                                        );
-                                    }
-                                    self.impedance_section(ui, id, net);
-                                }
-                                if let Some(zone) = self
-                                    .project
-                                    .board
-                                    .zones
-                                    .iter()
-                                    .find(|z| z.id == id)
-                                    .filter(|z| z.kind.as_deref() != Some("teardrop"))
-                                {
-                                    let net = zone.net;
-                                    let (mut min_x, mut max_x, mut min_y, mut max_y) =
-                                        (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-                                    for p in &zone.outline {
-                                        min_x = min_x.min(p.x);
-                                        max_x = max_x.max(p.x);
-                                        min_y = min_y.min(p.y);
-                                        max_y = max_y.max(p.y);
-                                    }
-                                    ui.add_space(10.0);
-                                    ui.label(t!("board.inspector.ground_stitching"));
-                                    ui.add(
-                                        egui::DragValue::new(&mut self.stitch_spacing)
-                                            .range(0.5..=50.0)
-                                            .speed(0.5)
-                                            .suffix(format!(" {}", t!("unit.mm"))),
-                                    )
-                                    .on_hover_text(t!("unit.mm9.tip"));
-                                    if ui
-                                        .button(t!("board.inspector.fill_with_vias"))
-                                        .on_hover_text(t!("board.inspector.fill_with_vias.tip"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "via.stitch",
-                                            json!({
-                                                "net": net,
-                                                "bounds": {
-                                                    "x": min_x,
-                                                    "y": min_y,
-                                                    "width": max_x - min_x,
-                                                    "height": max_y - min_y,
-                                                },
-                                                "spacing": self.stitch_spacing,
-                                                "diameter": 0.6,
-                                                "drill": 0.3,
-                                            }),
-                                        );
-                                    }
-                                }
+                                })
+                                .response
+                                .named("Part unit");
+                            if before != self.selected_unit {
+                                self.load_properties();
                             }
-                            ui.add_space(10.0);
+                        }
+                        ui.label(&c.kind);
+                        ui.label(
+                            egui::RichText::new(t!("board.inspector.stable_id_id", id = id))
+                                .small()
+                                .color(self.muted()),
+                        );
+                        ui.add_space(10.0);
+                        ui.label(t!("board.inspector.value"));
+                        ui.add(crate::targets::text_field(&mut self.value))
+                            .named(&t!("board.inspector.value"));
+                        field_help(ui, FIELD_HELP_VALUE, self.muted());
+                        if ui
+                            .button(t!("board.inspector.apply_value"))
+                            .on_hover_text(command_tip("component.value"))
+                            .clicked()
+                        {
+                            self.run("component.value", json!({"id":c.id,"value":self.value}));
+                        }
+                        ui.add_space(12.0);
+                        ui.label(t!("board.inspector.position_mm"));
+                        field_help(ui, FIELD_HELP_POSITION, self.muted());
+                        ui.horizontal(|ui| {
+                            ui.label(t!("board.inspector.x"));
+                            ui.add(crate::number_entry::localized_active(
+                                egui::DragValue::new(&mut self.x).speed(0.1),
+                                3,
+                            ))
+                            .named("X position");
+                            ui.label(t!("board.inspector.y"));
+                            ui.add(crate::number_entry::localized_active(
+                                egui::DragValue::new(&mut self.y).speed(0.1),
+                                3,
+                            ))
+                            .named("Y position");
+                        });
+                        if ui
+                            .button(t!("board.inspector.apply_position"))
+                            .on_hover_text(t!("board.inspector.apply_position.tip"))
+                            .clicked()
+                        {
+                            let mut params = json!({"id":id,"position":{"x":self.x,"y":self.y}});
+                            if self.project.component(id).is_some() {
+                                params["unit"] = json!(self.selected_unit);
+                            }
+                            self.run(
+                                if self.project.footprint(id).is_some() {
+                                    "footprint.move"
+                                } else {
+                                    "component.move"
+                                },
+                                params,
+                            );
+                        }
+                        if ui
+                            .button(t!("board.inspector.rotate_90_r"))
+                            .on_hover_text(command_tip("component.rotate"))
+                            .clicked()
+                        {
+                            self.rotate();
+                        }
+                        if ui
+                            .button(t!("board.inspector.duplicate"))
+                            .on_hover_text(t!("board.inspector.duplicate.tip"))
+                            .clicked()
+                        {
+                            self.duplicate_selection();
+                        }
+                        let sheet = Self::datasheet_url(c.field(&t!("board.inspector.datasheet")));
+                        if ui
+                            .add_enabled(
+                                sheet.is_some(),
+                                egui::Button::new(t!("board.inspector.view_datasheet")),
+                            )
+                            .on_hover_text(if sheet.is_some() {
+                                t!("board.inspector.open_this_part_s_datasheet")
+                            } else {
+                                t!("board.inspector.this_part_has_no_web")
+                            })
+                            .clicked()
+                            && let Some(url) = sheet
+                        {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                        if self.project.footprint(id).is_some() {
+                            ui.label(t!("board.inspector.dock_to_board_edge"));
+                            field_help(
+                                ui,
+                                &t!("board.inspector.for_an_edge_connector_the"),
+                                self.muted(),
+                            );
+                            ui.horizontal(|ui| {
+                                for edge in ["left", "right", "top", "bottom"] {
+                                    if ui
+                                        .button(t!("board.inspector.dock_edge", edge = edge))
+                                        .on_hover_text(t!(
+                                            "board.inspector.dock_edge.tip",
+                                            edge = edge
+                                        ))
+                                        .clicked()
+                                    {
+                                        self.run(
+                                            "footprint.dock_edge",
+                                            json!({"id": id, "edge": edge}),
+                                        );
+                                    }
+                                }
+                            });
+                            let locked = self
+                                .project
+                                .footprint(id)
+                                .is_some_and(|fp| fp.locked == Some(true));
                             if ui
-                                .button(t!("board.inspector.delete_del"))
-                                .on_hover_text(command_tip("object.delete"))
+                                .button(if locked {
+                                    t!("board.inspector.unlock")
+                                } else {
+                                    t!("board.inspector.lock_in_place")
+                                })
+                                .on_hover_text(if locked {
+                                    t!("board.inspector.let_this_part_move_rotate")
+                                } else {
+                                    t!("board.inspector.freeze_this_part_so_no")
+                                })
                                 .clicked()
                             {
-                                self.delete_selection();
+                                self.run(
+                                    "footprint.set_locked",
+                                    json!({"id": id, "locked": !locked}),
+                                );
                             }
-                            ui.separator();
-                        } else {
-                            ui.heading(t!("board.inspector.nothing_selected"));
-                            ui.label(t!("board.inspector.select_an_item_on_the"));
-                            ui.add_space(12.0);
                         }
-                    });
+                        ui.label(
+                            c.library_footprint
+                                .as_ref()
+                                .map(|f| {
+                                    t!("board.inspector.footprint_name", name = f.definition.name)
+                                })
+                                .unwrap_or_else(|| {
+                                    if c.library_symbol.is_some() {
+                                        t!("board.inspector.footprint_unassigned")
+                                    } else {
+                                        t!("board.inspector.footprint_starter_package")
+                                    }
+                                }),
+                        );
+                        if ui
+                            .button(t!("board.inspector.assign_footprint_in_libraries"))
+                            .on_hover_text(t!("board.inspector.assign_footprint_in_libraries.tip"))
+                            .clicked()
+                        {
+                            self.change_tab(Tab::Libraries);
+                            self.library.kind = true;
+                            self.library.pending = None;
+                            self.library.path.clear();
+                            self.library.results = None;
+                            self.library.preview = None;
+                            self.library.query.clear();
+                        }
+                        ui.add_space(12.0);
+                        ui.label(t!("board.inspector.pin_net"));
+                        for pin in &c.pins {
+                            ui.label(t!(
+                                "board.inspector.number_v1",
+                                number = pin.number,
+                                v1 = pin
+                                    .net
+                                    .map(|n| self.project.net_name(n))
+                                    .unwrap_or("unassigned")
+                            ));
+                        }
+                    } else {
+                        ui.heading(t!("board.inspector.selected_object"));
+                        ui.label(t!("board.inspector.stable_id_id", id = id));
+                        for (name, value) in object_detail_rows(&self.project, id) {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(name).small().color(self.muted()));
+                                ui.label(value);
+                            });
+                        }
+                        self.via_span_controls(ui, id);
+                        self.via_covering_controls(ui, id);
+                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
+                            let curved = track.arc.is_some();
+                            let net = track.net;
+                            let mid = (
+                                (track.start.x + track.end.x) / 2.0,
+                                (track.start.y + track.end.y) / 2.0,
+                            );
+                            let near = |a: Point, b: Point| {
+                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                            };
+                            let span = |a: Point, b: Point| {
+                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                            };
+                            let own_len = span(track.start, track.end);
+                            let mate = self
+                                .project
+                                .board
+                                .tracks
+                                .iter()
+                                .filter(|o| o.id != id && o.net == track.net)
+                                .filter_map(|o| {
+                                    let joined = near(o.start, track.start)
+                                        || near(o.start, track.end)
+                                        || near(o.end, track.start)
+                                        || near(o.end, track.end);
+                                    joined.then(|| (o.id, span(o.start, o.end)))
+                                })
+                                .min_by(|a, b| a.1.total_cmp(&b.1));
+                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
+                            ui.add_space(10.0);
+                            ui.label(t!("board.inspector.wire_width"));
+                            ui.add(crate::number_entry::localized_active(
+                                egui::DragValue::new(&mut self.track_width)
+                                    .range(0.05..=10.0)
+                                    .speed(0.05)
+                                    .suffix(format!(" {}", t!("unit.mm"))),
+                                3,
+                            ))
+                            .named("Wire width")
+                            .on_hover_text(t!("unit.mm7.tip"));
+                            if ui
+                                .button(t!("board.inspector.set_width"))
+                                .on_hover_text(command_tip("track.set_width"))
+                                .clicked()
+                            {
+                                self.run(
+                                    "track.set_width",
+                                    json!({"id": id, "width": self.track_width}),
+                                );
+                            }
+                            if ui
+                                .button(t!("board.inspector.thicken_whole_connection"))
+                                .on_hover_text(t!("board.inspector.thicken_whole_connection.tip"))
+                                .clicked()
+                            {
+                                self.run(
+                                    "track.set_width_net",
+                                    json!({"net": net, "width": self.track_width}),
+                                );
+                            }
+                            if ui
+                                .add_enabled(
+                                    curved,
+                                    egui::Button::new(t!("board.inspector.straighten")),
+                                )
+                                .on_hover_text(if curved {
+                                    t!("board.inspector.pull_this_curved_wire_into")
+                                } else {
+                                    t!("board.inspector.this_wire_is_already_straight")
+                                })
+                                .clicked()
+                            {
+                                self.run("track.straighten", json!({"id": id}));
+                            }
+                            let corner_ready = mate.is_some();
+                            ui.horizontal(|ui| {
+                                ui.add_enabled(
+                                    corner_ready,
+                                    crate::number_entry::localized_active(
+                                        egui::DragValue::new(&mut self.chamfer_size)
+                                            .range(0.05..=1.5)
+                                            .speed(0.05)
+                                            .suffix(format!(" {}", t!("unit.mm"))),
+                                        3,
+                                    ),
+                                )
+                                .named("Corner size")
+                                .on_hover_text(t!("unit.mm8.tip"));
+                                if ui
+                                    .add_enabled(
+                                        corner_ready,
+                                        egui::Button::new(t!("board.inspector.cut_corner")),
+                                    )
+                                    .on_hover_text(if corner_ready {
+                                        t!("board.inspector.trade_the_sharp_angle_where")
+                                    } else {
+                                        t!("board.inspector.this_wire_does_not_meet")
+                                    })
+                                    .clicked()
+                                    && let Some((other, _)) = mate
+                                {
+                                    let size = self.chamfer_size.min(max_cut);
+                                    self.run(
+                                        "track.chamfer",
+                                        json!({"a": id, "b": other, "size": size}),
+                                    );
+                                }
+                            });
+                            if ui
+                                .button(t!("board.inspector.cut_in_half"))
+                                .on_hover_text(t!("board.inspector.cut_in_half.tip"))
+                                .clicked()
+                            {
+                                self.run(
+                                    "track.split",
+                                    json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
+                                );
+                            }
+                            self.impedance_section(ui, id, net);
+                        }
+                        if let Some(zone) = self
+                            .project
+                            .board
+                            .zones
+                            .iter()
+                            .find(|z| z.id == id)
+                            .filter(|z| z.kind.as_deref() != Some("teardrop"))
+                        {
+                            let net = zone.net;
+                            let (mut min_x, mut max_x, mut min_y, mut max_y) =
+                                (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                            for p in &zone.outline {
+                                min_x = min_x.min(p.x);
+                                max_x = max_x.max(p.x);
+                                min_y = min_y.min(p.y);
+                                max_y = max_y.max(p.y);
+                            }
+                            ui.add_space(10.0);
+                            ui.label(t!("board.inspector.ground_stitching"));
+                            ui.add(crate::number_entry::localized_active(
+                                egui::DragValue::new(&mut self.stitch_spacing)
+                                    .range(0.5..=50.0)
+                                    .speed(0.5)
+                                    .suffix(format!(" {}", t!("unit.mm"))),
+                                3,
+                            ))
+                            .named("Stitch spacing")
+                            .on_hover_text(t!("unit.mm9.tip"));
+                            if ui
+                                .button(t!("board.inspector.fill_with_vias"))
+                                .on_hover_text(t!("board.inspector.fill_with_vias.tip"))
+                                .clicked()
+                            {
+                                self.run(
+                                    "via.stitch",
+                                    json!({
+                                        "net": net,
+                                        "bounds": {
+                                            "x": min_x,
+                                            "y": min_y,
+                                            "width": max_x - min_x,
+                                            "height": max_y - min_y,
+                                        },
+                                        "spacing": self.stitch_spacing,
+                                        "diameter": 0.6,
+                                        "drill": 0.3,
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                    ui.add_space(10.0);
+                    if ui
+                        .button(t!("board.inspector.delete_del"))
+                        .on_hover_text(command_tip("object.delete"))
+                        .clicked()
+                    {
+                        self.delete_selection();
+                    }
+                    ui.separator();
+                } else {
+                    ui.heading(t!("board.inspector.nothing_selected"));
+                    ui.label(t!("board.inspector.select_an_item_on_the"));
+                    ui.add_space(12.0);
+                }
             });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
@@ -6637,11 +6799,15 @@ impl App {
                                 .small()
                                 .color(self.accent()),
                         );
-                        let search = ui.add(
-                            crate::targets::text_field(&mut self.command_query)
-                                .hint_text(t!("board.footer.filter_command_names_and_descriptions"))
-                                .desired_width(300.0),
-                        );
+                        let search = ui
+                            .add(
+                                crate::targets::text_field(&mut self.command_query)
+                                    .hint_text(t!(
+                                        "board.footer.filter_command_names_and_descriptions"
+                                    ))
+                                    .desired_width(300.0),
+                            )
+                            .named("filter command names and descriptions");
                         if self.command_focus {
                             search.request_focus();
                             self.command_focus = false;
@@ -6659,6 +6825,7 @@ impl App {
                                     .desired_rows(3)
                                     .interactive(true),
                             )
+                            .named(&t!("board.footer.parameters_as_json_one_line"))
                             .on_hover_text(t!("board.footer.parameters_as_json_one_line.tip"));
                         if ui
                             .button(t!("board.footer.execute"))
@@ -6795,7 +6962,9 @@ impl App {
                     });
                 ui.add_space(10.0);
             }
-        });
+        })
+        .header_response
+        .on_hover_text(t!("library.browser.show_or_hide_the_starter.tip"));
     }
     fn checks_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(24.0);
@@ -7163,7 +7332,9 @@ impl App {
                                 "board.draw_tool_options.new_figures_land_on_this.tip"
                             ));
                     }
-                });
+                })
+                .response
+                .named("Drawing layer");
             if ui
                 .button(t!("board.draw_tool_options.new_layer"))
                 .on_hover_text(t!("board.draw_tool_options.new_layer.tip"))
@@ -7220,30 +7391,35 @@ impl App {
                         .hint_text(t!("board.draw_tool_options.words_to_print"))
                         .desired_width(f32::INFINITY),
                 )
+                .named("words to print")
                 .on_hover_text(t!("board.draw_tool_options.words_to_print.tip"));
             }
             ui.separator();
         }
         if matches!(self.tool, Tool::Hole) {
             ui.label(t!("board.draw_tool_options.mounting_hole_size"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.hole_diameter)
                     .speed(0.05)
                     .range(0.05..=25.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            )
-            .on_hover_text(t!("unit.mm5.tip"));
+                3,
+            ))
+            .on_hover_text(t!("unit.mm5.tip"))
+            .named("Mounting hole size");
             ui.separator();
         }
         if matches!(self.tool, Tool::Fiducial) {
             ui.label(t!("board.draw_tool_options.assembly_mark_size"));
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.fiducial_diameter)
                     .speed(0.05)
                     .range(0.2..=10.0)
                     .suffix(format!(" {}", t!("unit.mm"))),
-            )
-            .on_hover_text(t!("unit.mm6.tip"));
+                3,
+            ))
+            .on_hover_text(t!("unit.mm6.tip"))
+            .named("Assembly mark size");
             ui.separator();
         }
     }
@@ -7406,15 +7582,14 @@ impl App {
             }
             ui.separator();
             self.editing_controls(ui);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !matches!(self.tool, Tool::Select) {
-                    ui.label(
-                        egui::RichText::new(tool_hint(&self.tool))
-                            .small()
-                            .color(self.muted()),
-                    );
-                }
-            });
+            // Inline after the chips, so it wraps instead of lying over them.
+            if !matches!(self.tool, Tool::Select) {
+                ui.label(
+                    egui::RichText::new(tool_hint(&self.tool))
+                        .small()
+                        .color(self.muted()),
+                );
+            }
         });
         ui.separator();
     }

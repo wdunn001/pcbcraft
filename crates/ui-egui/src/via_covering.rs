@@ -1,5 +1,6 @@
 //! Via covering controls: how a via hole is protected under the solder mask.
 use super::*;
+use crate::a11y::Named;
 use pcbcraft_doc::ViaCovering;
 
 /// Menu text for a covering. "Left open" avoids clashing with the File menu.
@@ -72,7 +73,7 @@ impl App {
                         }
                     }
                 })
-                .response
+                .response.named("Via protection")
                 .on_hover_text(
                     "How this via is protected under the solder mask. Anything but left open removes the mask opening in the fabrication files.",
                 );
@@ -102,7 +103,7 @@ impl App {
                         }
                     }
                 })
-                .response
+                .response.named("Via protection for board")
                 .on_hover_text(
                     "How vias are protected under the solder mask unless a via says otherwise. It goes on the factory notes.",
                 );

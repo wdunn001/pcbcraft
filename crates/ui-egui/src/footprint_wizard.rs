@@ -2,6 +2,7 @@
 //! family, type the datasheet numbers, see the pads, and load the result
 //! into the footprint editor like any hand-made footprint.
 use super::*;
+use crate::a11y::Named;
 use pcbcraft_library::{FootprintDefinition, LandPatternDensity, LandPatternParams};
 
 const FAMILIES: [(&str, &str); 11] = [
@@ -85,6 +86,7 @@ fn field(ui: &mut egui::Ui, label: &str, tip: &str, value: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.add(egui::DragValue::new(value).speed(0.05).suffix(" mm"))
+            .named(label)
             .on_hover_text(tip);
     });
 }
@@ -93,6 +95,7 @@ fn count(ui: &mut egui::Ui, label: &str, tip: &str, value: &mut u32, max: u32) {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.add(egui::DragValue::new(value).range(1..=max))
+            .named(label)
             .on_hover_text(tip);
     });
 }
@@ -128,7 +131,7 @@ impl App {
                                     .on_hover_text("Package family to build the pads for.");
                             }
                         })
-                        .response
+                        .response.named("Package family")
                         .on_hover_text("Package family to build the pads for.");
                 });
                 ui.horizontal(|ui| {
@@ -145,6 +148,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("Name");
                     ui.add(crate::targets::text_field(&mut w.name))
+                        .named("Footprint name")
                         .on_hover_text("Name the footprint will have in the project library.");
                 });
                 field(ui, "Pitch", "Distance from one pin centre to the next.", &mut w.pitch);

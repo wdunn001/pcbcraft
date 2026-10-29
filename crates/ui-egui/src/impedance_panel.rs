@@ -1,6 +1,7 @@
 //! Properties section for a selected track: the width that would meet a
 //! target impedance, and the Tune length action with its before and after.
 use super::*;
+use crate::a11y::Named;
 
 /// What the last Tune length run reported, kept for display under the button.
 #[derive(Clone, Debug, Default)]
@@ -53,12 +54,12 @@ impl App {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.label("Target");
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.impedance_ui.target_ohm)
                     .range(1.0..=1000.0)
                     .speed(0.5)
-                    .suffix(" ohm"),
-            )
+                    .suffix(" ohm"), 2
+            )).named("Target impedance")
             .on_hover_text(
                 "The impedance this connection should have, for example 50 ohm for a radio line. The suggestion below is worked out for it.",
             );
@@ -163,24 +164,27 @@ impl App {
             );
         ui.horizontal(|ui| {
             ui.label("Target");
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.impedance_ui.tune_target)
                     .range(0.1..=10000.0)
                     .speed(0.1)
                     .suffix(" mm"),
-            )
+                3,
+            ))
+            .named("Tuning target")
             .on_hover_text(
                 "How long the whole connection should end up, so it matches its partners.",
             );
         });
         ui.horizontal(|ui| {
             ui.label("Allowed miss");
-            ui.add(
+            ui.add(crate::number_entry::localized_active(
                 egui::DragValue::new(&mut self.impedance_ui.tune_tolerance)
                     .range(0.01..=10.0)
                     .speed(0.01)
-                    .suffix(" mm"),
-            )
+                    .suffix(" mm"), 3
+            ))
+            .named("Allowed miss")
             .on_hover_text("Set how far the tuned result may land from the target, so tuning stops sooner. From 0.01 to 10 millimetres.");
         });
         ui.checkbox(&mut self.impedance_ui.tune_rounded, "Rounded bends")

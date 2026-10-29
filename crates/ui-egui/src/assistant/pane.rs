@@ -198,7 +198,8 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
             .desired_width(f32::INFINITY)
             .hint_text(text::input_hint()),
     );
-    edit.on_hover_text(if off {
+    use crate::a11y::Named;
+    edit.named(&text::input_hint()).on_hover_text(if off {
         text::disabled_tip()
     } else {
         text::input_tip()

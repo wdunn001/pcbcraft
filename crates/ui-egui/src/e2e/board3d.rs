@@ -145,3 +145,26 @@ fn a_newcomer_picks_a_part_from_the_3d_list() -> Result<(), String> {
     assert_eq!(app.selected, Some(j1));
     Ok(())
 }
+
+#[test]
+fn a_newcomer_picks_a_part_from_the_3d_list_and_resets_the_view() -> Result<(), String> {
+    let (ctx, mut app, _j1) = open_3d()?;
+    app.selected = None;
+    tap_id(&ctx, &mut app, "button:D# chip")?;
+    assert!(app.selected.is_some(), "a part row selects that part");
+    tap_id(&ctx, &mut app, "button:R# chip")?;
+    assert!(app.selected.is_some(), "another row selects another part");
+    app.view3d.yaw = 0.3;
+    tap_id(&ctx, &mut app, "button:Top view")?;
+    assert!(
+        (app.view3d.yaw + std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+        "Top view looks straight down at the board"
+    );
+    app.view3d.yaw = 0.9;
+    tap_id(&ctx, &mut app, "button:Reset view")?;
+    assert!(
+        (app.view3d.yaw - 0.9).abs() > 1e-9,
+        "Reset view frames the board again"
+    );
+    Ok(())
+}

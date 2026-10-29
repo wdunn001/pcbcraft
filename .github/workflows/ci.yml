@@ -3,8 +3,10 @@
 name: CI
 
 on:
+  # Work reaches main through pull requests on the fork, so branches are
+  # checked by their pull request run. Main keeps a run per commit.
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
   merge_group:
   workflow_dispatch:
