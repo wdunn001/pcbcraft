@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "rf-50ohm"
+name = "50 ohm RF"
+category = "interface"
+summary = "50 ohm RF rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "rf-50ohm_default"
