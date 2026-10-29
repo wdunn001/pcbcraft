@@ -3688,7 +3688,6 @@ struct SessionImportParams {
 struct NetlistNet {
     name: String,
     pins: Vec<NetlistPin>,
-    instance: None,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6298,7 +6297,6 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         .into_iter()
                         .map(|(reference, pin)| NetlistPin { reference, pin })
                         .collect(),
-                    instance: None,
                 })
                 .collect();
             import_nets(p, next, &NetlistImportParams { nets })
