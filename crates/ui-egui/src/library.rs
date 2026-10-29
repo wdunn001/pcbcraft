@@ -487,24 +487,17 @@ impl App {
                     })
                     .map(|g| g.primitive.path_points()),
             );
-            paths.extend(
-                s.pins
-                    .iter()
-                    .filter(|p| {
-                        (p.unit == 0 && self.library.preview_unit == 1
-                            || p.unit == self.library.preview_unit)
-                            && p.body_style <= 1
-                    })
-                    .map(|p| {
-                        vec![
-                            p.position,
-                            p.position.offset(Point::new(
-                                p.length * p.angle.to_radians().cos(),
-                                -p.length * p.angle.to_radians().sin(),
-                            )),
-                        ]
-                    }),
-            );
+            for p in s.pins.iter().filter(|p| {
+                (p.unit == 0 && self.library.preview_unit == 1
+                    || p.unit == self.library.preview_unit)
+                    && p.body_style <= 1
+            }) {
+                paths.push(vec![p.position, p.stem_end()]);
+                for (center, radius) in p.decoration_bubbles_draw(false) {
+                    paths.push(pcbcraft_library::SymbolPin::circle_points(center, radius));
+                }
+                paths.extend(p.decoration_paths_draw(false));
+            }
         }
         if let Some(f) = footprint {
             paths.extend(f.graphics.iter().map(|g| g.path_points()));
