@@ -1,0 +1,429 @@
+//! Stories for the Assistant pane, driven with a fake model (no network).
+use super::super::*;
+use super::support::*;
+use pcbcraft_assistant::{ChatBackend, Event, PromptPart, ToolRequest};
+use std::sync::mpsc::{Receiver, Sender, channel};
+
+/// A model that answers any message with one request to add a 10k resistor.
+struct FakeModel {
+    tools: Sender<ToolRequest>,
+    calls: Vec<(String, Value)>,
+    events: Vec<Event>,
+    answers: Vec<Receiver<Value>>,
+}
+
+impl FakeModel {
+    fn new(tools: Sender<ToolRequest>, calls: Vec<(String, Value)>) -> Self {
+        Self {
+            tools,
+            calls,
+            events: vec![Event::Ready {
+                agent: "fake".into(),
+                images: false,
+            }],
+            answers: Vec::new(),
+        }
+    }
+}
+
+impl ChatBackend for FakeModel {
+    fn poll(&mut self) -> Vec<Event> {
+        let mut out = std::mem::take(&mut self.events);
+        let before = self.answers.len();
+        self.answers.retain(|answer| answer.try_recv().is_err());
+        if before > 0 && self.answers.is_empty() {
+            out.push(Event::TurnEnded {
+                reason: String::new(),
+            });
+        }
+        out
+    }
+    fn prompt(&mut self, _: &[PromptPart]) {
+        for (name, args) in self.calls.clone() {
+            let (reply, answer) = channel();
+            let _ = self.tools.send(ToolRequest { name, args, reply });
+            self.answers.push(answer);
+        }
+        self.events.push(Event::Text {
+            thought: false,
+            text: "I will add the resistor.".into(),
+        });
+    }
+    fn cancel(&mut self) {}
+    fn new_session(&mut self) {}
+    fn answer_permission(&mut self, _: u64, _: Option<&str>) {}
+    fn authenticate(&mut self, _: &str) {}
+    fn set_model(&mut self, _: &str) {}
+    fn set_mode(&mut self, _: &str) {}
+    fn shutdown(&mut self, _: bool) {}
+}
+
+fn add_part(reference: &str, value: &str, x: f64) -> (String, Value) {
+    (
+        "execute".into(),
+        json!({"command":"component.add","params":{
+            "kind":"resistor","reference":reference,"value":value,"position":{"x":x,"y":20.0}}}),
+    )
+}
+
+fn with_fake_model() -> App {
+    with_calls(vec![add_part("R1", "10k", 20.0)])
+}
+
+fn with_calls(calls: Vec<(String, Value)>) -> App {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.preferences.aside_lower_tab = 1;
+    let model = FakeModel::new(
+        app.assistant
+            .start_context(std::path::PathBuf::new())
+            .tools
+            .unwrap_or_else(|| channel().0),
+        calls,
+    );
+    app.assistant_use(Box::new(model));
+    app
+}
+
+fn has_r1(app: &App) -> bool {
+    app.project.components.iter().any(|c| c.reference == "R1")
+}
+
+#[test]
+fn a_newcomer_opens_the_assistant_and_is_told_how_to_connect_a_model() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Assistant")?;
+    assert!(paints_text(&ctx, &mut app, "No model is connected")?);
+    assert!(paints_text(&ctx, &mut app, "Nothing leaves this computer")?);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_asks_the_assistant_to_add_a_resistor() -> Result<(), String> {
+    let mut app = with_fake_model();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.assistant.input = "add a 10k resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?,
+        "the card names the change"
+    );
+    assert!(!has_r1(&app), "nothing runs before the user answers");
+    authoring::tests::tap(&ctx, &mut app, "Allow")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(has_r1(&app), "the part is on the sheet");
+    assert!(
+        paints_text(&ctx, &mut app, "Ready")?,
+        "the model finished its turn"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_denies_a_change_and_the_design_stays_as_it_was() -> Result<(), String> {
+    let mut app = with_fake_model();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.assistant.input = "add a 10k resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(&ctx, &mut app, "Deny")?;
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(!has_r1(&app));
+    assert!(paints_text(&ctx, &mut app, "Denied")?);
+    Ok(())
+}
+
+fn settle(ctx: &egui::Context, app: &mut App) {
+    for _ in 0..4 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+}
+
+#[test]
+fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(), String> {
+    let mut app = with_calls(vec![
+        add_part("R1", "10k", 20.0),
+        add_part("R2", "4k7", 30.0),
+    ]);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add two resistors".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    assert!(paints_text(&ctx, &mut app, "Add resistor R1 (10k)")?);
+    assert!(
+        paints_text(&ctx, &mut app, "Assistant (2)")?,
+        "the tab counts the two questions waiting"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "adds R1")?,
+        "the card previews the change"
+    );
+    for _ in 0..2 {
+        authoring::tests::tap(&ctx, &mut app, "Allow")?;
+        settle(&ctx, &mut app);
+    }
+    assert!(has_r1(&app));
+    assert_eq!(app.project.components.len(), 2);
+    assert!(
+        app.assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, pcbcraft_assistant::Item::UndoStep { .. })),
+        "the conversation ends with an undo row: {:?}",
+        app.assistant.transcript.items
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Undo")?,
+        "the Undo button is on screen"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Undo")?;
+    settle(&ctx, &mut app);
+    assert!(
+        app.project.components.is_empty(),
+        "one Undo takes back both parts"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_a_malformed_change_refused_with_the_reason() -> Result<(), String> {
+    let bad = (
+        "execute".to_string(),
+        json!({"command":"component.add","params":{"kind":"resistor","position":"nowhere"}}),
+    );
+    let mut app = with_calls(vec![bad]);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "add a resistor".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    assert!(
+        !paints_text(&ctx, &mut app, "Allow")?,
+        "a refused change has no Allow button"
+    );
+    assert!(app.project.components.is_empty());
+    assert!(
+        app.assistant
+            .transcript
+            .items
+            .iter()
+            .any(|i| matches!(i, pcbcraft_assistant::Item::Note { error: true, .. })),
+        "the reason is in the conversation"
+    );
+    Ok(())
+}
+
+/// A server stand-in that lists two models and counts how often it is asked.
+fn fake_http(calls: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> pcbcraft_assistant::HttpFn {
+    std::sync::Arc::new(move |_| {
+        calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok((
+            200,
+            br#"{"data":[{"id":"small-model"},{"id":"big-model"}]}"#.to_vec(),
+        ))
+    })
+}
+
+/// A keychain that remembers keys in memory.
+#[derive(Default)]
+struct FakeKeychain(std::sync::Mutex<std::collections::BTreeMap<String, String>>);
+
+impl pcbcraft_assistant::Secrets for FakeKeychain {
+    fn get(&self, id: &str) -> Result<Option<String>, String> {
+        let map = self.0.lock().map_err(|e| e.to_string())?;
+        Ok(map.get(id).cloned())
+    }
+    fn set(&self, id: &str, secret: &str) -> Result<(), String> {
+        let mut map = self.0.lock().map_err(|e| e.to_string())?;
+        map.insert(id.into(), secret.into());
+        Ok(())
+    }
+    fn delete(&self, id: &str) -> Result<(), String> {
+        let mut map = self.0.lock().map_err(|e| e.to_string())?;
+        map.remove(id);
+        Ok(())
+    }
+}
+
+fn settings_app(
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    keys: std::sync::Arc<FakeKeychain>,
+) -> App {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None).with_host(Host {
+        http: Some(fake_http(calls)),
+        secrets: Some(keys),
+    });
+    app.refresh();
+    app.change_tab(Tab::Settings);
+    app
+}
+
+#[test]
+fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Test")?;
+    for _ in 0..30 {
+        settle(&ctx, &mut app);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "2 models")?,
+        "the test result is shown"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Add")?;
+    settle(&ctx, &mut app);
+    assert_eq!(app.preferences.assistant_connections.len(), 1);
+    assert_eq!(
+        app.preferences.assistant_default, app.preferences.assistant_connections[0].id,
+        "the first connection is the one in use"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Local model server")?,
+        "the row is listed"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_cannot_type_a_key_for_a_plain_http_server_on_another_computer() -> Result<(), String>
+{
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls, std::sync::Arc::new(FakeKeychain::default()));
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    settle(&ctx, &mut app);
+    if let Some(d) = app.assistant.dialog.as_mut() {
+        d.set_url("http://10.0.0.5:1234/v1");
+    }
+    settle(&ctx, &mut app);
+    assert!(
+        paints_text(&ctx, &mut app, "only sent over https")?,
+        "the reason is painted"
+    );
+    assert!(!paints_text(&ctx, &mut app, "Kept in the system keychain")?);
+    Ok(())
+}
+
+#[test]
+fn a_key_is_stored_in_the_keychain_and_never_in_the_preferences_file() -> Result<(), String> {
+    let keys = std::sync::Arc::new(FakeKeychain::default());
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls, keys.clone());
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    settle(&ctx, &mut app);
+    if let Some(d) = app.assistant.dialog.as_mut() {
+        d.set_key("sk-secret-123");
+    }
+    authoring::tests::tap(&ctx, &mut app, "Add")?;
+    settle(&ctx, &mut app);
+    let text = serde_json::to_string(&app.preferences).map_err(|e| e.to_string())?;
+    assert!(
+        !text.contains("sk-secret-123"),
+        "the key is not in the preferences"
+    );
+    assert!(text.contains("\"has_key\":true"));
+    let id = app.preferences.assistant_connections[0].id.clone();
+    assert_eq!(
+        pcbcraft_assistant::Secrets::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
+        Some("sk-secret-123".to_string())
+    );
+    assistant::settings::remove_connection(&mut app, &id);
+    assert_eq!(
+        pcbcraft_assistant::Secrets::get(&*keys, &pcbcraft_assistant::key_id(&id))?,
+        None,
+        "remove deletes the keychain entry"
+    );
+    Ok(())
+}
+
+#[test]
+fn with_the_assistant_switched_off_nothing_is_probed() -> Result<(), String> {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut app = settings_app(calls.clone(), std::sync::Arc::new(FakeKeychain::default()));
+    app.preferences.assistant_enabled = false;
+    app.preferences
+        .assistant_connections
+        .push(pcbcraft_assistant::Connection {
+            id: "api-1".into(),
+            name: "Home".into(),
+            protocol: pcbcraft_assistant::Protocol::OpenAi,
+            base_url: "http://localhost:11434/v1".into(),
+            model: "m".into(),
+            has_key: false,
+            images: false,
+        });
+    app.preferences.assistant_default = "api-1".into();
+    let ctx = egui::Context::default();
+    for _ in 0..10 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
+    assert!(!assistant::shown(&app));
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_selects_a_part_and_the_assistant_already_knows_which_one() -> Result<(), String> {
+    let session = pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?;
+    let shared = pcbcraft_mcp::shared(session);
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.preferences.aside_lower_tab = 1;
+    let script = pcbcraft_assistant::ScriptBackend::default();
+    script.report(Event::Ready {
+        agent: "script".into(),
+        images: false,
+    });
+    app.assistant_use(Box::new(script.clone()));
+    let r1 = app
+        .project
+        .components
+        .iter()
+        .find(|c| c.reference == "R1")
+        .map(|c| c.id)
+        .ok_or("the sample has R1")?;
+    app.selected = Some(r1);
+    let ctx = egui::Context::default();
+    settle(&ctx, &mut app);
+    app.assistant.input = "move this part right by 5 mm".into();
+    authoring::tests::tap(&ctx, &mut app, "Send")?;
+    settle(&ctx, &mut app);
+    let prompts = script.prompts();
+    let first = prompts.first().ok_or("a prompt was sent")?;
+    let Some(pcbcraft_assistant::PromptPart::Text(text)) = first.first() else {
+        return Err("the prompt starts with text".into());
+    };
+    assert!(text.contains("Selected: ") && text.contains("R1"), "{text}");
+    assert!(
+        text.ends_with("move this part right by 5 mm"),
+        "the user's words come last"
+    );
+    Ok(())
+}

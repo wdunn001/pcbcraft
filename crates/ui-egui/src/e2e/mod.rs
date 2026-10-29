@@ -6,6 +6,7 @@ pub(crate) mod support;
 mod audit;
 
 mod artifacts;
+mod assistant;
 mod board;
 mod board3d;
 mod builds;

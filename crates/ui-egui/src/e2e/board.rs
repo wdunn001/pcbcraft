@@ -439,7 +439,7 @@ fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
+        scrolled_to_at(&ctx, &mut app, "CUT-OUT HOLE", 700.0)?,
         "the board geometry section should offer a hole: {}",
         app.message
     );
