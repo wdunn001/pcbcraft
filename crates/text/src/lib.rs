@@ -263,16 +263,21 @@ impl Catalog {
     /// filled in. A language may add `{base}.zero`.
     pub fn plural(&self, base: &str, count: u64) -> String {
         let zero = format!("{base}.zero");
-        let form = if count == 0
-            && (self.overrides.contains_key(&zero) || self.english.contains_key(&zero))
-        {
-            "zero"
-        } else if count == 1 {
+        let form = if self.is_one(count) {
             "one"
+        } else if count == 0 && (self.overrides.contains_key(&zero) || self.english.contains_key(&zero)) {
+            "zero"
         } else {
             "other"
         };
         self.format(&format!("{base}.{form}"), &[("count", &count.to_string())])
+    }
+
+    fn is_one(&self, count: u64) -> bool {
+        match self.tag() {
+            "fr" | "pt-" => count == 0 || count == 1,
+            _ => count == 1,
+        }
     }
 
     /// A length in the project's unit. `value_mm` is millimetres; `unit` is
