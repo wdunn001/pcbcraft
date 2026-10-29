@@ -5,6 +5,9 @@ use crate::{
 use pcbcraft_geom::Point;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The legacy model `at` form is in inches.
+const MM_PER_INCH: f64 = 25.4;
+
 fn invalid(message: impl Into<String>) -> Error {
     Error::Invalid(message.into())
 }
@@ -465,10 +468,21 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                         };
                         Ok([num(xyz.value(1))?, num(xyz.value(2))?, num(xyz.value(3))?])
                     };
-                let offset = triple(
-                    child.child("offset").or_else(|| child.child("at")),
-                    [0.0; 3],
-                )?;
+                // Files from before the `offset` form place the model with
+                // `at`, in inches. `offset` is millimetres and wins when both
+                // are present.
+                let offset = if child.child("offset").is_some() {
+                    triple(child.child("offset"), [0.0; 3])?
+                } else {
+                    let inches = triple(child.child("at"), [0.0; 3])?;
+                    // Round away binary noise so 3 inches reads as 76.2 mm.
+                    let to_mm = |inches: f64| (inches * MM_PER_INCH * 1e9).round() / 1e9;
+                    let mm = [to_mm(inches[0]), to_mm(inches[1]), to_mm(inches[2])];
+                    if mm.iter().any(|v| v.abs() > 100_000.0) {
+                        return Err(invalid("model offset outside finite geometry bounds"));
+                    }
+                    mm
+                };
                 let scale = triple(child.child("scale"), [1.0; 3])?;
                 let rotate = triple(child.child("rotate"), [0.0; 3])?;
                 s.model = Some(Model3D {
