@@ -117,7 +117,7 @@ fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
         "the Settings tab opens with the look of the app"
     );
     assert!(
-        paints_text(&ctx, &mut app, "BOARD GEOMETRY")?,
+        scrolled_to_at(&ctx, &mut app, "BOARD GEOMETRY", 700.0)?,
         "the board settings that used to crowd the aside now live on the Settings tab"
     );
     assert!(

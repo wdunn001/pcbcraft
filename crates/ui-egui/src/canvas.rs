@@ -392,7 +392,7 @@ impl App {
             self.needs_fit = false;
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
@@ -761,7 +761,7 @@ impl App {
                         self.needs_fit = true;
                     }
                     if ui
-                        .small_button(t!("board.canvas.text"))
+                        .tap_button(t!("board.canvas.text"))
                         .on_hover_text(t!("board.canvas.text.tip"))
                         .clicked()
                     {
@@ -773,7 +773,7 @@ impl App {
                         *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
                     }
                     if ui
-                        .small_button(t!("board.canvas.text2"))
+                        .tap_button(t!("board.canvas.text2"))
                         .on_hover_text(t!("board.canvas.text2.tip"))
                         .clicked()
                     {
