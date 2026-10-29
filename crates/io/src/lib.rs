@@ -9,11 +9,13 @@ use std::path::Path;
 mod board_mesh;
 mod gerber;
 mod library_render;
+pub mod panel;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use gerber::gerber_copper;
+pub use panel::{panel_fabrication_files, panel_placement_text};
 use library_render::*;
 pub use pcbcraft_doc::Layer;
 

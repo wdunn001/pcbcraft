@@ -1261,6 +1261,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "panel.export",
+            "Write the full panel fabrication set (gerbers, drill map, Excellon drill, and pick-and-place with per-copy references) into a directory without editing the project",
+            schema(
+                json!({"directory":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["directory"],
+            ),
+        ),
+        (
             "board.set_finish",
             "Record the board's surface finish (for example HASL, ENIG or OSP) for reports and fabrication notes",
             schema(
@@ -1593,7 +1601,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.add",
             "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats","panel"]},"minItems":1,"maxItems":24}}),
                 &["name", "kinds"],
             ),
         ),
@@ -3152,6 +3160,11 @@ struct PanelSetParams {
     separation: Option<PanelSeparation>,
     #[serde(default)]
     tab_channel_width: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelExportParams {
+    directory: String,
 }
 fn panel_settings_from_params(a: &PanelParams) -> Result<PanelSettings, String> {
     let settings = PanelSettings {
@@ -9768,6 +9781,29 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.panel = None;
             Ok(json!({"removed": had}))
         }
+        "panel.export" => {
+            let a: PanelExportParams = parse(params)?;
+            if a.directory.is_empty() || a.directory.len() > 4096 {
+                return Err(Error::Invalid("output directory is out of range".into()));
+            }
+            let directory = std::path::Path::new(&a.directory);
+            let files = pcbcraft_io::panel_fabrication_files(p)?;
+            let mut written: Vec<String> = Vec::new();
+            for (name, text) in &files {
+                pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                written.push(name.clone());
+            }
+            let placement = pcbcraft_io::panel_placement_text(p)?;
+            pcbcraft_io::atomic_write(
+                &directory.join("panel-placement.txt"),
+                placement.as_bytes(),
+            )
+            .map_err(Error::Invalid)?;
+            written.push("panel-placement.txt".into());
+            written.sort();
+            Ok(json!({"directory": a.directory, "files": written}))
+        }
         "board.set_finish" => {
             let a: FinishParams = parse(params)?;
             if a.finish.is_empty() || a.finish.len() > 64 {
@@ -9793,7 +9829,6 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 p.board.thickness = thickness;
             }
             if let Some(er) = a.er {
-                p.board.er = er;
             }
             Ok(json!({"thickness": p.board.thickness, "er": p.board.er}))
         }
@@ -11024,6 +11059,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             | "stackup"
                             | "drill_chart"
                             | "stats"
+                            | "panel"
                     )
                 })
             {
@@ -11232,6 +11268,21 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         )
                         .map_err(Error::Invalid)?;
                         written.push("board-stats.csv".into());
+                    }
+                    "panel" => {
+                        let files = pcbcraft_io::panel_fabrication_files(p)?;
+                        for (name, text) in &files {
+                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
+                                .map_err(Error::Invalid)?;
+                            written.push(name.clone());
+                        }
+                        let placement = pcbcraft_io::panel_placement_text(p)?;
+                        pcbcraft_io::atomic_write(
+                            &directory.join("panel-placement.txt"),
+                            placement.as_bytes(),
+                        )
+                        .map_err(Error::Invalid)?;
+                        written.push("panel-placement.txt".into());
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
