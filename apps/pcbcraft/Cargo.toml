@@ -14,3 +14,6 @@ pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-io.workspace = true
 eframe.workspace = true
+pcbcraft-assistant.workspace = true
+ureq = { version = "2", default-features = false, features = ["tls"] }
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
