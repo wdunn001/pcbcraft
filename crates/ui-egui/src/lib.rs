@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod via_covering;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
@@ -666,6 +667,8 @@ pub struct App {
     svg_path: String,
     part_search_focus: bool,
     needs_fit: bool,
+    /// Left edge of the central page, so tests can check text keeps its margin.
+    page_left: f32,
     schematic: Camera,
     pcb: Camera,
     drag: Option<(Id, Point)>,
@@ -791,6 +794,10 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.push((
+            "Protection".into(),
+            via_covering::covering_name(v.effective_covering(&project.board)).into(),
+        ));
         clearance_rows(v.net, &mut rows);
         rows.push((
             "Position".into(),
@@ -1001,6 +1008,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             needs_fit: true,
+            page_left: 0.0,
             schematic: Camera {
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
@@ -1246,8 +1254,13 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        // Rules, Checks and Settings are pages, not canvases: going to one or
+        // coming back from one keeps the user's zoom and pan.
+        let page = |t: Tab| matches!(t, Tab::Rules | Tab::Checks | Tab::Settings);
+        if !page(tab) && !page(self.tab) {
+            self.needs_fit = true;
+        }
         self.tab = tab;
-        self.needs_fit = true;
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
@@ -1513,6 +1526,7 @@ impl App {
                     "The coating on exposed copper; it goes on the factory notes and reports.",
                 );
         });
+        self.via_covering_default_controls(ui);
         ui.horizontal(|ui| {
             ui.label("Thickness");
             ui.add(
@@ -5617,6 +5631,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
                         {
@@ -6709,6 +6724,7 @@ impl App {
                 .show(ui, |ui| {
                     self.workbench_tabs(ui);
                     self.tool_strip(ui);
+                    self.page_left = ui.max_rect().left();
                     match self.tab {
                         Tab::Schematic | Tab::Pcb => self.canvas(ui),
                         Tab::Files => {
@@ -6732,8 +6748,7 @@ impl App {
                         }
                         Tab::Checks => {
                             egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.checks_view(ui))
-                                .inner
+                                .show(ui, |ui| Self::margined(ui, |ui| self.checks_view(ui)));
                         }
                         Tab::Settings => {
                             egui::ScrollArea::vertical()
