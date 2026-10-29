@@ -208,11 +208,7 @@ impl App {
         } else {
             self.ink()
         };
-        let fill = if self.preferences.dark {
-            Color32::from_rgb(28, 40, 56)
-        } else {
-            Color32::from_rgb(236, 240, 246)
-        };
+        let fill = self.colours().icon_fill;
         let painter = ui.painter();
         painter.rect_filled(rect, 6.0, fill);
         painter.rect_stroke(
@@ -396,7 +392,7 @@ impl App {
             self.needs_fit = false;
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
@@ -598,7 +594,7 @@ impl App {
                             camera,
                             start,
                             snapped,
-                            Stroke::new(3.0, Color32::from_rgb(245, 141, 121)),
+                            Stroke::new(3.0, self.colours().canvas.front),
                         );
                     }
                 }
@@ -765,7 +761,7 @@ impl App {
                         self.needs_fit = true;
                     }
                     if ui
-                        .small_button(t!("board.canvas.text"))
+                        .tap_button(t!("board.canvas.text"))
                         .on_hover_text(t!("board.canvas.text.tip"))
                         .clicked()
                     {
@@ -777,7 +773,7 @@ impl App {
                         *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
                     }
                     if ui
-                        .small_button(t!("board.canvas.text2"))
+                        .tap_button(t!("board.canvas.text2"))
                         .on_hover_text(t!("board.canvas.text2.tip"))
                         .clicked()
                     {
@@ -897,10 +893,10 @@ impl App {
                 continue;
             }
             let colour = match layer.kind {
-                pcbcraft_doc::ArtKind::Cut => Color32::from_rgb(245, 141, 121),
-                pcbcraft_doc::ArtKind::Perforation => Color32::from_rgb(230, 194, 125),
+                pcbcraft_doc::ArtKind::Cut => self.colours().canvas.front,
+                pcbcraft_doc::ArtKind::Perforation => self.colours().canvas.pad,
                 pcbcraft_doc::ArtKind::Silk => self.ink(),
-                pcbcraft_doc::ArtKind::Mask => Color32::from_rgb(96, 170, 130),
+                pcbcraft_doc::ArtKind::Mask => self.colours().canvas.mask,
                 pcbcraft_doc::ArtKind::Other => self.ink().linear_multiply(0.55),
             };
             let stroke = Stroke::new(1.2, colour);
@@ -1939,11 +1935,11 @@ impl App {
                 let at = camera.screen(anchor, rect);
                 painter.line_segment(
                     [at + egui::vec2(-4.0, -4.0), at + egui::vec2(4.0, 4.0)],
-                    Stroke::new(1.6, egui::Color32::from_rgb(245, 141, 121)),
+                    Stroke::new(1.6, self.colours().canvas.front),
                 );
                 painter.line_segment(
                     [at + egui::vec2(-4.0, 4.0), at + egui::vec2(4.0, -4.0)],
-                    Stroke::new(1.6, egui::Color32::from_rgb(245, 141, 121)),
+                    Stroke::new(1.6, self.colours().canvas.front),
                 );
             }
         }
@@ -2174,15 +2170,7 @@ impl App {
             camera.screen(Point::default(), rect),
             camera.screen(Point::new(p.board.width, p.board.height), rect),
         );
-        painter.rect_filled(
-            board,
-            0.0,
-            if self.preferences.dark {
-                Color32::from_rgb(21, 54, 49)
-            } else {
-                Color32::from_rgb(205, 233, 222)
-            },
-        );
+        painter.rect_filled(board, 0.0, self.colours().canvas.board);
         underlay::paint(painter, rect, camera, p, "pcb");
         painter.rect_stroke(
             board,
@@ -2194,9 +2182,9 @@ impl App {
             let center = camera.screen(fid.position, rect);
             let radius = ((fid.diameter / 2.0) as f32 * camera.zoom).max(1.5);
             let color = if fid.layer == Layer::Front {
-                Color32::from_rgb(245, 141, 121)
+                self.colours().canvas.front
             } else {
-                Color32::from_rgb(116, 167, 236)
+                self.colours().canvas.back
             };
             painter.circle_filled(center, radius, color);
             painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
@@ -2245,7 +2233,7 @@ impl App {
                 ) {
                     painter.line_segment(
                         [camera.screen(a, rect), camera.screen(b, rect)],
-                        Stroke::new(1.0, Color32::from_rgb(126, 153, 161)),
+                        Stroke::new(1.0, self.colours().canvas.wire),
                     );
                 }
             }
@@ -2256,11 +2244,12 @@ impl App {
                 .iter()
                 .map(|pt| camera.screen(*pt, rect))
                 .collect();
-            let rgb = if z.layer == Layer::Front {
-                [245, 141, 121]
+            let zone_colour = if z.layer == Layer::Front {
+                self.colours().canvas.front
             } else {
-                [116, 167, 236]
+                self.colours().canvas.back
             };
+            let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
@@ -2305,9 +2294,9 @@ impl App {
                     if self.selected == Some(t.id) {
                         self.accent()
                     } else if t.layer == Layer::Front {
-                        self.copper(Some(t.net), Color32::from_rgb(245, 141, 121))
+                        self.copper(Some(t.net), self.colours().canvas.front)
                     } else {
-                        self.copper(Some(t.net), Color32::from_rgb(116, 167, 236))
+                        self.copper(Some(t.net), self.colours().canvas.back)
                     },
                 ),
             );
@@ -2318,7 +2307,7 @@ impl App {
             let base = if self.selected == Some(v.id) {
                 self.accent()
             } else {
-                self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
+                self.copper(Some(v.net), self.colours().canvas.front)
             };
             if via_on_layer(p, v, self.route_layer) {
                 painter.circle_filled(at, radius, base);
@@ -2350,7 +2339,7 @@ impl App {
                         if self.selected == Some(t.id) {
                             self.accent()
                         } else {
-                            Color32::from_rgb(216, 180, 255)
+                            self.colours().canvas.net_tie
                         },
                     ),
                 );
@@ -2429,7 +2418,7 @@ impl App {
                         painter.add(pad_shape(
                             outline,
                             pad.outline_is_convex(),
-                            self.copper(pad.net, Color32::from_rgb(230, 194, 125)),
+                            self.copper(pad.net, self.colours().canvas.pad),
                         ));
                     }
                     let hole = pad.drill_outline_points();
@@ -2460,9 +2449,9 @@ impl App {
                                 label,
                                 FontId::monospace(10.0),
                                 if pad.geometry.as_ref().is_some_and(|g| g.drill.is_some()) {
-                                    Color32::from_rgb(230, 194, 125)
+                                    self.colours().canvas.pad_label_hole
                                 } else {
-                                    Color32::from_rgb(48, 44, 32)
+                                    self.colours().canvas.pad_label_smd
                                 },
                             );
                         }

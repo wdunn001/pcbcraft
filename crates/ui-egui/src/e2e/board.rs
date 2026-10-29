@@ -1062,7 +1062,10 @@ fn a_newcomer_right_clicks_a_part_and_duplicates_it() -> Result<(), String> {
         .first()
         .map(|f| f.position)
         .ok_or("the sample board has parts")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Rows are 24 px tall now, so the canvas takes a few frames to settle.
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     let before = app.project.components.len();
     let screen = pcb_screen(&app, at);
     right_click(&ctx, &mut app, screen);
