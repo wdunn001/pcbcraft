@@ -520,7 +520,7 @@ fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Cut in half")?,
+        scrolled_to(&ctx, &mut app, "Cut in half")?,
         "a chosen wire offers to be cut in half: {}",
         app.message
     );
