@@ -571,7 +571,11 @@ fn strings(mode: Option<&str>) -> Result<(), String> {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if name == "en.txt" || !name.ends_with(".txt") || name == "converted-fns.txt" {
+                if name == "en.txt"
+                    || !name.ends_with(".txt")
+                    || name == "converted-fns.txt"
+                    || name == "plural-known.txt"
+                {
                     continue;
                 }
                 let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
