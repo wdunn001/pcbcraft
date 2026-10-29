@@ -144,6 +144,7 @@ jobs:
           shared-key: docs-check
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask docs check
+      - run: cargo xtask site-data --check
 
   test:
     name: Tests

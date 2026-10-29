@@ -1,0 +1,173 @@
+{
+  "count": 42,
+  "rules": [
+    {
+      "code": "annular_ring",
+      "title": "Annular ring"
+    },
+    {
+      "code": "art_off_board",
+      "title": "Art off board"
+    },
+    {
+      "code": "aspect_ratio",
+      "title": "Aspect ratio"
+    },
+    {
+      "code": "board_edge",
+      "title": "Board edge"
+    },
+    {
+      "code": "clearance",
+      "title": "Clearance"
+    },
+    {
+      "code": "copper_short",
+      "title": "Copper short"
+    },
+    {
+      "code": "copper_to_edge",
+      "title": "Copper to edge"
+    },
+    {
+      "code": "courtyard_overlap",
+      "title": null
+    },
+    {
+      "code": "cut_hits_via",
+      "title": "Cut hits via"
+    },
+    {
+      "code": "cutout_clearance",
+      "title": "Cutout clearance"
+    },
+    {
+      "code": "diffpair_gap",
+      "title": "Diffpair gap"
+    },
+    {
+      "code": "diffpair_skew",
+      "title": "Diffpair skew"
+    },
+    {
+      "code": "drill_overlap",
+      "title": null
+    },
+    {
+      "code": "keepout",
+      "title": "Keepout"
+    },
+    {
+      "code": "length_group_skew",
+      "title": "Length group skew"
+    },
+    {
+      "code": "mask_covers_pad",
+      "title": "Mask covers pad"
+    },
+    {
+      "code": "min_drill",
+      "title": "Min drill"
+    },
+    {
+      "code": "min_space",
+      "title": "Min space"
+    },
+    {
+      "code": "min_track",
+      "title": "Min track"
+    },
+    {
+      "code": "missing_footprint",
+      "title": "Missing footprint"
+    },
+    {
+      "code": "pad_clearance_bound",
+      "title": "Pad clearance bound"
+    },
+    {
+      "code": "panel_component_near_score",
+      "title": "Panel component near score"
+    },
+    {
+      "code": "panel_copper_near_score",
+      "title": "Panel copper near score"
+    },
+    {
+      "code": "panel_missing_fiducials",
+      "title": "Panel missing fiducials"
+    },
+    {
+      "code": "panel_tab_too_narrow",
+      "title": "Panel tab too narrow"
+    },
+    {
+      "code": "panel_too_large_for_assembler",
+      "title": "Panel too large for assembler"
+    },
+    {
+      "code": "pour_fill",
+      "title": "Pour fill"
+    },
+    {
+      "code": "silk_over_pad",
+      "title": null
+    },
+    {
+      "code": "silk_text_height",
+      "title": "Silk text height"
+    },
+    {
+      "code": "silk_to_copper",
+      "title": null
+    },
+    {
+      "code": "single_pin_net",
+      "title": "Single pin net"
+    },
+    {
+      "code": "stacked_microvia",
+      "title": "Stacked microvia"
+    },
+    {
+      "code": "stub_length",
+      "title": null
+    },
+    {
+      "code": "thermal_starved",
+      "title": "Thermal starved"
+    },
+    {
+      "code": "track_length",
+      "title": "Track length"
+    },
+    {
+      "code": "track_width",
+      "title": "Track width"
+    },
+    {
+      "code": "unassigned_pin",
+      "title": "Unassigned pin"
+    },
+    {
+      "code": "unrouted",
+      "title": "Unrouted"
+    },
+    {
+      "code": "via_aspect_ratio",
+      "title": "Via aspect ratio"
+    },
+    {
+      "code": "via_span_not_allowed",
+      "title": "Via span not allowed"
+    },
+    {
+      "code": "zone_island",
+      "title": "Zone island"
+    },
+    {
+      "code": "zone_unconnected",
+      "title": "Zone unconnected"
+    }
+  ]
+}

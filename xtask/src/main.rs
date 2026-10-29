@@ -9,12 +9,14 @@
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
 //! - xtask/src/doc_check.rs
+//! - xtask/src/site_data.rs
 //! - xtask/src/tooltips.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
 mod e2e;
+mod site_data;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -37,6 +39,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
+  site-data    [--check] write site/src/data/*.json from the code, or fail when it is stale
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
@@ -528,6 +531,7 @@ fn run() -> Result<(), String> {
         }
         "docs" => docs()?,
         "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
+        "site-data" => site_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "deny" => deny()?,
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,

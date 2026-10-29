@@ -1,0 +1,100 @@
+{
+  "count": 5,
+  "profiles": [
+    {
+      "id": "commarker-b6-mopa",
+      "kind": "laser_galvo",
+      "model": "B6 MOPA",
+      "name": "ComMarker B6 MOPA",
+      "notes": "Galvo fiber laser. Starting values from forum reports and the store sheet; none are verified on the owner unit, so run a test grid first. Wattage is a placeholder.",
+      "output": {
+        "dialect": "laser_job",
+        "format": "svg",
+        "units": "mm"
+      },
+      "vendor": "ComMarker",
+      "workArea": {
+        "origin": "center",
+        "x": 150.0,
+        "y": 150.0,
+        "z": null
+      }
+    },
+    {
+      "id": "eufymake-e1",
+      "kind": "uv_printer",
+      "model": "E1",
+      "name": "eufyMake E1",
+      "notes": "UV flatbed; camera registration; owner-unverified choke and bleed.",
+      "output": {
+        "dialect": "uv_print",
+        "format": "png",
+        "units": "mm"
+      },
+      "vendor": "eufyMake",
+      "workArea": {
+        "origin": "lower-left",
+        "x": 330.0,
+        "y": 420.0,
+        "z": null
+      }
+    },
+    {
+      "id": "neoden-yy1",
+      "kind": "pick_place",
+      "model": "YY1",
+      "name": "NeoDen YY1",
+      "notes": "SD-card CSV placement. Layouts and limits from the maker manual and one machine export; check a file from the owner machine before freezing a golden. Per-package rotation offsets are zero until each reel is confirmed on the machine (the common table is SOT-23 and SOT-223 plus 180, SOIC minus 90, TSSOP plus 270). The feeder map is empty: the file assigns feeders in order.",
+      "output": {
+        "dialect": "neoden_yy1",
+        "format": "csv",
+        "units": "mm"
+      },
+      "vendor": "NeoDen",
+      "workArea": {
+        "origin": "lower-left",
+        "x": 350.0,
+        "y": 249.0,
+        "z": null
+      }
+    },
+    {
+      "id": "snapmaker-2-a350t-200w-cnc",
+      "kind": "cnc_mill",
+      "model": "2.0 A350T",
+      "name": "Snapmaker 2 A350T 200W CNC",
+      "notes": "200 W CNC module with bracing kit; work area owner-unverified.",
+      "output": {
+        "dialect": "snapmaker",
+        "format": "gcode",
+        "units": "mm"
+      },
+      "vendor": "Snapmaker",
+      "workArea": {
+        "origin": "lower-left",
+        "x": 320.0,
+        "y": 325.0,
+        "z": 275.0
+      }
+    },
+    {
+      "id": "snapmaker-artisan-200w-cnc",
+      "kind": "cnc_mill",
+      "model": "Artisan",
+      "name": "Snapmaker Artisan 200W CNC",
+      "notes": "200 W CNC module; larger work area owner-unverified.",
+      "output": {
+        "dialect": "snapmaker",
+        "format": "gcode",
+        "units": "mm"
+      },
+      "vendor": "Snapmaker",
+      "workArea": {
+        "origin": "lower-left",
+        "x": 400.0,
+        "y": 400.0,
+        "z": 400.0
+      }
+    }
+  ]
+}
