@@ -22,9 +22,7 @@ fn pad_outline_open(pad: &FootprintPad) -> Vec<Point> {
         PadShape::Circle | PadShape::Oval => {
             rounded_rect(pad.size, pad.size.x.min(pad.size.y) / 2.0)
         }
-        PadShape::RoundRect { ratio } => {
-            rounded_rect(pad.size, pad.size.x.min(pad.size.y) * ratio)
-        }
+        PadShape::RoundRect { ratio } => rounded_rect(pad.size, pad.size.x.min(pad.size.y) * ratio),
         PadShape::Rect | PadShape::Unsupported => rounded_rect(pad.size, 0.0),
         PadShape::Chamfered(chamfer) => chamfered_rect(pad.size, chamfer),
         PadShape::Custom { polygon } => polygon.to_vec(),
@@ -102,6 +100,7 @@ fn chamfered_rect(size: Point, chamfer: PadChamfer) -> Vec<Point> {
         Point::new(hx, -hy + cut),
     );
     points.dedup_by(|a, b| a.distance(*b) < 1e-12);
+    #[allow(clippy::collapsible_if)]
     if points.len() > 1 {
         if let (Some(first), Some(last)) = (points.first(), points.last()) {
             if first.distance(*last) < 1e-12 {
@@ -124,6 +123,7 @@ fn open_ring(closed: &[Point]) -> Vec<Point> {
         return closed.to_vec();
     }
     let mut ring = closed.to_vec();
+    #[allow(clippy::collapsible_if)]
     if ring.len() > 1 {
         if let (Some(first), Some(last)) = (ring.first(), ring.last()) {
             if first.distance(*last) < 1e-9 {
@@ -140,16 +140,10 @@ fn polygons_overlap(a: &[Point], b: &[Point]) -> bool {
     if a_ring.len() < 3 || b_ring.len() < 3 {
         return false;
     }
-    if a_ring
-        .iter()
-        .any(|p| point_in_polygon(*p, &b_ring))
-    {
+    if a_ring.iter().any(|p| point_in_polygon(*p, &b_ring)) {
         return true;
     }
-    if b_ring
-        .iter()
-        .any(|p| point_in_polygon(*p, &a_ring))
-    {
+    if b_ring.iter().any(|p| point_in_polygon(*p, &a_ring)) {
         return true;
     }
     for (a1, a2) in polygon_edges(&a_ring) {

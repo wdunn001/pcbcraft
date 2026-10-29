@@ -86,10 +86,8 @@ fn check_duplicate_pad_numbers(def: &FootprintDefinition, findings: &mut Vec<Foo
 }
 
 fn check_pin1(def: &FootprintDefinition, findings: &mut Vec<FootprintFinding>) {
-    if def.pads.iter().any(|p| p.number == "1") {
-        if pin1_mark_present(def) {
-            return;
-        }
+    if def.pads.iter().any(|p| p.number == "1") && pin1_mark_present(def) {
+        return;
     }
     push(
         findings,
@@ -159,7 +157,11 @@ fn check_courtyard(def: &FootprintDefinition, findings: &mut Vec<FootprintFindin
 
 fn courtyard_rectangle(def: &FootprintDefinition) -> Option<(Point, Point)> {
     for graphic in &def.graphics {
-        if let Graphic::Rectangle { start, end, layer, .. } = graphic {
+        #[allow(clippy::collapsible_if)]
+        if let Graphic::Rectangle {
+            start, end, layer, ..
+        } = graphic
+        {
             if layer == COURTYARD_LAYER {
                 let min = Point::new(start.x.min(end.x), start.y.min(end.y));
                 let max = Point::new(start.x.max(end.x), start.y.max(end.y));
@@ -203,11 +205,7 @@ fn required_courtyard_bounds(def: &FootprintDefinition) -> (Point, Point) {
 }
 
 fn check_silk_over_pad(def: &FootprintDefinition, findings: &mut Vec<FootprintFinding>) {
-    let silk_segments: Vec<(Point, Point)> = def
-        .graphics
-        .iter()
-        .flat_map(|g| silk_segments(g))
-        .collect();
+    let silk_segments: Vec<(Point, Point)> = def.graphics.iter().flat_map(silk_segments).collect();
     if silk_segments.is_empty() {
         return;
     }
@@ -235,16 +233,10 @@ fn check_silk_over_pad(def: &FootprintDefinition, findings: &mut Vec<FootprintFi
 fn silk_segments(graphic: &Graphic) -> Vec<(Point, Point)> {
     match graphic {
         Graphic::Line {
-            start,
-            end,
-            layer,
-            ..
+            start, end, layer, ..
         } if layer == SILK_LAYER => vec![(*start, *end)],
         Graphic::Rectangle {
-            start,
-            end,
-            layer,
-            ..
+            start, end, layer, ..
         } if layer == SILK_LAYER => {
             let min = Point::new(start.x.min(end.x), start.y.min(end.y));
             let max = Point::new(start.x.max(end.x), start.y.max(end.y));
@@ -256,10 +248,7 @@ fn silk_segments(graphic: &Graphic) -> Vec<(Point, Point)> {
             ]
         }
         Graphic::Polyline { points, layer, .. } if layer == SILK_LAYER && points.len() >= 2 => {
-            points
-                .windows(2)
-                .map(|w| (w[0], w[1]))
-                .collect()
+            points.windows(2).map(|w| (w[0], w[1])).collect()
         }
         Graphic::Arc {
             start,
@@ -343,12 +332,15 @@ fn graphic_path_sample(graphic: &Graphic) -> Vec<Point> {
         Graphic::Line { start, end, .. } => vec![*start, *end],
         Graphic::Rectangle { start, end, .. } => vec![*start, *end],
         Graphic::Circle { center, .. } => vec![*center],
-        Graphic::Arc { start, mid, end, .. } => vec![*start, *mid, *end],
+        Graphic::Arc {
+            start, mid, end, ..
+        } => vec![*start, *mid, *end],
         Graphic::Polyline { points, .. } => points.clone(),
         Graphic::Text { position, .. } => vec![*position],
     }
 }
 
+#[allow(clippy::collapsible_if)]
 fn open_ring(closed: &[Point]) -> Vec<Point> {
     if closed.len() < 2 {
         return closed.to_vec();

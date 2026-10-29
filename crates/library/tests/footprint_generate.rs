@@ -1,8 +1,8 @@
-use pcbcraft_library::{
-    check_footprint, generate_footprint, FindingSeverity, FootprintDefinition, FootprintPad,
-    Graphic, LandPatternDensity, LandPatternParams,
-};
 use pcbcraft_geom::Point;
+use pcbcraft_library::{
+    FindingSeverity, FootprintDefinition, FootprintPad, Graphic, LandPatternDensity,
+    LandPatternParams, check_footprint, generate_footprint,
+};
 
 const TOL: f64 = 0.05;
 
@@ -26,7 +26,10 @@ fn nominal_params() -> LandPatternParams {
 
 fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
     for g in &def.graphics {
-        if let Graphic::Rectangle { start, end, layer, .. } = g {
+        if let Graphic::Rectangle {
+            start, end, layer, ..
+        } = g
+        {
             if layer == "pcbcraft.courtyard" {
                 return Some((
                     start.x.abs().max(end.x.abs()),
@@ -135,7 +138,9 @@ fn dip8_plated_drills_inside_pads() -> Result<(), String> {
     let def = generate_footprint("dip", LandPatternDensity::Nominal, &p)?;
     assert_eq!(def.pads.len(), 8);
     assert!(def.pads.iter().all(|pad| {
-        pad.drill.as_ref().is_some_and(|d| d.size.x <= pad.size.x && d.size.y <= pad.size.y)
+        pad.drill
+            .as_ref()
+            .is_some_and(|d| d.size.x <= pad.size.x && d.size.y <= pad.size.y)
     }));
     Ok(())
 }
@@ -158,22 +163,11 @@ fn header_double_row_stagger() -> Result<(), String> {
     p.row_spacing = 2.54;
     let def = generate_footprint("header_double", LandPatternDensity::Nominal, &p)?;
     assert_eq!(def.pads.len(), 10);
-    let top: Vec<_> = def
-        .pads
-        .iter()
-        .filter(|pad| pad.position.y < 0.0)
-        .collect();
-    let bottom: Vec<_> = def
-        .pads
-        .iter()
-        .filter(|pad| pad.position.y > 0.0)
-        .collect();
+    let top: Vec<_> = def.pads.iter().filter(|pad| pad.position.y < 0.0).collect();
+    let bottom: Vec<_> = def.pads.iter().filter(|pad| pad.position.y > 0.0).collect();
     assert_eq!(top.len(), 5);
     assert_eq!(bottom.len(), 5);
-    assert!(near(
-        bottom[0].position.x - top[0].position.x,
-        2.54 / 2.0
-    ));
+    assert!(near(bottom[0].position.x - top[0].position.x, 2.54 / 2.0));
     Ok(())
 }
 
@@ -185,10 +179,7 @@ fn radial_two_lead_span() -> Result<(), String> {
     p.body_width = 5.0;
     let def = generate_footprint("radial", LandPatternDensity::Nominal, &p)?;
     assert_eq!(def.pads.len(), 2);
-    assert!(near(
-        def.pads[1].position.x - def.pads[0].position.x,
-        2.0
-    ));
+    assert!(near(def.pads[1].position.x - def.pads[0].position.x, 2.0));
     Ok(())
 }
 

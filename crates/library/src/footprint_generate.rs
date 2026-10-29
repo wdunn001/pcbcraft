@@ -109,14 +109,15 @@ pub fn generate_footprint(
     if !params.keywords.is_empty() {
         def.keywords = params.keywords.clone();
     }
-    def.validate()
-        .map_err(|e| e.to_string())?;
+    def.validate().map_err(|e| e.to_string())?;
     Ok(def)
 }
 
 fn require_finite_positive(value: f64, label: &str) -> Result<f64, String> {
     if !value.is_finite() || value <= 0.0 || value > 500.0 {
-        return Err(format!("{label} must be a finite positive number up to 500 mm"));
+        return Err(format!(
+            "{label} must be a finite positive number up to 500 mm"
+        ));
     }
     Ok(value)
 }
@@ -153,11 +154,18 @@ fn chip_two_terminal(
         body_w,
         half_x,
         half_y,
-        format!("RESC{metric}X70{density}", metric = metric_code(body_l, body_w), density = density.suffix()),
+        format!(
+            "RESC{metric}X70{density}",
+            metric = metric_code(body_l, body_w),
+            density = density.suffix()
+        ),
     ))
 }
 
-fn sot(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn sot(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let count = require_pin_count(params.pin_count, 3, 6, "pin count")?;
     let body_l = require_finite_positive(params.body_length, "body length")?;
@@ -230,11 +238,18 @@ fn sot(density: LandPatternDensity, params: &LandPatternParams) -> Result<Footpr
         body_w,
         half_x,
         half_y,
-        format!("SOT{count}P{pitch_mm}{density}", pitch_mm = pitch_mils(pitch), density = density.suffix()),
+        format!(
+            "SOT{count}P{pitch_mm}{density}",
+            pitch_mm = pitch_mils(pitch),
+            density = density.suffix()
+        ),
     ))
 }
 
-fn soic(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn soic(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let count = require_pin_count(params.pin_count, 4, 32, "pin count")?;
     if !count.is_multiple_of(2) {
@@ -276,7 +291,10 @@ fn soic(density: LandPatternDensity, params: &LandPatternParams) -> Result<Footp
     ))
 }
 
-fn qfp(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn qfp(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let count = require_pin_count(params.pin_count, 16, 208, "pin count")?;
     if !count.is_multiple_of(4) {
@@ -305,7 +323,10 @@ fn qfp(density: LandPatternDensity, params: &LandPatternParams) -> Result<Footpr
     ))
 }
 
-fn qfn(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn qfn(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let count = require_pin_count(params.pin_count, 8, 128, "pin count")?;
     if !count.is_multiple_of(4) {
@@ -322,13 +343,7 @@ fn qfn(density: LandPatternDensity, params: &LandPatternParams) -> Result<Footpr
     } else {
         body_l.min(body_w) * 0.5
     };
-    pads.push(smd_rect(
-        "EP",
-        0.0,
-        0.0,
-        thermal,
-        thermal,
-    ));
+    pads.push(smd_rect("EP", 0.0, 0.0, thermal, thermal));
     let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
     Ok(base_footprint(
         density,
@@ -348,7 +363,10 @@ fn qfn(density: LandPatternDensity, params: &LandPatternParams) -> Result<Footpr
     ))
 }
 
-fn bga(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn bga(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let rows = require_pin_count(params.grid_rows.max(1), 1, 40, "grid rows")?;
     let cols = require_pin_count(params.grid_cols.max(1), 1, 40, "grid columns")?;
@@ -390,7 +408,10 @@ fn bga(density: LandPatternDensity, params: &LandPatternParams) -> Result<Footpr
     ))
 }
 
-fn dip(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn dip(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let count = require_pin_count(params.pin_count, 4, 64, "pin count")?;
     if !count.is_multiple_of(2) {
@@ -477,7 +498,11 @@ fn header_single(
         body_w,
         half_x,
         half_y,
-        format!("HDR1X{count}{density}", count = count, density = density.suffix()),
+        format!(
+            "HDR1X{count}{density}",
+            count = count,
+            density = density.suffix()
+        ),
     ))
 }
 
@@ -506,11 +531,23 @@ fn header_double(
     let mut pads = Vec::new();
     for i in 0..per_row {
         let x = -span / 2.0 + i as f64 * pitch;
-        pads.push(th_pad(&(i + 1).to_string(), x, -row_spacing / 2.0, pad, drill));
+        pads.push(th_pad(
+            &(i + 1).to_string(),
+            x,
+            -row_spacing / 2.0,
+            pad,
+            drill,
+        ));
     }
     for i in 0..per_row {
         let x = -span / 2.0 + i as f64 * pitch + pitch / 2.0;
-        pads.push(th_pad(&(per_row + i + 1).to_string(), x, row_spacing / 2.0, pad, drill));
+        pads.push(th_pad(
+            &(per_row + i + 1).to_string(),
+            x,
+            row_spacing / 2.0,
+            pad,
+            drill,
+        ));
     }
     let body_l = span + pitch;
     let body_w = row_spacing + pitch;
@@ -522,11 +559,18 @@ fn header_double(
         body_w,
         half_x,
         half_y,
-        format!("HDR2X{count}{density}", count = count, density = density.suffix()),
+        format!(
+            "HDR2X{count}{density}",
+            count = count,
+            density = density.suffix()
+        ),
     ))
 }
 
-fn radial(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn radial(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let body_l = require_finite_positive(params.body_length, "body length")?;
     let body_w = require_finite_positive(params.body_width, "body width")?;
@@ -549,11 +593,18 @@ fn radial(density: LandPatternDensity, params: &LandPatternParams) -> Result<Foo
         body_w,
         half_x,
         half_y,
-        format!("RAD{pitch_mm}{density}", pitch_mm = pitch_mils(pitch), density = density.suffix()),
+        format!(
+            "RAD{pitch_mm}{density}",
+            pitch_mm = pitch_mils(pitch),
+            density = density.suffix()
+        ),
     ))
 }
 
-fn axial(density: LandPatternDensity, params: &LandPatternParams) -> Result<FootprintDefinition, String> {
+fn axial(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let body_l = require_finite_positive(params.body_length, "body length")?;
     let body_w = require_finite_positive(params.body_width, "body width")?;
@@ -576,7 +627,11 @@ fn axial(density: LandPatternDensity, params: &LandPatternParams) -> Result<Foot
         body_w,
         half_x,
         half_y,
-        format!("AXL{pitch_mm}{density}", pitch_mm = pitch_mils(pitch), density = density.suffix()),
+        format!(
+            "AXL{pitch_mm}{density}",
+            pitch_mm = pitch_mils(pitch),
+            density = density.suffix()
+        ),
     ))
 }
 
@@ -659,10 +714,19 @@ fn base_footprint(
     let stroke = density.silk_stroke();
     let fab_half_l = body_l / 2.0;
     let fab_half_w = body_w / 2.0;
-    let pad_reach_y = max_pad_reach(&pads);
-    let silk_y = pad_reach_y + 0.25 + stroke;
+    let pad_reach = max_pad_reach(&pads);
+    let silk_y = pad_reach + 0.25 + stroke;
     let pin1_x = -fab_half_l - stroke * 4.0;
     let pin1_y = -fab_half_w - stroke * 4.0;
+    let excess = density.courtyard_excess();
+    let art_margin = stroke * 6.0;
+    let half_x = half_x
+        .max(pad_reach + excess)
+        .max(fab_half_l + art_margin + excess);
+    let half_y = half_y
+        .max(pad_reach + excess)
+        .max(fab_half_w + art_margin + excess)
+        .max(silk_y + stroke + excess);
     let mut graphics = vec![
         Graphic::Rectangle {
             start: Point::new(-half_x, -half_y),
@@ -765,14 +829,7 @@ fn bounds_from_pads(pads: &[FootprintPad], excess: f64) -> (f64, f64) {
     )
 }
 
-fn smd_roundrect(
-    number: &str,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-    ratio: f64,
-) -> FootprintPad {
+fn smd_roundrect(number: &str, x: f64, y: f64, w: f64, h: f64, ratio: f64) -> FootprintPad {
     FootprintPad {
         number: number.to_owned(),
         pad_type: "smd".into(),
