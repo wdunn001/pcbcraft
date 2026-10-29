@@ -11,7 +11,7 @@ Read README.md (what works), ROADMAP.md, docs/architecture.md. For a claimed iss
 - **One clone or worktree per agent.** Never share a checkout another agent is using.
 - **One claimed issue** unless stacked children of one epic.
 - **Workers** claim only upstream issues tagged `ready` and `status:open`. On a shared machine, also require `conflict:parallel-safe`.
-- **Conflict lane:** only the active `conflict:ui-egui-lib` ticket may edit `crates/ui-egui/src/lib.rs`. Everyone else keeps UI shell changes out of that file; put `a_newcomer_*` tests in `crates/ui-egui/tests/e2e/<area>.rs`.
+- **Conflict lane:** only the active `conflict:ui-egui-lib` ticket may edit `crates/ui-egui/src/lib.rs`. Everyone else keeps UI shell changes out of that file; put `a_newcomer_*` tests in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`).
 - **Branch** from fork `main`: `<kind>-<slug>` (see CONTRIBUTING.md §7). Merge latest fork `main` before final push. Push your branch only; never push to `main`; do not open pull requests (maintainer integrates).
 
 ## CI (source of truth)
@@ -37,3 +37,10 @@ Green **GitHub Actions on the fork** for the commit you report is required proof
 ## Stuck
 
 Same build/test failure twice with identical output → post output, set `status:blocked`, stop (CONTRIBUTING.md §9).
+
+## Cloud Agent fleet (fork wdunn001/pcbcraft)
+
+**Workers:** push a `<kind>-<slug>` or `feature/<slug>-db36` branch only. Green **GitHub Actions on that branch** is the proof. Post the upstream build report ending with `PR pending owner review`. **Do not** open a pull request on the fork and **do not** use forge PR tools to create one—maintainer/integrator lands work on fork `main` with a merge commit after review.
+
+**Integrator (same fleet):** merge contributor branches into fork `main` with `git merge` (not `gh pr merge`). Close any stray worker-opened fork PRs with `closed` status so the branch + Actions run remain the record. Upstream PR to tangency-labs waits until fork `main` is green and the owner has run the packaged test gate—never ask the owner to close PRs or merge manually.
+

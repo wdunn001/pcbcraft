@@ -646,10 +646,10 @@ impl Builder<'_> {
 
 // --------------------------------------------------------------- transforms
 
-fn to_board(fp: &Footprint, local: Point) -> Point {
+pub(crate) fn to_board(fp: &Footprint, local: Point) -> Point {
     fp.position.offset(local.rotate(-fp.rotation))
 }
-fn map_ring(fp: &Footprint, local: &[Point]) -> Vec<Point> {
+pub(crate) fn map_ring(fp: &Footprint, local: &[Point]) -> Vec<Point> {
     local.iter().map(|p| to_board(fp, *p)).collect()
 }
 fn circle_segments(radius: f64) -> usize {
@@ -661,7 +661,7 @@ fn circle_segments(radius: f64) -> usize {
         36
     }
 }
-fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
+pub(crate) fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
     let n = circle_segments(radius);
     (0..n)
         .map(|i| {
@@ -670,7 +670,35 @@ fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
         })
         .collect()
 }
-fn grow(ring: &[Point], margin: f64) -> Vec<Point> {
+/// A stadium outline around the segment `a` to `b`: the shape a routed slot
+/// leaves, with half-circle caps at each centre.
+fn capsule_ring(a: Point, b: Point, radius: f64) -> Vec<Point> {
+    let mut points = Vec::new();
+    let length = a.distance(b);
+    if length < 1e-6 {
+        return circle_ring(a, radius);
+    }
+    let n = circle_segments(radius).max(8);
+    let axis = (b.y - a.y).atan2(b.x - a.x);
+    // Half circle around the far centre, then half circle around the near
+    // one, so the ring runs along one side and back along the other.
+    for i in 0..=n {
+        let angle = axis + std::f64::consts::PI * (i as f64) / (n as f64);
+        points.push(Point::new(
+            b.x + radius * angle.cos(),
+            b.y + radius * angle.sin(),
+        ));
+    }
+    for i in 0..=n {
+        let angle = axis - std::f64::consts::PI * (i as f64) / (n as f64);
+        points.push(Point::new(
+            a.x + radius * angle.cos(),
+            a.y + radius * angle.sin(),
+        ));
+    }
+    clean_ring(&points).unwrap_or_default()
+}
+pub(crate) fn grow(ring: &[Point], margin: f64) -> Vec<Point> {
     let (lo, hi) = ring_bounds(ring);
     let (hx, hy) = ((hi.x - lo.x) / 2.0, (hi.y - lo.y) / 2.0);
     let (cx, cy) = ((hi.x + lo.x) / 2.0, (hi.y + lo.y) / 2.0);
@@ -832,7 +860,7 @@ fn pad_box(pad: &Pad) -> Option<PadBox> {
         round: geometry.is_none_or(|g| g.shape == "circle"),
     })
 }
-fn rect_ring(cx: f64, cy: f64, w: f64, h: f64) -> Vec<Point> {
+pub(crate) fn rect_ring(cx: f64, cy: f64, w: f64, h: f64) -> Vec<Point> {
     vec![
         Point::new(cx - w / 2.0, cy - h / 2.0),
         Point::new(cx + w / 2.0, cy - h / 2.0),
@@ -1229,7 +1257,15 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
         }
     }
     for hole in &p.board.holes {
-        drills.extend(clean_ring(&circle_ring(hole.position, hole.diameter / 2.0)));
+        if hole.is_slot() {
+            drills.extend(clean_ring(&capsule_ring(
+                hole.start(),
+                hole.finish(),
+                hole.diameter / 2.0,
+            )));
+        } else {
+            drills.extend(clean_ring(&circle_ring(hole.position, hole.diameter / 2.0)));
+        }
     }
     for cut in &p.board.cutouts {
         drills.extend(clean_ring(&circle_ring(cut.center, cut.radius)));
@@ -1525,11 +1561,11 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
 }
 
 /// Which copper sides a pad touches, and whether it has copper at all.
-fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
+pub(crate) fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
     match &pad.geometry {
         None => (true, false, true),
         Some(g) => {
-            if g.pad_type == "np_thru_hole" {
+            if g.pad_type == "np_thru_hole" || g.pad_type == "unplated" {
                 return (false, false, false);
             }
             let front = g
@@ -1548,7 +1584,7 @@ fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
         }
     }
 }
-fn graphic_layer(g: &pcbcraft_library::Graphic) -> Option<(&str, f64)> {
+pub(crate) fn graphic_layer(g: &pcbcraft_library::Graphic) -> Option<(&str, f64)> {
     use pcbcraft_library::Graphic as G;
     match g {
         G::Line { width, layer, .. }
@@ -1559,7 +1595,7 @@ fn graphic_layer(g: &pcbcraft_library::Graphic) -> Option<(&str, f64)> {
         G::Text { .. } => None,
     }
 }
-fn thin_polyline(points: &[Point], max_segments: usize) -> Vec<Point> {
+pub(crate) fn thin_polyline(points: &[Point], max_segments: usize) -> Vec<Point> {
     if points.len() <= max_segments + 1 {
         return points.to_vec();
     }
@@ -1706,6 +1742,7 @@ mod tests {
             id: 3,
             position: Point::new(30.0, 20.0),
             diameter: 3.2,
+            end: None,
         });
         p.board.vias.push(Via {
             id: 4,
@@ -1713,6 +1750,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
+            covering: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;
@@ -1738,6 +1776,7 @@ mod tests {
             id: 2,
             position: Point::new(0.5, 15.0),
             diameter: 3.0,
+            end: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         assert_eq!(part(&mesh, PartKind::Board)?.positions.len(), 24);
@@ -2158,6 +2197,8 @@ mod tests {
             name: "Marks".into(),
             kind: ArtKind::Silk,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![
                 ArtShape::Line {
