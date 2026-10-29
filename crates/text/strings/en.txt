@@ -385,6 +385,7 @@ board.canvas.mounting_hole_click_to_drill = MOUNTING HOLE · CLICK TO DRILL
 board.canvas.no_connect_click_a_pin = NO CONNECT · CLICK A PIN TO MARK IT UNUSED
 board.canvas.assembly_mark_click_a_clear = ASSEMBLY MARK · CLICK A CLEAR CORNER
 board.canvas.draw_shape_pick_the_layer = DRAW SHAPE · PICK THE LAYER IN THE PANEL
+board.canvas.via_click_to_place = VIA · CLICK TO PLACE
 board.canvas.measure_click_two_points = MEASURE · CLICK TWO POINTS
 board.canvas.focused_on_label_tap_the = FOCUSED ON {label} · tap the row again to show everything
 board.canvas.release_to_place_name_where = RELEASE TO PLACE {name} WHERE THE POINTER IS

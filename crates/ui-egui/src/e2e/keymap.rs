@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::keymap::{KeyAction, KeyChord};
-use super::support::{frame, tap};
+use super::support::frame;
 use egui::Key;
 use serde_json::json;
 
@@ -15,9 +15,9 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
     app.select(Some(11));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Edit shortcuts…")?;
+    authoring::tests::tap(&ctx, &mut app, "Edit shortcuts…")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.binding_capture = Some(KeyAction::Rotate);
     let t = KeyChord {

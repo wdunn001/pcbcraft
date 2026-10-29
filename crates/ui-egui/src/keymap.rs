@@ -801,7 +801,7 @@ fn active_scope(tab: Tab, command_open: bool) -> ShortcutContext {
 
 fn context_matches(
     action_ctx: ShortcutContext,
-    scope: ShortcutContext,
+    _scope: ShortcutContext,
     tab: Tab,
     command_open: bool,
 ) -> bool {

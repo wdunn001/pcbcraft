@@ -544,7 +544,7 @@ impl App {
             Tool::NoConnect => t!("board.canvas.no_connect_click_a_pin"),
             Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
-            Tool::Via => "VIA · CLICK TO PLACE",
+            Tool::Via => t!("board.canvas.via_click_to_place"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
         };
         painter.text(
