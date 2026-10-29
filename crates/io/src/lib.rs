@@ -1760,7 +1760,18 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                         String::new(),
                     )
                 };
-            s.push_str(&format!(" (pad {} {pad_type} {shape} (at {} {} {rotation}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",quote(&pad.number),f64s(pad.offset.x),f64s(pad.offset.y),f64s(rotation),f64s(size.x),f64s(size.y),ordinal(pad.net),quote(net),uuid(f.id,i+2)));
+            s.push_str(&format!(
+                " (pad {} {pad_type} {shape} (at {} {} {}) (size {} {}) (layers {layers}){ratio}{drill} (net {} {}) (uuid {}))\n",
+                quote(&pad.number),
+                f64s(pad.offset.x),
+                f64s(pad.offset.y),
+                f64s(rotation),
+                f64s(size.x),
+                f64s(size.y),
+                ordinal(pad.net),
+                quote(net),
+                uuid(f.id, i + 2),
+            ));
         }
         write_preserved(&mut s, &f.preserved);
         s.push_str(" )\n");

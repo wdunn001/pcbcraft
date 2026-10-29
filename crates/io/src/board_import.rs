@@ -82,7 +82,7 @@ pub fn read_board_interchange(text: &str) -> Result<Project, String> {
     }
 
     ctx.finish_nets(net_names, &mut board)?;
-    let mut project = Project {
+    let project = Project {
         name: "Imported board".into(),
         unit: "mm".into(),
         components: ctx.components,
