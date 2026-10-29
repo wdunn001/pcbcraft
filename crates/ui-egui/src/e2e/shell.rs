@@ -1006,3 +1006,68 @@ fn an_unchanged_message_is_not_announced_twice() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_never_meets_a_control_too_small_to_hit() -> Result<(), String> {
+    use crate::target_size::{exemptions, undersized_targets};
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    let mut too_small = Vec::new();
+    let mut seen = 0;
+    for tab in [
+        Tab::Files,
+        Tab::Schematic,
+        Tab::Pcb,
+        Tab::Board3d,
+        Tab::Rules,
+        Tab::Checks,
+        Tab::Settings,
+        Tab::Libraries,
+        Tab::PlotFiles,
+    ] {
+        app.change_tab(tab);
+        let rects = interactive_rects(&ctx, &mut app);
+        seen += rects.len();
+        for line in undersized_targets(&rects, App::MIN_TARGET) {
+            too_small.push(format!("{tab:?}: {line}"));
+        }
+    }
+    // Selecting a part opens the properties panel and the canvas handles.
+    let first = app.project.components.first().map(|c| c.id);
+    app.select(first);
+    for tab in [Tab::Pcb, Tab::Schematic] {
+        app.change_tab(tab);
+        let rects = interactive_rects(&ctx, &mut app);
+        seen += rects.len();
+        for line in undersized_targets(&rects, App::MIN_TARGET) {
+            too_small.push(format!("{tab:?} with a part selected: {line}"));
+        }
+    }
+    assert!(
+        seen > 20,
+        "the walk should find real controls, found {seen}"
+    );
+    let exempt = exemptions()?;
+    let (allowed, failing): (Vec<_>, Vec<_>) = too_small
+        .iter()
+        .partition(|l| exempt.iter().any(|(e, _)| l.contains(e.as_str())));
+    assert!(
+        failing.is_empty(),
+        "controls under 24 by 24:\n{}",
+        failing
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    for (name, reason) in &exempt {
+        assert!(
+            allowed.iter().any(|l| l.contains(name.as_str())),
+            "exemption {name} ({reason}) is no longer undersized; remove it"
+        );
+    }
+    Ok(())
+}
