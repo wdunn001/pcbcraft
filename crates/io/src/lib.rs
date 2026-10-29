@@ -5429,6 +5429,18 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
             }
         }
         for g in p.graphics.iter().filter(|g| g.layer == "schematic") {
+            if g.shape == "text" {
+                if let Some(anchor) = g.points.first() {
+                    preview_png_text(
+                        &mut image,
+                        to_pixel(*anchor),
+                        g.width * scale,
+                        &g.text,
+                        [90, 224, 188],
+                    );
+                }
+                continue;
+            }
             for pair in g.outline().unwrap_or_default().windows(2) {
                 if let (Some(a), Some(b)) = (pair.first(), pair.get(1)) {
                     line(&mut image, to_pixel(*a), to_pixel(*b), 1.0, [90, 224, 188]);
@@ -5536,6 +5548,31 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
         .write_to(&mut bytes, image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
     Ok(bytes.into_inner())
+}
+/// Raster stand-in for schematic text in the CPU preview (vector exports use real text).
+fn preview_png_text(
+    image: &mut image::RgbImage,
+    anchor: Point,
+    height: f64,
+    value: &str,
+    color: [u8; 3],
+) {
+    let height = height.clamp(0.7, 120.0);
+    let width = height * 0.62 * value.chars().count().max(1) as f64;
+    let box_points = [
+        anchor,
+        Point::new(anchor.x + width, anchor.y),
+        Point::new(anchor.x + width, anchor.y + height),
+        Point::new(anchor.x, anchor.y + height),
+    ];
+    fill_polygon(image, &box_points, color);
+    line(
+        image,
+        Point::new(anchor.x, anchor.y + height),
+        Point::new(anchor.x + width, anchor.y + height),
+        height * 0.12,
+        color,
+    );
 }
 fn disk(image: &mut image::RgbImage, p: Point, r: f64, color: [u8; 3]) {
     let radius = r.clamp(0.7, 1200.0);
@@ -10121,6 +10158,35 @@ mod tests {
         assert!(
             pcb[circle..].contains("30,24"),
             "circle must pass through its topmost point"
+        );
+        Ok(())
+    }
+    #[test]
+    fn preview_png_schematic_includes_text_graphics() -> Result<(), String> {
+        let mut project = pcbcraft_doc::Project::default();
+        project.graphics.push(pcbcraft_doc::Graphic {
+            id: 1,
+            layer: "schematic".into(),
+            shape: "line".into(),
+            points: vec![Point::new(5.0, 5.0), Point::new(25.0, 5.0)],
+            width: 0.2,
+            text: String::new(),
+        });
+        project.validate()?;
+        let baseline = preview_png(&project, "schematic")?;
+        project.graphics.push(pcbcraft_doc::Graphic {
+            id: 2,
+            layer: "schematic".into(),
+            shape: "text".into(),
+            points: vec![Point::new(8.0, 8.0)],
+            width: 2.0,
+            text: "NOTE".into(),
+        });
+        project.validate()?;
+        let with_text = preview_png(&project, "schematic")?;
+        assert_ne!(
+            baseline, with_text,
+            "schematic text graphics must change the png preview"
         );
         Ok(())
     }

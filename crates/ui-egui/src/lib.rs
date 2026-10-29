@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod schematic_draw;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -252,6 +253,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::DrawLayer => {
             format!("LMB: place the shape on the active layer{common}")
         }
+        Tool::SchematicDraw(_) => format!("LMB: place the schematic shape on the sheet{common}"),
     }
 }
 
@@ -517,6 +519,7 @@ enum Tool {
     NoConnect,
     Fiducial,
     DrawLayer,
+    SchematicDraw(schematic_draw::SchShape),
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -579,6 +582,11 @@ pub struct App {
     art_start: Option<Point>,
     art_points: Vec<Point>,
     art_text: String,
+    sch_start: Option<Point>,
+    sch_points: Vec<Point>,
+    sch_stroke: f64,
+    sch_text: String,
+    sch_text_size: f64,
     hole_edit: Option<(Id, f64)>,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
@@ -915,6 +923,11 @@ impl App {
             art_start: None,
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
+            sch_start: None,
+            sch_points: Vec::new(),
+            sch_stroke: 0.2,
+            sch_text: String::new(),
+            sch_text_size: 2.5,
             hole_edit: None,
             fiducial_diameter: 1.0,
             fiducial_edit: None,
@@ -2498,6 +2511,7 @@ impl App {
             }
             if i.key_pressed(egui::Key::Escape) {
                 self.tool = Tool::Select;
+                self.schematic_draw_reset();
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
@@ -5736,6 +5750,7 @@ impl App {
             Tool::NoConnect => "No connection".to_owned(),
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
+            Tool::SchematicDraw(_) => "Draw on schematic".to_owned(),
         };
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -10644,6 +10659,113 @@ mod tests {
         assert!(
             paints_text(&ctx, &mut app, "SetR")?,
             "ticking it again brings the group back: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_draws_a_schematic_box_and_a_heading() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let before = app.project.graphics.len();
+        app.test_arm_schematic(schematic_draw::SchShape::Box);
+        app.canvas_click(Point::new(10.0, 10.0), 15.0);
+        app.canvas_click(Point::new(30.0, 22.0), 15.0);
+        app.refresh();
+        assert!(
+            app.project.graphics.iter().any(|g| g.layer == "schematic" && g.shape == "rect"),
+            "a box lands on the schematic sheet: {}",
+            app.message
+        );
+        app.sch_text = "Power".into();
+        app.test_arm_schematic(schematic_draw::SchShape::Text);
+        app.canvas_click(Point::new(12.0, 8.0), 15.0);
+        app.refresh();
+        assert!(
+            app.project.graphics.iter().any(|g| {
+                g.layer == "schematic" && g.shape == "text" && g.text == "Power"
+            }),
+            "the heading lands beside the box: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Power")?,
+            "the heading shows on the canvas: {}",
+            app.message
+        );
+        let png = pcbcraft_io::preview_png(&app.project, "schematic")?;
+        assert!(!png.is_empty(), "the schematic plot includes the new art");
+        assert!(
+            app.project.graphics.len() >= before + 2,
+            "box and heading both persisted: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_places_a_schematic_dimension() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        frame(&egui::Context::default(), &mut app, vec![], egui::Modifiers::NONE);
+        let groups_before = app.project.graphic_groups.len();
+        app.test_arm_schematic(schematic_draw::SchShape::Dimension);
+        app.canvas_click(Point::new(5.0, 40.0), 15.0);
+        app.canvas_click(Point::new(35.0, 40.0), 15.0);
+        app.refresh();
+        assert_eq!(
+            app.project.graphic_groups.len(),
+            groups_before + 1,
+            "a dimension group is added: {}",
+            app.message
+        );
+        assert!(
+            app.project.graphics.iter().any(|g| g.shape == "text" && g.layer == "schematic"),
+            "the dimension shows its measured span: {}",
+            app.message
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_drops_a_part_table_on_the_sheet() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        frame(&egui::Context::default(), &mut app, vec![], egui::Modifiers::NONE);
+        let lines_before = app
+            .project
+            .graphics
+            .iter()
+            .filter(|g| g.layer == "schematic" && g.shape == "line")
+            .count();
+        app.test_arm_schematic(schematic_draw::SchShape::Table);
+        app.canvas_click(Point::new(50.0, 5.0), 15.0);
+        app.refresh();
+        let lines_after = app
+            .project
+            .graphics
+            .iter()
+            .filter(|g| g.layer == "schematic" && g.shape == "line")
+            .count();
+        assert!(
+            lines_after > lines_before,
+            "the table draws grid lines on the sheet: {}",
+            app.message
+        );
+        assert!(
+            app.project.graphics.iter().any(|g| {
+                g.layer == "schematic" && g.shape == "text" && !g.text.is_empty()
+            }),
+            "the table fills in part names: {}",
             app.message
         );
         Ok(())

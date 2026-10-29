@@ -507,6 +507,11 @@ impl App {
                         );
                     }
                 }
+                Tool::SchematicDraw(_) => {
+                    if let Some(pos) = cursor {
+                        self.paint_schematic_draft(&painter, rect, camera, pos);
+                    }
+                }
                 Tool::DrawLayer => {
                     let stroke = Stroke::new(1.0, self.accent());
                     match self.art_shape {
@@ -608,6 +613,18 @@ impl App {
         {
             let layer = self.art_layer.unwrap_or_default();
             self.commit_poly(layer);
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Enter))
+            && matches!(self.tool, Tool::SchematicDraw(schematic_draw::SchShape::Polygon))
+            && self.sch_points.len() >= 3
+        {
+            let stroke = self.sch_stroke;
+            self.commit_schematic_polygon(stroke);
+        }
+        if !matches!(self.tool, Tool::SchematicDraw(_))
+            && (self.sch_start.is_some() || !self.sch_points.is_empty())
+        {
+            self.schematic_draw_reset();
         }
         if response.clicked()
             && let Some(pos) = cursor
@@ -1196,6 +1213,7 @@ impl App {
                 "board.cutout.add",
                 json!({"center":snap(pos),"radius":self.cutout_radius}),
             ),
+            Tool::SchematicDraw(_) => self.schematic_click(pos, zoom),
             Tool::DrawLayer => {
                 let Some(layer) = self.art_layer else {
                     self.message = "Pick or make a layer to draw on first".into();
@@ -1413,6 +1431,9 @@ impl App {
                     && self.selected_unit == c.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1),
                 false,
             );
+        }
+        if let Some(cursor) = self.cursor {
+            self.paint_schematic_draft(painter, rect, camera, cursor);
         }
         if p.components.is_empty() {
             painter.text(
