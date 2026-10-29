@@ -2869,8 +2869,6 @@ pub fn report_text(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
-/// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
-/// the net name followed by every `reference.pin` that sits on it, comma
 /// Drill tool chart as CSV: one row per distinct drill diameter and slot
 /// span listing plating and hit count, with a total row and the recorded
 /// drill tolerance, so a drill press operator can pick tools at a glance.
@@ -2880,7 +2878,8 @@ pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
     let hits = project_drill_hits(p)?;
     let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
     for hit in hits {
-        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;    }
+        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;
+    }
     if tools.len() > MAX_TOOLS {
         return Err("drill chart needs 64 or fewer distinct drill tools".into());
     }
@@ -3031,6 +3030,8 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
+/// Netlist as a HyperLynx-style simulation netlist CSV: one line per net,
+/// the net name followed by every `reference.pin` that sits on it, comma
 /// separated, nets sorted by name and pins sorted by reference and number.
 pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
     p.validate()?;
@@ -11365,7 +11366,6 @@ mod tests {
         Ok(())
     }
 
-
     /// A two layer board fixture for the drawn layer plots: a cut outline with
     /// a hole and a label, and a silk panel mark.
     fn drawn_layer_project() -> Project {
@@ -11440,7 +11440,8 @@ mod tests {
         );
         assert!(
             drawing.contains("8\npanel-silk\n"),
-            "the board DXF carries the drawn silk layer"        );
+            "the board DXF carries the drawn silk layer"
+        );
         Ok(())
     }
 
@@ -11652,7 +11653,8 @@ mod tests {
         let blank = drawn_layer_plots(&blank)?;
         assert!(
             blank.files.contains_key("layer-9.dxf"),
-            "a name with no usable characters falls back to the layer id"        );
+            "a name with no usable characters falls back to the layer id"
+        );
         Ok(())
     }
 

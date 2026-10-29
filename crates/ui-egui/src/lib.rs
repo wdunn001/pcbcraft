@@ -10801,7 +10801,10 @@ mod tests {
         app.canvas_click(Point::new(30.0, 22.0), 15.0);
         app.refresh();
         assert!(
-            app.project.graphics.iter().any(|g| g.layer == "schematic" && g.shape == "rect"),
+            app.project
+                .graphics
+                .iter()
+                .any(|g| g.layer == "schematic" && g.shape == "rect"),
             "a box lands on the schematic sheet: {}",
             app.message
         );
@@ -10810,9 +10813,10 @@ mod tests {
         app.canvas_click(Point::new(12.0, 8.0), 15.0);
         app.refresh();
         assert!(
-            app.project.graphics.iter().any(|g| {
-                g.layer == "schematic" && g.shape == "text" && g.text == "Power"
-            }),
+            app.project
+                .graphics
+                .iter()
+                .any(|g| { g.layer == "schematic" && g.shape == "text" && g.text == "Power" }),
             "the heading lands beside the box: {}",
             app.message
         );
@@ -10837,7 +10841,12 @@ mod tests {
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         app.tool_call("sample_design", json!({}));
-        frame(&egui::Context::default(), &mut app, vec![], egui::Modifiers::NONE);
+        frame(
+            &egui::Context::default(),
+            &mut app,
+            vec![],
+            egui::Modifiers::NONE,
+        );
         let groups_before = app.project.graphic_groups.len();
         app.test_arm_schematic(schematic_draw::SchShape::Dimension);
         app.canvas_click(Point::new(5.0, 40.0), 15.0);
@@ -10850,7 +10859,10 @@ mod tests {
             app.message
         );
         assert!(
-            app.project.graphics.iter().any(|g| g.shape == "text" && g.layer == "schematic"),
+            app.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "text" && g.layer == "schematic"),
             "the dimension shows its measured span: {}",
             app.message
         );
@@ -10863,7 +10875,12 @@ mod tests {
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         app.tool_call("sample_design", json!({}));
-        frame(&egui::Context::default(), &mut app, vec![], egui::Modifiers::NONE);
+        frame(
+            &egui::Context::default(),
+            &mut app,
+            vec![],
+            egui::Modifiers::NONE,
+        );
         let lines_before = app
             .project
             .graphics
@@ -10885,9 +10902,10 @@ mod tests {
             app.message
         );
         assert!(
-            app.project.graphics.iter().any(|g| {
-                g.layer == "schematic" && g.shape == "text" && !g.text.is_empty()
-            }),
+            app.project
+                .graphics
+                .iter()
+                .any(|g| { g.layer == "schematic" && g.shape == "text" && !g.text.is_empty() }),
             "the table fills in part names: {}",
             app.message
         );

@@ -1,4 +1,6 @@
+use super::canvas::snap;
 use super::*;
+use egui::Pos2;
 use serde_json::json;
 
 /// Schematic sheet drawing modes wired to engine `"graphic.add"`, `"dimension.add"`,
@@ -81,9 +83,10 @@ impl App {
                 }
             },
             SchShape::Polygon => {
-                let closing = self.sch_points.first().is_some_and(|first| {
-                    pos.distance(*first) < 6.0 / zoom as f64
-                });
+                let closing = self
+                    .sch_points
+                    .first()
+                    .is_some_and(|first| pos.distance(*first) < 6.0 / zoom as f64);
                 if closing && self.sch_points.len() >= 3 {
                     self.commit_schematic_polygon(stroke);
                 } else if self.sch_points.len() >= 256 {
@@ -236,7 +239,9 @@ impl App {
                     let a = camera.screen(start, rect);
                     let b = camera.screen(snapped, rect);
                     match shape {
-                        SchShape::Line => painter.line_segment([a, b], stroke),
+                        SchShape::Line => {
+                            painter.line_segment([a, b], stroke);
+                        }
                         SchShape::Box => {
                             painter.rect_stroke(
                                 egui::Rect::from_min_max(a, b),

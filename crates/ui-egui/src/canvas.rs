@@ -399,6 +399,7 @@ impl App {
             Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
             Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
             Tool::DrawLayer => "DRAW SHAPE · PICK THE LAYER IN THE PANEL",
+            Tool::SchematicDraw(_) => "SCHEMATIC DRAW · CLICK TO PLACE",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -615,7 +616,10 @@ impl App {
             self.commit_poly(layer);
         }
         if ui.input(|i| i.key_pressed(egui::Key::Enter))
-            && matches!(self.tool, Tool::SchematicDraw(schematic_draw::SchShape::Polygon))
+            && matches!(
+                self.tool,
+                Tool::SchematicDraw(schematic_draw::SchShape::Polygon)
+            )
             && self.sch_points.len() >= 3
         {
             let stroke = self.sch_stroke;
