@@ -7,12 +7,16 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod board_mesh;
+mod schematic_import;
 mod drawn;
 mod gerber;
 mod layers;
 mod library_render;
 mod panel_export;
 mod raster;
+pub use schematic_import::{
+    import_summary, read_schematic_interchange, read_schematic_interchange_path,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -11810,6 +11814,124 @@ mod tests {
         let pen = plots.files.get("labels.hpg").ok_or("pen path")?;
         assert!(!pen.contains("A1"), "the pen path leaves the label out");
         Ok(())
+    }
+
+    fn fixture_dir() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+    }
+
+    fn schematic_snapshot(project: &Project) -> serde_json::Value {
+        let mut components: Vec<String> = project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        components.sort();
+        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
+        nets.sort();
+        serde_json::json!({
+            "name": project.name,
+            "components": components,
+            "nets": nets,
+            "junctions": project.labels.iter().filter(|l| l.kind == "junction").count(),
+            "no_connects": project.no_connects.len(),
+            "drawn_wires": project.drawn_wires.len(),
+            "sheets": project.sheets.len(),
+            "ports": project.ports.len(),
+            "bus_labels": project.labels.iter().filter(|l| l.kind == "bus").count(),
+        })
+    }
+
+    fn load_schematic_golden(name: &str) -> Result<serde_json::Value, String> {
+        let path = fixture_dir().join(name);
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn schematic_import_flat_matches_golden_json() -> Result<(), String> {
+        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_flat.kicad_sch"))
+            .map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange(&text)?;
+        let snapshot = schematic_snapshot(&project);
+        let golden = load_schematic_golden("schematic_import_flat.golden.json")?;
+        assert_eq!(snapshot["name"], golden["name"]);
+        assert_eq!(snapshot["components"], golden["components"]);
+        assert_eq!(snapshot["nets"], golden["nets"]);
+        assert_eq!(snapshot["junctions"], golden["junctions"]);
+        assert_eq!(snapshot["no_connects"], golden["no_connects"]);
+        assert_eq!(snapshot["drawn_wires"], golden["drawn_wires"]);
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_hierarchy_matches_golden_json() -> Result<(), String> {
+        let path = fixture_dir().join("schematic_import_hierarchy_root.kicad_sch");
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange_path(&path, &text)?;
+        let snapshot = schematic_snapshot(&project);
+        let golden = load_schematic_golden("schematic_import_hierarchy.golden.json")?;
+        assert_eq!(snapshot["components"], golden["components"]);
+        assert_eq!(snapshot["nets"], golden["nets"]);
+        assert_eq!(snapshot["sheets"], golden["sheets"]);
+        assert_eq!(snapshot["ports"], golden["ports"]);
+        let net = project
+            .nets
+            .iter()
+            .find(|n| n.name == "IN1")
+            .ok_or("missing IN1 net")?;
+        let root_pin = project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+            .and_then(|p| p.net);
+        let child_pin = project
+            .components
+            .iter()
+            .find(|c| c.reference == "R2")
+            .and_then(|c| c.pins.iter().find(|p| p.number == "1"))
+            .and_then(|p| p.net);
+        if root_pin != Some(net.id) || child_pin != Some(net.id) {
+            return Err("cross-page net did not reach both pages".into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_bus_derives_member_nets() -> Result<(), String> {
+        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_bus.kicad_sch"))
+            .map_err(|e| e.to_string())?;
+        let project = read_schematic_interchange(&text)?;
+        let golden = load_schematic_golden("schematic_import_bus.golden.json")?;
+        let mut nets: Vec<String> = project.nets.iter().map(|n| n.name.clone()).collect();
+        nets.sort();
+        assert_eq!(nets, golden["member_nets"]);
+        assert_eq!(
+            project.labels.iter().filter(|l| l.kind == "bus").count(),
+            golden["bus_labels"].as_u64().unwrap_or(0) as usize
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_import_malformed_refuses_with_line_number() {
+        let err = read_schematic_interchange("(kicad_sch (version 20250114)\n(broken").unwrap_err();
+        assert!(
+            err.contains("line"),
+            "malformed import should name a line number: {err}"
+        );
+    }
+
+    #[test]
+    fn schematic_import_legacy_cache_library_refused() {
+        let text = std::fs::read_to_string(fixture_dir().join("schematic_import_legacy.kicad_sch"))
+            .expect("legacy fixture");
+        let err = read_schematic_interchange(&text).unwrap_err();
+        assert!(
+            err.contains("embedded symbol definitions"),
+            "legacy file should be refused plainly: {err}"
+        );
     }
 
     #[test]

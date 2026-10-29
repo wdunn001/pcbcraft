@@ -28,7 +28,7 @@ impl Default for Limits {
     }
 }
 #[derive(Clone, Debug)]
-pub(crate) struct Node {
+pub struct Node {
     pub atom: Option<String>,
     pub children: Vec<Node>,
     pub span: Range<usize>,
@@ -53,10 +53,10 @@ impl Node {
         self.child(name).map(|x| x.value(1)).unwrap_or("")
     }
 }
-pub(crate) fn parse(text: &str) -> Result<Node, Error> {
+pub fn parse(text: &str) -> Result<Node, Error> {
     parse_limits(text, Limits::default())
 }
-pub(crate) fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
+pub fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
     if text.len() > limits.bytes {
         return Err(Error::Limit("source byte limit"));
     }
