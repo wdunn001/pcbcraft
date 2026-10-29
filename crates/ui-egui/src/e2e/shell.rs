@@ -624,8 +624,8 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
         "tapping Line in the strip arms the line tool"
     );
     assert!(
-        scrolled_to(&ctx, &mut app, "DRAW ON LAYER")?,
-        "the layer picker appears in Properties: {}",
+        scrolled_to(&ctx, &mut app, "Line")?,
+        "shape options appear in Properties: {}",
         app.message
     );
     Ok(())

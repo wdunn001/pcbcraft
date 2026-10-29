@@ -433,7 +433,7 @@ board.canvas.cutout_click_to_place = CUTOUT · CLICK TO PLACE
 board.canvas.mounting_hole_click_to_drill = MOUNTING HOLE · CLICK TO DRILL
 board.canvas.no_connect_click_a_pin = NO CONNECT · CLICK A PIN TO MARK IT UNUSED
 board.canvas.assembly_mark_click_a_clear = ASSEMBLY MARK · CLICK A CLEAR CORNER
-board.canvas.draw_shape_pick_the_layer = DRAW SHAPE · PICK THE LAYER IN THE PANEL
+board.canvas.draw_shape_pick_the_layer = DRAW SHAPE · PICK A LAYER IN THE TREE
 board.canvas.via_click_to_place = VIA · CLICK TO PLACE
 board.canvas.measure_click_two_points = MEASURE · CLICK TWO POINTS
 board.canvas.focused_on_label_tap_the = FOCUSED ON {label} · tap the row again to show everything
@@ -457,7 +457,7 @@ board.paint_board.width_height_mm_top_bottom = {width} × {height} mm    Top / B
 board.canvas_click.wire_picked_change_its_width = Wire picked: change its width or straighten it in the inspector
 board.canvas_click.wire_endpoints_must_be_symbol = Wire endpoints must be symbol pins
 board.canvas_click.pick_a_pad_to_start = Pick a pad to start or finish a route
-board.canvas_click.pick_or_make_a_layer = Pick or make a layer to draw on first
+board.canvas_click.pick_or_make_a_layer = Pick or make a layer in the Layers list first
 board.canvas_click.type_the_words_to_print = Type the words to print first
 board.canvas_click.an_outline_holds_up_to = An outline holds up to 64 corners; click the first point to close it
 

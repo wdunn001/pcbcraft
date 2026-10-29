@@ -6246,14 +6246,13 @@ fn collinear_track_merge_endpoints(a: &Track, b: &Track) -> Option<(Point, Point
     {
         return None;
     }
-    let endpoints = [a.start, a.end];
-    let shared = endpoints
-        .iter()
-        .find(|p| track_endpoints_near(**p, b.start) || track_endpoints_near(**p, b.end))?;
+    let shared = [a.start, a.end]
+        .into_iter()
+        .find(|p| track_endpoints_near(*p, b.start) || track_endpoints_near(*p, b.end))?;
     let far = |track: &Track| -> Option<Point> {
-        if track_endpoints_near(track.start, *shared) {
+        if track_endpoints_near(track.start, shared) {
             Some(track.end)
-        } else if track_endpoints_near(track.end, *shared) {
+        } else if track_endpoints_near(track.end, shared) {
             Some(track.start)
         } else {
             None

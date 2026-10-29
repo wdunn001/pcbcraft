@@ -69,17 +69,7 @@ pub(crate) fn gerber_job_at(
             "FilePolarity": polarity,
         }));
     }
-    // The design has one minimum copper separation and it applies to every
-    // pair of features, in millimetres as the specification requires.
-    let clearance = p.board.clearance;
-    let rules = json!([{
-        "Layers": "All",
-        "PadToPad": clearance,
-        "PadToTrack": clearance,
-        "TrackToTrack": clearance,
-        "TrackToRegion": clearance,
-        "RegionToRegion": clearance,
-    }]);
+    let rules = design_rules(p);
     let job = json!({
         "Header": {
             "GenerationSoftware": {
@@ -101,6 +91,37 @@ pub(crate) fn gerber_job_at(
         "MaterialStackup": material_stackup(p, copper),
     });
     serde_json::to_string_pretty(&job).map_err(|e| e.to_string())
+}
+
+/// `DesignRules` section (specification 4.3), in millimetres. The board
+/// clearance is the baseline for every separation. When the board records
+/// fabrication limits, `min_space` replaces that separation and `min_track`
+/// becomes `MinLineWidth`. Fields the board does not record are left out, which
+/// the specification allows for a partial job file.
+///
+/// # Rules
+/// Exports what the user recorded; it never runs a check.
+///
+/// # Dependencies
+/// `FabRules` in `crates/doc/src/fab.rs`.
+///
+/// # Do not
+/// Invent a limit the board does not carry.
+fn design_rules(p: &Project) -> Value {
+    let fab = p.board.rules.as_ref();
+    let space = fab.and_then(|r| r.min_space).unwrap_or(p.board.clearance);
+    let mut rule = json!({
+        "Layers": "All",
+        "PadToPad": space,
+        "PadToTrack": space,
+        "TrackToTrack": space,
+        "TrackToRegion": space,
+        "RegionToRegion": space,
+    });
+    if let (Some(width), Some(map)) = (fab.and_then(|r| r.min_track), rule.as_object_mut()) {
+        map.insert("MinLineWidth".into(), json!(width));
+    }
+    json!([rule])
 }
 
 /// The stackup in fabrication order: legend and mask on the top face, each
@@ -365,6 +386,42 @@ mod tests {
             job["Header"]["GenerationSoftware"]["Application"], "PCBCraft",
             "the manifest says what wrote it"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn design_rules_carry_the_recorded_fabrication_limits() -> Result<(), String> {
+        let mut project = board();
+        project.board.rules = Some(pcbcraft_doc::FabRules {
+            min_track: Some(0.127),
+            min_space: Some(0.15),
+            ..Default::default()
+        });
+        let files = crate::gerber_files(&project)?;
+        let job: Value =
+            serde_json::from_str(&files["pcb-job.gbrjob"]).map_err(|e| e.to_string())?;
+        let rule = &job["DesignRules"][0];
+        assert_eq!(
+            rule["MinLineWidth"], 0.127,
+            "min_track becomes the line width"
+        );
+        assert_eq!(
+            rule["TrackToTrack"], 0.15,
+            "min_space becomes the separation"
+        );
+        assert_eq!(rule["PadToPad"], 0.15);
+        Ok(())
+    }
+
+    #[test]
+    fn design_rules_without_fabrication_limits_keep_the_board_clearance() -> Result<(), String> {
+        let project = board();
+        let files = crate::gerber_files(&project)?;
+        let job: Value =
+            serde_json::from_str(&files["pcb-job.gbrjob"]).map_err(|e| e.to_string())?;
+        let rule = &job["DesignRules"][0];
+        assert_eq!(rule["PadToPad"], project.board.clearance);
+        assert!(rule.get("MinLineWidth").is_none(), "no invented line width");
         Ok(())
     }
 

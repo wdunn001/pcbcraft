@@ -587,7 +587,15 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     tap_strip(&ctx, &mut app, "button:Draw shape")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "New layer")?;
+    app.region().left_tab = "layers".to_owned();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    crate::e2e::support::tap_left(&ctx, &mut app, "New layer")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(app.current_target(), crate::draw_target::Target::User(_)),
+        "New layer in the tree makes that layer the draw target: {}",
+        app.message
+    );
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.user_layers.len(),

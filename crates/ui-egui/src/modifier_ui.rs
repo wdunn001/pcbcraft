@@ -18,7 +18,8 @@
 //! # Do not
 //! - Hard-code a chord in a string; build it from the binding.
 
-use crate::a11y::Named;
+use crate::a11y::{self, Named};
+use crate::targets::TapButton;
 use egui::Key;
 use pcbcraft_text::t;
 
@@ -282,13 +283,14 @@ fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
                 .response
                 .named(&hotkey_words(h))
                 .on_hover_text(t!("modifier.prefs.hotkey.tip"));
-            if app.preferences.modifiers.key_for(h) != h.default_key()
-                && ui
-                    .small_button(t!("modifier.prefs.reset"))
-                    .on_hover_text(t!("modifier.prefs.reset.tip"))
-                    .clicked()
-            {
-                app.preferences.modifiers.reset_key(h);
+            if app.preferences.modifiers.key_for(h) != h.default_key() {
+                let reset = ui
+                    .tap_button(t!("modifier.prefs.reset"))
+                    .on_hover_text(t!("modifier.prefs.reset.tip"));
+                a11y::name_control(&reset, "Reset tool key", None);
+                if reset.clicked() {
+                    app.preferences.modifiers.reset_key(h);
+                }
             }
         });
         if chosen != current
@@ -332,13 +334,14 @@ fn keys_rows(app: &mut crate::App, ui: &mut egui::Ui, platform: Platform) {
             if let Some(p) = pick {
                 app.preferences.modifiers.set_chord(action, p);
             }
-            if app.preferences.modifiers.is_custom(action)
-                && ui
-                    .small_button(t!("modifier.prefs.reset"))
-                    .on_hover_text(t!("modifier.prefs.reset.tip"))
-                    .clicked()
-            {
-                app.preferences.modifiers.reset_chord(action);
+            if app.preferences.modifiers.is_custom(action) {
+                let reset = ui
+                    .tap_button(t!("modifier.prefs.reset"))
+                    .on_hover_text(t!("modifier.prefs.reset.tip"));
+                a11y::name_control(&reset, "Reset modifier chord", None);
+                if reset.clicked() {
+                    app.preferences.modifiers.reset_chord(action);
+                }
             }
         });
     }

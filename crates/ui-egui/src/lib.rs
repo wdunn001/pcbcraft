@@ -6638,54 +6638,15 @@ impl App {
             return;
         }
         if matches!(self.tool, Tool::DrawLayer) {
-            ui.label(
-                egui::RichText::new(t!("board.draw_tool_options.draw_on_layer"))
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            let names: Vec<(Id, String)> = self
-                .project
-                .board
-                .user_layers
-                .iter()
-                .map(|l| (l.id, l.name.clone()))
-                .collect();
-            let current = self
-                .art_layer
-                .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
-                .unwrap_or_else(|| t!("board.draw_tool_options.no_layer_yet"));
-            let picked_before = self.art_layer;
-            egui::ComboBox::from_id_salt("art-layer-pick")
-                .selected_text(current)
-                .width(150.0)
-                .show_ui(ui, |ui| {
-                    for (id, name) in &names {
-                        ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
-                            .on_hover_text(t!(
-                                "board.draw_tool_options.new_figures_land_on_this.tip"
-                            ));
-                    }
-                })
-                .response
-                .named("Drawing layer");
-            if let Some(id) = self.art_layer
-                && self.art_layer != picked_before
-            {
-                self.set_target(draw_target::Target::User(id));
-            }
-            if ui
-                .button(t!("board.draw_tool_options.new_layer"))
-                .on_hover_text(t!("board.draw_tool_options.new_layer.tip"))
-                .clicked()
-            {
-                let name = t!("board.draw_tool_options.art_v0", v0 = names.len() + 1);
-                self.run("board.layer_add", json!({"name": name, "kind": "other"}));
-                if self.message.starts_with("board.layer_add") {
-                    self.art_layer = self.selected;
-                    if let Some(id) = self.art_layer {
-                        self.set_target(draw_target::Target::User(id));
-                    }
-                }
+            use draw_target::Target;
+            let on_user = matches!(self.current_target(), Target::User(_));
+            let layer_tip = t!("board.draw_tool_options.new_figures_land_on_this.tip");
+            if on_user {
+                ui.label(self.target_label())
+                    .on_hover_text(layer_tip.clone());
+            } else {
+                ui.label(t!("board.canvas_click.pick_or_make_a_layer"))
+                    .on_hover_text(t!("tree.add_layer.tip"));
             }
             ui.horizontal(|ui| {
                 for (shape, label, tip) in [
