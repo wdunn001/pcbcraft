@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Graft keymap + design compare from _feat_lib.rs onto origin/main ui-egui lib.rs."""
 import subprocess
 from pathlib import Path
 
@@ -16,29 +17,33 @@ out = main[:]
 out.insert(out.index("mod layers_tree;") + 1, "mod keymap;")
 out.insert(out.index("use targets::TapButton;"), "use std::collections::HashMap;")
 
-i = next(x for x, l in enumerate(out) if l.startswith("struct Preferences {"))
-out[i:i] = feat[646:651] + [""]
+pref_struct = next(x for x, l in enumerate(out) if l.startswith("struct Preferences {"))
+out[pref_struct:pref_struct] = feat[646:651] + [""]
 
-for line in feat[659:664]:
-    out.insert(out.index("    hidden_layers: Vec<String>,") + 1, line)
+mod_comment = next(
+    x for x, l in enumerate(out) if l.strip().startswith("/// Remapped tool modifiers")
+)
+for line in reversed(feat[659:663]):
+    out.insert(mod_comment, line)
 
-i = next(x for x, l in enumerate(out) if l.startswith("fn default_language()"))
-for line in reversed(feat[728:733]):
-    out.insert(i, line)
-out.insert(i, "")
+lang_fn = next(x for x, l in enumerate(out) if l.startswith("fn default_language()"))
+for line in reversed(feat[708:716]):
+    out.insert(lang_fn, line)
 
-mod_idx = next(x for x, l in enumerate(out) if "modifiers: Default::default()," in l)
-out[mod_idx:mod_idx] = [
+default_body = next(x for x, l in enumerate(out) if "modifiers: Default::default()," in l)
+out[default_body:default_body] = [
     "            active_keymap_profile: default_keymap_profile(),",
     "            keymap_profiles: default_keymap_profiles(),",
 ]
 
 pair_rows = next(x for x, l in enumerate(out) if l.startswith("/// Pair name, coupling gap"))
-out[pair_rows:pair_rows] = [""] + feat[729:777] + [""]
+out[pair_rows:pair_rows] = feat[729:777] + [""]
 
-lib_idx = out.index("    library: library::Browser,")
-for line in reversed(feat[1060:1079]):
-    out.insert(lib_idx, line)
+shortcuts_open = next(x for x, l in enumerate(out) if l.strip() == "shortcuts_open: bool,")
+out[shortcuts_open + 1 : shortcuts_open + 1] = feat[1059:1068]
+
+library_field = next(x for x, l in enumerate(out) if l.strip() == "library: library::Browser,")
+out[library_field + 1 : library_field + 1] = feat[1074:1078]
 
 frames_idx = out.index("            frames: 0,")
 inits = [
@@ -60,9 +65,7 @@ inits = [
 for line in reversed(inits):
     out.insert(frames_idx + 1, line)
 
-pref_load = next(
-    x for x, l in enumerate(out) if 'get_value(s, "preferences")' in l
-)
+pref_load = next(x for x, l in enumerate(out) if 'get_value(s, "preferences")' in l)
 pref_load = next(
     x for x, l in enumerate(out[pref_load:], pref_load) if ".unwrap_or_default();" in l
 )
@@ -74,17 +77,27 @@ s_start = next(
 s_end = s_start + 1
 while s_end < len(out) and not (out[s_end].startswith("    fn ") and s_end > s_start + 5):
     s_end += 1
-out[s_start:s_end] = feat[3120:3375] + [""]
+out[s_start:s_end] = feat[3301:3375] + [""]
 
 settings = next(
     x for x, l in enumerate(out) if l.startswith("    fn settings_tab(&mut self, ui: &mut egui::Ui) {")
 )
-out[settings:settings] = feat[3686:3830] + [""] + feat[4789:4980] + [""]
-out.insert(settings + 3, "        self.shortcuts_settings_panel(ui);")
-out.insert(settings + 4, "        ui.add_space(10.0);")
+out[settings:settings] = feat[3685:3832] + [""] + feat[4788:4982] + [""]
+settings_body = next(
+    x
+    for x, l in enumerate(out)
+    if l.startswith("    fn settings_tab(&mut self, ui: &mut egui::Ui) {")
+)
+panel_anchor = next(
+    x
+    for x, l in enumerate(out[settings_body + 1 :], settings_body + 1)
+    if l.strip().startswith("ui.")
+)
+out.insert(panel_anchor, "        self.shortcuts_settings_panel(ui);")
+out.insert(panel_anchor + 1, "        ui.add_space(10.0);")
 
 export_btn = next(x for x, l in enumerate(out) if '.button(t!("menu.file.export"))' in l)
-out[export_btn:export_btn] = feat[3857:3863] + [""]
+out[export_btn:export_btn] = feat[3856:3863] + [""]
 
 show_shortcuts = next(x for x, l in enumerate(out) if "        self.shortcuts(&ctx);" in l)
 out.insert(show_shortcuts + 1, "        if self.compare_open {")
@@ -92,5 +105,5 @@ out.insert(show_shortcuts + 2, "            self.compare_window(&ctx);")
 out.insert(show_shortcuts + 3, "        }")
 
 Path(repo / "crates/ui-egui/src/lib.rs").write_text("\n".join(out) + "\n", encoding="utf-8")
-t = "\n".join(out)
-print("lines", len(out), "brace", t.count("{") - t.count("}"))
+text = "\n".join(out)
+print("lines", len(out), "brace", text.count("{") - text.count("}"))

@@ -654,11 +654,6 @@ struct Preferences {
     #[serde(default)]
     hidden_layers: Vec<String>,
     /// Vertical split in the right aside: fraction for the Layers tree (top).
-    keymap_profiles: HashMap<String, keymap::Keymap>,
-    #[serde(default = "default_keymap_profiles")]
-    active_keymap_profile: String,
-    #[serde(default = "default_keymap_profile")]
-    /// Vertical split in the right aside: fraction for the Layers tree (top).
     #[serde(default = "default_aside_split")]
     aside_split: f32,
     /// Lower right-aside tab: 0 = Properties, 1 = Assistant.
@@ -712,16 +707,22 @@ struct Preferences {
     /// Changes one message may make before the model is told to stop.
     #[serde(default = "default_turn_limit")]
     assistant_turn_limit: u32,
+    #[serde(default = "default_keymap_profile")]
+    active_keymap_profile: String,
+    #[serde(default = "default_keymap_profiles")]
+    keymap_profiles: HashMap<String, keymap::Keymap>,
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
 }
-
-
-impl Preferences {
-    fn active_keymap(&self) -> &keymap::Keymap {
-        if let Some(map) = self.keymap_profiles.get(&self.active_keymap_profile) {
-            return map;
+fn default_keymap_profile() -> String {
+    "Default".into()
+}
+fn default_keymap_profiles() -> HashMap<String, keymap::Keymap> {
+    let mut map = HashMap::new();
+    map.insert("Default".into(), keymap::Keymap::default_bindings());
+    map
+}
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
 }
@@ -769,7 +770,6 @@ impl Default for Preferences {
         }
     }
 }
-
 impl Preferences {
     fn active_keymap(&self) -> &keymap::Keymap {
         if let Some(map) = self.keymap_profiles.get(&self.active_keymap_profile) {
@@ -1088,6 +1088,15 @@ pub struct App {
     command_open: bool,
     command_query: String,
     shortcuts_open: bool,
+    shortcuts_settings_open: bool,
+    binding_capture: Option<keymap::KeyAction>,
+    profile_name_draft: String,
+    profile_import_text: String,
+    keymap_notice: String,
+    connected_cycle: usize,
+    last_repeat: Option<(String, Value)>,
+    needs_zoom_selection: bool,
+    tree_search_focus: bool,
     about_open: bool,
     command_focus: bool,
     command_index: usize,
@@ -1100,26 +1109,11 @@ pub struct App {
     /// Capture option: open the bottom sheet on its Findings tab.
     capture_sheet: bool,
     frames: u32,
-    binding_capture: Option<keymap::KeyAction>,
-    profile_name_draft: String,
-    profile_import_text: String,
-    keymap_notice: String,
-    connected_cycle: usize,
-    last_repeat: Option<(String, Value)>,
-    needs_zoom_selection: bool,
-    tree_search_focus: bool,
-    command_focus: bool,
-    command_index: usize,
-    command_scroll: bool,
-    capture: Option<String>,
-    frames: u32,
     library: library::Browser,
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
-    pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
-    library: library::Browser,
     dock: library_dock::Dock,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
@@ -2425,187 +2419,6 @@ impl App {
             }
         }
     }
-        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
-            return Some(track.net);
-        }
-        if let Some(via) = self.project.board.vias.iter().find(|v| v.id == id) {
-            return Some(via.net);
-        }
-        if let Some(fp) = self.project.footprint(id) {
-            return fp.pads.iter().find_map(|p| p.net);
-        }
-        None
-    }
-
-    fn dispatch_shortcut(&mut self, action: keymap::KeyAction) {
-        use keymap::KeyAction;
-        match action {
-            KeyAction::Undo => {
-                self.tool_call("undo", json!({}));
-            }
-            KeyAction::Redo => {
-                self.tool_call("redo", json!({}));
-            }
-            KeyAction::Save => {
-                self.tool_call("save", json!({"path": self.path}));
-            }
-            KeyAction::CommandPalette => {
-                self.command_open = !self.command_open;
-                self.command_focus = self.command_open;
-                self.command_index = 0;
-            }
-            KeyAction::ToggleShortcutsHelp => {
-                self.shortcuts_open = !self.shortcuts_open;
-            }
-            KeyAction::SymbolPalette => {
-                self.palette = true;
-            }
-            KeyAction::WireTool => {
-                self.tool = Tool::Wire(None);
-            }
-            KeyAction::RouteTool => {
-                self.tool = Tool::Route(None);
-            }
-            KeyAction::MoveTool => {
-                self.select_hover();
-                self.tool = Tool::Move;
-            }
-            KeyAction::Rotate => {
-                self.select_hover();
-                self.rotate();
-            }
-            KeyAction::OpenInspector => {
-                self.select_hover();
-                self.load_properties();
-            }
-            KeyAction::ZoomFitDesign => {
-                self.needs_fit = true;
-            }
-            KeyAction::ZoomToSelection => {
-                self.needs_zoom_selection = true;
-            }
-            KeyAction::DeleteSelection => {
-                if let Some(id) = self.selected {
-                    self.run("object.delete", json!({"id": id}));
-                    self.select(None);
-                }
-            }
-            KeyAction::ReturnToSelect => {
-                self.tool = Tool::Select;
-                self.drag = None;
-                self.palette = false;
-                self.shortcuts_open = false;
-                self.binding_capture = None;
-                self.canvas_menu = None;
-                self.edit.measure = None;
-                self.edit.box_from = None;
-                self.edit.box_to = None;
-            }
-            KeyAction::ViaTool => {
-                self.tool = Tool::Via;
-            }
-            KeyAction::FlipHorizontal | KeyAction::MirrorVertical => {
-                self.select_hover();
-                let Some(id) = self.selected else {
-                    return;
-                };
-                let axis = if matches!(action, KeyAction::FlipHorizontal) {
-                    "horizontal"
-                } else {
-                    "vertical"
-                };
-                if self.project.footprint(id).is_some() {
-                    self.run("footprint.mirror", json!({"id": id, "axis": axis}));
-                } else if self.project.component(id).is_some() {
-                    self.run("component.mirror", json!({"id": id, "axis": axis}));
-                }
-            }
-            KeyAction::SelectConnected => {
-                let Some(sel) = self.selected else {
-                    return;
-                };
-                let Some(net) = self.net_for_selection(sel) else {
-                    return;
-                };
-                let mut ids: Vec<Id> = self
-                    .project
-                    .board
-                    .tracks
-                    .iter()
-                    .filter(|t| t.net == net)
-                    .map(|t| t.id)
-                    .collect();
-                for via in &self.project.board.vias {
-                    if via.net == net {
-                        ids.push(via.id);
-                    }
-                }
-                ids.sort_unstable();
-                ids.dedup();
-                if ids.is_empty() {
-                    return;
-                }
-                if ids.len() == 1 {
-                    self.highlight_net = Some(net);
-                    self.select(Some(ids[0]));
-                    return;
-                }
-                let at = ids.iter().position(|id| *id == sel).unwrap_or(0);
-                let next = ids[(at + 1) % ids.len()];
-                self.connected_cycle = at + 1;
-                self.select(Some(next));
-            }
-            KeyAction::ToggleNetHighlight => {
-                let Some(sel) = self.selected else {
-                    return;
-                };
-                let Some(net) = self.net_for_selection(sel) else {
-                    return;
-                };
-                self.highlight_net = if self.highlight_net == Some(net) {
-                    None
-                } else {
-                    Some(net)
-                };
-            }
-            KeyAction::LayerNext => {
-                self.route_layer = match self.route_layer {
-                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
-                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
-                    other => other,
-                };
-            }
-            KeyAction::LayerPrev => {
-                self.route_layer = match self.route_layer {
-                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
-                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
-                    other => other,
-                };
-            }
-            KeyAction::RepeatLastCommand => {
-                if let Some((command, params)) = self.last_repeat.clone() {
-                    self.run(&command, params);
-                }
-            }
-            KeyAction::FindInTree => {
-                self.tree_search_focus = true;
-            }
-            KeyAction::PaletteLineUp | KeyAction::PaletteLineDown | KeyAction::PaletteRun => {}
-            KeyAction::ToggleAutoSync => {
-                let next = !self.project.auto_sync;
-                self.run("project.set_auto_sync", json!({"auto_sync": next}));
-            }
-            KeyAction::UpdateBoardFromSchematic => {
-                if !self.project.auto_sync {
-                    self.run("board.sync", json!({}));
-                }
-            }
-            KeyAction::ToggleAssistant => {
-                self.assistant_toggle();
-            }
-        }
-    }
-
     fn shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.current_pass_index() > 0 {
             return;
@@ -3018,6 +2831,7 @@ impl App {
                 self.tool_call("save", json!({"path":self.path}));
             }
             ui.separator();
+            if ui
             if ui
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
@@ -3835,11 +3649,10 @@ impl App {
 
     /// Everything that used to crowd the right-hand aside: how the app looks
     /// and every setting for the project as a whole.
+    fn compare_kind_color(&self, kind: CompareKind) -> Color32 {
         match kind {
             CompareKind::Added => Color32::from_rgb(72, 187, 120),
             CompareKind::Changed => Color32::from_rgb(255, 183, 77),
-        self.shortcuts_settings_panel(ui);
-        ui.add_space(10.0);
         }
     }
 
@@ -3981,7 +3794,10 @@ impl App {
                 });
             self.compare_report_open = report_open;
         }
+    }
 
+
+    fn shortcuts_settings_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new("KEYBOARD SHORTCUTS")
                 .size(10.0)
@@ -4174,7 +3990,11 @@ impl App {
         }
     }
 
+    /// Everything that used to crowd the right-hand aside: how the app looks
+
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
+        self.shortcuts_settings_panel(ui);
+        ui.add_space(10.0);
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
         ui.separator();
