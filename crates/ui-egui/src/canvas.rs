@@ -63,6 +63,7 @@ pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
         .clamp(0.02, 100.0) as f32;
     Camera {
         mirror: false,
+        turns: 0,
         center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
         zoom,
     }
@@ -344,7 +345,8 @@ impl App {
             painter.add(
                 egui::epaint::TextShape::new(top_left, galley, color).with_angle_and_anchor(
                     ((-angle - rotation) * if camera.mirror { -1.0 } else { 1.0 }).to_radians()
-                        as f32,
+                        as f32
+                        + camera.turns as f32 * std::f32::consts::FRAC_PI_2,
                     Align2::CENTER_CENTER,
                 ),
             );
@@ -412,18 +414,23 @@ impl App {
         let resized = fitted_at.is_some_and(|last| last != size);
         if (self.needs_fit || resized) && rect.width() > 40.0 && rect.height() > 40.0 {
             let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
-            camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let panel = if keep_turns % 2 == 1 {
+                (rect.height(), rect.width())
+            } else {
+                (rect.width(), rect.height())
+            };
+            camera = fit_camera(lo, hi, panel);
+            camera.mirror = keep_mirror;
+            camera.turns = keep_turns;
             self.needs_fit = false;
             ui.ctx().data_mut(|d| d.insert_temp(fit_key, size));
         }
-        camera.mirror = self.seen_from_below();
         let held = crate::tool_modifiers::held_now(ui.ctx());
         if response.hovered() {
             let (scroll, sideways, scale) = self.wheel_plan(ui, held);
             if sideways.abs() > 0.01 {
-                camera.center = camera
-                    .center
-                    .offset(Point::new(-sideways as f64 / camera.zoom as f64, 0.0));
+                camera.pan_screen(Vec2::new(sideways, 0.0));
             }
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
@@ -440,14 +447,13 @@ impl App {
         if response.dragged_by(egui::PointerButton::Middle) {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
-            let along = if camera.mirror { d.x } else { -d.x };
-            camera.center = camera.center.offset(Point::new(
-                along as f64 / camera.zoom as f64,
-                -d.y as f64 / camera.zoom as f64,
-            ));
+            camera.pan_screen(d);
         }
         if self.tab == Tab::Pcb {
             self.pcb = camera;
+            self.step_layers_by_key(ui);
+            let focus = self.focus_target();
+            self.stack = self.stack_view(ui.ctx(), focus);
         } else {
             self.schematic = camera;
         }
@@ -850,7 +856,6 @@ impl App {
                             {
                                 self.needs_fit = true;
                             }
-                            self.view_from_below_button(ui);
                         });
                     });
             });
@@ -2396,14 +2401,13 @@ impl App {
             self.paint_keepout_ring(painter, center, radius);
         }
         self.paint_ratsnest(painter, rect, camera, p);
-        let mirrored = camera.mirror;
-        // Seen from below, the top layers are the far side: they stay visible
-        // but recede, so the bottom copper and parts read first.
-        let recede = |on_bottom: bool| if mirrored && !on_bottom { 0.35 } else { 1.0 };
-        for z in board_side::bottom_last(
+        // Paint far to near as the viewer sees the stack; layers nearer than the
+        // focused one are see-through and those behind it are dimmed.
+        let stack = &self.stack;
+        let copper_count = p.copper_layer_count();
+        for z in stack.far_to_near(
             p.board.zones.iter().filter(|_| shown("Copper zones")),
-            mirrored,
-            |z| z.layer != Layer::Front,
+            |z| z.layer,
         ) {
             let screen: Vec<egui::Pos2> = z
                 .outline
@@ -2416,7 +2420,7 @@ impl App {
                 self.colours().canvas.back
             };
             let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
-            let far = recede(z.layer != Layer::Front);
+            let far = stack.copper_alpha(z.layer);
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
@@ -2450,7 +2454,7 @@ impl App {
                 ));
             }
         }
-        for t in board_side::bottom_last(
+        for t in stack.far_to_near(
             p.board.tracks.iter().filter(|t| {
                 shown(if t.layer == pcbcraft_doc::Layer::Front {
                     "Top copper"
@@ -2458,8 +2462,7 @@ impl App {
                     "Bottom copper"
                 })
             }),
-            mirrored,
-            |t| t.layer != Layer::Front,
+            |t| t.layer,
         ) {
             painter.line_segment(
                 [camera.screen(t.start, rect), camera.screen(t.end, rect)],
@@ -2469,9 +2472,10 @@ impl App {
                         self.accent()
                     } else if t.layer == Layer::Front {
                         self.copper(Some(t.net), self.colours().canvas.front)
-                            .linear_multiply(recede(false))
+                            .linear_multiply(stack.copper_alpha(t.layer))
                     } else {
                         self.copper(Some(t.net), self.colours().canvas.back)
+                            .linear_multiply(stack.copper_alpha(t.layer))
                     },
                 ),
             );
@@ -2479,10 +2483,15 @@ impl App {
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
+            let through = (0..copper_count)
+                .filter_map(|i| Layer::from_index(i).ok())
+                .map(|l| stack.copper_alpha(l))
+                .fold(0.0f32, f32::max);
             let base = if self.selected == Some(v.id) {
                 self.accent()
             } else {
                 self.copper(Some(v.net), self.colours().canvas.front)
+                    .linear_multiply(through)
             };
             if via_on_layer(p, v, self.route_layer) {
                 painter.circle_filled(at, radius, base);
@@ -2520,10 +2529,12 @@ impl App {
                 );
             }
         }
-        for f in board_side::bottom_last(p.board.footprints.iter(), mirrored, |f| {
-            f.board_side() != Layer::Front
+        for f in stack.far_to_near(p.board.footprints.iter(), |f| {
+            crate::stack_view::mount_copper(copper_count, f.board_side())
         }) {
             let on_bottom = f.board_side() != Layer::Front;
+            let mount = crate::stack_view::mount_copper(copper_count, f.board_side());
+            let pad_alpha = stack.copper_alpha(mount);
             let points = f
                 .drawing_points(p)
                 .into_iter()
@@ -2544,7 +2555,7 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let color = art.silk.linear_multiply(recede(on_bottom));
+            let color = art.silk.linear_multiply(stack.silk_alpha(on_bottom));
             let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
                 .component(f.component)
@@ -2604,7 +2615,7 @@ impl App {
                                     art.top_copper
                                 },
                             )
-                            .linear_multiply(recede(on_bottom)),
+                            .linear_multiply(pad_alpha),
                         ));
                     }
                     let hole = pad.drill_outline_points();
@@ -2670,14 +2681,14 @@ impl App {
                     Align2::CENTER_BOTTOM,
                     &c.reference,
                     FontId::proportional(13.0),
-                    art.text,
+                    art.text.linear_multiply(stack.silk_alpha(on_bottom)),
                 );
                 painter.text(
                     below,
                     Align2::CENTER_TOP,
                     &c.value,
                     FontId::proportional(10.5),
-                    art.muted,
+                    art.muted.linear_multiply(stack.silk_alpha(on_bottom)),
                 );
             }
             if self.selected == Some(f.id)
@@ -2704,7 +2715,7 @@ impl App {
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
         self.paint_board_dimensions(painter, rect, camera, p);
-        self.paint_axis_glyph(painter, rect);
+        self.paint_axis_glyph(painter, rect, camera);
         self.paint_rulers(painter, rect, camera);
     }
 }
@@ -2781,6 +2792,7 @@ mod library_render_tests {
                 let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0));
                 let camera = Camera {
                     mirror: false,
+                    turns: 0,
                     center: Point::default(),
                     zoom: 10.0,
                 };
@@ -2874,6 +2886,7 @@ mod library_render_tests {
                         Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0)),
                         Camera {
                             mirror: false,
+                            turns: 0,
                             center: Point::default(),
                             zoom: 20.0,
                         },

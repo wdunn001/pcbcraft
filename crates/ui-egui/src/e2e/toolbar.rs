@@ -16,40 +16,22 @@ fn layout_page() -> (egui::Context, App) {
 }
 
 #[test]
-fn a_newcomer_picks_the_layer_to_draw_on_from_the_tool_bar() -> Result<(), String> {
+fn a_newcomer_picks_the_layer_to_draw_on_from_the_layers_tree() -> Result<(), String> {
     use crate::draw_target::{Side, Target};
     let (ctx, mut app) = layout_page();
-    // The status bar names the layer too; pressing its name changes nothing.
-    tap_id(&ctx, &mut app, "button:Layer: Top copper")?;
     assert_eq!(
         app.current_target(),
         Target::Copper(pcbcraft_doc::Layer::Front)
     );
-    tap_id(&ctx, &mut app, "combobox:Layer")?;
-    for choice in ["Top silkscreen", "Bottom silkscreen", "Board edge"] {
-        assert!(
-            paints_text(&ctx, &mut app, choice)?,
-            "the Layer box lists {choice}"
-        );
-    }
-    // The choices drop down under the box: press the one called Top silkscreen.
-    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let at = out
-        .shapes
-        .iter()
-        .filter_map(|s| match &s.shape {
-            egui::Shape::Text(t) if t.galley.text() == "Top silkscreen" => {
-                Some(t.pos + t.galley.size() / 2.0)
-            }
-            _ => None,
-        })
-        .next_back()
-        .ok_or("the Layer box should list Top silkscreen")?;
-    tap_at(&ctx, &mut app, at)?;
+    assert!(
+        tap_id(&ctx, &mut app, "combobox:Layer").is_err(),
+        "the tool bar no longer carries a Layer box"
+    );
+    press_on(&ctx, &mut app, "side:top/silk", egui::Key::Enter);
     assert_eq!(
         app.current_target(),
         Target::Silk(Side::Top),
-        "the Layer choice sets what the drawing tools draw on: {}",
+        "a Layers tree row sets what the drawing tools draw on: {}",
         app.message
     );
     Ok(())

@@ -10,7 +10,6 @@
 //! - crates/ui-egui/src/theme.rs
 //! - crates/ui-egui/src/ui_kit/segmented.rs, button.rs, checkbox.rs
 //! - crates/ui-egui/src/icons.rs (tool icons)
-//! - crates/ui-egui/src/draw_target.rs (`layer_field`)
 //!
 //! # Do not
 //! - Add a tool button anywhere else; add an `Item` here.
@@ -587,8 +586,6 @@ impl App {
                 self.run("board.sync", json!({}));
                 self.change_tab(Tab::Pcb);
             }
-            ui.add_space(8.0);
-            self.layer_field(ui);
             ui.add_space(8.0);
             let mut idx = usize::from(!self.preferences.chamfer_corners);
             let chamfer = t!("toolbar.corners_45");

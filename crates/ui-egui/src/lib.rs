@@ -34,6 +34,7 @@ mod reference_panel;
 mod route_drag;
 mod showcase;
 mod sources;
+mod stack_view;
 #[cfg(test)]
 mod target_size;
 mod targets;
@@ -675,9 +676,6 @@ struct Preferences {
     /// Let a new route push other nets' tracks aside; needs chamfered corners.
     #[serde(default)]
     route_shove: bool,
-    /// Show the board as seen from the bottom side, mirrored left to right.
-    #[serde(default)]
-    view_from_below: bool,
     /// Show the Assistant tab and its shortcut; off starts nothing.
     #[serde(default = "default_true")]
     assistant_enabled: bool,
@@ -736,7 +734,6 @@ impl Default for Preferences {
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
-            view_from_below: false,
             assistant_enabled: true,
             assistant_connections: Vec::new(),
             assistant_default: String::new(),
@@ -855,27 +852,70 @@ enum DrawShape {
     Poly,
     Words,
 }
+/// The 2D view transform: pan, zoom, a left-right mirror and quarter turns.
+///
+/// Why: the Top | Bottom control mirrors the board (the view from the other
+/// side) and the rotate buttons turn it in 90 degree steps; every painter and
+/// every pointer lookup goes through [`Camera::screen`] and [`Camera::world`],
+/// so drawing and picking cannot disagree.
+///
+/// # Rules
+/// - Order: shift to the centre, mirror x, turn clockwise by `turns` quarters,
+///   then scale. `turns` is always 0 to 3.
+///
+/// # Do not
+/// - Offset the centre by screen amounts; use [`Camera::pan_screen`].
 #[derive(Clone, Copy)]
 struct Camera {
     center: Point,
     zoom: f32,
-    /// Look at the board from below: screen x runs the other way.
+    /// Look at the board from the other side: screen x runs the other way.
     mirror: bool,
+    /// Quarter turns clockwise on screen.
+    turns: u8,
 }
 impl Camera {
+    /// A zoom-free offset taken through the mirror and the turns.
+    fn turn(self, dx: f64, dy: f64) -> (f64, f64) {
+        let (mut x, mut y) = (if self.mirror { -dx } else { dx }, dy);
+        for _ in 0..(self.turns % 4) {
+            (x, y) = (-y, x);
+        }
+        (x, y)
+    }
+    /// The inverse of [`Camera::turn`].
+    fn unturn(self, dx: f64, dy: f64) -> (f64, f64) {
+        let (mut x, mut y) = (dx, dy);
+        for _ in 0..(self.turns % 4) {
+            (x, y) = (y, -x);
+        }
+        (if self.mirror { -x } else { x }, y)
+    }
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
-        let dx = (p.x - self.center.x) as f32 * self.zoom;
-        rect.center()
-            + Vec2::new(
-                if self.mirror { -dx } else { dx },
-                (p.y - self.center.y) as f32 * self.zoom,
-            )
+        let (x, y) = self.turn(p.x - self.center.x, p.y - self.center.y);
+        rect.center() + Vec2::new(x as f32 * self.zoom, y as f32 * self.zoom)
     }
     fn world(self, p: egui::Pos2, rect: Rect) -> Point {
-        let dx = (p.x - rect.center().x) as f64 / self.zoom as f64;
-        Point::new(
-            self.center.x + if self.mirror { -dx } else { dx },
-            self.center.y + (p.y - rect.center().y) as f64 / self.zoom as f64,
+        let z = self.zoom as f64;
+        let (x, y) = self.unturn(
+            (p.x - rect.center().x) as f64 / z,
+            (p.y - rect.center().y) as f64 / z,
+        );
+        Point::new(self.center.x + x, self.center.y + y)
+    }
+    /// Move the picture by a screen amount, so a drag follows the pointer.
+    fn pan_screen(&mut self, d: Vec2) {
+        let z = self.zoom as f64;
+        let (x, y) = self.unturn(d.x as f64 / z, d.y as f64 / z);
+        self.center = self.center.offset(Point::new(-x, -y));
+    }
+    /// Where world +x and +y point on screen, as unit vectors.
+    fn axes(self) -> (Vec2, Vec2) {
+        let (ax, ay) = self.turn(1.0, 0.0);
+        let (bx, by) = self.turn(0.0, 1.0);
+        (
+            Vec2::new(ax as f32, ay as f32),
+            Vec2::new(bx as f32, by as f32),
         )
     }
 }
@@ -896,6 +936,8 @@ pub struct App {
     route_layer: pcbcraft_doc::Layer,
     /// What the drawing tools draw on; the Layers tree, toolbar and status bar share it.
     target: draw_target::Target,
+    /// How strongly each layer is painted this frame; see `stack_view.rs`.
+    stack: stack_view::StackView,
     preferences: Preferences,
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
@@ -988,6 +1030,8 @@ pub struct App {
     /// The bottom sheet under the canvas.
     sheet: bottom_sheet::SheetState,
     needs_fit: bool,
+    /// The layer view a click pinned: it stays forward until unpinned.
+    pinned_view: Option<draw_target::Target>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
     /// Left edge of the central page, so tests can check text keeps its margin.
@@ -1507,17 +1551,21 @@ impl App {
             dock: library_dock::Dock::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
+            stack: stack_view::StackView::plain(2, false),
+            pinned_view: None,
             renumber_open: false,
             active_page: 0,
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
+                turns: 0,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
             plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 mirror: false,
+                turns: 0,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
@@ -5797,8 +5845,8 @@ impl App {
                             status_item(ui, None, &text, &t!("board.footer.x_y_mm.tip"), true);
                         }
                         if self.tab == Tab::Pcb {
-                            let text = t!("target.status", layer = self.target_label());
-                            status_item(ui, None, &text, &t!("target.status.tip"), false);
+                            let text = self.layer_status();
+                            status_item(ui, None, &text, &t!("view.layer_status.tip"), false);
                         }
                         if let Some(reading) = self.measure_readout() {
                             status_item(

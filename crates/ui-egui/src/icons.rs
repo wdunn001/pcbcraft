@@ -97,6 +97,7 @@ static ICONS: &[(&str, &[u8])] = &[
     icon!("power"),
     icon!("redo"),
     icon!("rotate"),
+    icon!("rotate-ccw"),
     icon!("route"),
     icon!("save"),
     icon!("search"),

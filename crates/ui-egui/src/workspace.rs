@@ -330,7 +330,11 @@ impl App {
     fn layout_view_toggles(&mut self, ctx: &egui::Context, rect: Rect) {
         use crate::ui_kit::segmented::{Segment, segmented};
         let view_3d = self.tab == Tab::Board3d;
-        let bottom = self.preferences.view_from_below;
+        let bottom = if view_3d {
+            self.view3d.pitch < 0.0
+        } else {
+            self.pcb.mirror
+        };
         let (mut view_idx, mut side_idx) = (usize::from(view_3d), usize::from(bottom));
         let (was_view, was_side) = (view_idx, side_idx);
         let (view_2d_label, view_3d_label) = (t!("workspace.view_2d"), t!("workspace.view_3d"));
@@ -340,6 +344,18 @@ impl App {
             t!("workspace.side_top.tip"),
             t!("workspace.side_bottom.tip"),
         );
+        let (rotate_left_tip, rotate_right_tip, reset_tip) = (
+            t!("view.rotate_left.tip"),
+            t!("view.rotate_right.tip"),
+            t!("view.reset.tip"),
+        );
+        let (mut turn, mut reset, mut unpin) = (0i8, false, false);
+        let pinned_name = self.pinned_view.map(|target| {
+            let saved = std::mem::replace(&mut self.target, target);
+            let name = self.target_label();
+            self.target = saved;
+            name
+        });
         let tokens = crate::theme::tokens(ctx);
         let inset = crate::canvas::RULER_SIZE + crate::theme::SPACE[2];
         egui::Area::new(egui::Id::new("layout-view-toggles"))
@@ -369,31 +385,78 @@ impl App {
                                     },
                                 ],
                             );
+                            segmented(
+                                ui,
+                                "layout-view-side",
+                                &mut side_idx,
+                                &[
+                                    Segment {
+                                        label: &top_label,
+                                        tip: &top_tip,
+                                    },
+                                    Segment {
+                                        label: &bottom_label,
+                                        tip: &bottom_tip,
+                                    },
+                                ],
+                            );
                             if view_idx == 0 {
-                                segmented(
+                                if crate::icons::icon_button(
                                     ui,
-                                    "layout-view-side",
-                                    &mut side_idx,
-                                    &[
-                                        Segment {
-                                            label: &top_label,
-                                            tip: &top_tip,
-                                        },
-                                        Segment {
-                                            label: &bottom_label,
-                                            tip: &bottom_tip,
-                                        },
-                                    ],
-                                );
+                                    "rotate-ccw",
+                                    &rotate_left_tip,
+                                    false,
+                                )
+                                .clicked()
+                                {
+                                    turn = -1;
+                                }
+                                if crate::icons::icon_button(ui, "rotate", &rotate_right_tip, false)
+                                    .clicked()
+                                {
+                                    turn = 1;
+                                }
+                                if crate::icons::icon_button(ui, "fit", &reset_tip, false).clicked()
+                                {
+                                    reset = true;
+                                }
+                                if let Some(pinned) = pinned_name.as_deref() {
+                                    let chip = t!("view.viewing", layer = pinned);
+                                    ui.label(crate::fonts::caption(chip).color(tokens.muted));
+                                    if crate::icons::icon_button(
+                                        ui,
+                                        "close",
+                                        &t!("view.unpin"),
+                                        false,
+                                    )
+                                    .clicked()
+                                    {
+                                        unpin = true;
+                                    }
+                                }
                             }
                         });
                     });
             });
+        if turn != 0 {
+            self.rotate_view(turn);
+        }
+        if reset {
+            self.reset_view();
+        }
+        if unpin {
+            self.pinned_view = None;
+        }
         if view_idx != was_view || side_idx != was_side {
             let r = self.region();
             r.view_3d = view_idx == 1;
             if side_idx != was_side {
-                self.set_view_side(side_idx == 1);
+                if view_idx == 1 {
+                    // In 3D, the other side means the camera goes below the board.
+                    self.view3d.pitch = if side_idx == 1 { -0.6 } else { 0.6 };
+                } else {
+                    self.set_view_side(side_idx == 1);
+                }
             }
             if view_idx != was_view {
                 self.change_tab(if view_idx == 1 {
