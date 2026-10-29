@@ -2353,6 +2353,7 @@ impl Session {
         )?;
         s.undo.clear();
         s.redo.clear();
+        s.project.auto_sync = true;
         Ok(s)
     }
 }
@@ -15986,6 +15987,10 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    fn disable_auto_sync(s: &mut Session) {
+        s.project.auto_sync = false;
+    }
+
     static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
     /// Every entry of a stored ZIP written by the package command, by name.
     /// The archive is uncompressed, so each local header is followed by its
@@ -20930,6 +20935,7 @@ mod tests {
     #[test]
     fn footprint_local_rules_tighten_clearance_and_read_edit_export() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         let definition = library::footprint(std::path::Path::new(&library_fixture(
             "R_0805_2012Metric.kicad_mod",
         )))?;
@@ -24317,6 +24323,7 @@ mod tests {
     #[test]
     fn auto_net_and_wire_commit_as_one_undo_step() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         for x in [10, 30] {
             s.execute(
                 "component.add",
@@ -26668,6 +26675,7 @@ mod tests {
         gap: f64,
         width: f64,
     ) -> Result<(Id, Id, Id, Id), Error> {
+        disable_auto_sync(s);
         let pitch = gap + width;
         s.execute(
             "library.footprint.upsert",
@@ -27835,6 +27843,7 @@ mod tests {
     #[test]
     fn net_tie_merges_everything_and_net_swap_exchanges_names_only() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
@@ -28949,6 +28958,7 @@ mod tests {
     #[test]
     fn teardrops_grow_on_junctions_undo_in_one_step_and_can_be_removed() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         s.execute(
             "component.add",
             json!({"kind":"resistor","reference":"R1","position":[20.0,20.0]}),

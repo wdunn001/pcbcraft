@@ -10,6 +10,7 @@ fn pair_board(right_angles: bool) -> Result<(App, Id, Id), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.run("project.set_auto_sync", json!({"auto_sync": false}));
     for (reference, y) in [("R1", 20.0), ("R2", 34.0)] {
         let x = if reference == "R1" { 10.0 } else { 50.0 };
         app.run(
@@ -172,7 +173,7 @@ fn a_newcomer_turns_chamfer_corners_off_for_right_angles() -> Result<(), String>
         scrolled_to_at(&ctx, &mut app, "Chamfer corners", 700.0)?,
         "the setting is on screen"
     );
-    authoring::tests::tap(&ctx, &mut app, "Chamfer corners")?;
+    tap_id(&ctx, &mut app, "checkbox:Chamfer corners")?;
     assert!(!app.preferences.chamfer_corners, "one tap switches it off");
     drag_pair(&mut app, from, to)?;
     let tracks = &app.project.board.tracks;

@@ -68,8 +68,7 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
 
 #[test]
 fn a_newcomer_turns_automatic_board_sync_off_from_the_keyboard() -> Result<(), String> {
-    let session =
-        pcbcraft_mcp::shared(pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?);
+    let session = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(session, Preferences::default(), None, None);
     app.refresh();
     assert!(app.project.auto_sync, "new designs start with sync on");

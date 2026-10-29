@@ -2411,5 +2411,6 @@
         "unsupported": []
       }
     ]
-  }
+  },
+  "auto_sync": true
 }

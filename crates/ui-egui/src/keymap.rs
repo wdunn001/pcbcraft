@@ -3,7 +3,7 @@
 use crate::Tab;
 use egui::Key;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// Stable action id stored in profiles and used for dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -877,10 +877,14 @@ impl KeymapProfileFile {
         if self.version != Self::VERSION {
             return Err(format!("unsupported profile version {}", self.version));
         }
-        let mut map = Keymap::default_bindings();
+        let mut map = Keymap {
+            bindings: HashMap::new(),
+            extra_chords: HashMap::new(),
+        };
         for (action, stored) in self.bindings {
             map.set_binding(action, KeyChord::load(stored)?)?;
         }
+        map.sanitize();
         Ok(map)
     }
 }
@@ -888,6 +892,7 @@ impl KeymapProfileFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[test]
     fn default_bindings_have_unique_chords_per_context() -> Result<(), String> {
