@@ -1832,6 +1832,7 @@ dependencies = [
 name = "pcbcraft-engine"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "pcbcraft-calc",
  "pcbcraft-doc",
  "pcbcraft-geom",
@@ -1858,11 +1859,14 @@ dependencies = [
 name = "pcbcraft-io"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "image",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-library",
+ "pcbcraft-rules",
  "png",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1904,6 +1908,7 @@ dependencies = [
 name = "pcbcraft-ui-egui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "craft-ui",
  "eframe",
  "egui",

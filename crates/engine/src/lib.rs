@@ -1,9 +1,11 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod images;
 pub mod library;
 pub mod profiles;
 pub mod recents;
 mod route;
+mod selection_clip;
 mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -1848,6 +1850,25 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "laser_job.export",
+            "Export a galvo laser job as millimetre SVG or LaserCraft JSON using a laser_galvo profile",
+            schema(
+                json!({
+                    "side":{"type":"string","enum":["front","back"]},
+                    "profile_id":{"type":"string","minLength":1,"maxLength":64},
+                    "format":{"type":"string","enum":["svg","lcproj"]},
+                    "operations":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":6},
+                    "mirror_axis":{"type":"string","enum":["x","y"]},
+                    "margin_mm":{"type":"number"},
+                    "isolation_width_mm":{"type":"number"},
+                    "rubout":{"type":"boolean"},
+                    "stencil_reduction_pct":{"type":"number"},
+                    "path":{"type":"string","minLength":1,"maxLength":4096}
+                }),
+                &["side", "profile_id", "format", "operations"],
+            ),
+        ),
+        (
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
@@ -1944,6 +1965,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "selection.copy_text",
+            "Serialize a bounded selection to the versioned text clipboard form",
+            schema(
+                json!({"ids":{"type":"array","minItems":1,"maxItems":64,"items":id_schema()},"context":{"type":"string","enum":["board","schematic"]}}),
+                &["ids"],
+            ),
+        ),
+        (
+            "selection.paste",
+            "Paste a text clipboard selection at an offset, renumbering references when asked and matching nets by name",
+            schema(
+                json!({"text":{"type":"string","minLength":1,"maxLength":524288},"offset":point_schema(),"renumber":{"type":"boolean","default":true}}),
+                &["text", "offset"],
+            ),
+        ),
+        (
             "object.delete",
             "Delete a component, wire, track, via, zone, footprint, cutout or unused net by stable ID",
             schema(json!({"id":id_schema()}), &["id"]),
@@ -2002,6 +2039,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(images::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -2082,6 +2120,14 @@ impl Session {
         }
         self.redo.clear();
         self.revision = self.revision.saturating_add(1);
+    }
+    /// True when an edit can be stepped back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// True when an undone edit can be stepped forward again.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
     }
     pub fn undo(&mut self) -> Result<Value, Error> {
         let p = self
@@ -2468,6 +2514,25 @@ fn render_kind(
             "board-stats.csv".into(),
             pcbcraft_io::stats_text(p)?.into_bytes(),
         )),
+        "laser_job" => {
+            let profile = pcbcraft_io::commarker_b6_mopa_profile();
+            let mut operations = std::collections::BTreeSet::new();
+            for id in pcbcraft_doc::LaserJobSettings::OPERATION_IDS {
+                operations.insert(id.to_string());
+            }
+            let options = pcbcraft_io::LaserJobExportOptions {
+                side: pcbcraft_doc::Layer::Front,
+                operations,
+                mirror_axis: pcbcraft_io::MirrorAxis::Y,
+                margin_mm: 1.0,
+                isolation_width_mm: 0.05,
+                rubout: true,
+                stencil_reduction_pct: 10.0,
+            };
+            let text =
+                pcbcraft_io::laser_job_svg(p, pcbcraft_doc::Layer::Front, &profile, &options)?;
+            out.push(("laser-job.svg".into(), text.into_bytes()));
+        }
         "panel" => {
             for (name, text) in pcbcraft_io::panel_fabrication_files(p)? {
                 out.push((name, text.into_bytes()));
@@ -2670,7 +2735,7 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
     }
     Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
 }
-fn allocate(next: &mut Id) -> Result<Id, Error> {
+pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
     if id == 0 || id > u32::MAX as u64 {
         return Err(Error::Invalid("object ID space exhausted".into()));
@@ -3045,6 +3110,32 @@ struct ProjectSetUnitParams {
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
     path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LaserJobExportParams {
+    side: String,
+    profile_id: String,
+    format: String,
+    operations: Vec<String>,
+    #[serde(default = "laser_job_mirror_default")]
+    mirror_axis: String,
+    #[serde(default)]
+    margin_mm: f64,
+    #[serde(default = "laser_job_isolation_default")]
+    isolation_width_mm: f64,
+    #[serde(default)]
+    rubout: bool,
+    #[serde(default)]
+    stencil_reduction_pct: f64,
+    #[serde(default)]
+    path: Option<String>,
+}
+fn laser_job_mirror_default() -> String {
+    "y".into()
+}
+fn laser_job_isolation_default() -> f64 {
+    0.05
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4732,6 +4823,24 @@ struct DuplicateParams {
     ids: Vec<Id>,
     offset: Point,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionCopyParams {
+    ids: Vec<Id>,
+    #[serde(default)]
+    context: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionPasteParams {
+    text: String,
+    offset: Point,
+    #[serde(default = "selection_paste_renumber_default")]
+    renumber: bool,
+}
+fn selection_paste_renumber_default() -> bool {
+    true
+}
 /// A reference label that no component in the project already carries.
 fn unique_reference(p: &Project, base: &str) -> String {
     let base: String = base.chars().take(50).collect();
@@ -5803,6 +5912,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = images::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -7955,6 +8067,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -7972,6 +8085,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8002,6 +8116,7 @@ fn run_command(
                                     points: vec![c],
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8020,6 +8135,7 @@ fn run_command(
                                     points,
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8042,6 +8158,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8055,6 +8172,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -8080,6 +8198,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8225,6 +8344,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -8242,6 +8362,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8263,6 +8384,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8276,6 +8398,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -8299,6 +8422,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8640,6 +8764,7 @@ fn run_command(
                 points: a.points,
                 width: a.width,
                 text: a.text,
+                sublayer: String::new(),
             });
             Ok(json!({"id":id}))
         }
@@ -8862,6 +8987,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -8939,6 +9065,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -9592,6 +9719,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
             }
             Ok(
@@ -9739,6 +9867,7 @@ fn run_command(
                     ],
                     width: w,
                     text: String::new(),
+                    sublayer: String::new(),
                 });
                 count += 1;
             }
@@ -9813,6 +9942,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 Ok(())
             };
@@ -13152,6 +13282,7 @@ fn run_command(
             let files = &mut p.files;
             if let Some(existing) = files.iter_mut().find(|f| f.name == name) {
                 existing.data = a.data;
+                existing.encoding = String::new();
             } else {
                 if files.len() >= 32 {
                     return Err(Error::Invalid("a project attaches at most 32 files".into()));
@@ -13159,6 +13290,7 @@ fn run_command(
                 files.push(pcbcraft_doc::EmbeddedFile {
                     name: name.clone(),
                     data: a.data,
+                    encoding: String::new(),
                 });
                 files.sort_by(|x, y| x.name.cmp(&y.name));
             }
@@ -13167,12 +13299,76 @@ fn run_command(
         "file.remove" => {
             let a: FileParams = parse(params)?;
             let name = a.name.trim();
+            if p.reference_images.iter().any(|r| r.file == name) {
+                return Err(Error::Invalid(
+                    "a reference image still shows this file; remove it first".into(),
+                ));
+            }
             let files = &mut p.files;
             let Some(index) = files.iter().position(|f| f.name == name) else {
                 return Err(Error::Invalid(format!("no attached file named {name}")));
             };
             files.remove(index);
             Ok(json!({"name": name, "count": files.len()}))
+        }
+        "laser_job.export" => {
+            let a: LaserJobExportParams = parse(params)?;
+            let settings = pcbcraft_doc::LaserJobSettings {
+                side: a.side.clone(),
+                operations: a.operations.clone(),
+                format: a.format.clone(),
+                mirror_axis: a.mirror_axis.clone(),
+                margin_mm: a.margin_mm,
+                isolation_width_mm: a.isolation_width_mm,
+                rubout: a.rubout,
+                stencil_reduction_pct: a.stencil_reduction_pct,
+                profile_id: a.profile_id.clone(),
+            };
+            if !settings.valid() {
+                return Err(Error::Invalid(
+                    "laser job settings are out of range or list unknown operations".into(),
+                ));
+            }
+            let side = match a.side.as_str() {
+                "front" => pcbcraft_doc::Layer::Front,
+                "back" => pcbcraft_doc::Layer::Back,
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job side must be front or back".into(),
+                    ));
+                }
+            };
+            let profile = pcbcraft_io::laser_galvo_profile_for_export(p, &a.profile_id)
+                .map_err(Error::Invalid)?;
+            let mirror = pcbcraft_io::MirrorAxis::parse(&a.mirror_axis).map_err(Error::Invalid)?;
+            let options = pcbcraft_io::LaserJobExportOptions {
+                side,
+                operations: a.operations.iter().cloned().collect(),
+                mirror_axis: mirror,
+                margin_mm: a.margin_mm,
+                isolation_width_mm: a.isolation_width_mm,
+                rubout: a.rubout,
+                stencil_reduction_pct: a.stencil_reduction_pct,
+            };
+            let text = match a.format.as_str() {
+                "svg" => pcbcraft_io::laser_job_svg(p, side, &profile, &options),
+                "lcproj" => pcbcraft_io::laser_job_lcproj(p, side, &profile, &options),
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job format must be svg or lcproj".into(),
+                    ));
+                }
+            }
+            .map_err(Error::Invalid)?;
+            if let Some(path) = a.path {
+                if path.is_empty() || path.len() > 4096 {
+                    return Err(Error::Invalid("laser job path is out of range".into()));
+                }
+                pcbcraft_io::atomic_write(std::path::Path::new(&path), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                return Ok(json!({"format": a.format, "path": path, "bytes": text.len()}));
+            }
+            Ok(json!({"format": a.format, "text": text}))
         }
         "output_job.add" => {
             let a: OutputJobAddParams = parse(params)?;
@@ -14741,6 +14937,24 @@ fn run_command(
             }
             Ok(json!({"count": duplicates.len(), "duplicates": duplicates}))
         }
+        "selection.copy_text" => {
+            let a: SelectionCopyParams = parse(params)?;
+            let text = selection_clip::copy_text(p, &a.ids, a.context.as_deref())?;
+            Ok(json!({"text": text}))
+        }
+        "selection.paste" => {
+            let a: SelectionPasteParams = parse(params)?;
+            if a.text.is_empty() || a.text.len() > 524_288 {
+                return Err(Error::Invalid("paste text length is out of range".into()));
+            }
+            let (count, id_map) =
+                selection_clip::paste(p, next, &a.text, a.offset, a.renumber, unique_reference)?;
+            let map = id_map
+                .iter()
+                .map(|(from, to)| (from.to_string(), json!(*to)))
+                .collect::<serde_json::Map<String, Value>>();
+            Ok(json!({"count": count, "ids": Value::Object(map)}))
+        }
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -15970,6 +16184,163 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.components.len(), 3);
         assert_eq!(s.project.board.footprints.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_paste_renumbers_and_preserves_nets_by_name() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let mut parts = vec![];
+        for (reference, x) in [("R1", 10.0), ("R2", 30.0), ("R3", 50.0)] {
+            let id = s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0},"reference":reference}),
+                None,
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            s.execute(
+                "net.connect",
+                json!({"net":gnd,"pins":[{"component":id,"pin":"1"}]}),
+                None,
+            )?;
+            parts.push(id);
+        }
+        s.execute("board.sync", json!({}), None)?;
+        let mut tracks = vec![];
+        for x in [15.0, 35.0, 55.0] {
+            let tid = s.execute(
+                "track.add",
+                json!({"net":gnd,"start":{"x":x,"y":8.0},"end":{"x":x,"y":12.0},"width":0.25,"layer":"F.Cu"}),
+                None,
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            tracks.push(tid);
+        }
+        let mut ids = parts.clone();
+        ids.extend(tracks.iter().copied());
+        let text = s.execute("selection.copy_text", json!({"ids":ids}), None)?["result"]["text"]
+            .as_str()
+            .ok_or_else(missing)?
+            .to_string();
+        let before_project = s.project.clone();
+        let pasted = s.execute(
+            "selection.paste",
+            json!({"text": text, "offset":{"x":0.0,"y":20.0}, "renumber": true}),
+            None,
+        )?;
+        assert_eq!(pasted["result"]["count"], 9);
+        assert_eq!(s.project.components.len(), 6);
+        assert_eq!(s.project.board.tracks.len(), 6);
+        assert!(
+            s.project
+                .components
+                .iter()
+                .any(|c| c.reference == "R1 copy"),
+            "paste renumbers references"
+        );
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.net == gnd),
+            "pasted copper keeps nets matched by name"
+        );
+        assert_eq!(s.project.nets.iter().filter(|n| n.name == "GND").count(), 1);
+        let pasted_ids: Vec<Id> = pasted["result"]["ids"]
+            .as_object()
+            .ok_or_else(missing)?
+            .values()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        for id in pasted_ids {
+            assert!(
+                loaded.ids().any(|existing| existing == id),
+                "pasted ids stay stable after save and load within the session"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project, before_project);
+        assert_eq!(s.project.components.len(), 3);
+        assert_eq!(s.project.board.tracks.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_paste_rejects_malformed_or_oversized_clipboard() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect();
+        for params in [
+            json!({"text":"not a clipboard","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":format!("PCBCRAFT selection/1\n{}", "x".repeat(524_288)),"offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":2}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":1}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":1}","offset":{"x":1e6,"y":0.0}}),
+        ] {
+            assert!(
+                s.execute("selection.paste", params, None).is_err(),
+                "invalid paste must fail"
+            );
+        }
+        assert_eq!(s.inspect(), before);
+        assert_eq!(s.project.components.len(), 1);
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.reference, "R1");
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_includes_tracks_when_selected() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":10.0},"end":{"x":8.0,"y":10.0},"width":0.25,"layer":"F.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let copy = s.execute("selection.copy_text", json!({"ids":[r1, track]}), None)?;
+        let text = copy["result"]["text"].as_str().ok_or_else(missing)?;
+        assert!(
+            text.contains("\"tracks\""),
+            "copy text carries selected tracks"
+        );
+        s.execute(
+            "selection.paste",
+            json!({"text": text, "offset":{"x":10.0,"y":0.0}, "renumber": true}),
+            None,
+        )?;
+        assert_eq!(s.project.components.len(), 2);
+        assert_eq!(s.project.board.tracks.len(), 2);
+        assert!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.start.x >= 14.0 && t.net == net),
+            "pasted track keeps the net and offset"
+        );
         Ok(())
     }
     #[test]
@@ -27049,7 +27420,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&directory);
         s.execute(
             "output_job.add",
-            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats"]}),
+            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats","laser_job"]}),
             None,
         )?;
         s.execute(
@@ -31516,6 +31887,58 @@ mod tests {
                 assert!(ids.contains(cmd), "term {} lists unknown command {cmd}", t.id);
             }
         }
+    }
+
+    #[test]
+    fn laser_job_refuses_board_larger_than_field_without_lens_option() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 160.0;
+        s.project.board.height = 160.0;
+        let mut profile = pcbcraft_io::commarker_b6_mopa_profile();
+        profile.fields.retain(|field| field.width_mm <= 150.0);
+        let (width, height) =
+            pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
+        assert!(
+            pcbcraft_io::laser_job_validate_work_area(&profile, width, height).is_err(),
+            "160 mm board must not fit a 150 mm field"
+        );
+        let err = s.execute(
+            "laser_job.export",
+            json!({
+                "side":"front",
+                "profile_id":"commarker-b6-mopa-150",
+                "format":"svg",
+                "operations":["isolation-cut"],
+                "margin_mm":1.0
+            }),
+            None,
+        );
+        assert!(err.is_err(), "export must refuse an oversize board");
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_accepts_board_when_profile_lists_300mm_lens() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 160.0;
+        s.project.board.height = 160.0;
+        let profile = pcbcraft_io::commarker_b6_mopa_profile();
+        let (width, height) =
+            pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
+        pcbcraft_io::laser_job_validate_work_area(&profile, width, height)
+            .map_err(Error::Invalid)?;
+        s.execute(
+            "laser_job.export",
+            json!({
+                "side":"front",
+                "profile_id":"commarker-b6-mopa",
+                "format":"svg",
+                "operations":["isolation-cut"],
+                "margin_mm":1.0
+            }),
+            None,
+        )?;
+        Ok(())
     }
 
     #[test]
