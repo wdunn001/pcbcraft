@@ -5,6 +5,9 @@ use crate::{
 use pcbcraft_geom::Point;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The legacy model `at` form is in inches.
+const MM_PER_INCH: f64 = 25.4;
+
 fn invalid(message: impl Into<String>) -> Error {
     Error::Invalid(message.into())
 }
@@ -25,6 +28,29 @@ fn point(node: &Node, field: &str, flip: bool) -> Result<Point, Error> {
         num(p.value(1))?,
         num(p.value(2))? * if flip { -1.0 } else { 1.0 },
     ))
+}
+fn pin_visible(node: &Node) -> bool {
+    for child in &node.children {
+        if child.name() != "hide" {
+            continue;
+        }
+        if child.children.len() <= 1 {
+            return false;
+        }
+        if child.field("yes") == "yes" || child.value(1) == "yes" {
+            return false;
+        }
+    }
+    true
+}
+fn pin_graphical_style(part: &Node) -> (String, bool) {
+    let token = part.value(2);
+    let style = if token.is_empty() { "line" } else { token };
+    if SymbolPin::graphical_style_supported(style) {
+        (style.to_owned(), false)
+    } else {
+        ("line".to_owned(), true)
+    }
 }
 fn angle(node: &Node) -> Result<f64, Error> {
     node.child("at")
@@ -229,7 +255,8 @@ fn resolve(
             s.graphics.retain(|g| g.unit != u || g.body_style != b);
             for part in &child.children {
                 if part.name() == "pin" {
-                    if part.value(2) != "line" {
+                    let (graphical_style, unknown_style) = pin_graphical_style(part);
+                    if unknown_style {
                         s.unsupported.push(format!(
                             "pin {} graphical style {} is preserved in raw source",
                             part.field("number"),
@@ -245,6 +272,8 @@ fn resolve(
                         electrical_type: part.value(1).to_owned(),
                         unit: u,
                         body_style: b,
+                        graphical_style,
+                        visible: pin_visible(part),
                     });
                     if part.child("alternate").is_some() {
                         s.unsupported.push(format!(
@@ -437,9 +466,13 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     "pad {number} shape {shape} requires unsupported geometry"
                 ));
             }
+            let pad_type = match child.value(2) {
+                "np_thru_hole" => "unplated".into(),
+                token => token.to_owned(),
+            };
             s.pads.push(FootprintPad {
                 number,
-                pad_type: child.value(2).to_owned(),
+                pad_type,
                 shape,
                 position: point(child, "at", false)?,
                 rotation: angle(child)?,
@@ -465,10 +498,21 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                         };
                         Ok([num(xyz.value(1))?, num(xyz.value(2))?, num(xyz.value(3))?])
                     };
-                let offset = triple(
-                    child.child("offset").or_else(|| child.child("at")),
-                    [0.0; 3],
-                )?;
+                // Files from before the `offset` form place the model with
+                // `at`, in inches. `offset` is millimetres and wins when both
+                // are present.
+                let offset = if child.child("offset").is_some() {
+                    triple(child.child("offset"), [0.0; 3])?
+                } else {
+                    let inches = triple(child.child("at"), [0.0; 3])?;
+                    // Round away binary noise so 3 inches reads as 76.2 mm.
+                    let to_mm = |inches: f64| (inches * MM_PER_INCH * 1e9).round() / 1e9;
+                    let mm = [to_mm(inches[0]), to_mm(inches[1]), to_mm(inches[2])];
+                    if mm.iter().any(|v| v.abs() > 100_000.0) {
+                        return Err(invalid("model offset outside finite geometry bounds"));
+                    }
+                    mm
+                };
                 let scale = triple(child.child("scale"), [1.0; 3])?;
                 let rotate = triple(child.child("rotate"), [0.0; 3])?;
                 s.model = Some(Model3D {
