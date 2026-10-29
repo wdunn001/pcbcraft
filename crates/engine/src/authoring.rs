@@ -600,6 +600,11 @@ pub(super) fn run(
             let density = LandPatternDensity::parse(&a.density).ok_or_else(|| {
                 Error::Invalid("density must be A, B or C (most, nominal or least)".into())
             })?;
+            if !a.pitch.is_finite() || !(0.1..=25.4).contains(&a.pitch) {
+                return Err(Error::Invalid(
+                    "pitch must be between 0.1 and 25.4 millimetres".into(),
+                ));
+            }
             let lp = land_pattern_params_from_command(&a);
             let definition = generate_footprint(&a.family, density, &lp).map_err(Error::Invalid)?;
             let name = definition.name.clone();
