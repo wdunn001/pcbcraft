@@ -293,7 +293,10 @@ impl App {
         } else if ids.len() < MAX_SELECTED {
             ids.push(id);
         } else {
-            self.message = format!("A selection holds at most {MAX_SELECTED} objects");
+            self.message = t!(
+                "status.shift_click.a_selection_holds_at_most",
+                MAX_SELECTED = MAX_SELECTED
+            );
             return;
         }
         self.set_selection(ids);
@@ -364,7 +367,10 @@ impl App {
             }
             moved += 1;
         }
-        self.message = format!("Moved {moved} objects together");
+        self.message = t!(
+            "status.move_selection.moved_moved_objects_together",
+            moved = moved
+        );
     }
 
     /// Delete every selected object.
@@ -377,7 +383,10 @@ impl App {
         }
         self.select(None);
         if ids.len() > 1 {
-            self.message = format!("Deleted {} objects", ids.len());
+            self.message = t!(
+                "status.delete_selection.deleted_len_objects",
+                len = ids.len()
+            );
         }
     }
 
@@ -395,7 +404,7 @@ impl App {
             }
         }
         if targets.is_empty() {
-            self.message = "Select a part to duplicate".into();
+            self.message = t!("status.duplicate_selection.select_a_part_to_duplicate");
             return;
         }
         let count = targets.len();
@@ -404,7 +413,10 @@ impl App {
             json!({"ids": targets, "offset": {"x": 2.0, "y": 2.0}}),
         );
         if count > 1 {
-            self.message = format!("Duplicated {count} parts");
+            self.message = t!(
+                "status.duplicate_selection.duplicated_count_parts",
+                count = count
+            );
         }
     }
 
@@ -420,7 +432,7 @@ impl App {
             }
         }
         if ids.is_empty() {
-            self.message = "Select something first, then copy".into();
+            self.message = t!("status.copy_selection.select_something_first_then_copy");
             return;
         }
         let context = if self.tab == Tab::Schematic {
@@ -435,7 +447,7 @@ impl App {
             self.edit.clip_sources = self.selection();
             self.edit.pastes = 0;
             self.edit.clip_origin = self.selection_centre();
-            self.message = format!("Copied {} objects", ids.len());
+            self.message = t!("status.copy_selection.copied_len_objects", len = ids.len());
         }
     }
 
@@ -462,13 +474,13 @@ impl App {
         if let Some(text) = self.edit.clip.clone() {
             self.paste_text_at(&text, Some(at));
         } else {
-            self.message = "Nothing copied yet".into();
+            self.message = t!("status.paste_last_copy_at.nothing_copied_yet");
         }
     }
 
     fn paste_text_at(&mut self, text: &str, at: Option<Point>) -> bool {
         if !text.starts_with("PCBCRAFT selection/") {
-            self.message = "That text is not copied objects, so nothing was pasted".into();
+            self.message = t!("status.paste_text_at.that_text_is_not_copied");
             return false;
         }
         let (dx, dy) = match (at, self.edit.clip_origin) {
@@ -500,7 +512,10 @@ impl App {
         }
         fresh.retain(|id| self.project_has(*id));
         self.set_selection(fresh);
-        self.message = format!("Pasted {count} objects; drag them where they belong");
+        self.message = t!(
+            "status.paste_text_at.pasted_count_objects_drag_them",
+            count = count
+        );
         true
     }
 
@@ -508,7 +523,7 @@ impl App {
         if let Some(text) = self.edit.clip.clone() {
             self.paste_text(&text);
         } else {
-            self.message = "Nothing copied yet".into();
+            self.message = t!("status.paste_last_copy.nothing_copied_yet");
         }
     }
 
@@ -605,7 +620,7 @@ impl App {
             }
             _ => {
                 self.edit.measure = Some((at, None));
-                self.message = "Measure: click the second point".into();
+                self.message = t!("status.measure_click.measure_click_the_second_point");
             }
         }
     }
@@ -624,16 +639,20 @@ impl App {
         let result = self.run_and_keep("track.cleanup", json!({}));
         if result.is_null() {
             if self.message.contains("no track cleanup") {
-                self.message = "Track cleanup found nothing to tidy".into();
+                self.message = t!("status.cleanup_tracks.track_cleanup_found_nothing_to");
             }
             return;
         }
         let removed = result.get("removed").and_then(Value::as_u64).unwrap_or(0);
         let merged = result.get("merged").and_then(Value::as_u64).unwrap_or(0);
         self.message = if removed + merged == 0 {
-            "Track cleanup found nothing to tidy".into()
+            t!("status.cleanup_tracks.track_cleanup_found_nothing_to")
         } else {
-            format!("Track cleanup removed {removed} pieces and merged {merged} segments")
+            t!(
+                "status.cleanup_tracks.track_cleanup_removed_removed_pieces",
+                removed = removed,
+                merged = merged
+            )
         };
         self.refresh();
     }
