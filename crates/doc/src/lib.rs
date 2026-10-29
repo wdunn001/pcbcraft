@@ -2006,7 +2006,7 @@ impl Project {
             if n.target_length
                 .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
                 || n.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
             {
                 return Err("invalid net length target or tolerance".into());
@@ -2038,7 +2038,7 @@ impl Project {
                 || c.target_length
                     .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
                 || c.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || c
                     .profile
@@ -2417,7 +2417,7 @@ impl Project {
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
             }
-            if (g.shape == "text") != !g.text.is_empty() {
+            if (g.shape == "text") == g.text.is_empty() {
                 return Err("only text graphics may carry text".into());
             }
             if g.shape == "line" && g.points[0] == g.points[1] {
@@ -2761,6 +2761,10 @@ pub fn library_component(
         library_footprint: None,
     })
 }
+/// Maximum pads considered by placement support checks; matches
+/// `FootprintDefinition::validate` in `pcbcraft-library`.
+pub const MAX_SUPPORTED_FOOTPRINT_PADS: usize = 20_000;
+
 pub fn validate_footprint_support(
     definition: &pcbcraft_library::FootprintDefinition,
 ) -> Result<(), String> {
@@ -2816,8 +2820,10 @@ pub fn validate_footprint_support(
             return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
         }
     }
-    if definition.pads.is_empty() || definition.pads.len() > 64 {
-        return Err("imported footprint must have 1–64 pads".into());
+    if definition.pads.is_empty() || definition.pads.len() > MAX_SUPPORTED_FOOTPRINT_PADS {
+        return Err(format!(
+            "imported footprint must have 1 to {MAX_SUPPORTED_FOOTPRINT_PADS} pads"
+        ));
     }
     Ok(())
 }
@@ -2969,6 +2975,43 @@ mod drill_tests {
         }
         Ok(())
     }
+    fn front_smd_circle_pad(number: &str, x: f64, y: f64) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::new(0.5, 0.5),
+            layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn hundred_pad_grid_passes_footprint_support_validation() -> Result<(), String> {
+        let pads: Vec<_> = (0..100)
+            .map(|i| front_smd_circle_pad(&((i + 1).to_string()), (i % 10) as f64, (i / 10) as f64))
+            .collect();
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "GRID100".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads,
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
     #[test]
     fn copper_graphics_cannot_bypass_pad_connectivity_checks() -> Result<(), String> {
         let mut definition = dip()?;
