@@ -1827,7 +1827,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "output_job.add",
-            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
+            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics, uv_print for silkscreen artwork for a UV printer) that can be re-run after any edit",
             schema(
                 json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":pcbcraft_doc::MAX_OUTPUT_KINDS}}),
                 &["name", "kinds"],
@@ -1845,7 +1845,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.run",
             "Run an output job: write every file of its recipe (fabrication layers, netlist, bill of materials, placement, drawing) into a directory in one step",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1},"uv_print":{"type":"object","description":"Settings for a uv_print kind: silkscreen artwork for a UV printer. Defaults to the top side at 720 DPI with 0.3 mm bleed.","properties":{"side":{"type":"string","enum":["top","bottom"]},"dpi":{"type":"integer","enum":[720,1440]},"gloss":{"type":"boolean"},"bleed_mm":{"type":"number","minimum":0,"maximum":5},"include_outline":{"type":"boolean"},"include_fiducials":{"type":"boolean"}},"additionalProperties":false}}),
                 &["name", "directory"],
             ),
         ),
@@ -3242,6 +3242,45 @@ struct OutputJobAddParams {
 struct OutputJobRunParams {
     name: String,
     directory: String,
+    #[serde(default)]
+    uv_print: Option<UvPrintJobParams>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UvPrintJobParams {
+    #[serde(default = "default_uv_side")]
+    side: String,
+    #[serde(default = "default_uv_dpi")]
+    dpi: u32,
+    #[serde(default)]
+    gloss: bool,
+    #[serde(default = "default_uv_bleed_job")]
+    bleed_mm: f64,
+    #[serde(default = "default_uv_include_outline")]
+    include_outline: bool,
+    #[serde(default = "default_uv_include_fiducials")]
+    include_fiducials: bool,
+}
+
+fn default_uv_side() -> String {
+    "top".into()
+}
+
+fn default_uv_dpi() -> u32 {
+    720
+}
+
+fn default_uv_bleed_job() -> f64 {
+    0.3
+}
+
+fn default_uv_include_outline() -> bool {
+    true
+}
+
+fn default_uv_include_fiducials() -> bool {
+    true
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -13490,6 +13529,45 @@ fn run_command(
             let mut written: Vec<String> = vec![];
             let mut skipped: Vec<String> = vec![];
             for kind in &job.kinds {
+                if kind == "uv_print" {
+                    let fallback: UvPrintJobParams = serde_json::from_value(json!({}))
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    let settings = a.uv_print.as_ref().unwrap_or(&fallback);
+                    let side = match settings.side.as_str() {
+                        "top" => pcbcraft_io::UvPrintSide::Top,
+                        "bottom" => pcbcraft_io::UvPrintSide::Bottom,
+                        other => {
+                            return Err(Error::Invalid(format!(
+                                "uv_print side must be top or bottom, not {other}"
+                            )));
+                        }
+                    };
+                    let profile = pcbcraft_doc::eufymake_e1_uv_printer();
+                    profile.validate().map_err(Error::Invalid)?;
+                    if !profile.allows_dpi(settings.dpi) {
+                        return Err(Error::Invalid(format!(
+                            "dpi {} is not allowed for the configured uv printer",
+                            settings.dpi
+                        )));
+                    }
+                    let options = pcbcraft_io::UvPrintOptions {
+                        side,
+                        dpi: settings.dpi,
+                        white_layer: pcbcraft_io::UvPrintWhiteLayer::Separate,
+                        gloss: settings.gloss,
+                        bleed_mm: settings.bleed_mm,
+                        include_outline: settings.include_outline,
+                        include_fiducials: settings.include_fiducials,
+                        experiment: pcbcraft_io::UvPrintExperiment::None,
+                        include_values: false,
+                    };
+                    let files =
+                        pcbcraft_io::write_uv_print_job_files(p, directory, &profile, &options)
+                            .map_err(Error::Invalid)?;
+                    written.extend(files);
+
+                    continue;
+                }
                 for (name, bytes) in render_kind(p, kind, None, None, &mut skipped)? {
                     pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
                         .map_err(Error::Invalid)?;
@@ -27655,6 +27733,64 @@ mod tests {
             "plot-report.csv",
             "board-report.txt",
         ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn uv_print_artifact_refuses_oversize_board() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 400.0;
+        s.project.board.height = 500.0;
+        s.project.validate().map_err(Error::Invalid)?;
+        let profile = pcbcraft_doc::eufymake_e1_uv_printer();
+        let options = pcbcraft_io::UvPrintOptions {
+            side: pcbcraft_io::UvPrintSide::Top,
+            dpi: 720,
+            white_layer: pcbcraft_io::UvPrintWhiteLayer::Separate,
+            gloss: false,
+            bleed_mm: 0.3,
+            include_outline: false,
+            include_fiducials: false,
+            experiment: pcbcraft_io::UvPrintExperiment::None,
+            include_values: false,
+        };
+        let err = pcbcraft_io::uv_print_artwork(&s.project, options.side, &profile, &options)
+            .err()
+            .ok_or_else(|| Error::Invalid("expected refusal".into()))?;
+        assert!(
+            err.contains("bed"),
+            "oversize board should name the bed limit: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn uv_print_job_writes_png_svg_and_white_mask() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-uv-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"uv","kinds":["uv_print"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({
+                "name":"uv",
+                "directory":directory.to_string_lossy(),
+                "uv_print":{"side":"top","dpi":720,"bleed_mm":0.3}
+            }),
+            None,
+        )?;
+        for name in ["top-colour.png", "top-white.png", "top.svg"] {
             assert!(
                 directory.join(name).exists(),
                 "{name} should have been written"
