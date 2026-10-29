@@ -668,7 +668,10 @@ impl App {
                 if rect.contains(screen) {
                     let flip_left = screen.x > rect.right() - 72.0;
                     let (pivot, fixed) = if flip_left {
-                        (Align2::RIGHT_BOTTOM, screen + Vec2::new(-12.0, -34.0))
+                        (
+                            Align2::RIGHT_BOTTOM,
+                            screen + Vec2::new(-12.0, -34.0),
+                        )
                     } else {
                         (Align2::LEFT_BOTTOM, screen + Vec2::new(12.0, -34.0))
                     };
@@ -681,9 +684,7 @@ impl App {
                             ui.horizontal(|ui| {
                                 if ui
                                     .small_button("\u{2725}")
-                                    .on_hover_text(
-                                        "Move: drop the selected object where you click next.",
-                                    )
+                                    .on_hover_text("Move: drop the selected object where you click next.")
                                     .clicked()
                                 {
                                     self.tool = Tool::Move;
