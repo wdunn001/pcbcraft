@@ -2675,6 +2675,23 @@ impl App {
                 }
             }
         });
+        ctx.input(|i| {
+            let workspace = if self.tab == Tab::Pcb {
+                tool_modifiers::Workspace::Board
+            } else {
+                tool_modifiers::Workspace::Schematic
+            };
+            if matches!(self.tab, Tab::Schematic | Tab::Pcb) {
+                for hotkey in tool_modifiers::Hotkey::ALL {
+                    if hotkey != tool_modifiers::Hotkey::Select
+                        && hotkey.workspace().is_none_or(|w| w == workspace)
+                        && i.key_pressed(self.preferences.modifiers.key_for(hotkey))
+                    {
+                        self.arm_hotkey(hotkey);
+                    }
+                }
+            }
+        });
     }
 
     fn style(&self, ctx: &egui::Context) -> bool {
@@ -4173,7 +4190,6 @@ impl App {
     }
 
     /// Everything that used to crowd the right-hand aside: how the app looks
-
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
         self.shortcuts_settings_panel(ui);
         ui.add_space(10.0);
@@ -6581,7 +6597,11 @@ impl App {
                         .num_columns(3)
                         .spacing([16.0, 4.0])
                         .show(ui, |ui| {
-                            for (keys, action, context) in shortcut_rows() {
+                            for (keys, action, context) in self
+                                .preferences
+                                .active_keymap()
+                                .rows_for_help()
+                            {
                                 ui.label(egui::RichText::new(keys).monospace().strong());
                                 ui.label(action);
                                 ui.label(egui::RichText::new(context).small().color(muted));
