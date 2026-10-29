@@ -92,7 +92,7 @@ fn parse_storage_key(name: &str) -> Option<Key> {
     Key::ALL.into_iter().find(|k| k.name() == name).copied()
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ShortcutContext {
     Anywhere,
     Schematic,

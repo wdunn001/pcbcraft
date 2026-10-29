@@ -843,7 +843,7 @@ pub(crate) mod tests {
         app.library.editor.draft = Some(Draft::Symbol(definition.clone()));
         app.library.editor.notice = Some("Original source and data license retained".into());
         let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![]);
+        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(output.viewport_output.len(), 1);
         let pos = output
             .shapes

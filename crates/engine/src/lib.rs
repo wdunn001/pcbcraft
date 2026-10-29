@@ -99,10 +99,7 @@ pub fn commands() -> Vec<CommandSpec> {
         (
             "project.set_auto_sync",
             "Turn automatic schematic-to-board reconciliation on or off; when off, run board.sync to apply pending schematic changes",
-            schema(
-                json!({"auto_sync":{"type":"boolean"}}),
-                &["auto_sync"],
-            ),
+            schema(json!({"auto_sync":{"type":"boolean"}}), &["auto_sync"]),
         ),
         (
             "project.export_archive",
@@ -2565,10 +2562,7 @@ fn component_pads(c: &Component) -> Vec<Pad> {
 
 fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
     if let Some(outline) = &board.outline {
-        outline
-            .iter()
-            .map(|p| p.x)
-            .fold(0.0_f64, |a, b| a.max(b))
+        outline.iter().map(|p| p.x).fold(0.0_f64, |a, b| a.max(b))
     } else {
         board.width
     }
@@ -2597,10 +2591,7 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
             p.board.footprints.push(Footprint {
                 id,
                 component: c.id,
-                position: Point::new(
-                    staging_x + col as f64 * 12.0,
-                    10.0 + row as f64 * 8.0,
-                ),
+                position: Point::new(staging_x + col as f64 * 12.0, 10.0 + row as f64 * 8.0),
                 rotation: 0.0,
                 locked: None,
                 pads: component_pads(c),
@@ -15902,8 +15893,8 @@ mod tests {
     }
 
     #[test]
-    fn placing_a_resistor_on_the_schematic_creates_its_board_footprint_in_one_revision(
-    ) -> Result<(), Error> {
+    fn placing_a_resistor_on_the_schematic_creates_its_board_footprint_in_one_revision()
+    -> Result<(), Error> {
         let mut s = Session::default();
         assert!(s.project.auto_sync);
         let rev0 = s.revision;
@@ -15914,7 +15905,11 @@ mod tests {
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
-        assert_eq!(s.revision, rev0 + 1, "one undo step covers schematic and board");
+        assert_eq!(
+            s.revision,
+            rev0 + 1,
+            "one undo step covers schematic and board"
+        );
         assert_eq!(s.project.board.footprints.len(), 1);
         assert_eq!(s.project.board.footprints[0].component, id);
         s.undo()?;
