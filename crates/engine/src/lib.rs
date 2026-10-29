@@ -1,9 +1,11 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod images;
 pub mod library;
 pub mod profiles;
 pub mod recents;
 mod route;
+mod selection_clip;
 mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -1014,9 +1016,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
+            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
-                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
+                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
                 &["net", "position"],
             ),
         ),
@@ -1095,6 +1097,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"filled":{"type":"boolean","description":"true pours the copper, false leaves only the outline"}}),
                 &["id", "filled"],
+            ),
+        ),
+        (
+            "zone.fill",
+            "Report the copper a zone actually pours on its layer: area, connected pieces, thermal spokes that reach the fill, pads left starved, detached islands and how many the settings removed, with knockouts round foreign copper, keepouts and the board edge already applied",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "zone.pour",
+            "Set how a zone pours: whether plated pads and vias join solid, through thermal spokes or not at all, the relief gap, spoke width and count, the narrowest copper it keeps, and whether detached copper is kept or dropped",
+            schema(
+                json!({"id":id_schema(),"pad_connect":{"type":"string","enum":["solid","relief","none"],"description":"how plated pads inside the zone join the pour"},"via_connect":{"type":"string","enum":["solid","relief","none"],"description":"how vias inside the zone join the pour"},"relief_gap":{"type":"number","minimum":0.05,"maximum":2,"description":"gap round a relieved pad in millimetres"},"spoke_width":{"type":"number","minimum":0.05,"maximum":5,"description":"width of each thermal spoke in millimetres"},"spokes":{"type":"integer","enum":[2,4],"description":"spokes per pad, aligned to the pad rotation"},"min_width":{"type":["number","null"],"minimum":0.05,"maximum":5,"description":"narrowest copper the pour keeps in millimetres; null follows the narrowest track on the board"},"islands":{"type":"string","enum":["keep","remove","remove_below"],"description":"what happens to copper that touches nothing of its net"},"island_area":{"type":"number","minimum":0,"maximum":10000,"description":"with remove_below, the area in square millimetres at or above which a detached piece is kept"}}),
+                &["id"],
             ),
         ),
         (
@@ -1366,11 +1381,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "via.set_span",
+            "Change which copper layers an existing via joins, making it through, blind or buried; the span must be one the board allows",
+            schema(
+                json!({"id":id_schema(),"from_layer":{"type":"string","description":"upper copper layer of the span; keeps the current one when omitted"},"to_layer":{"type":"string","description":"lower copper layer of the span; keeps the current one when omitted"}}),
+                &["id"],
+            ),
+        ),
+        (
             "via.set_covering",
             "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
             schema(
                 json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
                 &["id"],
+            ),
+        ),
+        (
+            "via.allow_span",
+            "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
+            schema(
+                json!({"from_layer":{"type":"string"},"to_layer":{"type":"string"},"allow":{"type":"boolean"}}),
+                &["from_layer", "to_layer", "allow"],
             ),
         ),
         (
@@ -1687,7 +1718,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_add",
             "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it; optionally narrowed to one net and one copper layer, which apply when either side of a pair matches",
             schema(
-                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
+                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"},"keepout":{"type":"boolean","description":"true keeps all copper and tracks at least the clearance away from the rectangle"}}),
                 &["clearance", "x", "y", "width", "height"],
             ),
         ),
@@ -1869,6 +1900,25 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "laser_job.export",
+            "Export a galvo laser job as millimetre SVG or LaserCraft JSON using a laser_galvo profile",
+            schema(
+                json!({
+                    "side":{"type":"string","enum":["front","back"]},
+                    "profile_id":{"type":"string","minLength":1,"maxLength":64},
+                    "format":{"type":"string","enum":["svg","lcproj"]},
+                    "operations":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":6},
+                    "mirror_axis":{"type":"string","enum":["x","y"]},
+                    "margin_mm":{"type":"number"},
+                    "isolation_width_mm":{"type":"number"},
+                    "rubout":{"type":"boolean"},
+                    "stencil_reduction_pct":{"type":"number"},
+                    "path":{"type":"string","minLength":1,"maxLength":4096}
+                }),
+                &["side", "profile_id", "format", "operations"],
+            ),
+        ),
+        (
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
@@ -1965,6 +2015,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "selection.copy_text",
+            "Serialize a bounded selection to the versioned text clipboard form",
+            schema(
+                json!({"ids":{"type":"array","minItems":1,"maxItems":64,"items":id_schema()},"context":{"type":"string","enum":["board","schematic"]}}),
+                &["ids"],
+            ),
+        ),
+        (
+            "selection.paste",
+            "Paste a text clipboard selection at an offset, renumbering references when asked and matching nets by name",
+            schema(
+                json!({"text":{"type":"string","minLength":1,"maxLength":524288},"offset":point_schema(),"renumber":{"type":"boolean","default":true}}),
+                &["text", "offset"],
+            ),
+        ),
+        (
             "object.delete",
             "Delete a component, wire, track, via, zone, footprint, cutout or unused net by stable ID",
             schema(json!({"id":id_schema()}), &["id"]),
@@ -2023,6 +2089,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(images::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -2096,6 +2163,14 @@ impl Session {
         self.next_id = next;
         Ok(json!({"revision":self.revision,"results":results}))
     }
+    /// Run one command on a scratch copy and return its result without
+    /// committing anything: no revision bump, no undo entry. For read
+    /// commands a panel polls every frame.
+    pub fn peek(&self, id: &str, params: Value) -> Result<Value, Error> {
+        let mut candidate = self.project.clone();
+        let mut next = self.next_id;
+        run(&mut candidate, &mut next, id, &params)
+    }
     fn commit(&mut self, p: Project) {
         self.undo.push_back(std::mem::replace(&mut self.project, p));
         while self.undo.len() > 32 {
@@ -2103,6 +2178,14 @@ impl Session {
         }
         self.redo.clear();
         self.revision = self.revision.saturating_add(1);
+    }
+    /// True when an edit can be stepped back.
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    /// True when an undone edit can be stepped forward again.
+    pub fn can_redo(&self) -> bool {
+        !self.redo.is_empty()
     }
     pub fn undo(&mut self) -> Result<Value, Error> {
         let p = self
@@ -2344,6 +2427,25 @@ fn render_kind(
             "board-stats.csv".into(),
             pcbcraft_io::stats_text(p)?.into_bytes(),
         )),
+        "laser_job" => {
+            let profile = pcbcraft_io::commarker_b6_mopa_profile();
+            let mut operations = std::collections::BTreeSet::new();
+            for id in pcbcraft_doc::LaserJobSettings::OPERATION_IDS {
+                operations.insert(id.to_string());
+            }
+            let options = pcbcraft_io::LaserJobExportOptions {
+                side: pcbcraft_doc::Layer::Front,
+                operations,
+                mirror_axis: pcbcraft_io::MirrorAxis::Y,
+                margin_mm: 1.0,
+                isolation_width_mm: 0.05,
+                rubout: true,
+                stencil_reduction_pct: 10.0,
+            };
+            let text =
+                pcbcraft_io::laser_job_svg(p, pcbcraft_doc::Layer::Front, &profile, &options)?;
+            out.push(("laser-job.svg".into(), text.into_bytes()));
+        }
         "panel" => {
             for (name, text) in pcbcraft_io::panel_fabrication_files(p)? {
                 out.push((name, text.into_bytes()));
@@ -2546,7 +2648,7 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
     }
     Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
 }
-fn allocate(next: &mut Id) -> Result<Id, Error> {
+pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
     if id == 0 || id > u32::MAX as u64 {
         return Err(Error::Invalid("object ID space exhausted".into()));
@@ -2924,6 +3026,32 @@ struct ArchivePathParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct LaserJobExportParams {
+    side: String,
+    profile_id: String,
+    format: String,
+    operations: Vec<String>,
+    #[serde(default = "laser_job_mirror_default")]
+    mirror_axis: String,
+    #[serde(default)]
+    margin_mm: f64,
+    #[serde(default = "laser_job_isolation_default")]
+    isolation_width_mm: f64,
+    #[serde(default)]
+    rubout: bool,
+    #[serde(default)]
+    stencil_reduction_pct: f64,
+    #[serde(default)]
+    path: Option<String>,
+}
+fn laser_job_mirror_default() -> String {
+    "y".into()
+}
+fn laser_job_isolation_default() -> f64 {
+    0.05
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MetaKeyParams {
     key: String,
 }
@@ -3249,6 +3377,65 @@ struct ViaParams {
     diameter: Option<f64>,
     #[serde(default)]
     drill: Option<f64>,
+    #[serde(default)]
+    from_layer: Option<String>,
+    #[serde(default)]
+    to_layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaSpanParams {
+    id: Id,
+    #[serde(default)]
+    from_layer: Option<String>,
+    #[serde(default)]
+    to_layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaAllowSpanParams {
+    from_layer: String,
+    to_layer: String,
+    allow: bool,
+}
+/// Resolve a requested via span against the board. Ends at the outer layers
+/// are stored as unset so old files and default vias stay identical.
+fn resolve_via_span(
+    p: &Project,
+    from: Option<&str>,
+    to: Option<&str>,
+    current: (Option<pcbcraft_doc::Layer>, Option<pcbcraft_doc::Layer>),
+) -> Result<(Option<pcbcraft_doc::Layer>, Option<pcbcraft_doc::Layer>), Error> {
+    let last = p.copper_layer_count().saturating_sub(1);
+    let top = pcbcraft_doc::Layer::Front;
+    let resolve = |s: &str| p.resolve_copper_layer(s).map_err(Error::Invalid);
+    let a = match from {
+        Some(s) => resolve(s)?,
+        None => current.0.unwrap_or(top),
+    };
+    let b = match to {
+        Some(s) => resolve(s)?,
+        None => match current.1 {
+            Some(l) => l,
+            None => pcbcraft_doc::Layer::from_index(last).map_err(Error::Invalid)?,
+        },
+    };
+    if a.index() >= b.index() {
+        return Err(Error::Invalid(
+            "a via span must run from an upper to a lower copper layer".into(),
+        ));
+    }
+    if !p.allowed_via_spans().contains(&(a, b)) {
+        return Err(Error::Invalid(format!(
+            "via_span_not_allowed: this board does not allow a via from {} to {}",
+            p.layer_name(a),
+            p.layer_name(b)
+        )));
+    }
+    Ok((
+        (a.index() != 0).then_some(a),
+        (b.index() != last).then_some(b),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3819,6 +4006,10 @@ struct RuleAreaParams {
     height: f64,
     #[serde(default)]
     max_height: Option<f64>,
+    /// True turns the area into a keepout: nothing of any copper kind may
+    /// come within the clearance of the rectangle.
+    #[serde(default)]
+    keepout: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4329,6 +4520,32 @@ struct ZoneFillParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ZonePourParams {
+    id: Id,
+    #[serde(default)]
+    pad_connect: Option<String>,
+    #[serde(default)]
+    via_connect: Option<String>,
+    #[serde(default)]
+    relief_gap: Option<f64>,
+    #[serde(default)]
+    spoke_width: Option<f64>,
+    #[serde(default)]
+    spokes: Option<u8>,
+    #[serde(default)]
+    min_width: Option<f64>,
+    #[serde(default)]
+    islands: Option<String>,
+    #[serde(default)]
+    island_area: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneFillQuery {
+    id: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MirrorParams {
     id: Id,
     axis: String,
@@ -4614,6 +4831,24 @@ struct NudgeParams {
 struct DuplicateParams {
     ids: Vec<Id>,
     offset: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionCopyParams {
+    ids: Vec<Id>,
+    #[serde(default)]
+    context: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionPasteParams {
+    text: String,
+    offset: Point,
+    #[serde(default = "selection_paste_renumber_default")]
+    renumber: bool,
+}
+fn selection_paste_renumber_default() -> bool {
+    true
 }
 /// A reference label that no component in the project already carries.
 fn unique_reference(p: &Project, base: &str) -> String {
@@ -5850,6 +6085,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = images::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -8019,6 +8257,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -8036,6 +8275,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8066,6 +8306,7 @@ fn run_command(
                                     points: vec![c],
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8084,6 +8325,7 @@ fn run_command(
                                     points,
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8106,6 +8348,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8119,6 +8362,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -8144,6 +8388,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8289,6 +8534,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -8306,6 +8552,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8327,6 +8574,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8340,6 +8588,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -8363,6 +8612,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8704,6 +8954,7 @@ fn run_command(
                 points: a.points,
                 width: a.width,
                 text: a.text,
+                sublayer: String::new(),
             });
             Ok(json!({"id":id}))
         }
@@ -8926,6 +9177,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -9003,6 +9255,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -9846,6 +10099,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
             }
             Ok(
@@ -9993,6 +10247,7 @@ fn run_command(
                     ],
                     width: w,
                     text: String::new(),
+                    sublayer: String::new(),
                 });
                 count += 1;
             }
@@ -10067,6 +10322,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 Ok(())
             };
@@ -10992,6 +11248,12 @@ fn run_command(
                     "via drill must be smaller than its pad".into(),
                 ));
             }
+            let (from_layer, to_layer) = resolve_via_span(
+                p,
+                a.from_layer.as_deref(),
+                a.to_layer.as_deref(),
+                (None, None),
+            )?;
             let id = allocate(next)?;
             p.board.vias.push(pcbcraft_doc::Via {
                 id,
@@ -10999,6 +11261,8 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                from_layer,
+                to_layer,
                 covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
@@ -11016,6 +11280,71 @@ fn run_command(
                 .ok_or_else(missing)?;
             via.position = a.position;
             Ok(json!({"id": a.id}))
+        }
+        "via.set_span" => {
+            let a: ViaSpanParams = parse(params)?;
+            let current = p
+                .board
+                .vias
+                .iter()
+                .find(|v| v.id == a.id)
+                .map(|v| (v.from_layer, v.to_layer))
+                .ok_or_else(missing)?;
+            let (from_layer, to_layer) =
+                resolve_via_span(p, a.from_layer.as_deref(), a.to_layer.as_deref(), current)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            via.from_layer = from_layer;
+            via.to_layer = to_layer;
+            let via = via.clone();
+            let (x, y) = p.via_span(&via);
+            Ok(json!({
+                "id": a.id,
+                "from_layer": p.layer_name(x),
+                "to_layer": p.layer_name(y),
+                "kind": p.via_kind(&via).label(),
+            }))
+        }
+        "via.allow_span" => {
+            let a: ViaAllowSpanParams = parse(params)?;
+            let x = p
+                .resolve_copper_layer(&a.from_layer)
+                .map_err(Error::Invalid)?;
+            let y = p
+                .resolve_copper_layer(&a.to_layer)
+                .map_err(Error::Invalid)?;
+            let last = p.copper_layer_count().saturating_sub(1);
+            if x.index() >= y.index() || y.index() > last {
+                return Err(Error::Invalid(
+                    "a via span must run from an upper to a lower copper layer".into(),
+                ));
+            }
+            let key = (x.index(), y.index());
+            if a.allow {
+                if p.allowed_via_spans().contains(&(x, y)) {
+                    return Err(Error::Invalid("that span is already allowed".into()));
+                }
+                p.board.via_spans.push(key);
+            } else {
+                if !p.board.via_spans.contains(&key) {
+                    return Err(Error::Invalid(
+                        "that span is not one of the extra allowed spans".into(),
+                    ));
+                }
+                let in_use = p.board.vias.iter().any(|v| {
+                    let (s, e) = p.via_span(v);
+                    (s.index(), e.index()) == key
+                });
+                if in_use {
+                    return Err(Error::Invalid("a via still uses that span".into()));
+                }
+                p.board.via_spans.retain(|k| *k != key);
+            }
+            Ok(json!({"from_layer":a.from_layer,"to_layer":a.to_layer,"allow":a.allow}))
         }
         "via.stitch" => {
             let a: StitchParams = parse(params)?;
@@ -11075,6 +11404,8 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        from_layer: None,
+                        to_layer: None,
                         covering: None,
                     });
                     ids.push(id);
@@ -11098,6 +11429,7 @@ fn run_command(
                 cutouts: vec![],
                 filled: true,
                 kind: None,
+                pour: None,
             });
             Ok(json!({"id":id}))
         }
@@ -11285,6 +11617,95 @@ fn run_command(
             zone.filled = a.filled;
             Ok(json!({"id": a.id, "filled": a.filled}))
         }
+        "zone.fill" => {
+            let a: ZoneFillQuery = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?
+                .clone();
+            let fill = pcbcraft_doc::zone_fill(p, &zone).map_err(Error::Invalid)?;
+            Ok(json!({
+                "id": a.id,
+                "net": zone.net,
+                "layer": zone.layer,
+                "filled": zone.filled,
+                "area": (fill.area() * 1e6).round() / 1e6,
+                "pieces": fill.pieces.len(),
+                "holes": fill.pieces.iter().map(|piece| piece.len().saturating_sub(1)).sum::<usize>(),
+                "islands": fill.islands,
+                "removed": fill.removed,
+                "unconnected": fill.unconnected,
+                "spokes": fill.spokes,
+                "starved": fill.starved,
+                "min_width": fill.min_width,
+            }))
+        }
+        "zone.pour" => {
+            let a: ZonePourParams = parse(params)?;
+            let connect = |value: &Option<String>| match value.as_deref() {
+                None => Ok(None),
+                Some("solid") => Ok(Some(pcbcraft_doc::ZoneConnect::Solid)),
+                Some("relief") => Ok(Some(pcbcraft_doc::ZoneConnect::Relief)),
+                Some("none") => Ok(Some(pcbcraft_doc::ZoneConnect::None)),
+                Some(_) => Err(Error::Invalid(
+                    "connection must be solid, relief or none".into(),
+                )),
+            };
+            let pad_connect = connect(&a.pad_connect)?;
+            let via_connect = connect(&a.via_connect)?;
+            let islands = match a.islands.as_deref() {
+                None => None,
+                Some("keep") => Some(pcbcraft_doc::ZoneIslands::Keep),
+                Some("remove") => Some(pcbcraft_doc::ZoneIslands::Remove),
+                Some("remove_below") => Some(pcbcraft_doc::ZoneIslands::RemoveBelow(
+                    a.island_area.unwrap_or(1.0),
+                )),
+                Some(_) => {
+                    return Err(Error::Invalid(
+                        "islands must be keep, remove or remove_below".into(),
+                    ));
+                }
+            };
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            let mut pour = zone.pour_settings();
+            if let Some(value) = pad_connect {
+                pour.pad_connect = value;
+            }
+            if let Some(value) = via_connect {
+                pour.via_connect = value;
+            }
+            if let Some(value) = a.relief_gap {
+                pour.relief_gap = value;
+            }
+            if let Some(value) = a.spoke_width {
+                pour.spoke_width = value;
+            }
+            if let Some(value) = a.spokes {
+                pour.spokes = value;
+            }
+            if a.min_width.is_some() {
+                pour.min_width = a.min_width;
+            }
+            if let Some(value) = islands {
+                pour.islands = value;
+            }
+            if !pour.valid() {
+                return Err(Error::Invalid(
+                    "pour settings need a 0.05 to 2 mm relief gap, a 0.05 to 5 mm spoke, two or four spokes and a bounded minimum width"
+                        .into(),
+                ));
+            }
+            zone.pour = Some(pour);
+            Ok(json!({"id": a.id, "pour": pour}))
+        }
         "zone.cutout" => {
             let a: ZoneCutoutParams = parse(params)?;
             let zone = p
@@ -11402,6 +11823,7 @@ fn run_command(
                     cutouts: vec![],
                     filled: true,
                     kind: Some("teardrop".into()),
+                    pour: None,
                 });
                 added += 1;
             }
@@ -12767,6 +13189,10 @@ fn run_command(
                 net: a.net,
                 layer,
                 clearance: a.clearance,
+                keepout: a
+                    .keepout
+                    .filter(|keepout| *keepout)
+                    .map(|_| pcbcraft_doc::Keepout::default()),
                 max_height: a.max_height,
                 region: pcbcraft_doc::RuleRegion {
                     x: a.x,
@@ -13290,6 +13716,7 @@ fn run_command(
             let files = &mut p.files;
             if let Some(existing) = files.iter_mut().find(|f| f.name == name) {
                 existing.data = a.data;
+                existing.encoding = String::new();
             } else {
                 if files.len() >= 32 {
                     return Err(Error::Invalid("a project attaches at most 32 files".into()));
@@ -13297,6 +13724,7 @@ fn run_command(
                 files.push(pcbcraft_doc::EmbeddedFile {
                     name: name.clone(),
                     data: a.data,
+                    encoding: String::new(),
                 });
                 files.sort_by(|x, y| x.name.cmp(&y.name));
             }
@@ -13305,12 +13733,76 @@ fn run_command(
         "file.remove" => {
             let a: FileParams = parse(params)?;
             let name = a.name.trim();
+            if p.reference_images.iter().any(|r| r.file == name) {
+                return Err(Error::Invalid(
+                    "a reference image still shows this file; remove it first".into(),
+                ));
+            }
             let files = &mut p.files;
             let Some(index) = files.iter().position(|f| f.name == name) else {
                 return Err(Error::Invalid(format!("no attached file named {name}")));
             };
             files.remove(index);
             Ok(json!({"name": name, "count": files.len()}))
+        }
+        "laser_job.export" => {
+            let a: LaserJobExportParams = parse(params)?;
+            let settings = pcbcraft_doc::LaserJobSettings {
+                side: a.side.clone(),
+                operations: a.operations.clone(),
+                format: a.format.clone(),
+                mirror_axis: a.mirror_axis.clone(),
+                margin_mm: a.margin_mm,
+                isolation_width_mm: a.isolation_width_mm,
+                rubout: a.rubout,
+                stencil_reduction_pct: a.stencil_reduction_pct,
+                profile_id: a.profile_id.clone(),
+            };
+            if !settings.valid() {
+                return Err(Error::Invalid(
+                    "laser job settings are out of range or list unknown operations".into(),
+                ));
+            }
+            let side = match a.side.as_str() {
+                "front" => pcbcraft_doc::Layer::Front,
+                "back" => pcbcraft_doc::Layer::Back,
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job side must be front or back".into(),
+                    ));
+                }
+            };
+            let profile = pcbcraft_io::laser_galvo_profile_for_export(p, &a.profile_id)
+                .map_err(Error::Invalid)?;
+            let mirror = pcbcraft_io::MirrorAxis::parse(&a.mirror_axis).map_err(Error::Invalid)?;
+            let options = pcbcraft_io::LaserJobExportOptions {
+                side,
+                operations: a.operations.iter().cloned().collect(),
+                mirror_axis: mirror,
+                margin_mm: a.margin_mm,
+                isolation_width_mm: a.isolation_width_mm,
+                rubout: a.rubout,
+                stencil_reduction_pct: a.stencil_reduction_pct,
+            };
+            let text = match a.format.as_str() {
+                "svg" => pcbcraft_io::laser_job_svg(p, side, &profile, &options),
+                "lcproj" => pcbcraft_io::laser_job_lcproj(p, side, &profile, &options),
+                _ => {
+                    return Err(Error::Invalid(
+                        "laser job format must be svg or lcproj".into(),
+                    ));
+                }
+            }
+            .map_err(Error::Invalid)?;
+            if let Some(path) = a.path {
+                if path.is_empty() || path.len() > 4096 {
+                    return Err(Error::Invalid("laser job path is out of range".into()));
+                }
+                pcbcraft_io::atomic_write(std::path::Path::new(&path), text.as_bytes())
+                    .map_err(Error::Invalid)?;
+                return Ok(json!({"format": a.format, "path": path, "bytes": text.len()}));
+            }
+            Ok(json!({"format": a.format, "text": text}))
         }
         "output_job.add" => {
             let a: OutputJobAddParams = parse(params)?;
@@ -15077,6 +15569,24 @@ fn run_command(
             }
             Ok(json!({"count": duplicates.len(), "duplicates": duplicates}))
         }
+        "selection.copy_text" => {
+            let a: SelectionCopyParams = parse(params)?;
+            let text = selection_clip::copy_text(p, &a.ids, a.context.as_deref())?;
+            Ok(json!({"text": text}))
+        }
+        "selection.paste" => {
+            let a: SelectionPasteParams = parse(params)?;
+            if a.text.is_empty() || a.text.len() > 524_288 {
+                return Err(Error::Invalid("paste text length is out of range".into()));
+            }
+            let (count, id_map) =
+                selection_clip::paste(p, next, &a.text, a.offset, a.renumber, unique_reference)?;
+            let map = id_map
+                .iter()
+                .map(|(from, to)| (from.to_string(), json!(*to)))
+                .collect::<serde_json::Map<String, Value>>();
+            Ok(json!({"count": count, "ids": Value::Object(map)}))
+        }
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -16306,6 +16816,163 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.components.len(), 3);
         assert_eq!(s.project.board.footprints.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_paste_renumbers_and_preserves_nets_by_name() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let mut parts = vec![];
+        for (reference, x) in [("R1", 10.0), ("R2", 30.0), ("R3", 50.0)] {
+            let id = s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0},"reference":reference}),
+                None,
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            s.execute(
+                "net.connect",
+                json!({"net":gnd,"pins":[{"component":id,"pin":"1"}]}),
+                None,
+            )?;
+            parts.push(id);
+        }
+        s.execute("board.sync", json!({}), None)?;
+        let mut tracks = vec![];
+        for x in [15.0, 35.0, 55.0] {
+            let tid = s.execute(
+                "track.add",
+                json!({"net":gnd,"start":{"x":x,"y":8.0},"end":{"x":x,"y":12.0},"width":0.25,"layer":"F.Cu"}),
+                None,
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            tracks.push(tid);
+        }
+        let mut ids = parts.clone();
+        ids.extend(tracks.iter().copied());
+        let text = s.execute("selection.copy_text", json!({"ids":ids}), None)?["result"]["text"]
+            .as_str()
+            .ok_or_else(missing)?
+            .to_string();
+        let before_project = s.project.clone();
+        let pasted = s.execute(
+            "selection.paste",
+            json!({"text": text, "offset":{"x":0.0,"y":20.0}, "renumber": true}),
+            None,
+        )?;
+        assert_eq!(pasted["result"]["count"], 9);
+        assert_eq!(s.project.components.len(), 6);
+        assert_eq!(s.project.board.tracks.len(), 6);
+        assert!(
+            s.project
+                .components
+                .iter()
+                .any(|c| c.reference == "R1 copy"),
+            "paste renumbers references"
+        );
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.net == gnd),
+            "pasted copper keeps nets matched by name"
+        );
+        assert_eq!(s.project.nets.iter().filter(|n| n.name == "GND").count(), 1);
+        let pasted_ids: Vec<Id> = pasted["result"]["ids"]
+            .as_object()
+            .ok_or_else(missing)?
+            .values()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        for id in pasted_ids {
+            assert!(
+                loaded.ids().any(|existing| existing == id),
+                "pasted ids stay stable after save and load within the session"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project, before_project);
+        assert_eq!(s.project.components.len(), 3);
+        assert_eq!(s.project.board.tracks.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_paste_rejects_malformed_or_oversized_clipboard() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect();
+        for params in [
+            json!({"text":"not a clipboard","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":format!("PCBCRAFT selection/1\n{}", "x".repeat(524_288)),"offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":2}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":1}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":1}","offset":{"x":1e6,"y":0.0}}),
+        ] {
+            assert!(
+                s.execute("selection.paste", params, None).is_err(),
+                "invalid paste must fail"
+            );
+        }
+        assert_eq!(s.inspect(), before);
+        assert_eq!(s.project.components.len(), 1);
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.reference, "R1");
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_includes_tracks_when_selected() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":10.0},"end":{"x":8.0,"y":10.0},"width":0.25,"layer":"F.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let copy = s.execute("selection.copy_text", json!({"ids":[r1, track]}), None)?;
+        let text = copy["result"]["text"].as_str().ok_or_else(missing)?;
+        assert!(
+            text.contains("\"tracks\""),
+            "copy text carries selected tracks"
+        );
+        s.execute(
+            "selection.paste",
+            json!({"text": text, "offset":{"x":10.0,"y":0.0}, "renumber": true}),
+            None,
+        )?;
+        assert_eq!(s.project.components.len(), 2);
+        assert_eq!(s.project.board.tracks.len(), 2);
+        assert!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.start.x >= 14.0 && t.net == net),
+            "pasted track keeps the net and offset"
+        );
         Ok(())
     }
     #[test]
@@ -25240,9 +25907,18 @@ mod tests {
         };
         assert_eq!(
             touching(&s),
-            1,
-            "a signal track crossing a ground zone on the same layer shorts"
+            0,
+            "the pour clears a signal track crossing it, so nothing shorts"
         );
+        let probe = |s: &Session| -> bool {
+            s.project
+                .board
+                .zones
+                .first()
+                .and_then(|z| pcbcraft_doc::zone_fill(&s.project, z).ok())
+                .is_some_and(|fill| fill.contains(Point::new(40.0, 15.25)))
+        };
+        assert!(!probe(&s), "the pour keeps its distance from the track");
         let out = s.execute("zone.set_layer", json!({"id":zone,"layer":"B.Cu"}), None)?;
         assert_eq!(out["result"]["layer"], json!("B.Cu"));
         assert_eq!(
@@ -25266,6 +25942,10 @@ mod tests {
             0,
             "copper on opposite sides no longer touches"
         );
+        assert!(
+            probe(&s),
+            "on the other side the pour runs over the track's place"
+        );
         for params in [
             json!({"id":zone,"layer":"C.Cu"}),
             json!({"id":zone,"layer":"B.Cu"}),
@@ -25282,7 +25962,7 @@ mod tests {
             pcbcraft_doc::Layer::Front,
             "undo pours the zone back on the front"
         );
-        assert_eq!(touching(&s), 1, "and the short reappears");
+        assert!(!probe(&s), "and the pour clears the track again");
         Ok(())
     }
     #[test]
@@ -25603,7 +26283,10 @@ mod tests {
                 .unwrap_or_default()
                 .iter()
                 .filter(|f| {
-                    f["objects"]
+                    !matches!(
+                        f["code"].as_str(),
+                        Some("zone_unconnected" | "zone_island" | "thermal_starved")
+                    ) && f["objects"]
                         .as_array()
                         .is_some_and(|o| o.contains(&json!(zone)))
                 })
@@ -25611,8 +26294,8 @@ mod tests {
         };
         assert_eq!(
             touching(&s),
-            1,
-            "the track runs along the zone's lower edge and touches it"
+            0,
+            "the pour pulls back from the track along its lower edge, so it does not touch"
         );
         s.execute(
             "zone.set_point",
@@ -25630,7 +26313,7 @@ mod tests {
             "lifting both lower corners off the track clears the finding"
         );
         s.undo()?;
-        assert_eq!(touching(&s), 1, "and undo brings it back");
+        assert_eq!(touching(&s), 0, "and undo leaves it clear");
         assert!(s.project.validate().is_ok());
         let before = s.inspect();
         for params in [
@@ -25884,12 +26567,22 @@ mod tests {
                 })
                 .count()
         };
-        assert!(pairs(&s) >= 1, "the track rides the filled zone edge");
+        let area = |s: &Session| -> f64 {
+            s.project
+                .board
+                .zones
+                .first()
+                .and_then(|z| pcbcraft_doc::zone_fill(&s.project, z).ok())
+                .map_or(-1.0, |fill| fill.area())
+        };
+        assert_eq!(pairs(&s), 0, "the pour clears the track riding its edge");
+        assert!(area(&s) > 300.0, "a filled zone carries copper");
         s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
         assert_eq!(pairs(&s), 0, "an unfilled zone carries no copper");
+        assert!(area(&s).abs() < 1e-9);
         assert!(!s.project.board.zones[0].filled);
         s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
-        assert!(pairs(&s) >= 1, "pouring it back restores the finding");
+        assert!(area(&s) > 300.0, "pouring it back restores the copper");
         s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
         let before = s.inspect();
         for params in [
@@ -25907,13 +26600,13 @@ mod tests {
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
         s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
-        assert!(pairs(&s) >= 1);
+        assert!(area(&s) > 300.0);
         s.undo()?;
         assert!(
             !s.project.board.zones[0].filled,
             "undo takes the copper out again"
         );
-        assert_eq!(pairs(&s), 0, "and the finding falls silent");
+        assert!(area(&s).abs() < 1e-9, "and the copper is gone");
         Ok(())
     }
     #[test]
@@ -27787,7 +28480,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&directory);
         s.execute(
             "output_job.add",
-            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats"]}),
+            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats","laser_job"]}),
             None,
         )?;
         s.execute(
@@ -32191,6 +32884,59 @@ mod tests {
         s.project.validate()?;
         Ok(())
     }
+
+    #[test]
+    fn laser_job_refuses_board_larger_than_field_without_lens_option() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 160.0;
+        s.project.board.height = 160.0;
+        let mut profile = pcbcraft_io::commarker_b6_mopa_profile();
+        profile.fields.retain(|field| field.width_mm <= 150.0);
+        let (width, height) =
+            pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
+        assert!(
+            pcbcraft_io::laser_job_validate_work_area(&profile, width, height).is_err(),
+            "160 mm board must not fit a 150 mm field"
+        );
+        let err = s.execute(
+            "laser_job.export",
+            json!({
+                "side":"front",
+                "profile_id":"commarker-b6-mopa-150",
+                "format":"svg",
+                "operations":["isolation-cut"],
+                "margin_mm":1.0
+            }),
+            None,
+        );
+        assert!(err.is_err(), "export must refuse an oversize board");
+        Ok(())
+    }
+
+    #[test]
+    fn laser_job_accepts_board_when_profile_lists_300mm_lens() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 160.0;
+        s.project.board.height = 160.0;
+        let profile = pcbcraft_io::commarker_b6_mopa_profile();
+        let (width, height) =
+            pcbcraft_io::laser_job_work_area_mm(&s.project, 1.0).map_err(Error::Invalid)?;
+        pcbcraft_io::laser_job_validate_work_area(&profile, width, height)
+            .map_err(Error::Invalid)?;
+        s.execute(
+            "laser_job.export",
+            json!({
+                "side":"front",
+                "profile_id":"commarker-b6-mopa",
+                "format":"svg",
+                "operations":["isolation-cut"],
+                "margin_mm":1.0
+            }),
+            None,
+        )?;
+        Ok(())
+    }
+
     #[test]
     fn output_job_with_drawn_layers_round_trips_through_save_and_open() -> Result<(), Error> {
         let mut s = Session::default();
@@ -32715,6 +33461,117 @@ mod tests {
             .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(svg.contains(">DA</text>"));
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+    #[test]
+    fn zone_pour_settings_are_bounded_and_zone_fill_reports_the_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":30.0,"y":10.0},{"x":30.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("zone.fill", json!({"id":zone}), None)?;
+        assert!(out["result"]["area"].as_f64().unwrap_or(0.0) > 300.0);
+        s.execute(
+            "zone.pour",
+            json!({"id":zone,"pad_connect":"solid","spokes":2,"islands":"keep"}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"relief_gap":0.0}),
+            json!({"id":zone,"spokes":3}),
+            json!({"id":zone,"islands":"maybe"}),
+            json!({"id":zone,"pad_connect":"loose"}),
+            json!({"id":zone,"spoke_width":99.0}),
+        ] {
+            assert!(s.execute("zone.pour", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    fn six_layer_session() -> Result<(Session, u64), Error> {
+        let mut s = Session::default();
+        for i in 1..=6 {
+            s.project
+                .board
+                .layer_records
+                .push(pcbcraft_doc::LayerRecord {
+                    name: format!("L{i}"),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    copper_role: None,
+                });
+            if i < 6 {
+                s.project
+                    .board
+                    .layer_records
+                    .push(pcbcraft_doc::LayerRecord {
+                        name: format!("P{i}"),
+                        kind: "prepreg".into(),
+                        thickness: 0.4,
+                        copper_role: None,
+                    });
+            }
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, net))
+    }
+    #[test]
+    fn via_place_refuses_forbidden_span() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let at = json!({"x":10.0,"y":10.0});
+        let buried = json!({"net":net,"position":at,"diameter":0.6,"drill":0.3,"from_layer":"L3","to_layer":"L4"});
+        assert!(s.execute("via.place", buried.clone(), None).is_err());
+        assert!(s.project.board.vias.is_empty(), "a refusal changes nothing");
+        let backwards =
+            json!({"net":net,"position":at,"diameter":0.6,"from_layer":"L4","to_layer":"L2"});
+        assert!(s.execute("via.place", backwards, None).is_err());
+        let blind = json!({"net":net,"position":at,"diameter":0.6,"drill":0.3,"to_layer":"L2"});
+        s.execute("via.place", blind, None)?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        s.execute(
+            "via.allow_span",
+            json!({"from_layer":"L3","to_layer":"L4","allow":true}),
+            None,
+        )?;
+        s.execute("via.place", buried, None)?;
+        assert_eq!(s.project.board.vias.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn via_set_span_updates_range() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let id = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("via.set_span", json!({"id":id,"to_layer":"L2"}), None)?;
+        assert_eq!(out["result"]["kind"], "Blind");
+        assert_eq!(out["result"]["to_layer"], "L2");
+        assert_eq!(s.project.board.vias[0].to_layer.map(|l| l.index()), Some(1));
+        assert!(
+            s.execute("via.set_span", json!({"id":id,"to_layer":"L4"}), None)
+                .is_err()
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.vias[0].to_layer, None,
+            "undo restores the span"
+        );
+        let back = s.execute("via.set_span", json!({"id":id,"to_layer":"B.Cu"}), None);
+        assert!(back.is_ok(), "bottom layer is the through span");
         Ok(())
     }
 }

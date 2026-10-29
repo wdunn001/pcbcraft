@@ -259,7 +259,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 700.0)?,
         "the board panel should offer printed words: {}",
         app.message
     );
@@ -268,7 +268,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     app.label_y = 2.0;
     app.label_size = 1.2;
     app.label_front = false;
-    scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
+    scrolled_to_at(&ctx, &mut app, "Add label", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Add label")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
@@ -350,7 +350,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
         );
     }
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 700.0)?,
         "the rules page should offer stricter corners: {}",
         app.message
     );
@@ -693,6 +693,128 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
         paints_text(&ctx, &mut app, "1 to fix")?,
         "a cut through a via lands in the footer count: {}",
         app.message
+    );
+    Ok(())
+}
+
+fn fresh_board_app() -> (egui::Context, App) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (ctx, app)
+}
+
+#[test]
+fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Result<(), String> {
+    let (ctx, mut app) = fresh_board_app();
+    app.tool_call(
+        "board.hole_place",
+        json!({"position": {"x": 10.0, "y": 12.0}, "diameter": 3.2}),
+    );
+    app.refresh();
+    let hole = app
+        .project
+        .board
+        .holes
+        .first()
+        .map(|h| h.id)
+        .ok_or("the mounting hole should exist")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert!(
+        scrolled_to(&ctx, &mut app, "DATUMS")?,
+        "the tree offers a DATUMS group"
+    );
+    app.datum_ui.add_name = "MH1".into();
+    app.datum_ui.add_hole = Some(hole);
+    assert!(
+        scrolled_to(&ctx, &mut app, "Add datum")?,
+        "the add button is on screen"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.refresh();
+    let datum = app
+        .project
+        .board
+        .datums
+        .first()
+        .cloned()
+        .ok_or_else(|| format!("a datum should be added: {}", app.message))?;
+    assert_eq!(datum.hole, Some(hole), "the datum is tied to the hole");
+    assert!(
+        paints_text(&ctx, &mut app, "MH1")?,
+        "the name shows on the drawing"
+    );
+    // Select it and rename it in Properties.
+    app.select(Some(datum.id));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.datum_ui.name = "SCREW_A".into();
+    authoring::tests::tap(&ctx, &mut app, "Rename")?;
+    app.refresh();
+    assert_eq!(
+        app.project.board.datums[0].name, "SCREW_A",
+        "{}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "SCREW_A")?,
+        "the new name shows on the drawing"
+    );
+    // Move the hole: the datum follows.
+    app.tool_call(
+        "board.hole_move",
+        json!({"id": hole, "position": {"x": 30.0, "y": 20.0}}),
+    );
+    app.refresh();
+    let d = app.project.board.datums[0].clone();
+    let at = app.project.datum_position(&d);
+    assert!(
+        (at.x - 30.0).abs() < 1e-6 && (at.y - 20.0).abs() < 1e-6,
+        "the datum follows the hole to {}, {}: {}",
+        at.x,
+        at.y,
+        app.message
+    );
+    // Remove it.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Remove")?;
+    app.refresh();
+    assert!(
+        app.project.board.datums.is_empty(),
+        "the datum is gone: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
+    let (ctx, mut app) = fresh_board_app();
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
+    app.datum_ui.add_name = "bad name!".into();
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.refresh();
+    assert!(
+        app.project.board.datums.is_empty(),
+        "an illegal name adds nothing"
+    );
+    assert!(
+        !app.message.ends_with("committed"),
+        "the engine's reason is shown: {}",
+        app.message
+    );
+    app.datum_ui.add_name = "A".into();
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.datum_ui.add_name = "a".into();
+    authoring::tests::tap(&ctx, &mut app, "Add datum")?;
+    app.refresh();
+    assert_eq!(
+        app.project.board.datums.len(),
+        1,
+        "names are unique ignoring case"
     );
     Ok(())
 }

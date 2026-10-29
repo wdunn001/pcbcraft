@@ -1,15 +1,36 @@
 # Continuous integration and releases
 
+## Getting started
+
+On [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft), push your branch
+to the fork (never to `main`) and wait for the green **CI result** check on that
+commit. Link the Actions run in your upstream issue build report. That run is the
+required proof for workers and doc-only lanes; you do not need a pull request on
+the fork and you do not need a green local `cargo xtask ci` on a laptop.
+
+Clone and first-run steps: [getting-started.md](getting-started.md).
+
+## Details
+
 Every CI job runs one `cargo xtask` subcommand, so any failure reproduces on a
 workstation with the same command. `cargo xtask ci` runs policy, fmt, clippy,
-tests, wasm and docs in one go and must be green before pushing.
+tests, wasm, docs and `docs check` in one go. On the fork it is optional for agents; the green
+GitHub Actions run on the pushed branch is the proof (see CONTRIBUTING.md). `cargo xtask docs check` must pass before every push.
 
-## Pull request gate (`.github/workflows/ci.yml`)
+### Fork and pull request gate (`.github/workflows/ci.yml`)
+
+On wdunn001/pcbcraft, **every branch push** runs the same jobs as upstream.
+Workers push a feature branch, wait for the green **CI result** check, and post
+that Actions link in the upstream build report. Upstream tangency-labs/pcbcraft
+still runs the gate on pull requests; a new push cancels the older run for the
+same PR. Documentation-only commits skip heavy build jobs but still run policy,
+deny and the aggregated result job.
 
 | Job | Command | What it enforces |
 | --- | --- | --- |
 | Format and policy | `cargo xtask policy`, `cargo xtask fmt` | Crate dependency layers, workspace lints keep `unwrap_used`, `expect_used`, `panic`, `unimplemented`, `todo` and `unreachable` at deny (AGENTS.md), no source `allow` of them, rustfmt |
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
+| Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
 | Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
@@ -68,6 +89,16 @@ proves the release packaging works. Packaging logic is in
 - The workflow default is `permissions: {}`; each job asks for `contents: read`. Only the release draft job has `contents: write`.
 - Checkouts do not persist credentials. Untrusted values (tag names, inputs) reach shell steps through `env`, never inline.
 - No secrets are used.
+
+## Limits
+
+Release packaging, signing and hosted web bundles are maintainer decisions listed
+below. Fork branch pushes do not publish artifacts unless a maintainer cuts a tag.
+
+## See also
+
+- [getting-started.md](getting-started.md) for branch and proof workflow
+- [CONTRIBUTING.md](../CONTRIBUTING.md) for the full delivery pipeline
 
 ## Open decisions for the maintainers
 
