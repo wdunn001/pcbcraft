@@ -742,16 +742,14 @@ fn keepout_findings(project: &Project) -> Vec<Finding> {
             result.push(Finding {
                 code: "keepout",
                 severity: project.rule_severity("keepout", "error"),
-                message: format!(
-                    "{label} forbids {} inside the area",
-                    kind.object_label()
-                ),
+                message: format!("{label} forbids {} inside the area", kind.object_label()),
                 objects: vec![area.id, object],
             });
         };
         if forbid.blocks_tracks() {
             for track in &board.tracks {
-                if !keepout_matches_net(area, track.net) || !keepout_matches_layer(area, track.layer)
+                if !keepout_matches_net(area, track.net)
+                    || !keepout_matches_layer(area, track.layer)
                 {
                     continue;
                 }

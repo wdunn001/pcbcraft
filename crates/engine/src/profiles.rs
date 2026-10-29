@@ -294,11 +294,7 @@ fn apply_rule_area_row(
     profile_id: &str,
     row: RuleAreaRow<'_>,
 ) -> Result<(), String> {
-    let layer = row
-        .layer
-        .as_deref()
-        .map(parse_layer)
-        .transpose()?;
+    let layer = row.layer.as_deref().map(parse_layer).transpose()?;
     let net = if let Some(name) = &row.net {
         Some(net_id_by_name(p, name).ok_or_else(|| format!("rule area needs net {name}"))?)
     } else {
@@ -331,8 +327,7 @@ fn apply_rule_area_row(
         height: row.height,
     };
     if let Some(existing) = areas.iter_mut().find(|a| {
-        a.profile.as_deref() == Some(profile_id)
-            && a.name.as_deref().unwrap_or("") == name_key
+        a.profile.as_deref() == Some(profile_id) && a.name.as_deref().unwrap_or("") == name_key
     }) {
         existing.net = net;
         existing.layer = layer;
@@ -748,11 +743,7 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                 },
             )?;
         }
-        for row in doc
-            .keepout
-            .iter()
-            .chain(doc.placement.iter())
-        {
+        for row in doc.keepout.iter().chain(doc.placement.iter()) {
             apply_rule_area_row(
                 p,
                 next,

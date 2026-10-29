@@ -10721,8 +10721,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
             }
-            if a
-                .footprint_ref
+            if a.footprint_ref
                 .as_ref()
                 .is_some_and(|r| r.is_empty() || r.len() > 64)
             {
@@ -10731,10 +10730,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             let forbid = if let Some(raw) = &a.forbid {
-                Some(
-                    pcbcraft_doc::RuleForbid::parse(raw)
-                        .map_err(Error::Invalid)?,
-                )
+                Some(pcbcraft_doc::RuleForbid::parse(raw).map_err(Error::Invalid)?)
             } else {
                 None
             };
@@ -17451,7 +17447,7 @@ mod tests {
         let mut s = Session::default();
         s.execute(
             "component.add",
-            json!({"kind":"crystal","reference":"Y1","value":"16 MHz","position":{"x":20.0,"y":20.0}}),
+            json!({"kind":"resistor","reference":"Y1","value":"16 MHz","position":{"x":20.0,"y":20.0}}),
             None,
         )?;
         s.execute("board.sync", json!({}), None)?;
@@ -17488,12 +17484,20 @@ mod tests {
             keepout(&s).is_some(),
             "a track through the bound keepout is flagged"
         );
-        s.execute("footprint.move", json!({"id":fp,"position":[40.0,40.0]}), None)?;
+        s.execute(
+            "footprint.move",
+            json!({"id":fp,"position":[40.0,40.0]}),
+            None,
+        )?;
         assert!(
             keepout(&s).is_none(),
             "moving the part clears the violation when copper stays behind"
         );
-        s.execute("footprint.move", json!({"id":fp,"position":[20.0,20.0]}), None)?;
+        s.execute(
+            "footprint.move",
+            json!({"id":fp,"position":[20.0,20.0]}),
+            None,
+        )?;
         assert!(
             keepout(&s).is_some(),
             "moving the part back restores the violation"

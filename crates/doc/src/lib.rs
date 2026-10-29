@@ -3057,8 +3057,7 @@ impl Project {
             if !r.valid()
                 || r.net.is_some_and(|n| !nets.contains(&n))
                 || !profile_tag_valid(&r.profile)
-                || r
-                    .footprint_ref
+                || r.footprint_ref
                     .as_ref()
                     .is_some_and(|reference| self.component_by_reference(reference).is_none())
             {
