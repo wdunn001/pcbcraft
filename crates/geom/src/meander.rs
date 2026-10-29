@@ -219,6 +219,39 @@ pub fn amplitude_for(run: &Run, bumps: usize, extra: f64, max: f64) -> Option<f6
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seg_length_of_line_and_arc() {
+        let line = Seg::Line(Point::new(0.0, 0.0), Point::new(3.0, 4.0));
+        assert!((line.length() - 5.0).abs() < 1e-12);
+        let half = Seg::Arc(
+            Point::new(1.0, 0.0),
+            Point::new(0.0, 1.0),
+            Point::new(-1.0, 0.0),
+        );
+        assert!((half.length() - std::f64::consts::PI).abs() < 1e-9);
+        let flat = Seg::Arc(
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 0.0),
+            Point::new(2.0, 0.0),
+        );
+        assert!((flat.length() - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn path_length_sums_segments() {
+        assert_eq!(path_length(&[]), 0.0);
+        let path = [
+            Seg::Line(Point::new(0.0, 0.0), Point::new(3.0, 4.0)),
+            Seg::Line(Point::new(3.0, 4.0), Point::new(3.0, 6.0)),
+            Seg::Arc(
+                Point::new(1.0, 0.0),
+                Point::new(0.0, 1.0),
+                Point::new(-1.0, 0.0),
+            ),
+        ];
+        assert!((path_length(&path) - (7.0 + std::f64::consts::PI)).abs() < 1e-9);
+    }
     type T = Result<(), String>;
     fn run(corner: Corner) -> Run {
         Run {
