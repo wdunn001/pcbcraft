@@ -332,6 +332,31 @@ impl DiffPair {
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
     }
 }
+/// A length-match group: several nets whose routed lengths must stay within
+/// one tolerance of each other, such as the data lines of a parallel bus.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LengthGroup {
+    pub id: Id,
+    /// Group name, for example "DDR_DATA0".
+    pub name: String,
+    /// Two to 32 distinct nets.
+    pub nets: Vec<Id>,
+    /// Largest allowed difference between the longest and shortest routed
+    /// net, in millimetres.
+    pub tolerance: f64,
+}
+impl LengthGroup {
+    fn valid(&self) -> bool {
+        let distinct: BTreeSet<&Id> = self.nets.iter().collect();
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && (2..=32).contains(&self.nets.len())
+            && distinct.len() == self.nets.len()
+            && !self.nets.contains(&0)
+            && self.tolerance.is_finite()
+            && (0.0..=100.0).contains(&self.tolerance)
+    }
+}
 /// A rectangular board area that demands a stricter minimum copper
 /// separation: copper lying wholly inside the rectangle, on the matching
 /// layer and net when those filters are set, must clear by at least the
@@ -1578,6 +1603,10 @@ pub struct Board {
     /// coupling gap and, when set, matched lengths.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diff_pairs: Vec<DiffPair>,
+    /// Length-match groups: nets whose routed lengths must agree within a
+    /// tolerance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub length_groups: Vec<LengthGroup>,
     /// Rectangular board areas that demand a stricter minimum copper
     /// separation for copper whose midpoints lie inside them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2107,6 +2136,7 @@ impl Default for Project {
                 machining: None,
                 pair_rules: vec![],
                 diff_pairs: vec![],
+                length_groups: vec![],
                 rule_areas: vec![],
                 user_layers: vec![],
                 outline: None,
@@ -2784,6 +2814,7 @@ impl Project {
             .chain(self.board.fiducials.iter().map(|x| x.id))
             .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.diff_pairs.iter().map(|x| x.id))
+            .chain(self.board.length_groups.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
@@ -3091,6 +3122,21 @@ impl Project {
             {
                 return Err(
                     "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
+                        .into(),
+                );
+            }
+        }
+        if self.board.length_groups.len() > 64 {
+            return Err("a board carries at most 64 length-match groups".into());
+        }
+        let mut group_names: BTreeSet<&str> = BTreeSet::new();
+        for g in &self.board.length_groups {
+            if !g.valid()
+                || g.nets.iter().any(|n| !nets.contains(n))
+                || !group_names.insert(g.name.as_str())
+            {
+                return Err(
+                    "length-match groups name two to 32 known nets with a unique name and a 0 to 100 mm tolerance"
                         .into(),
                 );
             }

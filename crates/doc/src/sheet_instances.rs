@@ -1,8 +1,8 @@
 //! Reusable schematic page instances: materialized copies on a parent page.
 
 use crate::{
-    Component, ComponentField, DrawnWire, Id, Label, MAX_ITEMS, Net, Pin, PinRef, Point, Port,
-    Project, Sheet, Wire,
+    Component, ComponentField, DrawnWire, Id, Label, MAX_ITEMS, Net, Pin, PinRef, Point, Project,
+    Wire,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
