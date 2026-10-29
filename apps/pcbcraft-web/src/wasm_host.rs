@@ -1,6 +1,7 @@
 //! Browser file picker and blob download bridge for the web app shell.
 use pcbcraft_ui_egui::library::ProjectHost;
-use std::cell::RefCell;
+use std::cell::{RefCell, RefMut};
+use std::rc::Rc;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -42,13 +43,15 @@ impl WasmHost {
                 return;
             };
             let name = file.name();
-            let Some(reader) = web_sys::FileReader::new().ok() else {
-                return;
+            let reader = match web_sys::FileReader::new() {
+                Ok(value) => Rc::new(RefCell::new(value)),
+                Err(_) => return,
             };
             let name_copy = name.clone();
-            let reader_for_load = reader.clone();
+            let reader_for_load = Rc::clone(&reader);
             let onload = Closure::wrap(Box::new(move |_event: web_sys::ProgressEvent| {
-                match reader_for_load.result() {
+                let reader_ref: RefMut<'_, web_sys::FileReader> = reader_for_load.borrow_mut();
+                match reader_ref.result() {
                     Ok(result) => {
                         let bytes = js_sys::Uint8Array::new(&result).to_vec();
                         PENDING_OPEN.with(|slot| {
@@ -58,9 +61,12 @@ impl WasmHost {
                     Err(_) => {}
                 }
             }) as Box<dyn FnMut(_)>);
-            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+            {
+                let reader_ref = reader.borrow();
+                reader_ref.set_onload(Some(onload.as_ref().unchecked_ref()));
+            }
             onload.forget();
-            let _ = reader.read_as_array_buffer(&file);
+            let _ = reader.borrow().read_as_array_buffer(&file);
             let _ = input_for_closure.set_value("");
         }) as Box<dyn FnMut(_)>);
         input.set_onchange(Some(closure.as_ref().unchecked_ref()));
