@@ -33,9 +33,9 @@ pub fn reference_with_offset(reference: &str, offset: u64) -> Result<String, Str
     if letters.is_empty() || digits.is_empty() {
         return Err("reference needs a letter prefix and numeric suffix".into());
     }
-    let base: u64 = digits
-        .parse()
-        .map_err(|_| "reference numeric suffix is invalid".into())?;
+    let base: u64 = digits.parse().map_err(|_: std::num::ParseIntError| {
+        "reference numeric suffix is invalid".to_string()
+    })?;
     let sum = base.checked_add(offset).ok_or_else(|| {
         "reference offset would exceed the numeric suffix limit".to_string()
     })?;
