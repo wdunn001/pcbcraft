@@ -1,5 +1,5 @@
 //! Browser file picker and blob download bridge for the web app shell.
-use pcbcraft_ui_egui::library::ProjectHost;
+use pcbcraft_ui_egui::ProjectHost;
 use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
 use wasm_bindgen::JsCast;

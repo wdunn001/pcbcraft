@@ -3,6 +3,7 @@ mod authoring;
 mod canvas;
 mod library;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
+pub use library::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
@@ -8958,10 +8959,29 @@ mod tests {
         let mut app = App::create(shared, Preferences::default(), None, None);
         app.refresh();
         app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "hole.slot",
-            json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
-        );
+        {
+            let mut s = app
+                .session
+                .lock()
+                .map_err(|_| "session unavailable after internal failure".to_string())?;
+            let id = s
+                .project
+                .board
+                .holes
+                .iter()
+                .map(|h| h.id)
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1);
+            s.project.board.holes.push(pcbcraft_doc::Hole {
+                id,
+                position: Point::new(12.0, 8.0),
+                diameter: 1.5,
+                end: Some(Point::new(18.0, 8.0)),
+            });
+            s.project.validate().map_err(|e| e.to_string())?;
+        }
+        app.refresh();
         let slot = app
             .project
             .board

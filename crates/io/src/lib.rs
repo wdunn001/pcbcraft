@@ -167,7 +167,7 @@ pub fn save_bytes(project: &Project) -> Result<Vec<u8>, String> {
 pub enum OpenKind {
     Project(Box<Project>),
     Library(pcbcraft_doc::ProjectLibrary),
-    Footprint(pcbcraft_library::FootprintDefinition),
+    Footprint(Box<pcbcraft_library::FootprintDefinition>),
     Symbols(Vec<pcbcraft_library::SymbolDefinition>),
 }
 
@@ -192,7 +192,7 @@ pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, Stri
             let text = std::str::from_utf8(bytes).map_err(|_| "footprint file must be UTF-8")?;
             let footprint = pcbcraft_library::read_footprint(text).map_err(|e| e.to_string())?;
             footprint.validate().map_err(|e| e.to_string())?;
-            return Ok(OpenKind::Footprint(footprint));
+            return Ok(OpenKind::Footprint(Box::new(footprint)));
         }
         "kicad_sym" => {
             let text = std::str::from_utf8(bytes).map_err(|_| "symbol file must be UTF-8")?;
