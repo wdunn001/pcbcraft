@@ -2169,6 +2169,7 @@ mod tests {
             cutouts: vec![cut],
             filled: true,
             kind: None,
+            pour: None,
         });
         p.board.zones.push(CopperZone {
             id: 3,
@@ -2178,6 +2179,7 @@ mod tests {
             cutouts: vec![],
             filled: false,
             kind: None,
+            pour: None,
         });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;

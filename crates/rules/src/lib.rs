@@ -7,7 +7,7 @@ use pcbcraft_doc::{
     PanelSeparation, Project, Via, panel_layout, panel_score_lines,
 };
 pub use companion::{companion_findings, companion_findings_for_rules};
-use pcbcraft_geom::{Point, point_segment, segment_distance};
+use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -54,6 +54,27 @@ struct Hole {
     radius: f64,
 }
 
+/// Filled copper of one zone as (outer ring, holes, anchor). A zone whose fill
+/// refuses, because the board is beyond the pour bounds, is reported inside
+/// `drc` and checked by its bare outline here.
+/// One poured piece: outer ring, hole rings, anchor point.
+type ZonePiece = (Vec<Point>, Vec<Vec<Point>>, Point);
+fn zone_pieces(
+    project: &Project,
+    zone: &pcbcraft_doc::CopperZone,
+) -> Result<Vec<ZonePiece>, String> {
+    let fill = pcbcraft_doc::zone_fill(project, zone)?;
+    Ok(fill
+        .pieces
+        .iter()
+        .filter_map(|piece| {
+            let mut rings = piece.iter();
+            let outer = rings.next()?.clone();
+            let anchor = outer.first().copied().unwrap_or_default();
+            Some((outer, rings.cloned().collect(), anchor))
+        })
+        .collect())
+}
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
@@ -281,29 +302,130 @@ fn copper(project: &Project) -> Vec<Copper> {
         if !z.filled {
             continue;
         }
-        let Some(&first) = z.outline.first() else {
-            continue;
+        // Real poured copper: the fill already knocked clearance holes around
+        // foreign copper, so what the checks see is what a fab plots.
+        let pieces = match zone_pieces(project, z) {
+            Ok(pieces) => pieces,
+            Err(_) => {
+                let Some(&first) = z.outline.first() else {
+                    continue;
+                };
+                vec![(z.outline.clone(), z.cutouts.clone(), first)]
+            }
         };
-        result.push(Copper {
-            id: z.id,
-            net: z.net,
-            start: first,
-            end: first,
-            radius: 0.0,
-            contact_radius: 0.0,
-            conservative: false,
-            outline: Some(z.outline.clone()),
-            outline_error: 0.0,
-            layer: z.layer,
-            pad: false,
-            clearance: None,
-            bridge: None,
-            hole: None,
-            cutouts: z.cutouts.clone(),
-        });
+        for (outline, cutouts, first) in pieces {
+            result.push(Copper {
+                id: z.id,
+                net: z.net,
+                start: first,
+                end: first,
+                radius: 0.0,
+                contact_radius: 0.0,
+                conservative: false,
+                outline: Some(outline),
+                outline_error: 0.0,
+                layer: z.layer,
+                pad: false,
+                clearance: None,
+                bridge: None,
+                hole: None,
+                cutouts,
+            });
+        }
     }
     result
 }
+
+const LASER_OBJECT_CAP: usize = 4096;
+
+/// One closed copper outline on a layer, grouped by net for laser export.
+#[derive(Clone, Debug, Serialize)]
+pub struct LaserCopperOutline {
+    pub net: Id,
+    pub ring: Vec<Point>,
+}
+
+fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point> {
+    if start.distance(end) < 1e-9 {
+        return hull::octagon(&[start], half_width);
+    }
+    hull::octagon(&[start, end], half_width)
+}
+
+fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
+    if ring.len() >= 2
+        && let (Some(first), Some(last)) = (ring.first(), ring.last())
+        && first.distance(*last) < 1e-9
+    {
+        ring.pop();
+    }
+    ring
+}
+
+fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
+    if let Some(outline) = &item.outline {
+        return Some(open_ring(outline.clone()));
+    }
+    if item.start.distance(item.end) < 1e-9 {
+        return Some(hull::octagon(&[item.start], item.radius));
+    }
+    Some(track_capsule_outline(item.start, item.end, item.radius))
+}
+
+/// Copper outlines on one layer, grouped by net, using the same geometry as DRC.
+pub fn laser_copper_outlines(
+    project: &Project,
+    layer: Layer,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    let mut out = Vec::new();
+    for item in copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer && c.net != 0)
+    {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser copper outline limit reached (4096)".into());
+        }
+        let ring = copper_item_ring(&item)
+            .ok_or_else(|| "copper outline could not be built".to_string())?;
+        if !polygon_is_simple(&ring) {
+            return Err("a copper outline is not a simple closed ring".into());
+        }
+        out.push(LaserCopperOutline {
+            net: item.net,
+            ring,
+        });
+    }
+    Ok(out)
+}
+
+/// Isolation rings offset outward from each net's copper on one layer.
+pub fn isolation_cut_polygons(
+    project: &Project,
+    layer: Layer,
+    isolation_width_mm: f64,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    if !isolation_width_mm.is_finite() || isolation_width_mm <= 0.0 {
+        return Err("isolation width must be a positive millimetre value".into());
+    }
+    let outlines = laser_copper_outlines(project, layer)?;
+    let mut by_net: BTreeMap<Id, Vec<Point>> = BTreeMap::new();
+    for item in outlines {
+        by_net.entry(item.net).or_default().extend(item.ring);
+    }
+    let mut out = Vec::new();
+    for (net, points) in by_net {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser isolation outline limit reached (4096)".into());
+        }
+        let ring = hull::octagon(&points, isolation_width_mm);
+        if ring.len() < 3 || !polygon_is_simple(&ring) {
+            return Err("an isolation ring is not a simple closed polygon".into());
+        }
+        out.push(LaserCopperOutline { net, ring });
+    }
+    Ok(out)
+}
+
 /// Copper a new track must keep clear of, seen exactly as the checks see it.
 #[derive(Clone, Debug)]
 pub struct Obstacle {
@@ -1266,6 +1388,87 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    for zone in &board.zones {
+        if !zone.filled {
+            continue;
+        }
+        let fill = match pcbcraft_doc::zone_fill(project, zone) {
+            Ok(fill) => fill,
+            Err(message) => {
+                result.push(Finding {
+                    code: "pour_fill",
+                    severity: project.rule_severity("pour_fill", "error"),
+                    message,
+                    objects: vec![zone.id],
+                });
+                continue;
+            }
+        };
+        if !fill.starved.is_empty() {
+            let mut objects = vec![zone.id];
+            objects.extend(fill.starved.iter().copied());
+            result.push(Finding {
+                code: "thermal_starved",
+                severity: project.rule_severity("thermal_starved", "warning"),
+                message: format!(
+                    "{}: {} copper inside zone {} has fewer than two thermal spokes, so it is barely joined to the pour",
+                    project.net_name(zone.net),
+                    fill.starved.len(),
+                    zone.id
+                ),
+                objects,
+            });
+        }
+        if fill.unconnected {
+            result.push(Finding {
+                code: "zone_unconnected",
+                severity: project.rule_severity("zone_unconnected", "info"),
+                message: format!(
+                    "{}: zone {} touches no copper of its net and is kept whole as a shield",
+                    project.net_name(zone.net),
+                    zone.id
+                ),
+                objects: vec![zone.id],
+            });
+        } else if fill.islands > 0 {
+            result.push(Finding {
+                code: "zone_island",
+                severity: project.rule_severity("zone_island", "warning"),
+                message: format!(
+                    "{}: zone {} has {} detached piece(s), {} removed by the pour settings",
+                    project.net_name(zone.net),
+                    zone.id,
+                    fill.islands,
+                    fill.removed
+                ),
+                objects: vec![zone.id],
+            });
+        }
+    }
+    match pcbcraft_doc::keepout_hits(project) {
+        Ok(hits) => {
+            for hit in hits {
+                result.push(Finding {
+                    code: "keepout",
+                    severity: project.rule_severity("keepout", "error"),
+                    message: format!(
+                        "{} {} {} enters keepout area {}",
+                        project.net_name(hit.net),
+                        hit.kind.label(),
+                        hit.object,
+                        hit.area
+                    ),
+                    objects: vec![hit.object, hit.area],
+                });
+            }
+        }
+        Err(message) => result.push(Finding {
+            code: "pour_fill",
+            severity: project.rule_severity("pour_fill", "error"),
+            message,
+            objects: vec![],
+        }),
+    }
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -1677,6 +1880,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         p.board.tracks.push(Track {
             id: 5,
@@ -2973,5 +3178,311 @@ mod tests {
             codes(&p).contains(&"cut_hits_via"),
             "a region elsewhere leaves the finding alone"
         );
+    }
+}
+
+#[cfg(test)]
+mod pour_tests {
+    use super::*;
+    use pcbcraft_doc::{
+        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
+        ZonePour, component_template,
+    };
+    use pcbcraft_library::{Drill, FootprintPad};
+
+    fn square(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Point> {
+        vec![
+            Point::new(x0, y0),
+            Point::new(x1, y0),
+            Point::new(x1, y1),
+            Point::new(x0, y1),
+            Point::new(x0, y0),
+        ]
+    }
+    /// A ground pour over a 40 by 40 mm board with one other net.
+    fn board() -> Project {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        for (id, name) in [(1, "GND"), (2, "SIG")] {
+            p.nets.push(Net {
+                id,
+                name: name.into(),
+                ..Default::default()
+            });
+        }
+        p.board.zones.push(CopperZone {
+            id: 10,
+            net: 1,
+            layer: Layer::Front,
+            outline: square(5.0, 5.0, 35.0, 35.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p
+    }
+    /// A plated through-hole pad on ground at the given spot.
+    fn plated_pad(p: &mut Project, at: Point) {
+        let g = FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(mut c) = component_template("resistor", 4, "R4".into(), at) {
+            c.pins.truncate(1);
+            for pin in &mut c.pins {
+                pin.net = Some(1);
+            }
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "PTH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![g.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+            p.components.push(c);
+        }
+        p.board.footprints.push(Footprint {
+            id: 20,
+            component: 4,
+            position: at,
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+        });
+    }
+    fn track(id: Id, net: Id, layer: Layer, a: (f64, f64), b: (f64, f64), width: f64) -> Track {
+        Track {
+            id,
+            net,
+            start: Point::new(a.0, a.1),
+            end: Point::new(b.0, b.1),
+            width,
+            layer,
+            arc: None,
+        }
+    }
+    fn codes(p: &Project) -> Vec<&'static str> {
+        drc(p).iter().map(|f| f.code).collect()
+    }
+    fn fill(p: &Project) -> Result<pcbcraft_doc::ZoneFill, String> {
+        let zone = p.board.zones.first().ok_or("no zone")?;
+        pcbcraft_doc::zone_fill(p, zone)
+    }
+
+    #[test]
+    fn foreign_via_inside_a_filled_zone_is_no_longer_a_short() -> Result<(), String> {
+        let mut p = board();
+        p.board.vias.push(Via {
+            id: 30,
+            net: 2,
+            position: Point::new(20.0, 20.0),
+            diameter: 0.8,
+            drill: 0.4,
+            covering: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            !findings.iter().any(|f| f.code == "copper_short"
+                && f.objects.contains(&10)
+                && f.objects.contains(&30)),
+            "the pour leaves a clearance hole round the foreign via"
+        );
+        assert!(!fill(&p)?.contains(Point::new(20.2, 20.0)));
+        assert!(fill(&p)?.contains(Point::new(25.0, 25.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn tht_pad_in_zone_gets_four_spokes() -> Result<(), String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(20.0, 20.0));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert_eq!(f.spokes, 4);
+        assert!(f.starved.is_empty());
+        assert!(!f.unconnected);
+        // The gap ring is empty copper between two spokes, the pad edge is joined.
+        assert!(!f.contains(Point::new(20.0 + 0.8 + 0.15, 20.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn blocked_spokes_report_thermal_starved() -> Result<(), String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(20.0, 20.0));
+        // Two cutouts take away the right half and the upper half beside the pad,
+        // leaving a single spoke that reaches copper.
+        p.board.zones[0].cutouts.push(square(20.3, 5.0, 35.0, 35.0));
+        p.board.zones[0].cutouts.push(square(5.0, 20.3, 20.3, 35.0));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert!(f.spokes < 2, "got {} spokes", f.spokes);
+        assert_eq!(f.starved, vec![20]);
+        assert!(codes(&p).contains(&"thermal_starved"));
+        Ok(())
+    }
+
+    /// A foreign wall that splits the pour into a pad half and a lonely half.
+    fn walled() -> Result<Project, String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(12.0, 20.0));
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Front, (25.0, 4.0), (25.0, 36.0), 1.0));
+        p.validate()?;
+        Ok(p)
+    }
+
+    #[test]
+    fn detached_fill_region_is_reported_as_an_island() -> Result<(), String> {
+        let mut p = walled()?;
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::Keep,
+            ..ZonePour::default()
+        });
+        assert_eq!(fill(&p)?.islands, 1);
+        assert!(codes(&p).contains(&"zone_island"));
+        Ok(())
+    }
+
+    #[test]
+    fn remove_islands_drops_it_from_the_fill() -> Result<(), String> {
+        let mut p = walled()?;
+        let lonely = Point::new(30.0, 20.0);
+        let f = fill(&p)?;
+        assert_eq!(f.removed, 1);
+        assert!(!f.contains(lonely), "the default drops detached copper");
+        assert!(f.contains(Point::new(18.0, 20.0)));
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::Keep,
+            ..ZonePour::default()
+        });
+        assert!(fill(&p)?.contains(lonely), "keep leaves it in");
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::RemoveBelow(10.0),
+            ..ZonePour::default()
+        });
+        assert!(
+            fill(&p)?.contains(lonely),
+            "a piece larger than the limit stays"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn zone_touching_nothing_is_kept_whole_and_reported_once() -> Result<(), String> {
+        let p = board();
+        let f = fill(&p)?;
+        assert!(f.unconnected);
+        assert!(f.contains(Point::new(20.0, 20.0)));
+        let list = codes(&p);
+        assert!(list.contains(&"zone_unconnected"));
+        assert!(!list.contains(&"zone_island"));
+        Ok(())
+    }
+
+    fn keepout(layer: Option<Layer>) -> RuleArea {
+        RuleArea {
+            id: 40,
+            name: None,
+            net: None,
+            layer,
+            clearance: 0.2,
+            keepout: Some(Keepout::default()),
+            max_height: None,
+            region: RuleRegion {
+                x: 15.0,
+                y: 18.0,
+                width: 10.0,
+                height: 4.0,
+            },
+            profile: None,
+        }
+    }
+
+    #[test]
+    fn track_crossing_a_keepout_with_both_ends_outside_is_a_finding() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Front, (5.0, 20.0), (35.0, 20.0), 0.25));
+        p.board.rule_areas.push(keepout(None));
+        p.validate()?;
+        assert!(codes(&p).contains(&"keepout"));
+        p.board.tracks[0] = track(31, 2, Layer::Front, (5.0, 30.0), (35.0, 30.0), 0.25);
+        assert!(
+            !codes(&p).contains(&"keepout"),
+            "a track clear of it is fine"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn keepout_layer_filter_lets_the_other_layer_through() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Back, (5.0, 20.0), (35.0, 20.0), 0.25));
+        p.board.rule_areas.push(keepout(Some(Layer::Front)));
+        p.validate()?;
+        assert!(!codes(&p).contains(&"keepout"));
+        p.board.rule_areas[0].layer = Some(Layer::Back);
+        assert!(codes(&p).contains(&"keepout"));
+        Ok(())
+    }
+
+    #[test]
+    fn pour_leaves_a_keepout_empty() -> Result<(), String> {
+        let mut p = board();
+        p.board.rule_areas.push(keepout(None));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert!(!f.contains(Point::new(20.0, 20.0)));
+        assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
     }
 }
