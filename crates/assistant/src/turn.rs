@@ -29,12 +29,6 @@ pub struct Turn {
 
 impl Turn {
     pub fn new(started_revision: u64, history_len_at_start: usize, message: String) -> Self {
-        Self {
-            started_revision,
-            history_len_at_start,
-            changes: 0,
-            requests: 0,
-            message,
-        }
+        Self { started_revision, history_len_at_start, changes: 0, requests: 0, message }
     }
 }

@@ -10,15 +10,9 @@ pub const MAX_PROMPT: usize = 100_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
-    User {
-        text: String,
-    },
-    Assistant {
-        text: String,
-    },
-    Thought {
-        text: String,
-    },
+    User { text: String },
+    Assistant { text: String },
+    Thought { text: String },
     ToolCall {
         id: String,
         title: String,
@@ -37,17 +31,9 @@ pub enum Item {
         title: String,
         answer: Option<bool>,
     },
-    Queued {
-        text: String,
-    },
-    Note {
-        text: String,
-        error: bool,
-    },
-    UndoStep {
-        changes: u32,
-        undone: bool,
-    },
+    Queued { text: String },
+    Note { text: String, error: bool },
+    UndoStep { changes: u32, undone: bool },
 }
 
 #[derive(Default)]
@@ -68,9 +54,7 @@ impl Transcript {
         self.items
             .iter()
             .filter_map(|i| match i {
-                Item::User { text } | Item::Assistant { text } | Item::Queued { text } => {
-                    Some(text.clone())
-                }
+                Item::User { text } | Item::Assistant { text } | Item::Queued { text } => Some(text.clone()),
                 _ => None,
             })
             .collect()
@@ -85,10 +69,7 @@ impl Transcript {
 
     /// Answer the agent's permission question at `index` (`None`: cancelled).
     pub fn answer(&mut self, index: usize, option: Option<&str>) {
-        let Some(Item::Permission {
-            options, answer, ..
-        }) = self.items.get_mut(index)
-        else {
+        let Some(Item::Permission { options, answer, .. }) = self.items.get_mut(index) else {
             return;
         };
         if answer.is_some() {
@@ -116,25 +97,13 @@ impl Transcript {
                     self.push(Item::Assistant { text });
                 }
             }
-            Event::Tool {
-                id,
-                title,
-                status,
-                output,
-                ..
-            } => {
+            Event::Tool { id, title, status, output, .. } => {
                 let existing = self
                     .items
                     .iter_mut()
                     .rev()
                     .find(|i| matches!(i, Item::ToolCall { id: x, .. } if *x == id));
-                if let Some(Item::ToolCall {
-                    title: t,
-                    status: s,
-                    content: c,
-                    ..
-                }) = existing
-                {
+                if let Some(Item::ToolCall { title: t, status: s, content: c, .. }) = existing {
                     if let Some(v) = title {
                         *t = v;
                     }
@@ -154,34 +123,16 @@ impl Transcript {
                 }
             }
             Event::Plan(entries) => {
-                let turn = self
-                    .items
-                    .iter()
-                    .rposition(|i| matches!(i, Item::User { .. }))
-                    .unwrap_or(0);
-                if let Some(Item::Plan(p)) = self
-                    .items
-                    .iter_mut()
-                    .skip(turn)
-                    .rev()
-                    .find(|i| matches!(i, Item::Plan(_)))
+                let turn = self.items.iter().rposition(|i| matches!(i, Item::User { .. })).unwrap_or(0);
+                if let Some(Item::Plan(p)) = self.items.iter_mut().skip(turn).rev().find(|i| matches!(i, Item::Plan(_)))
                 {
                     *p = entries;
                 } else {
                     self.push(Item::Plan(entries));
                 }
             }
-            Event::Permission {
-                key,
-                title,
-                options,
-            } => {
-                self.push(Item::Permission {
-                    key,
-                    title,
-                    options,
-                    answer: None,
-                });
+            Event::Permission { key, title, options } => {
+                self.push(Item::Permission { key, title, options, answer: None });
             }
             Event::Error(text) => self.push(Item::Note { text, error: true }),
             _ => {}
@@ -202,14 +153,8 @@ mod tests {
     fn streamed_text_joins_and_tool_updates_change_their_call() {
         let mut c = chat();
         for e in [
-            Event::Text {
-                thought: false,
-                text: "Mak".into(),
-            },
-            Event::Text {
-                thought: false,
-                text: "ing a box".into(),
-            },
+            Event::Text { thought: false, text: "Mak".into() },
+            Event::Text { thought: false, text: "ing a box".into() },
             Event::Tool {
                 id: "t".into(),
                 title: Some("batch".into()),
@@ -239,16 +184,9 @@ mod tests {
         let mut c = chat();
         c.push(Item::User { text: "go".into() });
         c.on_event(Event::Plan(vec![("a".into(), "pending".into())]));
-        c.on_event(Event::Text {
-            thought: false,
-            text: "working".into(),
-        });
+        c.on_event(Event::Text { thought: false, text: "working".into() });
         c.on_event(Event::Plan(vec![("a".into(), "completed".into())]));
-        let plans: Vec<_> = c
-            .items
-            .iter()
-            .filter(|i| matches!(i, Item::Plan(_)))
-            .collect();
+        let plans: Vec<_> = c.items.iter().filter(|i| matches!(i, Item::Plan(_))).collect();
         assert_eq!(plans.len(), 1);
         assert!(matches!(plans[0], Item::Plan(p) if p[0].1 == "completed"));
     }
@@ -256,17 +194,8 @@ mod tests {
     #[test]
     fn a_permission_is_answered_once() {
         let mut c = chat();
-        let opts = vec![PermissionOption {
-            id: "allow".into(),
-            name: "Allow".into(),
-            kind: "allow_once".into(),
-        }];
-        c.push(Item::Permission {
-            key: 5,
-            title: "batch".into(),
-            options: opts,
-            answer: None,
-        });
+        let opts = vec![PermissionOption { id: "allow".into(), name: "Allow".into(), kind: "allow_once".into() }];
+        c.push(Item::Permission { key: 5, title: "batch".into(), options: opts, answer: None });
         assert_eq!(c.waiting(), 1);
         c.answer(0, Some("allow"));
         c.answer(0, None);
@@ -278,21 +207,11 @@ mod tests {
     fn the_transcript_drops_its_oldest_item_past_the_cap() {
         let mut c = chat();
         for i in 0..MAX_ITEMS {
-            c.push(Item::Note {
-                text: format!("n{i}"),
-                error: false,
-            });
+            c.push(Item::Note { text: format!("n{i}"), error: false });
         }
         assert_eq!(c.items.len(), MAX_ITEMS);
-        c.push(Item::Note {
-            text: "extra".into(),
-            error: false,
-        });
+        c.push(Item::Note { text: "extra".into(), error: false });
         assert_eq!(c.items.len(), MAX_ITEMS - MAX_ITEMS / 10 + 1);
-        assert!(
-            !c.items
-                .iter()
-                .any(|i| matches!(i, Item::Note { text, .. } if text == "n0"))
-        );
+        assert!(!c.items.iter().any(|i| matches!(i, Item::Note { text, .. } if text == "n0")));
     }
 }
