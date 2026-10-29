@@ -2075,6 +2075,7 @@ impl Default for Project {
             net_classes: vec![],
             class_pairs: vec![],
             sheets: vec![],
+            sheet_instances: vec![],
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],

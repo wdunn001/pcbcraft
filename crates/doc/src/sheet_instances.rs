@@ -166,19 +166,17 @@ pub fn expand_instance(
         if project.components.iter().any(|c| c.reference == reference) {
             return Err(format!("reference {reference} is already in use"));
         }
-        let mut pins: Vec<Pin> = old
-            .pins
-            .iter()
-            .map(|p| {
-                let mut pin = p.clone();
-                if let Some(net) = pin.net {
-                    pin.net = Some(*net_map.get(&net).ok_or_else(|| {
-                        "template pin net could not be remapped".to_string()
-                    })?);
-                }
-                pin
-            })
-            .collect();
+        let mut pins: Vec<Pin> = Vec::with_capacity(old.pins.len());
+        for p in &old.pins {
+            let mut pin = p.clone();
+            if let Some(net) = pin.net {
+                let mapped = *net_map.get(&net).ok_or_else(|| {
+                    "template pin net could not be remapped".to_string()
+                })?;
+                pin.net = Some(mapped);
+            }
+            pins.push(pin);
+        }
         let position = Point::new(
             old.position.x + inst.entry.x,
             old.position.y + inst.entry.y,
