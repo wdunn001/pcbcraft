@@ -1394,13 +1394,18 @@ impl App {
         };
         self
     }
-    /// Start with a drawing target (`silk`, `edge` or `copper`) so a
+    /// Start with a drawing target (`silk`, `edge` or `copper`), or `flipped` to
+    /// look from the bottom, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
         let target = match name.as_deref() {
             Some("silk") => Target::Silk(Side::Top),
             Some("edge") => Target::Edge,
+            Some("flipped") => {
+                self.set_view_side(true);
+                return self;
+            }
             _ => return self,
         };
         self.set_target(target);

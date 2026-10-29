@@ -149,14 +149,14 @@ fn a_newcomer_flips_the_board_and_sees_the_bottom_parts_on_top() -> Result<(), S
     );
     assert_eq!(
         app.stack.copper_alpha(Layer::Front),
-        crate::stack_view::FAR_ALPHA,
-        "the top copper is now behind the facing side and fades"
-    );
-    assert_eq!(
-        app.stack.copper_alpha(bottom),
         1.0,
-        "the bottom copper is at full strength"
+        "in normal editing nothing is dimmed, even flipped"
     );
+    assert_eq!(app.stack.copper_alpha(bottom), 1.0);
+    // Stepping to a layer pins it: now the top copper is behind the bottom one.
+    key(&ctx, &mut app, egui::Key::PageDown);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(app.pinned_view.is_some(), "stepping pins the view");
     Ok(())
 }
 

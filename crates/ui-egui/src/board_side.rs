@@ -237,16 +237,16 @@ impl App {
         };
     }
 
-    /// The target the see-through view is built around right now.
+    /// The target the see-through view is built around right now, if any.
+    ///
+    /// Why: in normal editing every layer is drawn at full strength; the depth
+    /// view exists only while a layer is hovered or pinned.
     ///
     /// # Rules
-    /// - Order: the row under the pointer, the pinned layer, the active target.
-    pub(crate) fn focus_target(&mut self) -> crate::draw_target::Target {
-        self.tree
-            .hover_target
-            .take()
-            .or(self.pinned_view)
-            .unwrap_or_else(|| self.current_target())
+    /// - Order: the row under the pointer, then the pinned layer, else none.
+    /// - Page Up and Page Down pin (see `step_layer`).
+    pub(crate) fn focus_target(&mut self) -> Option<crate::draw_target::Target> {
+        self.tree.hover_target.take().or(self.pinned_view)
     }
 
     /// Step the active layer one physical level toward or away from the viewer.
@@ -265,9 +265,8 @@ impl App {
             return;
         };
         self.set_target(next);
-        if self.pinned_view.is_some() {
-            self.pinned_view = Some(next);
-        }
+        // Stepping counts as pinning: the layer comes forward and stays.
+        self.pinned_view = Some(next);
         self.message = t!("view.stepped", name = self.target_label());
     }
 
@@ -280,11 +279,11 @@ impl App {
     pub(crate) fn stack_view(
         &mut self,
         ctx: &egui::Context,
-        focus: crate::draw_target::Target,
+        focus: Option<crate::draw_target::Target>,
     ) -> crate::stack_view::StackView {
         let copper = self.project.copper_layer_count();
         let flipped = self.pcb.mirror;
-        let goals = crate::stack_view::StackView::targets(copper, flipped, Some(focus));
+        let goals = crate::stack_view::StackView::targets(copper, flipped, focus);
         let time = if self.preferences.reduced_motion {
             0.0
         } else {

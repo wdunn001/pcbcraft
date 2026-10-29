@@ -2424,7 +2424,7 @@ impl App {
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
-                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3 * far)
+                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.07 * far)
             };
             if z.filled || self.selected == Some(z.id) {
                 painter.add(egui::Shape::convex_polygon(
