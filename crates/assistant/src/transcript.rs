@@ -35,6 +35,8 @@ pub enum Item {
     Approval {
         id: u64,
         title: String,
+        /// What the change would do, in plain words (empty when unknown).
+        detail: String,
         answer: Option<bool>,
     },
     Queued {
