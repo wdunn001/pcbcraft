@@ -1,7 +1,7 @@
 //! Stories for the left rail, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to};
+use super::support::{footer_error_label, frame, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -86,16 +86,16 @@ fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String
     let mut app = fresh();
     let ctx = egui::Context::default();
     settled(&ctx, &mut app);
-    authoring::tests::tap(&ctx, &mut app, "Library")?;
     assert!(
         app.preferences.library_dock_open,
         "the library dock starts open"
     );
+    crate::authoring::tests::tap(&ctx, &mut app, "Library")?;
     assert!(
         !app.preferences.library_dock_open,
         "the tab-bar toggle hides the dock"
     );
-    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    crate::authoring::tests::tap(&ctx, &mut app, "Library")?;
     assert!(
         app.preferences.library_dock_open,
         "the tab-bar toggle shows it again"
@@ -113,8 +113,8 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
     let ctx = egui::Context::default();
     settled(&ctx, &mut app);
     let (fix, _warnings, _notes) = App::finding_counts(&app.checks);
-    let errors_label = app.catalog.plural("board.footer.errors", fix as u64);
-    authoring::tests::tap(&ctx, &mut app, &errors_label)?;
+    let errors_label = footer_error_label(&app, fix);
+    crate::authoring::tests::tap(&ctx, &mut app, &errors_label)?;
     assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
     Ok(())
 }
