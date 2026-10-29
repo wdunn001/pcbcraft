@@ -1,5 +1,11 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod panel;
+mod sheet_instances;
+pub use sheet_instances::{
+    allocate_id, collapse_instance, expand_instance, reference_with_offset,
+    validate_sheet_instances, SheetInstance, MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET,
+    MAX_SHEET_INSTANCES,
+};
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
@@ -78,6 +84,10 @@ pub struct Component {
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prototype: Option<Id>,
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -89,6 +99,12 @@ fn is_root_sheet(id: &Id) -> bool {
 pub struct Sheet {
     pub id: Id,
     pub name: String,
+    /// Parent page in the hierarchy, when this page is shown as a child box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<Id>,
+    /// Where the child page box sits on the parent page, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<Point>,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -188,6 +204,9 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// When set, this net belongs to one materialized sheet instance copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<Id>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -1893,6 +1912,8 @@ pub struct Project {
     /// Named hierarchy ports, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<Port>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sheet_instances: Vec<SheetInstance>,
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
@@ -2455,6 +2476,133 @@ impl Project {
             None
         }
     }
+    /// Schematic pages that carry a net through a component pin or a hierarchy port.
+    pub fn net_pages(&self, net: Id) -> Vec<Id> {
+        if !self.nets.iter().any(|n| n.id == net) {
+            return vec![];
+        }
+        let mut pages = BTreeSet::new();
+        for component in &self.components {
+            if component
+                .pins
+                .iter()
+                .any(|pin| pin.net.is_some_and(|n| n == net))
+            {
+                pages.insert(component.sheet);
+            }
+        }
+        for port in &self.ports {
+            if port.net == net {
+                pages.insert(port.sheet);
+            }
+        }
+        pages.into_iter().collect()
+    }
+    pub(crate) fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
+        let from = self.component(wire.from.component)?.sheet;
+        let to = self.component(wire.to.component)?.sheet;
+        if from == to { Some(from) } else { None }
+    }
+    pub fn schematic_label_page(&self, label: &Label) -> Id {
+        if label.kind == "junction" {
+            for wire in &self.wires {
+                if wire.net != label.net {
+                    continue;
+                }
+                if let Some(path) = self.wire_path(wire) {
+                    if path
+                        .iter()
+                        .any(|point| point.distance(label.position) < 0.05)
+                    {
+                        if let Some(page) = self.schematic_wire_page(wire) {
+                            return page;
+                        }
+                    }
+                }
+            }
+        }
+        let mut best = (f64::INFINITY, 0);
+        for component in &self.components {
+            for pin in &component.pins {
+                if pin.net.is_some_and(|n| n == label.net) {
+                    if let Some(position) = component.pin_position(&pin.number) {
+                        let reach = position.distance(label.position);
+                        if reach < best.0 {
+                            best = (reach, component.sheet);
+                        }
+                    }
+                }
+            }
+        }
+        for port in &self.ports {
+            if port.net == label.net {
+                let reach = port.position.distance(label.position);
+                if reach < best.0 {
+                    best = (reach, port.sheet);
+                }
+            }
+        }
+        best.1
+    }
+    pub fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+        let Some(net) = wire.net else {
+            return 0;
+        };
+        let mut best = (f64::INFINITY, 0);
+        for anchor in [wire.points.first(), wire.points.last()]
+            .into_iter()
+            .flatten()
+        {
+            for component in &self.components {
+                for pin in &component.pins {
+                    if pin.net.is_some_and(|n| n == net) {
+                        if let Some(position) = component.pin_position(&pin.number) {
+                            let reach = position.distance(*anchor);
+                            if reach < best.0 {
+                                best = (reach, component.sheet);
+                            }
+                        }
+                    }
+                }
+            }
+            for port in &self.ports {
+                if port.net == net {
+                    let reach = port.position.distance(*anchor);
+                    if reach < best.0 {
+                        best = (reach, port.sheet);
+                    }
+                }
+            }
+        }
+        best.1
+    }
+    /// True when a schematic object should appear on the given page.
+    pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
+        if let Some(component) = self.components.iter().find(|c| c.id == object) {
+            return component.sheet == page;
+        }
+        if let Some(port) = self.ports.iter().find(|p| p.id == object) {
+            return port.sheet == page;
+        }
+        if let Some(wire) = self.wires.iter().find(|w| w.id == object) {
+            return self.schematic_wire_page(wire) == Some(page);
+        }
+        if let Some(wire) = self.drawn_wires.iter().find(|w| w.id == object) {
+            return self.schematic_drawn_wire_page(wire) == page;
+        }
+        if let Some(label) = self.labels.iter().find(|l| l.id == object) {
+            return self.schematic_label_page(label) == page;
+        }
+        if let Some(flag) = self.no_connects.iter().find(|f| f.id == object) {
+            return self
+                .component(flag.pin.component)
+                .is_some_and(|c| c.sheet == page);
+        }
+        if let Some(graphic) = self.graphics.iter().find(|g| g.id == object) {
+            return graphic.layer == "schematic" && page == 0;
+        }
+        false
+    }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
         self.net_classes.iter().find(|c| c.nets.contains(&net))
@@ -2616,6 +2764,7 @@ impl Project {
             .iter()
             .map(|x| x.id)
             .chain(self.sheets.iter().map(|x| x.id))
+            .chain(self.sheet_instances.iter().map(|x| x.id))
             .chain(self.ports.iter().map(|x| x.id))
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.net_classes.iter().map(|x| x.id))
@@ -2639,6 +2788,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        validate_sheet_instances(self)?;
         self.validate_parameters()?;
         if self
             .components
@@ -2741,6 +2891,40 @@ impl Project {
             }
             if !sheet_names.insert(&s.name) {
                 return Err("duplicate sheet name".into());
+            }
+            if let Some(parent) = s.parent {
+                if parent == s.id {
+                    return Err("a sheet cannot be its own parent".into());
+                }
+                if parent != 0 && !self.sheets.iter().any(|other| other.id == parent) {
+                    return Err("sheet parent does not exist".into());
+                }
+                let mut depth = 0usize;
+                let mut walk = parent;
+                for _ in 0..=8 {
+                    if walk == 0 {
+                        break;
+                    }
+                    depth += 1;
+                    if depth > 8 {
+                        return Err("sheet hierarchy is too deep".into());
+                    }
+                    let Some(node) = self.sheets.iter().find(|other| other.id == walk) else {
+                        return Err("sheet parent does not exist".into());
+                    };
+                    if node.id == s.id {
+                        return Err("sheet hierarchy would cycle".into());
+                    }
+                    walk = node.parent.unwrap_or(0);
+                }
+            }
+            if s.entry.is_some() && s.parent.is_none() {
+                return Err("sheet entry needs a parent page".into());
+            }
+            if let Some(entry) = s.entry {
+                if !entry.valid() {
+                    return Err("sheet entry position is out of range".into());
+                }
             }
         }
         if self.ids().count() > MAX_ITEMS {

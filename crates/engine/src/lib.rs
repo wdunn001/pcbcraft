@@ -657,6 +657,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "schematic.set_sheet_parent",
+            "Record which page a schematic page sits under and where its box belongs on that parent; clearing the parent clears the entry too",
+            schema(
+                json!({"id":id_schema(),"parent":{"type":["integer","null"],"minimum":0},"entry":point_schema()}),
+                &["id"],
+            ),
+        ),
+        (
+            "schematic.net_pages",
+            "List the schematic pages that carry a net through a component pin or a hierarchy port",
+            schema(json!({"net":id_schema()}), &["net"]),
+        ),
+        (
             "schematic.move_component",
             "Move a component to another schematic page, sheet 0 being the root page; its position never changes",
             schema(
@@ -3733,6 +3746,20 @@ struct RemoveSheet {
     id: Id,
     #[serde(default)]
     move_to: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetSheetParent {
+    id: Id,
+    #[serde(default)]
+    parent: Option<Value>,
+    #[serde(default)]
+    entry: Option<Point>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetPagesParams {
+    net: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8275,7 +8302,12 @@ fn run_command(
                 return Err(Error::Invalid("sheet name already in use".into()));
             }
             let id = allocate(next)?;
-            p.sheets.push(Sheet { id, name: a.name });
+            p.sheets.push(Sheet {
+                id,
+                name: a.name,
+                parent: None,
+                entry: None,
+            });
             Ok(json!({"id":id}))
         }
         "schematic.rename_sheet" => {
@@ -8331,6 +8363,87 @@ fn run_command(
             }
             p.sheets.remove(index);
             Ok(json!({"removed":a.id,"moved":moved}))
+        }
+        "schematic.set_sheet_parent" => {
+            let a: SetSheetParent = parse(params)?;
+            if a.id == 0 {
+                return Err(Error::Invalid("the root sheet has no parent record".into()));
+            }
+            let index = p
+                .sheets
+                .iter()
+                .position(|s| s.id == a.id)
+                .ok_or_else(missing)?;
+            let previous_parent = p.sheets[index].parent;
+            let previous_entry = p.sheets[index].entry;
+            if let Some(parent) = &a.parent {
+                if parent.is_null() {
+                    p.sheets[index].parent = None;
+                    p.sheets[index].entry = None;
+                } else {
+                    let parent_id: Id = serde_json::from_value(parent.clone())
+                        .map_err(|_| Error::Invalid("parent must be a page id".into()))?;
+                    if parent_id == a.id {
+                        return Err(Error::Invalid("a sheet cannot be its own parent".into()));
+                    }
+                    if parent_id != 0 && !p.sheets.iter().any(|s| s.id == parent_id) {
+                        return Err(Error::Invalid("the parent page does not exist".into()));
+                    }
+                    let mut walk = parent_id;
+                    for _ in 0..=8 {
+                        if walk == a.id {
+                            return Err(Error::Invalid(
+                                "that parent would cycle the hierarchy".into(),
+                            ));
+                        }
+                        if walk == 0 {
+                            break;
+                        }
+                        let Some(node) = p.sheets.iter().find(|s| s.id == walk) else {
+                            return Err(Error::Invalid("the parent page does not exist".into()));
+                        };
+                        walk = node.parent.unwrap_or(0);
+                    }
+                    if let Some(entry) = a.entry {
+                        if !entry.valid() {
+                            return Err(Error::Invalid(
+                                "sheet entry position is out of range".into(),
+                            ));
+                        }
+                        p.sheets[index].entry = Some(entry);
+                    } else if p.sheets[index].entry.is_none() {
+                        return Err(Error::Invalid(
+                            "pass entry where the child box sits on the parent page".into(),
+                        ));
+                    }
+                    p.sheets[index].parent = Some(parent_id);
+                }
+            } else if let Some(entry) = a.entry {
+                if !entry.valid() {
+                    return Err(Error::Invalid(
+                        "sheet entry position is out of range".into(),
+                    ));
+                }
+                if p.sheets[index].parent.is_none() {
+                    return Err(Error::Invalid("sheet entry needs a parent page".into()));
+                }
+                p.sheets[index].entry = Some(entry);
+            }
+            Ok(json!({
+                "id": a.id,
+                "parent": p.sheets[index].parent,
+                "entry": p.sheets[index].entry,
+                "previous_parent": previous_parent,
+                "previous_entry": previous_entry,
+            }))
+        }
+        "schematic.net_pages" => {
+            let a: NetPagesParams = parse(params)?;
+            if !p.nets.iter().any(|n| n.id == a.net) {
+                return Err(Error::Invalid("unknown net".into()));
+            }
+            let pages = p.net_pages(a.net);
+            Ok(json!({"net": a.net, "pages": pages}))
         }
         "schematic.move_component" => {
             let a: MoveToSheet = parse(params)?;
@@ -8514,6 +8627,8 @@ fn run_command(
             p.sheets.push(Sheet {
                 id: sheet,
                 name: name.clone(),
+                parent: None,
+                entry: None,
             });
             let components = file.components.len();
             let ports = file.ports.len();
@@ -22635,6 +22750,78 @@ mod tests {
         assert_eq!(back.component(2).ok_or_else(missing)?.sheet, sheet);
         s.undo()?;
         assert_eq!(s.project.component(2).ok_or_else(missing)?.sheet, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn sheet_parent_records_refuse_cycles_and_missing_parents() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let child =
+            s.execute("schematic.new_sheet", json!({"name":"Child"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        let other =
+            s.execute("schematic.new_sheet", json!({"name":"Other"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        s.execute(
+            "schematic.set_sheet_parent",
+            json!({"id":child,"parent":0,"entry":{"x":10.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.sheets[0].parent, Some(0));
+        assert!(
+            s.execute(
+                "schematic.set_sheet_parent",
+                json!({"id":child,"parent":child + 500,"entry":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err(),
+            "a missing parent is refused with a plain reason"
+        );
+        s.execute(
+            "schematic.set_sheet_parent",
+            json!({"id":other,"parent":child,"entry":{"x":2.0,"y":3.0}}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "schematic.set_sheet_parent",
+                json!({"id":child,"parent":other,"entry":{"x":4.0,"y":5.0}}),
+                None
+            )
+            .is_err(),
+            "a cycle is refused with a plain reason"
+        );
+        s.undo()?;
+        assert_eq!(s.project.sheets[1].parent, None);
+        s.undo()?;
+        assert_eq!(s.project.sheets[0].parent, None);
+        Ok(())
+    }
+
+    #[test]
+    fn net_pages_lists_every_page_that_carries_the_net() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let page = s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let net = 4;
+        s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?;
+        s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":page,"position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        let report = s.execute("schematic.net_pages", json!({"net":net}), None)?;
+        let pages = report["result"]["pages"].as_array().ok_or_else(missing)?;
+        assert_eq!(pages.len(), 2);
+        assert!(pages.iter().any(|p| p.as_u64() == Some(0)));
+        assert!(pages.iter().any(|p| p.as_u64() == Some(page)));
         Ok(())
     }
 
