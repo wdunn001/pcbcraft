@@ -169,7 +169,7 @@ fn a_newcomer_turns_chamfer_corners_off_for_right_angles() -> Result<(), String>
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Chamfer corners")?,
+        scrolled_to_at(&ctx, &mut app, "Chamfer corners", 700.0)?,
         "the setting is on screen"
     );
     authoring::tests::tap(&ctx, &mut app, "Chamfer corners")?;
