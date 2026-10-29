@@ -917,6 +917,7 @@ pub(crate) mod tests {
             egui::pos2(720.0, 400.0),
             egui::pos2(300.0, 500.0),
             egui::pos2(150.0, 500.0),
+            egui::pos2(1180.0, 400.0),
         ];
         // Later shapes sit on top of earlier ones, so the last visible
         // copy of a label is the one a real click would land on.

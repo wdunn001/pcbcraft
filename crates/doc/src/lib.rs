@@ -314,6 +314,31 @@ impl DiffPair {
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
     }
 }
+/// A length-match group: several nets whose routed lengths must stay within
+/// one tolerance of each other, such as the data lines of a parallel bus.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LengthGroup {
+    pub id: Id,
+    /// Group name, for example "DDR_DATA0".
+    pub name: String,
+    /// Two to 32 distinct nets.
+    pub nets: Vec<Id>,
+    /// Largest allowed difference between the longest and shortest routed
+    /// net, in millimetres.
+    pub tolerance: f64,
+}
+impl LengthGroup {
+    fn valid(&self) -> bool {
+        let distinct: BTreeSet<&Id> = self.nets.iter().collect();
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && (2..=32).contains(&self.nets.len())
+            && distinct.len() == self.nets.len()
+            && !self.nets.contains(&0)
+            && self.tolerance.is_finite()
+            && (0.0..=100.0).contains(&self.tolerance)
+    }
+}
 /// A rectangular board area that demands a stricter minimum copper
 /// separation: copper lying wholly inside the rectangle, on the matching
 /// layer and net when those filters are set, must clear by at least the
@@ -960,6 +985,83 @@ pub struct Via {
     pub diameter: f64,
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
+    /// How this via is protected from the board face, or `None` to follow the
+    /// board default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering: Option<ViaCovering>,
+}
+/// How a via hole is protected, named after the seven types of the via
+/// protection standard (IPC-4761). The types that close the hole under the
+/// solder mask lose their mask opening on fabrication plots.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ViaCovering {
+    /// No protection: the mask opens around the hole.
+    #[default]
+    Open,
+    /// Type I: mask tents the hole.
+    Tented,
+    /// Type II: mask tents and covers the hole.
+    TentedCovered,
+    /// Type III: the hole is plugged.
+    Plugged,
+    /// Type IV: the hole is plugged and covered.
+    PluggedCovered,
+    /// Type V: the hole is filled.
+    Filled,
+    /// Type VI: the hole is filled and covered.
+    FilledCovered,
+    /// Type VII: the hole is filled and capped with copper.
+    FilledCapped,
+}
+impl ViaCovering {
+    /// Every covering, in the order the standard lists them.
+    pub const ALL: [ViaCovering; 8] = [
+        ViaCovering::Open,
+        ViaCovering::Tented,
+        ViaCovering::TentedCovered,
+        ViaCovering::Plugged,
+        ViaCovering::PluggedCovered,
+        ViaCovering::Filled,
+        ViaCovering::FilledCovered,
+        ViaCovering::FilledCapped,
+    ];
+    /// Short text for fabrication notes, for example `tented` or `filled and capped`.
+    pub fn label(self) -> &'static str {
+        match self {
+            ViaCovering::Open => "open",
+            ViaCovering::Tented => "tented",
+            ViaCovering::TentedCovered => "tented and covered",
+            ViaCovering::Plugged => "plugged",
+            ViaCovering::PluggedCovered => "plugged and covered",
+            ViaCovering::Filled => "filled",
+            ViaCovering::FilledCovered => "filled and covered",
+            ViaCovering::FilledCapped => "filled and capped",
+        }
+    }
+    /// Command token, for example `tented_covered`.
+    pub fn token(self) -> &'static str {
+        match self {
+            ViaCovering::Open => "open",
+            ViaCovering::Tented => "tented",
+            ViaCovering::TentedCovered => "tented_covered",
+            ViaCovering::Plugged => "plugged",
+            ViaCovering::PluggedCovered => "plugged_covered",
+            ViaCovering::Filled => "filled",
+            ViaCovering::FilledCovered => "filled_covered",
+            ViaCovering::FilledCapped => "filled_capped",
+        }
+    }
+    /// Whether the solder mask keeps an opening around the hole.
+    pub fn keeps_mask_opening(self) -> bool {
+        self == ViaCovering::Open
+    }
+}
+impl Via {
+    /// The covering that applies to this via: its own, else the board default.
+    pub fn effective_covering(&self, board: &Board) -> ViaCovering {
+        self.covering.unwrap_or(board.via_covering_default)
+    }
 }
 /// A solid copper region on one layer, bounded by a closed polygon and
 /// belonging to a net. Same-net copper that falls inside the outline conducts
@@ -1102,6 +1204,30 @@ impl NetTie {
             && (0.3..=20.0).contains(&self.diameter)
             && self.rotation.is_finite()
             && self.net_a != self.net_b
+    }
+}
+/// A named reference point on the board, usually a mounting hole centre, that
+/// is written into the mechanical outputs so an enclosure can be aligned to it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Datum {
+    pub id: Id,
+    pub name: String,
+    /// Position in millimetres; ignored while `hole` is set, because the
+    /// datum then sits at the centre of that hole.
+    pub position: Point,
+    /// Hole whose centre this datum follows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hole: Option<Id>,
+}
+impl Datum {
+    /// Most datums one board carries.
+    pub const MAX: usize = 64;
+    /// A datum name is 1 to 32 characters from letters, digits, `_` and `-`.
+    pub fn name_valid(name: &str) -> bool {
+        (1..=32).contains(&name.len())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     }
 }
 /// An optical assembly mark: a bare copper circle, usually 1 mm, that the
@@ -1529,6 +1655,9 @@ impl MachiningNotes {
                 .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
     }
 }
+fn is_open_covering(c: &ViaCovering) -> bool {
+    *c == ViaCovering::Open
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
@@ -1547,6 +1676,9 @@ pub struct Board {
     /// Origin that drill file coordinates are measured from, in millimetres.
     #[serde(default = "board_origin")]
     pub drill_origin: Point,
+    /// Covering applied to every via that has no covering of its own.
+    #[serde(default, skip_serializing_if = "is_open_covering")]
+    pub via_covering_default: ViaCovering,
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
@@ -1560,6 +1692,10 @@ pub struct Board {
     /// coupling gap and, when set, matched lengths.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diff_pairs: Vec<DiffPair>,
+    /// Length-match groups: nets whose routed lengths must agree within a
+    /// tolerance.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub length_groups: Vec<LengthGroup>,
     /// Rectangular board areas that demand a stricter minimum copper
     /// separation for copper whose midpoints lie inside them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1585,6 +1721,9 @@ pub struct Board {
     /// no copper and belong to no net.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub holes: Vec<Hole>,
+    /// Named mounting datums an enclosure tool can consume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub datums: Vec<Datum>,
     /// Layers the designer draws for machines: cuts, perforations, custom
     /// silk and mask art, plotted alongside the copper.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2082,10 +2221,12 @@ impl Default for Project {
                 finish: board_finish(),
                 er: board_er(),
                 drill_origin: board_origin(),
+                via_covering_default: ViaCovering::Open,
                 layer_records: vec![],
                 machining: None,
                 pair_rules: vec![],
                 diff_pairs: vec![],
+                length_groups: vec![],
                 rule_areas: vec![],
                 user_layers: vec![],
                 outline: None,
@@ -2093,6 +2234,7 @@ impl Default for Project {
                 tracks: vec![],
                 vias: vec![],
                 holes: vec![],
+                datums: vec![],
                 fiducials: vec![],
                 netties: vec![],
                 zones: vec![],
@@ -2500,6 +2642,26 @@ impl Project {
                 })
             })
     }
+    /// Where a datum sits now: the centre of its hole when tied to one that
+    /// still exists, otherwise its own position.
+    pub fn datum_position(&self, datum: &Datum) -> Point {
+        datum
+            .hole
+            .and_then(|id| self.board.holes.iter().find(|h| h.id == id))
+            .map_or(datum.position, Hole::center)
+    }
+    /// True when the point lies inside the board outline or rectangle.
+    pub fn board_contains(&self, point: Point) -> bool {
+        match &self.board.outline {
+            Some(ring) => pcbcraft_geom::point_in_polygon(point, ring),
+            None => {
+                point.x >= 0.0
+                    && point.y >= 0.0
+                    && point.x <= self.board.width
+                    && point.y <= self.board.height
+            }
+        }
+    }
     /// The position that represents a design object for region tests: track
     /// midpoints, via and footprint anchors, zone centroids, cutout centres.
     pub fn object_position(&self, id: Id) -> Option<Point> {
@@ -2512,6 +2674,9 @@ impl Project {
         }
         if let Some(v) = b.vias.iter().find(|v| v.id == id) {
             return Some(v.position);
+        }
+        if let Some(d) = b.datums.iter().find(|d| d.id == id) {
+            return Some(self.datum_position(d));
         }
         if let Some(z) = b.zones.iter().find(|z| z.id == id) {
             let n = z.outline.len().saturating_sub(1);
@@ -2630,9 +2795,11 @@ impl Project {
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
             .chain(self.board.holes.iter().map(|x| x.id))
+            .chain(self.board.datums.iter().map(|x| x.id))
             .chain(self.board.fiducials.iter().map(|x| x.id))
             .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.diff_pairs.iter().map(|x| x.id))
+            .chain(self.board.length_groups.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
@@ -2876,6 +3043,30 @@ impl Project {
                 }
             }
         }
+        if self.board.datums.len() > Datum::MAX {
+            return Err("a board carries at most 64 datums".into());
+        }
+        for (i, d) in self.board.datums.iter().enumerate() {
+            if !Datum::name_valid(&d.name) || !d.position.valid() {
+                return Err(
+                    "datum names are 1 to 32 letters, digits, underscores or hyphens".into(),
+                );
+            }
+            if self.board.datums[..i]
+                .iter()
+                .any(|o| o.name.eq_ignore_ascii_case(&d.name))
+            {
+                return Err("datum names must be unique".into());
+            }
+            if d.hole
+                .is_some_and(|h| !self.board.holes.iter().any(|x| x.id == h))
+            {
+                return Err("a datum names a hole that does not exist".into());
+            }
+            if !self.board_contains(self.datum_position(d)) {
+                return Err("a datum must lie inside the board".into());
+            }
+        }
         if self.board.fiducials.len() > 128 {
             return Err("a board carries at most 128 fiducial marks".into());
         }
@@ -2905,6 +3096,21 @@ impl Project {
             {
                 return Err(
                     "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
+                        .into(),
+                );
+            }
+        }
+        if self.board.length_groups.len() > 64 {
+            return Err("a board carries at most 64 length-match groups".into());
+        }
+        let mut group_names: BTreeSet<&str> = BTreeSet::new();
+        for g in &self.board.length_groups {
+            if !g.valid()
+                || g.nets.iter().any(|n| !nets.contains(n))
+                || !group_names.insert(g.name.as_str())
+            {
+                return Err(
+                    "length-match groups name two to 32 known nets with a unique name and a 0 to 100 mm tolerance"
                         .into(),
                 );
             }
@@ -3497,6 +3703,11 @@ impl Project {
                 || v.drill >= v.diameter
             {
                 return Err("invalid via geometry or net".into());
+            }
+            if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
+                return Err(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                );
             }
         }
         for z in &b.zones {
@@ -4602,6 +4813,64 @@ mod art_tests {
         );
         p.board.holes[0].end = Some(Point::new(70.0, 5.0));
         assert!(p.validate().is_err(), "a slot spans at most 50 mm");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod via_covering_tests {
+    use super::*;
+
+    fn with_via(drill: f64, covering: Option<ViaCovering>) -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.vias.push(Via {
+            id: 2,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.6,
+            drill,
+            covering,
+        });
+        p
+    }
+
+    #[test]
+    fn covering_round_trips_and_old_files_default_to_open() -> Result<(), String> {
+        let mut p = with_via(0.3, Some(ViaCovering::TentedCovered));
+        p.board.via_covering_default = ViaCovering::Plugged;
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        assert!(text.contains("\"tented_covered\"") && text.contains("\"plugged\""));
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.board.via_covering_default, ViaCovering::Plugged);
+        assert_eq!(
+            back.board.vias[0].covering,
+            Some(ViaCovering::TentedCovered)
+        );
+        let plain = serde_json::to_string(&with_via(0.3, None)).map_err(|e| e.to_string())?;
+        assert!(!plain.contains("covering"), "open boards write no covering");
+        let old: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert_eq!(old.board.via_covering_default, ViaCovering::Open);
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_covering_is_refused_on_load_and_drillless_cover_is_invalid() -> Result<(), String> {
+        let text = serde_json::to_string(&with_via(0.3, Some(ViaCovering::Tented)))
+            .map_err(|e| e.to_string())?;
+        let bad = text.replace("\"tented\"", "\"glued\"");
+        assert!(serde_json::from_str::<Project>(&bad).is_err());
+        assert!(
+            with_via(0.0, Some(ViaCovering::Plugged))
+                .validate()
+                .is_err()
+        );
+        with_via(0.0, Some(ViaCovering::Open)).validate()?;
+        with_via(0.3, Some(ViaCovering::FilledCapped)).validate()?;
         Ok(())
     }
 }
