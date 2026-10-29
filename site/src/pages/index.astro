@@ -4,7 +4,6 @@
 // src/data/features.yaml; screenshots are neutral frames until #715.
 import MarketingLayout from '../layouts/MarketingLayout.astro';
 import ShotFrame from '../components/ShotFrame.astro';
-import HeroBoard from '../components/HeroBoard.astro';
 import PipelineStrip from '../components/PipelineStrip.astro';
 import FeatureAreaCard from '../components/FeatureAreaCard.astro';
 import { areas } from '../lib/features';
@@ -36,15 +35,7 @@ const bandAlt: Record<string, string> = {
         <p class="meta mono">{home.hero.meta.text}</p>
       </div>
       <div class="hero-shot">
-        <ShotFrame id="hero-layout" alt="Decorative drawing of a circuit board with a chip, routed copper traces, vias and a connector" title="PCBCraft · layout" ratio="16 / 10.5" caption={home.hero.caption.text}>
-          <HeroBoard />
-        </ShotFrame>
-        <ul class="legend mono" aria-label="Layer colours in the drawing">
-          <li class="t-pcb"><span class="pad"></span>Top copper</li>
-          <li class="t-sch"><span class="pad"></span>Bottom copper</li>
-          <li class="t-out"><span class="pad"></span>Board edge</li>
-          <li class="t-lib"><span class="pad"></span>Copper pour</li>
-        </ul>
+        <ShotFrame id="hero-layout" alt="The PCBCraft Layout tab" title="PCBCraft · layout" caption={home.hero.caption.text} eager />
       </div>
     </div>
   </section>
@@ -169,17 +160,6 @@ cargo run -p pcbcraft -- --sample</code></pre>
     margin: 1.4rem 0 0;
     color: var(--pc-muted);
     font-size: 0.8rem;
-  }
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem 1.4rem;
-    margin: 1rem 0 0;
-    padding: 0;
-    list-style: none;
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
   }
   .tight {
     padding: 3rem 0 4rem;
