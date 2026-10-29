@@ -49,7 +49,7 @@ fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
 
 /// Zoom and centre that fit a world rectangle inside a panel, keeping the
 /// whole design visible instead of a postage stamp at the minimum zoom.
-fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
+pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
     let w = (hi.x - lo.x).max(1.0);
     let h = (hi.y - lo.y).max(1.0);
     let zoom = ((panel.0 * 0.92) as f64 / w)
@@ -156,7 +156,7 @@ fn fill_polygon(painter: &egui::Painter, points: &[Pos2], color: Color32, clip: 
     }
 }
 /// Ray-cast point-in-polygon test for closed outlines (first vertex repeated).
-fn polygon_contains(points: &[Point], pos: Point) -> bool {
+pub(crate) fn polygon_contains(points: &[Point], pos: Point) -> bool {
     let mut inside = false;
     for edge in points.windows(2) {
         let (a, b) = (edge[0], edge[1]);
@@ -214,7 +214,7 @@ impl App {
             self.load_properties();
         }
     }
-    fn paint_graphic(
+    pub(super) fn paint_graphic(
         &self,
         painter: &egui::Painter,
         rect: Rect,
