@@ -2049,8 +2049,7 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
-                || n
-                    .max_length
+                || n.max_length
                     .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
             {
                 return Err("invalid net length target or tolerance".into());
@@ -2084,8 +2083,7 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
-                || c
-                    .max_length
+                || c.max_length
                     .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
             {
                 return Err("invalid net class".into());

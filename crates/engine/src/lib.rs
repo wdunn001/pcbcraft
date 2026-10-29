@@ -5498,7 +5498,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .iter_mut()
                 .find(|n| n.id == a.id)
                 .ok_or_else(missing)?;
-            if params.get("target").is_some() {
+            if params
+                .as_object()
+                .is_some_and(|o| o.len() == 1 && o.contains_key("id"))
+            {
+                net.target_length = None;
+                net.length_tolerance = None;
+            } else if params.get("target").is_some() {
                 net.target_length = a.target;
                 net.length_tolerance = if a.target.is_some() {
                     a.tolerance
@@ -10500,23 +10506,22 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "length-match tolerance must be between 0 and 1000 mm".into(),
                 ));
             }
-            if a
-                .reference
-                .is_some_and(|r| r == 0 || !a.nets.contains(&r))
-            {
+            if a.reference.is_some_and(|r| r == 0 || !a.nets.contains(&r)) {
                 return Err(Error::Invalid(
                     "the reference net must be a member of the group".into(),
                 ));
             }
-            if a.profile.as_ref().is_some_and(|s| s.is_empty() || s.len() > 64) {
+            if a.profile
+                .as_ref()
+                .is_some_and(|s| s.is_empty() || s.len() > 64)
+            {
                 return Err(Error::Invalid(
                     "a profile name must be 1 to 64 characters".into(),
                 ));
             }
             let groups = &mut p.length_groups;
-            let updating_id = a
-                .id
-                .or_else(|| groups.iter().find(|g| g.name.trim() == name).map(|g| g.id));
+            let updating_id =
+                a.id.or_else(|| groups.iter().find(|g| g.name.trim() == name).map(|g| g.id));
             for other in groups.iter().filter(|g| Some(g.id) != updating_id) {
                 if other.nets.iter().any(|n| a.nets.contains(n)) {
                     return Err(Error::Invalid(
@@ -19082,13 +19087,11 @@ mod tests {
             json!({"name":"BYTE0","nets":[n1,n2,n3],"tolerance":1.0,"same_layer":false}),
             None,
         )?;
-        let skew = s.checks()["drc"]
-            .as_array()
-            .map_or(0, |a| {
-                a.iter()
-                    .filter(|f| f["code"] == "length_group_skew")
-                    .count()
-            });
+        let skew = s.checks()["drc"].as_array().map_or(0, |a| {
+            a.iter()
+                .filter(|f| f["code"] == "length_group_skew")
+                .count()
+        });
         assert_eq!(skew, 1, "13 mm against 10 mm nets breaches a 1 mm spread");
         for net in [n1, n2] {
             s.execute(
@@ -19098,13 +19101,11 @@ mod tests {
             )?;
         }
         assert_eq!(
-            s.checks()["drc"]
-                .as_array()
-                .map_or(0, |a| {
-                    a.iter()
-                        .filter(|f| f["code"] == "length_group_skew")
-                        .count()
-                }),
+            s.checks()["drc"].as_array().map_or(0, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "length_group_skew")
+                    .count()
+            }),
             0,
             "lengthening the shorter nets closes the spread"
         );
@@ -19136,11 +19137,7 @@ mod tests {
                 })),
             "class ceiling flags the long net"
         );
-        s.execute(
-            "net.set_length",
-            json!({"id":n1,"max_length":150.0}),
-            None,
-        )?;
+        s.execute("net.set_length", json!({"id":n1,"max_length":150.0}), None)?;
         assert!(
             s.checks()["drc"]
                 .as_array()

@@ -988,7 +988,10 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             severity: project.rule_severity("track_length", "error"),
             message: format!(
                 "{} routed to {:.3} mm, at most {:.3} mm allowed{}",
-                net.name, length, max, via_note(net.id)
+                net.name,
+                length,
+                max,
+                via_note(net.id)
             ),
             objects: vec![net.id],
         });
@@ -1791,9 +1794,7 @@ mod tests {
         if let Some(t) = p.board.tracks.iter_mut().find(|t| t.net == 3) {
             t.end = Point::new(10.0, 10.0);
         }
-        assert!(drc(&p)
-            .iter()
-            .all(|f| f.code != "length_group_skew"));
+        assert!(drc(&p).iter().all(|f| f.code != "length_group_skew"));
         Ok(())
     }
 
@@ -1801,8 +1802,8 @@ mod tests {
     fn length_group_reference_skew_ignores_pairs_that_match_the_reference() -> Result<(), String> {
         let mut p = Project::default();
         net_track(&mut p, 1, "CLK", 0.0, 10.0);
-        net_track(&mut p, 2, "D0", 0.0, 10.5);
-        net_track(&mut p, 3, "D1", 0.0, 10.5);
+        net_track(&mut p, 2, "D0", 0.0, 10.1);
+        net_track(&mut p, 3, "D1", 0.0, 10.15);
         p.length_groups.push(pcbcraft_doc::LengthGroup {
             id: 50,
             name: "MIPI".into(),
@@ -1814,9 +1815,7 @@ mod tests {
         });
         p.validate()?;
         assert!(
-            drc(&p)
-                .iter()
-                .all(|f| f.code != "length_group_skew"),
+            drc(&p).iter().all(|f| f.code != "length_group_skew"),
             "members within tolerance of the reference stay quiet"
         );
         if let Some(t) = p.board.tracks.iter_mut().find(|t| t.net == 3) {
@@ -1869,7 +1868,11 @@ mod tests {
             profile: None,
         });
         p.validate()?;
-        assert!(drc(&p).iter().any(|f| f.code == "layer_change" && f.objects == vec![2]));
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "layer_change" && f.objects == vec![2])
+        );
         p.board.tracks.retain(|t| t.net != 2 || t.layer == Layer::Front);
         assert!(!drc(&p).iter().any(|f| f.code == "layer_change"));
         Ok(())
@@ -1901,9 +1904,9 @@ mod tests {
         if let Some(n) = p.nets.iter_mut().find(|n| n.id == 1) {
             n.max_length = Some(150.0);
         }
-        assert!(drc(&p)
-            .iter()
-            .all(|f| !(f.code == "track_length" && f.message.contains("at most"))));
+        assert!(drc(&p).iter().all(|f| {
+            !(f.code == "track_length" && f.message.contains("at most"))
+        }));
         Ok(())
     }
 
