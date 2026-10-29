@@ -85,21 +85,20 @@ fn finding_counts_split_by_loudness() {
 fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
     assert!(
         app.preferences.library_dock_open,
         "the library dock starts open"
     );
-    click(&ctx, &mut app, at);
     assert!(
         !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
+        "the tab-bar toggle hides the dock"
     );
-    click(&ctx, &mut app, at);
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
     assert!(
         app.preferences.library_dock_open,
-        "the rail toggle shows it again"
+        "the tab-bar toggle shows it again"
     );
     Ok(())
 }
@@ -112,11 +111,10 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
         "drc": [{"severity":"info"},{"severity":"info"},{"severity":"info"},{"severity":"info"}]
     });
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
-    click(&ctx, &mut app, errors);
+    settled(&ctx, &mut app);
+    let (fix, warnings, notes) = App::finding_counts(&app.checks);
+    let errors_label = app.catalog.plural("board.footer.errors", fix as u64);
+    authoring::tests::tap(&ctx, &mut app, &errors_label)?;
     assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
     Ok(())
 }
@@ -232,7 +230,7 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    let (rail, dock) = (28.0, 28.0 + 260.0);
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)

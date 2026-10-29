@@ -39,7 +39,7 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
         mind > 0,
         "the practice board should leave something to mind"
     );
-    let mind_label = format!("{mind} to mind");
+    let mind_label = footer_warning_label(&app, mind);
     assert!(
         paints_text(&ctx, &mut app, &mind_label)?,
         "the status strip should count the warnings ({mind_label}): {}",
@@ -64,7 +64,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
+    tap_strip_tool(&ctx, &mut app, "Assembly mark")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-27.0, -17.0), 1.0);
     assert_eq!(
@@ -92,7 +92,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_layers_aside(&ctx, &mut app)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
@@ -154,6 +154,8 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
         app.message
     );
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "More")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Mounting hole")?,
@@ -487,7 +489,7 @@ fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-move")?;
+    tap_strip_tool(&ctx, &mut app, "Move")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(app.tool, Tool::Move),
@@ -574,10 +576,13 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    for word in [
-        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text",
-    ] {
+    for word in ["Select", "Route", "Outline", "Text", "More"] {
         assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
+    }
+    authoring::tests::tap(&ctx, &mut app, "More")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for word in ["Move", "Line", "Box", "Circle"] {
+        assert!(paints_text(&ctx, &mut app, word)?, "More lists {word}");
     }
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
@@ -637,7 +642,7 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    tap_strip_tool(&ctx, &mut app, "Line")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Line,

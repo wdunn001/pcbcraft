@@ -214,6 +214,80 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
         .ok_or_else(|| format!("{id} is not on screen, or is switched off"))
 }
 
+/// Switch the right aside to the Layers page on a drawing tab.
+pub(crate) fn open_layers_aside(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    if !matches!(app.tab, Tab::Schematic | Tab::Pcb | Tab::Board3d) {
+        return Err(format!("layers aside needs a drawing tab, on {:?}", app.tab));
+    }
+    authoring::tests::tap(ctx, app, "Layers")?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+/// Open the Settings page from the tab row.
+pub(crate) fn open_settings(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
+    app.change_tab(Tab::Settings);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+/// Arm a tool from the strip, opening More when the label sits in the overflow menu.
+pub(crate) fn tap_strip_tool(
+    ctx: &egui::Context,
+    app: &mut App,
+    label: &str,
+) -> Result<(), String> {
+    let icon_id = match label {
+        "Select" => Some("tool-select"),
+        "Move" => Some("tool-move"),
+        "Wire" => Some("tool-wire"),
+        "Route" => Some("tool-route"),
+        "Line" => Some("tool-line"),
+        "Outline" => Some("tool-outline"),
+        "Text" => Some("tool-words"),
+        _ => None,
+    };
+    if let Some(id) = icon_id {
+        if app.icon_rects.contains_key(id) {
+            return authoring::tests::tap_icon(ctx, app, id);
+        }
+    }
+    if paints_text(ctx, app, label)? && authoring::tests::tap(ctx, app, label).is_ok() {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        return Ok(());
+    }
+    authoring::tests::tap(ctx, app, "More")?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(ctx, app, label)?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+/// Flip a pick-filter chip on Schematic (Pick menu) or Layout (More, then Pick).
+pub(crate) fn tap_pick_filter(
+    ctx: &egui::Context,
+    app: &mut App,
+    label: &str,
+) -> Result<(), String> {
+    if app.tab == Tab::Pcb {
+        authoring::tests::tap(ctx, app, "More")?;
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    authoring::tests::tap(ctx, app, "Pick")?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(ctx, app, label)?;
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    Ok(())
+}
+
+pub(crate) fn footer_error_label(app: &App, count: usize) -> String {
+    app.catalog.plural("board.footer.errors", count as u64)
+}
+
+pub(crate) fn footer_warning_label(app: &App, count: usize) -> String {
+    app.catalog.plural("board.footer.warnings", count as u64)
+}
+
 /// Click the control the gate calls `id`, like a person pressing it.
 pub(crate) fn tap_id(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
     let _tall = TallScope::enter();

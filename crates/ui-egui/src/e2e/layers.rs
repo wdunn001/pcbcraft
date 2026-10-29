@@ -11,7 +11,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_layers_aside(&ctx, &mut app)?;
     assert!(
         scrolled_to(&ctx, &mut app, "This board")?,
         "the tree still exposes the board root header"

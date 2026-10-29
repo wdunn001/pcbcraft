@@ -718,7 +718,9 @@ impl App {
             return;
         }
         ui.separator();
-        ui.menu_button("Pick", |ui| self.pick_chips(ui));
+        ui.menu_button("Pick", |ui| self.pick_chips(ui))
+            .response
+            .on_hover_text("Choose which kinds of object a click or a drag box may pick up.");
     }
 
     /// The pick-filter chips: which kinds of object a click may pick up.

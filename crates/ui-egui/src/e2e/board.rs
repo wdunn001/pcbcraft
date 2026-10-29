@@ -9,10 +9,9 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    open_settings(&ctx, &mut app)?;
     assert!(
-        scrolled_to(&ctx, &mut app, "HASL")?,
+        scrolled_to_at(&ctx, &mut app, "HASL", 700.0)?,
         "the board shows the finish it ships with"
     );
     authoring::tests::tap(&ctx, &mut app, "HASL")?;
@@ -61,10 +60,9 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    open_settings(&ctx, &mut app)?;
     assert!(
-        scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
+        scrolled_to_at(&ctx, &mut app, "Nothing recorded yet", 700.0)?,
         "a plain board says what it is: {}",
         app.message
     );
@@ -132,7 +130,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_settings(&ctx, &mut app)?;
     let mut shown = false;
     for _ in 0..8 {
         if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
@@ -213,7 +211,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .ok_or("routing should leave a wire on the top layer")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_layers_aside(&ctx, &mut app)?;
     let shown = scrolled_to(&ctx, &mut app, "BOARD ANATOMY")?;
     assert!(
         shown,
@@ -457,7 +455,7 @@ fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
     app.change_tab(Tab::Pcb);
     app.refresh();
     let ctx = egui::Context::default();
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_layers_aside(&ctx, &mut app)?;
     assert!(
         scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
         "the hole list is the place a slot is read: {}",
@@ -488,7 +486,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
+    tap_strip_tool(&ctx, &mut app, "Mounting hole")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-25.0, -17.0), 1.0);
     assert_eq!(
@@ -516,8 +514,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    open_layers_aside(&ctx, &mut app)?;
     assert!(
         scrolled_to(&ctx, &mut app, "3.20 mm")?,
         "the holes are listed with their drill size"
@@ -558,7 +555,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
+    tap_strip_tool(&ctx, &mut app, "Draw shape")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "New layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -689,8 +686,9 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
         "the review names the conflict in plain words: {}",
         app.message
     );
+    let (fix, _, _) = App::finding_counts(&app.checks);
     assert!(
-        paints_text(&ctx, &mut app, "1 to fix")?,
+        paints_text(&ctx, &mut app, &footer_error_label(&app, fix))?,
         "a cut through a via lands in the footer count: {}",
         app.message
     );
@@ -1249,7 +1247,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
         .first()
         .map(|h| h.id)
         .ok_or("the mounting hole should exist")?;
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_layers_aside(&ctx, &mut app)?;
     assert!(
         scrolled_to(&ctx, &mut app, "DATUMS")?,
         "the tree offers a DATUMS group"
@@ -1319,7 +1317,7 @@ fn a_newcomer_adds_a_datum_on_a_mounting_hole_and_it_follows_the_hole() -> Resul
 #[test]
 fn a_bad_datum_name_is_refused_with_a_message() -> Result<(), String> {
     let (ctx, mut app) = fresh_board_app();
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    open_layers_aside(&ctx, &mut app)?;
     assert!(scrolled_to(&ctx, &mut app, "DATUMS")?);
     app.datum_ui.add_name = "bad name!".into();
     authoring::tests::tap(&ctx, &mut app, "Add datum")?;
@@ -1518,6 +1516,7 @@ fn sample_on(tab: Tab) -> (App, egui::Context) {
 #[test]
 fn a_newcomer_hides_and_shows_each_kind_of_thing_on_the_board() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Pcb);
+    open_layers_aside(&ctx, &mut app)?;
     for (id, name) in [
         ("checkbox:Top copper", "Top copper"),
         ("checkbox:Bottom copper", "Bottom copper"),
@@ -1546,19 +1545,28 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
         matches!(app.tool, Tool::Route(_)),
         "Route arms the track tool"
     );
-    for (id, shape) in [
-        ("icon:tool-box", DrawShape::Rect),
-        ("icon:tool-circle", DrawShape::Circle),
-        ("icon:tool-outline", DrawShape::Poly),
-        ("icon:tool-words", DrawShape::Words),
+    for (label, shape) in [
+        ("Box", DrawShape::Rect),
+        ("Circle", DrawShape::Circle),
+        ("Outline", DrawShape::Poly),
+        ("Text", DrawShape::Words),
     ] {
-        tap_id(&ctx, &mut app, id)?;
+        if label == "Outline" || label == "Text" {
+            let id = if label == "Outline" {
+                "icon:tool-outline"
+            } else {
+                "icon:tool-words"
+            };
+            tap_id(&ctx, &mut app, id)?;
+        } else {
+            tap_strip_tool(&ctx, &mut app, label)?;
+        }
         assert!(
             matches!(app.tool, Tool::DrawLayer) && app.art_shape == shape,
-            "{id} arms its shape on the machine layer"
+            "{label} arms its shape on the machine layer"
         );
     }
-    tap_id(&ctx, &mut app, "button:Cutout")?;
+    tap_strip_tool(&ctx, &mut app, "Cutout")?;
     assert!(
         matches!(app.tool, Tool::Cutout),
         "Cutout arms the hole tool"
@@ -1571,20 +1579,17 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
     let (mut app, ctx) = sample_on(Tab::Schematic);
     tap_id(&ctx, &mut app, "icon:tool-wire")?;
     assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
-    for (id, read) in [
-        (
-            "button:Text",
-            (|a: &App| a.edit.filter.text) as fn(&App) -> bool,
-        ),
-        ("button:Graphics", |a: &App| a.edit.filter.graphics),
-        ("button:Copper", |a: &App| a.edit.filter.copper),
-        ("button:Parts", |a: &App| a.edit.filter.parts),
+    for (label, read) in [
+        ("Text", (|a: &App| a.edit.filter.text) as fn(&App) -> bool),
+        ("Graphics", |a: &App| a.edit.filter.graphics),
+        ("Copper", |a: &App| a.edit.filter.copper),
+        ("Parts", |a: &App| a.edit.filter.parts),
     ] {
         let before = read(&app);
-        tap_id(&ctx, &mut app, id)?;
-        assert_ne!(read(&app), before, "{id} flips what a click may pick up");
+        tap_pick_filter(&ctx, &mut app, label)?;
+        assert_ne!(read(&app), before, "{label} flips what a click may pick up");
     }
-    tap_id(&ctx, &mut app, "button:Measure")?;
+    tap_strip_tool(&ctx, &mut app, "Measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())
 }
@@ -1593,7 +1598,7 @@ fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), Str
 fn a_newcomer_zooms_out_and_fits_the_whole_design() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     let before = app.schematic.zoom;
-    tap_id(&ctx, &mut app, "button:\u{2212}")?;
+    tap_id(&ctx, &mut app, "icon:canvas-zoom-out")?;
     assert!(app.schematic.zoom < before, "the minus button zooms out");
     tap_id(&ctx, &mut app, "icon:canvas-fit")?;
     assert!(

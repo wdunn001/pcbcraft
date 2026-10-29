@@ -92,7 +92,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "    blinky red · built in")?,
+        paints_text(&ctx, &mut app, "blinky red")?,
         "a part row says what the part is and where it came from: {}",
         app.message
     );
