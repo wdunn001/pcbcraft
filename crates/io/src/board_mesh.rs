@@ -1529,7 +1529,7 @@ fn pad_sides(pad: &Pad) -> (bool, bool, bool) {
     match &pad.geometry {
         None => (true, false, true),
         Some(g) => {
-            if g.pad_type == "np_thru_hole" {
+            if g.pad_type == "unplated" || g.pad_type == "np_thru_hole" {
                 return (false, false, false);
             }
             let front = g
