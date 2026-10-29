@@ -94,6 +94,12 @@ pub trait PartSource: Send + Sync {
     fn fetch(&self, mpn: &str) -> Result<PartResult, SourceError>;
     fn setup(&self) -> SetupCard;
     fn attribution(&self) -> Attribution;
+    /// The source's own attribute names and values for one part number, such
+    /// as `Resistance` and `Package / Case`, for `listing::listing_from_result`.
+    /// Empty when the source has none.
+    fn attributes(&self, _mpn: &str) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
     /// Seconds a cached answer from this source stays usable.
     fn cache_secs(&self) -> u64 {
         DEFAULT_CACHE_SECS
@@ -195,6 +201,8 @@ struct FixtureFile {
 pub struct FixtureSource {
     name: String,
     parts: Vec<PartResult>,
+    /// Lowercase part number to the recorded attribute map.
+    attributes: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl FixtureSource {
@@ -213,7 +221,28 @@ impl FixtureSource {
         Ok(Self {
             name: file.name,
             parts: file.parts,
+            attributes: BTreeMap::new(),
         })
+    }
+
+    /// Add recorded attributes: a JSON object mapping a part number to a flat
+    /// object of text values. Bounded like [`FixtureSource::from_json`].
+    pub fn with_attributes(mut self, json: &str) -> Result<Self, SourceError> {
+        if json.len() > 4_000_000 {
+            return Err(SourceError::Invalid(
+                "the recorded attributes file is too large".into(),
+            ));
+        }
+        let map: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_str(json)
+            .map_err(|e| SourceError::Invalid(format!("the attributes file is not valid: {e}")))?;
+        if map.len() > 1000 {
+            return Err(SourceError::Invalid("too many recorded attributes".into()));
+        }
+        self.attributes = map
+            .into_iter()
+            .map(|(mpn, attrs)| (mpn.to_lowercase(), attrs))
+            .collect();
+        Ok(self)
     }
 }
 
@@ -245,6 +274,12 @@ impl PartSource for FixtureSource {
             .find(|p| p.mpn.eq_ignore_ascii_case(q))
             .cloned()
             .ok_or_else(|| SourceError::NotFound(q.to_owned()))
+    }
+    fn attributes(&self, mpn: &str) -> BTreeMap<String, String> {
+        self.attributes
+            .get(&mpn.trim().to_lowercase())
+            .cloned()
+            .unwrap_or_default()
     }
     fn setup(&self) -> SetupCard {
         SetupCard {
