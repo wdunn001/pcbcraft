@@ -3993,17 +3993,16 @@ impl App {
         }
     }
 
-
     fn shortcuts_settings_panel(&mut self, ui: &mut egui::Ui) {
         ui.label(
-            egui::RichText::new("KEYBOARD SHORTCUTS")
+            egui::RichText::new(t!("settings.settings_tab.keyboard_shortcuts"))
                 .size(10.0)
                 .color(self.muted()),
         );
         if !self.shortcuts_settings_open {
             if ui
-                .button("Edit shortcuts…")
-                .on_hover_text("Open the shortcut list to rebind keys and manage profiles.")
+                .button(t!("settings.settings_tab.edit_shortcuts"))
+                .on_hover_text(t!("settings.settings_tab.edit_shortcuts.tip"))
                 .clicked()
             {
                 self.shortcuts_settings_open = true;
@@ -4277,6 +4276,21 @@ impl App {
         );
         ui.add_space(8.0);
         assistant::settings::section(self, ui);
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.settings_tab.schematic_and_board"))
+                .size(10.0)
+                .color(self.muted()),
+        );
+        let mut sync_on = self.project.auto_sync;
+        if ui
+            .checkbox(&mut sync_on, t!("settings.settings_tab.auto_sync"))
+            .on_hover_text(t!("settings.settings_tab.auto_sync.tip"))
+            .changed()
+            && sync_on != self.project.auto_sync
+        {
+            self.run("project.set_auto_sync", json!({"auto_sync": sync_on}));
+        }
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new(t!("settings.settings_tab.routing"))
@@ -6595,10 +6609,8 @@ impl App {
                         .num_columns(3)
                         .spacing([16.0, 4.0])
                         .show(ui, |ui| {
-                            for (keys, action, context) in self
-                                .preferences
-                                .active_keymap()
-                                .rows_for_help()
+                            for (keys, action, context) in
+                                self.preferences.active_keymap().rows_for_help()
                             {
                                 ui.label(egui::RichText::new(keys).monospace().strong());
                                 ui.label(action);

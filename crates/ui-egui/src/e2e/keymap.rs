@@ -15,9 +15,9 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
     app.select(Some(11));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    app.change_tab(Tab::Settings);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Edit shortcuts…")?;
+    super::support::tap_id(&ctx, &mut app, "button:Edit shortcuts…")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.binding_capture = Some(KeyAction::Rotate);
     let t = KeyChord {
