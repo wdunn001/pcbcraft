@@ -854,6 +854,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "hole.slot",
+            "Route an unplated mounting slot between two centres: width is the drill diameter, length runs centre to centre plus that width",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
+            ),
+        ),
+        (
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
