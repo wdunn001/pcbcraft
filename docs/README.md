@@ -4,6 +4,7 @@
 | --- | --- |
 | [getting-started.md](getting-started.md) | Clone, run, first circuit, MCP, fork workflow |
 | [capabilities.md](capabilities.md) | What the app does today |
+| [workbench-patterns.md](workbench-patterns.md) | Shell, library, checks, and anatomy plans |
 | [architecture.md](architecture.md) | Crate layers and mutation rules |
 | [mcp.md](mcp.md) | MCP client config |
 | [assistant-backends.md](assistant-backends.md) | Assistant wire formats checked against each API, with gaps |
