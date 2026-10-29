@@ -332,8 +332,9 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         app.message
     );
     let (fix, _, _) = App::finding_counts(&app.checks);
+    let fix_label = footer_error_label(&app, fix);
     assert!(
-        paints_text(&ctx, &mut app, &footer_error_label(&app, fix))?,
+        paints_text(&ctx, &mut app, &fix_label)?,
         "a breach of a must-fix check lands in the footer count: {}",
         app.message
     );

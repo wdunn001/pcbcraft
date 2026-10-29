@@ -687,8 +687,9 @@ fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
         app.message
     );
     let (fix, _, _) = App::finding_counts(&app.checks);
+    let fix_label = footer_error_label(&app, fix);
     assert!(
-        paints_text(&ctx, &mut app, &footer_error_label(&app, fix))?,
+        paints_text(&ctx, &mut app, &fix_label)?,
         "a cut through a via lands in the footer count: {}",
         app.message
     );
