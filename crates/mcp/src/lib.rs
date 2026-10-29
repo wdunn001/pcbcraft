@@ -245,7 +245,7 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                     &s.project.library,
                     "symbol",
                     &Path::new(directory).join(&file),
-                    &[item.name.clone()],
+                    std::slice::from_ref(&item.name),
                 )?;
                 files.push(file);
             }

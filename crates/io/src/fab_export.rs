@@ -51,16 +51,32 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
         }
     }
     for h in &p.board.holes {
+        let d_um = (h.diameter * 1_000.0).round() as u64;
+        let span_um = if h.is_slot() {
+            (h.start().distance(h.finish()) * 1_000.0).round() as u64
+        } else {
+            0
+        };
+        let (x, y, ux, uy) = if h.is_slot() {
+            let center = h.center();
+            let half = Point::new(
+                (h.finish().x - h.start().x) / 2.0,
+                (h.finish().y - h.start().y) / 2.0,
+            );
+            (center.x, center.y, half.x, half.y)
+        } else {
+            (h.position.x, h.position.y, 0.0, 0.0)
+        };
         push(
             &mut hits,
             DrillHit {
-                d_um: (h.diameter * 1_000.0).round() as u64,
-                span_um: 0,
+                d_um,
+                span_um,
                 plated: false,
-                x: h.position.x,
-                y: h.position.y,
-                ux: 0.0,
-                uy: 0.0,
+                x,
+                y,
+                ux,
+                uy,
             },
         );
     }

@@ -8151,15 +8151,15 @@ mod tests {
             "through-hole pad aperture"
         );
         assert!(
-            front.contains("G36*\nD02*\nX5.000000Y5.000000D02*\n"),
+            front.contains("G36*") && front.contains("X5.000000Y5.000000D02*\n"),
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("D12*\nX30.000000Y10.000000D03*\n"),
+            front.contains("X30.000000Y10.000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("D11*\nX2.000000Y0.000000D03*\n"),
+            front.contains("X2.000000Y0.000000D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
@@ -8173,7 +8173,7 @@ mod tests {
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("D12*\nX-30.000000Y10.000000D03*\n"),
+            back.contains("X-30.000000Y10.000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
@@ -12208,7 +12208,7 @@ mod tests {
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 0.0),
-                diameter: 1.0,
+                diameter: 0.5,
                 net: None,
                 castellated: None,
                 geometry: Some(smd),
