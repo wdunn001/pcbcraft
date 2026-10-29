@@ -163,6 +163,94 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     Ok(())
 }
 
+/// Every `.rs` file under `src`, as `(path relative to src, text)`.
+fn ui_sources(dir: &std::path::Path, base: &std::path::Path) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            out.extend(ui_sources(&path, base));
+        } else if path.extension().is_some_and(|x| x == "rs")
+            && let (Ok(text), Ok(rel)) = (std::fs::read_to_string(&path), path.strip_prefix(base))
+        {
+            out.push((rel.to_string_lossy().replace('\\', "/"), text));
+        }
+    }
+    out
+}
+
+#[test]
+fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let files = ui_sources(&src, &src);
+    assert!(!files.is_empty(), "the ui sources were found");
+    let problems = pcbcraft_text::scan::problems(&files);
+    assert!(
+        problems.is_empty(),
+        "text must come from the catalog (crates/text/strings/en.txt):\n{}",
+        problems.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "Settings")?,
+        "the app opens in English and the top bar says Settings"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Paramètres")?,
+        "no French shows yet"
+    );
+    // The person opens the Settings page and picks a language.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Français (test)")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Fichier")?,
+        "the File menu now reads Fichier at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Aide")?,
+        "the Help menu reads Aide"
+    );
+    assert_eq!(app.preferences.language, "fr", "the choice is remembered");
+    // Closing and reopening the app keeps the saved choice.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Fichier")?,
+        "the reopened app still reads French"
+    );
+    // A language tag the app does not carry quietly shows English.
+    reopened.set_language("zz");
+    assert!(
+        paints_text(&ctx, &mut reopened, "File")?,
+        "an unknown language falls back to English"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
