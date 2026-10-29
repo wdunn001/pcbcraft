@@ -682,6 +682,18 @@ fn wrap_360(degrees: f64) -> f64 {
 fn on_arc(start: f64, end: f64, test: f64) -> bool {
     wrap_360(test - start) <= wrap_360(end - start)
 }
+/// A pad's drilled hole as a capsule: end centres, radius and plating.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PadDrill {
+    /// One end centre of the hole, in footprint coordinates.
+    pub start: Point,
+    /// The other end centre; the same point for a round hole.
+    pub end: Point,
+    /// Hole radius in millimetres.
+    pub radius: f64,
+    /// True when the hole wall is plated.
+    pub plated: bool,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pad {
     pub number: String,
@@ -753,6 +765,69 @@ impl Pad {
             *p = self.offset.offset(p.rotate(-g.rotation));
         }
         points
+    }
+    /// The drilled hole of this pad as a capsule in footprint coordinates
+    /// before the footprint is placed: its two end centres, its radius, and
+    /// whether the wall is plated. A round hole has equal ends. `None` when the
+    /// pad has no drill.
+    ///
+    /// # Rules
+    /// The hole centre includes the drill offset, turned with the pad, the same
+    /// way the copper snapshot in `crates/rules/src/lib.rs` places it.
+    ///
+    /// # Dependencies
+    /// `pcbcraft_library::Drill` in `crates/library/src/lib.rs`.
+    ///
+    /// # Do not
+    /// Do not apply the footprint position or rotation here; callers do.
+    pub fn drill_capsule(&self) -> Option<PadDrill> {
+        let g = self.geometry.as_ref()?;
+        let d = g.drill.as_ref()?;
+        let radius = d.size.x.min(d.size.y) / 2.0;
+        let axis = Point::new(
+            (d.size.x / 2.0 - radius).max(0.0),
+            (d.size.y / 2.0 - radius).max(0.0),
+        );
+        let at = |local: Point| self.offset.offset(local.rotate(-g.rotation));
+        Some(PadDrill {
+            start: at(d.offset.offset(axis)),
+            end: at(d.offset.offset(Point::new(-axis.x, -axis.y))),
+            radius,
+            plated: g.pad_type != "np_thru_hole" && g.pad_type != "unplated",
+        })
+    }
+    /// Thinnest copper ring left around the plated hole of this pad, in
+    /// millimetres, after adding `allowance` to the finished drill to get the
+    /// tool size. `None` for a pad with no plated hole.
+    ///
+    /// # Rules
+    /// The ring is measured to the nearest pad edge from the hole's true
+    /// centre, so an offset or oval drill reports its thin side. A round pad
+    /// uses its exact radius rather than the sampled outline.
+    ///
+    /// # Dependencies
+    /// `Pad::drill_capsule` and `Pad::outline_points` in this file.
+    ///
+    /// # Do not
+    /// Do not use the larger pad side; that hides a thin ring.
+    pub fn min_annular_ring(&self, allowance: f64) -> Option<f64> {
+        let hole = self.drill_capsule().filter(|h| h.plated)?;
+        let tool_radius = hole.radius + allowance / 2.0;
+        if let Some(g) = &self.geometry
+            && matches!(g.shape_kind(), PadShape::Circle)
+        {
+            let reach = self
+                .offset
+                .distance(hole.start)
+                .max(self.offset.distance(hole.end));
+            return Some(g.size.x.min(g.size.y) / 2.0 - reach - tool_radius);
+        }
+        let outline = self.outline_points();
+        outline
+            .windows(2)
+            .map(|edge| pcbcraft_geom::segment_distance(hole.start, hole.end, edge[0], edge[1]))
+            .reduce(f64::min)
+            .map(|d| d - tool_radius)
     }
     fn finish_outline(&self, mut points: Vec<Point>) -> Vec<Point> {
         if let Some(first) = points.first().copied() {
