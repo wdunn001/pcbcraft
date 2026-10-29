@@ -1,0 +1,18 @@
+---
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import { url } from '../lib/site';
+---
+
+<MarketingLayout title="PCBCraft" description="PCBCraft is a schematic, board layout, library and checks tool.">
+  <section class="section">
+    <div class="wrap">
+      <p class="eyebrow">Placeholder marketing page · #714</p>
+      <h1>One native window for schematic, board layout, libraries and checks.</h1>
+      <p class="lede">Every edit goes through a typed engine command. The desktop, the CLI and MCP call the same commands.</p>
+      <div class="cta">
+        <a class="btn primary" href={url('download/')}>Download</a>
+        <a class="btn ghost" href={url('docs/')}>Read the docs</a>
+      </div>
+    </div>
+  </section>
+</MarketingLayout>

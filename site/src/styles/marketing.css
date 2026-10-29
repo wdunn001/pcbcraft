@@ -1,0 +1,189 @@
+/* Marketing front base styles (layout, type, buttons, motifs). Tokens live in theme.css.
+   Rules: sections use .section with an h2 (copper trace stub above it); buttons use .btn.
+   Do not: use colours outside --pc-* tokens. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+body.marketing {
+  margin: 0;
+  color: var(--pc-text);
+  background-color: var(--pc-bg);
+  /* 24 px board grid, the same pitch the editor shows */
+  background-image: linear-gradient(var(--pc-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--pc-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  font: 400 1rem/1.65 var(--pc-font-body);
+  -webkit-font-smoothing: antialiased;
+}
+.marketing main a {
+  color: var(--pc-cyan);
+}
+.marketing :focus-visible {
+  outline: 3px solid var(--pc-gold);
+  outline-offset: 2px;
+}
+.marketing .wrap {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+@media (min-width: 40rem) {
+  .marketing .wrap {
+    padding: 0 1.5rem;
+  }
+}
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -4rem;
+  z-index: 100;
+  padding: 0.6rem 1rem;
+  color: var(--pc-onacc);
+  background: var(--pc-copper);
+  border-radius: 4px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 0.75rem;
+  color: var(--pc-onacc);
+}
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--sl-nav-height, 3.75rem);
+  padding: 0 1rem;
+  background: color-mix(in srgb, var(--pc-bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--pc-line);
+}
+.site-header > .inner {
+  max-width: 72rem;
+  height: 100%;
+  margin: 0 auto;
+}
+.eyebrow {
+  margin: 0;
+  font: 600 0.78rem/1.2 var(--pc-font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--pc-copper);
+}
+.marketing main h1,
+.marketing main h2,
+.marketing main h3 {
+  font-family: var(--pc-font-head);
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.005em;
+}
+.marketing main h1 {
+  margin: 0.35em 0 0.4em;
+  font-size: clamp(2.4rem, 5.4vw, 4rem);
+  line-height: 1.04;
+}
+.marketing main h2 {
+  margin: 0 0 0.45em;
+  font-size: clamp(1.75rem, 3.2vw, 2.4rem);
+  line-height: 1.12;
+}
+.marketing main h2::before {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 4px;
+  margin-bottom: 14px;
+  border-radius: 2px;
+  background: var(--pc-copper);
+}
+.marketing main h3 {
+  margin: 0.5em 0 0.3em;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+.lede {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--pc-muted);
+  font-size: 1.15rem;
+}
+.sub {
+  max-width: 46rem;
+  margin: 0 0 2rem;
+  color: var(--pc-muted);
+}
+.section {
+  padding: 4.5rem 0;
+}
+.section + .section {
+  border-top: 1px solid var(--pc-line);
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.35rem;
+  font: 600 1rem/1.2 var(--pc-font-body);
+  text-decoration: none;
+  border: 2px solid var(--pc-copper);
+  border-radius: 5px;
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+.marketing main a.btn.primary {
+  color: var(--pc-onacc);
+  background: var(--pc-copper);
+}
+.marketing main a.btn.ghost {
+  color: var(--pc-text);
+  background: transparent;
+}
+.btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+.mono {
+  font-family: var(--pc-font-mono);
+}
+.pad {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-inline-end: 0.55rem;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
+}
+.t-sch { color: var(--pc-cyan); }
+.t-pcb { color: var(--pc-copper); }
+.t-lib { color: var(--pc-mask); }
+.t-out { color: var(--pc-gold); }
+.tag {
+  font: 600 0.75rem/1 var(--pc-font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
