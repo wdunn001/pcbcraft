@@ -1,415 +1,936 @@
-//! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
-mod footprint_check;
-mod footprint_generate;
-mod footprint_pad_outline;
-mod paths;
-mod reader;
-mod sexpr;
-pub mod sources;
-mod symbol_check;
-mod validation;
-pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
-pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+//! IPC-style land pattern generation into [`FootprintDefinition`].
+use crate::{Drill, FootprintDefinition, FootprintPad, Graphic};
 use pcbcraft_geom::Point;
-pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
-pub use symbol_check::check_symbol;
-pub use validation::custom_polygon_error;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SymbolDefinition {
-    pub name: String,
-    pub reference: String,
-    pub value: String,
-    pub description: String,
-    pub keywords: String,
-    pub footprint: String,
-    /// Name of the collection this part belongs to, for example "Common
-    /// parts". Empty means the part has no set and is listed on its own.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub set: String,
-    pub pins: Vec<SymbolPin>,
-    pub graphics: Vec<UnitGraphic>,
-    pub extends: Option<String>,
-    pub raw_source: String,
-    pub unsupported: Vec<String>,
+const COURTYARD_LAYER: &str = "pcbcraft.courtyard";
+const SILK_LAYER: &str = "F.SilkS";
+const FAB_LAYER: &str = "F.Fab";
+const CHIP_ROUNDRECT: f64 = 0.244;
+const GRID_MM: f64 = 0.01;
+
+/// Land pattern density level (IPC-7351B).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LandPatternDensity {
+    Most,
+    Nominal,
+    Least,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SymbolPin {
-    pub number: String,
-    pub name: String,
-    pub position: Point,
-    /// KiCad angle, counterclockwise in a y-up Cartesian frame.
-    pub angle: f64,
-    pub length: f64,
-    pub electrical_type: String,
-    pub unit: u32,
-    pub body_style: u32,
-    /// File token after the electrical type: line, inverted, clock, and the
-    /// other standard shape keywords. Not the unit alternate-body index.
-    #[serde(default = "default_pin_graphical_style")]
-    pub graphical_style: String,
-    /// When false the pin may stay in the library but is omitted from schematic views.
-    #[serde(default = "default_pin_visible")]
-    pub visible: bool,
-}
-fn default_pin_graphical_style() -> String {
-    "line".into()
-}
-fn default_pin_visible() -> bool {
-    true
-}
-/// Standard symbol pin shape tokens from the interchange format.
-pub const PIN_GRAPHICAL_STYLES: &[&str] = &[
-    "line",
-    "inverted",
-    "clock",
-    "inverted_clock",
-    "input_low",
-    "clock_low",
-    "output_low",
-    "edge_clock_high",
-    "non_logic",
-];
-impl SymbolPin {
-    pub fn graphical_style_supported(style: &str) -> bool {
-        PIN_GRAPHICAL_STYLES.contains(&style)
-    }
-    /// Inner end of the pin stem in y-down millimetres (connection is `position`).
-    pub fn stem_end(&self) -> Point {
-        let angle = self.angle.to_radians();
-        self.position.offset(Point::new(
-            self.length * angle.cos(),
-            -self.length * angle.sin(),
-        ))
-    }
-    fn inward(&self) -> Point {
-        let angle = self.angle.to_radians();
-        Point::new(angle.cos(), -angle.sin())
-    }
-    fn perpendicular(&self) -> Point {
-        let angle = self.angle.to_radians();
-        Point::new(angle.sin(), angle.cos())
-    }
-    fn mul(v: Point, scale: f64) -> Point {
-        Point::new(v.x * scale, v.y * scale)
-    }
-    const DECO_RADIUS: f64 = 0.635;
-    pub fn circle_points(center: Point, radius: f64) -> Vec<Point> {
-        (0..16)
-            .map(|i| {
-                let t = f64::from(i) * std::f64::consts::TAU / 16.0;
-                center.offset(Point::new(radius * t.cos(), radius * t.sin()))
-            })
-            .collect()
-    }
-    fn bubble(&self) -> (Point, f64) {
-        let inward = self.inward();
-        (
-            self.position.offset(Self::mul(inward, Self::DECO_RADIUS)),
-            Self::DECO_RADIUS,
-        )
-    }
-    fn clock_wedge(&self, depth: f64) -> Vec<Point> {
-        let inward = self.inward();
-        let perp = self.perpendicular();
-        let half = Self::DECO_RADIUS;
-        let base_a = self.position.offset(Self::mul(perp, -half));
-        let base_b = self.position.offset(Self::mul(perp, half));
-        let tip = self.position.offset(Self::mul(inward, depth));
-        vec![base_a, base_b, tip]
-    }
-    fn active_low_tick(&self) -> Vec<Point> {
-        let perp = self.perpendicular();
-        let half = Self::DECO_RADIUS * 0.9;
-        let at = self
-            .position
-            .offset(Self::mul(self.inward(), Self::DECO_RADIUS * 1.6));
-        vec![
-            at.offset(Self::mul(perp, -half)),
-            at.offset(Self::mul(perp, half)),
-        ]
-    }
-    fn non_logic_diamond(&self) -> Vec<Point> {
-        let inward = self.inward();
-        let perp = self.perpendicular();
-        let r = Self::DECO_RADIUS * 0.75;
-        vec![
-            self.position.offset(Self::mul(inward, r)),
-            self.position.offset(Self::mul(perp, r)),
-            self.position.offset(Self::mul(inward, -r)),
-            self.position.offset(Self::mul(perp, -r)),
-        ]
-    }
-    /// Filled outline circles for bubble-style decorations at the connection.
-    pub fn decoration_bubbles(&self) -> Vec<(Point, f64)> {
-        self.decoration_bubbles_draw(true)
-    }
-    pub fn decoration_bubbles_draw(&self, require_visible: bool) -> Vec<(Point, f64)> {
-        if require_visible && !self.visible {
-            return Vec::new();
-        }
-        let bubble = |pin: &SymbolPin| pin.bubble();
-        match self.graphical_style.as_str() {
-            "inverted" | "output_low" => vec![bubble(self)],
-            "inverted_clock" | "clock_low" => vec![bubble(self)],
-            "input_low" => vec![bubble(self)],
-            _ => Vec::new(),
+
+impl LandPatternDensity {
+    pub fn parse(level: &str) -> Option<Self> {
+        match level.trim().to_ascii_lowercase().as_str() {
+            "a" | "m" | "most" => Some(Self::Most),
+            "b" | "n" | "nominal" => Some(Self::Nominal),
+            "c" | "l" | "least" => Some(Self::Least),
+            _ => None,
         }
     }
-    /// Closed or open polylines for non-circle pin decorations in y-down mm.
-    pub fn decoration_paths(&self) -> Vec<Vec<Point>> {
-        self.decoration_paths_draw(true)
+
+    pub fn suffix(self) -> char {
+        match self {
+            Self::Most => 'M',
+            Self::Nominal => 'N',
+            Self::Least => 'L',
+        }
     }
-    pub fn decoration_paths_draw(&self, require_visible: bool) -> Vec<Vec<Point>> {
-        if (require_visible && !self.visible) || self.graphical_style == "line" {
-            return Vec::new();
+
+    fn courtyard_excess(self) -> f64 {
+        match self {
+            Self::Most => 0.50,
+            Self::Nominal => 0.25,
+            Self::Least => 0.10,
         }
-        let mut paths = Vec::new();
-        let push_wedge = |paths: &mut Vec<Vec<Point>>, pin: &SymbolPin, depth: f64| {
-            paths.push(pin.clock_wedge(depth));
-        };
-        match self.graphical_style.as_str() {
-            "inverted" | "output_low" => {}
-            "clock" => push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.4),
-            "inverted_clock" => {
-                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.4);
-            }
-            "input_low" => {
-                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.2);
-                paths.push(self.active_low_tick());
-            }
-            "clock_low" => {
-                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.2);
-            }
-            "edge_clock_high" => push_wedge(&mut paths, self, Self::DECO_RADIUS * 0.85),
-            "non_logic" => paths.push(self.non_logic_diamond()),
-            _ => {}
+    }
+
+    fn silk_stroke(self) -> f64 {
+        match self {
+            Self::Most => 0.15,
+            Self::Nominal => 0.127,
+            Self::Least => 0.10,
         }
-        paths
     }
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+
+/// Bounded numeric inputs shared across package families.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct UnitGraphic {
-    pub unit: u32,
-    pub body_style: u32,
-    pub primitive: Graphic,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub enum Graphic {
-    Line {
-        start: Point,
-        end: Point,
-        width: f64,
-        layer: String,
-    },
-    Rectangle {
-        start: Point,
-        end: Point,
-        width: f64,
-        fill: String,
-        layer: String,
-    },
-    Circle {
-        center: Point,
-        radius: f64,
-        width: f64,
-        fill: String,
-        layer: String,
-    },
-    Arc {
-        start: Point,
-        mid: Point,
-        end: Point,
-        width: f64,
-        layer: String,
-    },
-    Polyline {
-        points: Vec<Point>,
-        width: f64,
-        fill: String,
-        layer: String,
-    },
-    Text {
-        position: Point,
-        angle: f64,
-        text: String,
-        size: Point,
-        layer: String,
-    },
-}
-/// One net of a Specctra design session and the component pins it names,
-/// each pin given as a (reference, pin number) pair.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionNet {
+pub struct LandPatternParams {
     pub name: String,
-    pub pins: Vec<(String, String)>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FootprintDefinition {
-    pub name: String,
-    pub description: String,
-    pub keywords: String,
-    pub pads: Vec<FootprintPad>,
-    pub graphics: Vec<Graphic>,
-    /// A 3D model reference when the footprint carries one. The transform is
-    /// kept exactly as the source states it; this tool records and re-emits
-    /// it without rendering geometry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<Model3D>,
-    /// Design rule overrides scoped to this footprint: a local copper
-    /// clearance and solder mask/paste margin shifts in millimetres. The
-    /// clearance tightens checks; the margins are recorded and exported.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rules: Option<FootprintRules>,
-    pub raw_source: String,
-    pub unsupported: Vec<String>,
-}
-/// Per-footprint design rule overrides. Each value is a millimetre amount;
-/// a negative margin shrinks the paste or mask opening.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FootprintRules {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clearance: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mask_margin: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub paste_margin: Option<f64>,
-}
-/// A reference to a 3D model file attached to a footprint, with the
-/// placement transform from the source file's coordinate frame.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Model3D {
-    pub path: String,
     #[serde(default)]
-    pub offset: [f64; 3],
-    #[serde(default = "unit_scale")]
-    pub scale: [f64; 3],
+    pub description: String,
     #[serde(default)]
-    pub rotate: [f64; 3],
-    pub raw_source: String,
+    pub keywords: String,
+    pub pitch: f64,
+    pub pin_count: u32,
+    pub body_length: f64,
+    pub body_width: f64,
+    #[serde(default)]
+    pub row_spacing: f64,
+    #[serde(default)]
+    pub lead_width: f64,
+    #[serde(default)]
+    pub lead_diameter: f64,
+    #[serde(default)]
+    pub grid_rows: u32,
+    #[serde(default)]
+    pub grid_cols: u32,
+    #[serde(default)]
+    pub thermal_size: f64,
 }
-fn unit_scale() -> [f64; 3] {
-    [1.0, 1.0, 1.0]
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FootprintPad {
-    pub number: String,
-    pub pad_type: String,
-    pub shape: String,
-    pub position: Point,
-    pub rotation: f64,
-    pub size: Point,
-    pub layers: Vec<String>,
-    pub drill: Option<Drill>,
-    pub roundrect_ratio: Option<f64>,
-    /// Corner cuts of a `chamfered` pad; absent for every other shape.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub chamfer: Option<PadChamfer>,
-    /// Pad-local copper outline of a `custom` pad as an open vertex ring.
-    /// The rectangular anchor given by `size` must lie inside it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub polygon: Vec<Point>,
-    pub raw_source: String,
-}
-/// Most vertices accepted in a custom pad polygon.
-pub const MAX_PAD_POLYGON_VERTICES: usize = 256;
-/// Corners removed from a chamfered pad, named in pad-local y-down coordinates.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChamferCorners {
-    pub top_left: bool,
-    pub top_right: bool,
-    pub bottom_left: bool,
-    pub bottom_right: bool,
-}
-impl ChamferCorners {
-    pub const ALL: Self = Self {
-        top_left: true,
-        top_right: true,
-        bottom_left: true,
-        bottom_right: true,
+
+/// Build a footprint from a family id and parameter object.
+pub fn generate_footprint(
+    family: &str,
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    if params.name.is_empty() || params.name.len() > 256 {
+        return Err("footprint name must be 1 to 256 characters".into());
+    }
+    let mut def = match family {
+        "chip_2terminal" => chip_two_terminal(density, params)?,
+        "sot" => sot(density, params)?,
+        "soic" => soic(density, params)?,
+        "qfp" => qfp(density, params)?,
+        "qfn" => qfn(density, params)?,
+        "bga" => bga(density, params)?,
+        "dip" => dip(density, params)?,
+        "header_single" => header_single(density, params)?,
+        "header_double" => header_double(density, params)?,
+        "radial" => radial(density, params)?,
+        "axial" => axial(density, params)?,
+        _ => return Err(format!("unknown land pattern family {family}")),
     };
-    pub fn any(self) -> bool {
-        self.top_left || self.top_right || self.bottom_left || self.bottom_right
+    def.name = params.name.clone();
+    if !params.description.is_empty() {
+        def.description = params.description.clone();
     }
+    if !params.keywords.is_empty() {
+        def.keywords = params.keywords.clone();
+    }
+    def.validate().map_err(|e| e.to_string())?;
+    Ok(def)
 }
-/// A chamfer cuts each selected corner by `ratio` times the shorter pad side
-/// along both edges. The ratio is in (0, 0.5].
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PadChamfer {
-    pub ratio: f64,
-    pub corners: ChamferCorners,
+
+fn require_finite_positive(value: f64, label: &str) -> Result<f64, String> {
+    if !value.is_finite() || value <= 0.0 || value > 500.0 {
+        return Err(format!(
+            "{label} must be a finite positive number up to 500 mm"
+        ));
+    }
+    Ok(value)
 }
-/// Typed view of a pad's copper shape.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PadShape<'a> {
-    Circle,
-    Rect,
-    Oval,
-    RoundRect { ratio: f64 },
-    Chamfered(PadChamfer),
-    Custom { polygon: &'a [Point] },
-    Unsupported,
+
+fn require_pin_count(count: u32, min: u32, max: u32, label: &str) -> Result<u32, String> {
+    if count < min || count > max {
+        return Err(format!("{label} must be between {min} and {max}"));
+    }
+    Ok(count)
 }
-impl FootprintPad {
-    pub fn shape_kind(&self) -> PadShape<'_> {
-        match (self.shape.as_str(), self.chamfer) {
-            ("circle", _) => PadShape::Circle,
-            ("rect", _) => PadShape::Rect,
-            ("oval", _) => PadShape::Oval,
-            ("roundrect", _) => PadShape::RoundRect {
-                ratio: self.roundrect_ratio.unwrap_or(0.0),
-            },
-            ("chamfered", Some(chamfer)) => PadShape::Chamfered(chamfer),
-            ("custom", _) if !self.polygon.is_empty() => PadShape::Custom {
-                polygon: &self.polygon,
-            },
-            _ => PadShape::Unsupported,
+
+fn chip_two_terminal(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let body_l = require_finite_positive(params.body_length, "body length")?;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let scale_l = body_l / 2.0;
+    let scale_w = body_w / 1.25;
+    let pad_l = 1.025 * scale_l;
+    let pad_w = 1.4 * scale_w;
+    let center_x = 0.9125 * scale_l;
+    let excess = density.courtyard_excess();
+    let half_x = center_x + pad_l / 2.0 + excess;
+    let half_y = pad_w / 2.0 + excess;
+    let pads = vec![
+        smd_roundrect("1", -center_x, 0.0, pad_l, pad_w, CHIP_ROUNDRECT),
+        smd_roundrect("2", center_x, 0.0, pad_l, pad_w, CHIP_ROUNDRECT),
+    ];
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "RESC{metric}X70{density}",
+            metric = metric_code(body_l, body_w),
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn sot(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 3, 6, "pin count")?;
+    let body_l = require_finite_positive(params.body_length, "body length")?;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let pad_w = pitch * 0.6;
+    let pad_l = pitch * 0.45;
+    let mut pads = Vec::new();
+    let mut number = 1_u32;
+    match count {
+        3 => {
+            for i in 0..3 {
+                let x = (i as f64 - 1.0) * pitch;
+                pads.push(smd_roundrect(
+                    &number.to_string(),
+                    x,
+                    body_w / 2.0 + pad_l / 2.0,
+                    pad_l,
+                    pad_w,
+                    0.25,
+                ));
+                number += 1;
+            }
+        }
+        5 | 6 => {
+            let left_y = [-pitch / 2.0, pitch / 2.0];
+            for y in left_y {
+                pads.push(smd_roundrect(
+                    &number.to_string(),
+                    -body_l / 2.0 - pad_l / 2.0,
+                    y,
+                    pad_l,
+                    pad_w,
+                    0.25,
+                ));
+                number += 1;
+            }
+            pads.push(smd_roundrect(
+                &number.to_string(),
+                0.0,
+                body_w / 2.0 + pad_l / 2.0,
+                pad_l,
+                pad_w,
+                0.25,
+            ));
+            number += 1;
+            let right_ys = if count == 5 {
+                vec![-pitch / 2.0, pitch / 2.0]
+            } else {
+                vec![-pitch, 0.0, pitch]
+            };
+            for y in right_ys {
+                pads.push(smd_roundrect(
+                    &number.to_string(),
+                    body_l / 2.0 + pad_l / 2.0,
+                    y,
+                    pad_l,
+                    pad_w,
+                    0.25,
+                ));
+                number += 1;
+            }
+        }
+        _ => return Err("SOT pin count must be 3, 5, or 6".into()),
+    }
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "SOT{count}P{pitch_mm}{density}",
+            pitch_mm = pitch_mils(pitch),
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn soic(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 4, 32, "pin count")?;
+    if !count.is_multiple_of(2) {
+        return Err("SOIC pin count must be even".into());
+    }
+    let per_side = count / 2;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let span = (per_side as f64 - 1.0) * pitch;
+    let pad_l = pitch * 0.55;
+    let pad_w = pitch * 0.35;
+    let row_y = body_w / 2.0 + pad_w / 2.0;
+    let mut pads = Vec::new();
+    for i in 0..per_side {
+        let x = -span / 2.0 + i as f64 * pitch;
+        let num = (i + 1).to_string();
+        pads.push(smd_roundrect(&num, x, -row_y, pad_l, pad_w, 0.25));
+    }
+    for i in 0..per_side {
+        let x = span / 2.0 - i as f64 * pitch;
+        let num = (per_side + i + 1).to_string();
+        pads.push(smd_roundrect(&num, x, row_y, pad_l, pad_w, 0.25));
+    }
+    let body_l = span + pitch;
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "SOIC{pitch_mm}P{body}-{count}{density}",
+            pitch_mm = pitch_mils(pitch),
+            body = (body_w * 100.0).round() as u32,
+            count = count,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn qfp(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 16, 208, "pin count")?;
+    if !count.is_multiple_of(4) {
+        return Err("QFP pin count must be a multiple of four".into());
+    }
+    let per_side = count / 4;
+    let body_l = require_finite_positive(params.body_length, "body length")?;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let pad_l = pitch * 0.55;
+    let pad_w = pitch * 0.30;
+    let pads = gullwing_pads(per_side, pitch, body_l, body_w, pad_l, pad_w);
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "QFP{pitch_mm}-{count}{density}",
+            pitch_mm = pitch_mils(pitch),
+            count = count,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn qfn(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 8, 128, "pin count")?;
+    if !count.is_multiple_of(4) {
+        return Err("QFN pin count must be a multiple of four".into());
+    }
+    let per_side = count / 4;
+    let body_l = require_finite_positive(params.body_length, "body length")?;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let pad_l = pitch * 0.45;
+    let pad_w = pitch * 0.25;
+    let mut pads = gullwing_pads(per_side, pitch, body_l, body_w, pad_l, pad_w);
+    let thermal = if params.thermal_size > 0.0 {
+        require_finite_positive(params.thermal_size, "thermal pad size")?
+    } else {
+        body_l.min(body_w) * 0.5
+    };
+    pads.push(smd_rect("EP", 0.0, 0.0, thermal, thermal));
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "QFN{pitch_mm}X{body_l}X{body_w}-{count}{density}",
+            pitch_mm = pitch_mils(pitch),
+            body_l = (body_l * 100.0).round() as u32,
+            body_w = (body_w * 100.0).round() as u32,
+            count = count,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn bga(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let rows = require_pin_count(params.grid_rows.max(1), 1, 40, "grid rows")?;
+    let cols = require_pin_count(params.grid_cols.max(1), 1, 40, "grid columns")?;
+    let ball = if params.lead_diameter > 0.0 {
+        require_finite_positive(params.lead_diameter, "ball diameter")?
+    } else {
+        pitch * 0.6
+    };
+    let span_x = (cols as f64 - 1.0) * pitch;
+    let span_y = (rows as f64 - 1.0) * pitch;
+    let mut pads = Vec::new();
+    let mut number = 1_u32;
+    for row in 0..rows {
+        for col in 0..cols {
+            let x = -span_x / 2.0 + col as f64 * pitch;
+            let y = -span_y / 2.0 + row as f64 * pitch;
+            pads.push(smd_circle(&number.to_string(), x, y, ball));
+            number += 1;
         }
     }
+    let body_l = span_x + pitch;
+    let body_w = span_y + pitch;
+    let excess = density.courtyard_excess().max(1.0);
+    let (half_x, half_y) = bounds_from_pads(&pads, excess);
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "BGA{pitch_mm}_{cols}x{rows}{density}",
+            pitch_mm = pitch_mils(pitch),
+            cols = cols,
+            rows = rows,
+            density = density.suffix()
+        ),
+    ))
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Drill {
-    pub size: Point,
-    pub offset: Point,
+
+fn dip(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 4, 64, "pin count")?;
+    if !count.is_multiple_of(2) {
+        return Err("DIP pin count must be even".into());
+    }
+    let row_spacing = if params.row_spacing > 0.0 {
+        require_finite_positive(params.row_spacing, "row spacing")?
+    } else {
+        7.62
+    };
+    let per_row = count / 2;
+    let span = (per_row as f64 - 1.0) * pitch;
+    let pad = 1.6;
+    let drill = if params.lead_diameter > 0.0 {
+        require_finite_positive(params.lead_diameter, "lead diameter")?
+    } else {
+        0.8
+    };
+    let mut pads = Vec::new();
+    for i in 0..per_row {
+        let x = -span / 2.0 + i as f64 * pitch;
+        pads.push(th_pad(
+            &(i + 1).to_string(),
+            x,
+            -row_spacing / 2.0,
+            pad,
+            drill,
+        ));
+    }
+    for i in 0..per_row {
+        let x = span / 2.0 - i as f64 * pitch;
+        pads.push(th_pad(
+            &(per_row + i + 1).to_string(),
+            x,
+            row_spacing / 2.0,
+            pad,
+            drill,
+        ));
+    }
+    let body_l = span + pitch;
+    let body_w = row_spacing;
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "DIP-{count}_W{row}{density}",
+            count = count,
+            row = (row_spacing * 100.0).round() as u32,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn header_single(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 1, 40, "pin count")?;
+    let span = (count as f64 - 1.0) * pitch;
+    let pad = 1.7;
+    let drill = if params.lead_diameter > 0.0 {
+        require_finite_positive(params.lead_diameter, "lead diameter")?
+    } else {
+        1.0
+    };
+    let mut pads = Vec::new();
+    for i in 0..count {
+        let x = -span / 2.0 + i as f64 * pitch;
+        pads.push(th_pad(&(i + 1).to_string(), x, 0.0, pad, drill));
+    }
+    let body_l = span + pitch;
+    let body_w = pitch * 2.0;
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "HDR1X{count}{density}",
+            count = count,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn header_double(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 2, 80, "pin count")?;
+    if !count.is_multiple_of(2) {
+        return Err("double-row header pin count must be even".into());
+    }
+    let per_row = count / 2;
+    let row_spacing = if params.row_spacing > 0.0 {
+        require_finite_positive(params.row_spacing, "row spacing")?
+    } else {
+        2.54
+    };
+    let span = (per_row as f64 - 1.0) * pitch;
+    let pad = 1.7;
+    let drill = if params.lead_diameter > 0.0 {
+        require_finite_positive(params.lead_diameter, "lead diameter")?
+    } else {
+        1.0
+    };
+    let mut pads = Vec::new();
+    for i in 0..per_row {
+        let x = -span / 2.0 + i as f64 * pitch;
+        pads.push(th_pad(
+            &(i + 1).to_string(),
+            x,
+            -row_spacing / 2.0,
+            pad,
+            drill,
+        ));
+    }
+    for i in 0..per_row {
+        let x = -span / 2.0 + i as f64 * pitch + pitch / 2.0;
+        pads.push(th_pad(
+            &(per_row + i + 1).to_string(),
+            x,
+            row_spacing / 2.0,
+            pad,
+            drill,
+        ));
+    }
+    let body_l = span + pitch;
+    let body_w = row_spacing + pitch;
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "HDR2X{count}{density}",
+            count = count,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn radial(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let body_l = require_finite_positive(params.body_length, "body length")?;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let pad = 1.8;
+    let drill = if params.lead_diameter > 0.0 {
+        require_finite_positive(params.lead_diameter, "lead diameter")?
+    } else {
+        0.8
+    };
+    let half = pitch / 2.0;
+    let pads = vec![
+        th_pad("1", -half, 0.0, pad, drill),
+        th_pad("2", half, 0.0, pad, drill),
+    ];
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "RAD{pitch_mm}{density}",
+            pitch_mm = pitch_mils(pitch),
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn axial(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let body_l = require_finite_positive(params.body_length, "body length")?;
+    let body_w = require_finite_positive(params.body_width, "body width")?;
+    let pad = 1.8;
+    let drill = if params.lead_diameter > 0.0 {
+        require_finite_positive(params.lead_diameter, "lead diameter")?
+    } else {
+        0.8
+    };
+    let half = pitch / 2.0;
+    let pads = vec![
+        th_pad("1", -half, 0.0, pad, drill),
+        th_pad("2", half, 0.0, pad, drill),
+    ];
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "AXL{pitch_mm}{density}",
+            pitch_mm = pitch_mils(pitch),
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn gullwing_pads(
+    per_side: u32,
+    pitch: f64,
+    body_l: f64,
+    body_w: f64,
+    pad_l: f64,
+    pad_w: f64,
+) -> Vec<FootprintPad> {
+    let mut pads = Vec::new();
+    let mut number = 1_u32;
+    let span = (per_side as f64 - 1.0) * pitch;
+    let off_y = body_w / 2.0 + pad_w / 2.0;
+    let off_x = body_l / 2.0 + pad_w / 2.0;
+    let along = |i: u32| {
+        if per_side <= 1 {
+            0.0
+        } else {
+            -span / 2.0 + i as f64 * pitch
+        }
+    };
+    for i in 0..per_side {
+        pads.push(smd_roundrect(
+            &number.to_string(),
+            along(i),
+            -off_y,
+            pad_l,
+            pad_w,
+            0.25,
+        ));
+        number += 1;
+    }
+    for i in 0..per_side {
+        pads.push(smd_roundrect(
+            &number.to_string(),
+            off_x,
+            along(i),
+            pad_w,
+            pad_l,
+            0.25,
+        ));
+        number += 1;
+    }
+    for i in 0..per_side {
+        pads.push(smd_roundrect(
+            &number.to_string(),
+            along(per_side - 1 - i),
+            off_y,
+            pad_l,
+            pad_w,
+            0.25,
+        ));
+        number += 1;
+    }
+    for i in 0..per_side {
+        pads.push(smd_roundrect(
+            &number.to_string(),
+            -off_x,
+            along(per_side - 1 - i),
+            pad_w,
+            pad_l,
+            0.25,
+        ));
+        number += 1;
+    }
+    pads
+}
+
+fn base_footprint(
+    density: LandPatternDensity,
+    pads: Vec<FootprintPad>,
+    body_l: f64,
+    body_w: f64,
+    half_x: f64,
+    half_y: f64,
+    suggested_name: String,
+) -> FootprintDefinition {
+    let stroke = density.silk_stroke();
+    let fab_half_l = body_l / 2.0;
+    let fab_half_w = body_w / 2.0;
+    let pad_reach = max_pad_reach(&pads);
+    let silk_y = pad_reach + 0.25 + stroke;
+    let pin1_x = -fab_half_l - stroke * 4.0;
+    let pin1_y = -fab_half_w - stroke * 4.0;
+    let excess = density.courtyard_excess();
+    let art_margin = stroke * 6.0;
+    let half_x = snap_grid(
+        half_x
+            .max(pad_reach + excess)
+            .max(fab_half_l + art_margin + excess),
+    );
+    let half_y = snap_grid(
+        half_y
+            .max(pad_reach + excess)
+            .max(fab_half_w + art_margin + excess)
+            .max(silk_y + stroke + excess),
+    );
+    let mut graphics = vec![
+        Graphic::Rectangle {
+            start: Point::new(-half_x, -half_y),
+            end: Point::new(half_x, half_y),
+            width: 0.1,
+            fill: String::new(),
+            layer: COURTYARD_LAYER.to_owned(),
+        },
+        Graphic::Rectangle {
+            start: Point::new(-fab_half_l, -fab_half_w),
+            end: Point::new(fab_half_l, fab_half_w),
+            width: 0.1,
+            fill: String::new(),
+            layer: FAB_LAYER.to_owned(),
+        },
+        Graphic::Line {
+            start: Point::new(-fab_half_l * 0.5, -silk_y),
+            end: Point::new(fab_half_l * 0.5, -silk_y),
+            width: stroke,
+            layer: SILK_LAYER.to_owned(),
+        },
+        Graphic::Line {
+            start: Point::new(-fab_half_l * 0.5, silk_y),
+            end: Point::new(fab_half_l * 0.5, silk_y),
+            width: stroke,
+            layer: SILK_LAYER.to_owned(),
+        },
+        Graphic::Circle {
+            center: Point::new(pin1_x, pin1_y),
+            radius: stroke * 1.5,
+            width: stroke,
+            fill: String::new(),
+            layer: SILK_LAYER.to_owned(),
+        },
+    ];
+    if suggested_name.len() <= 256 {
+        graphics.push(Graphic::Text {
+            position: Point::new(0.0, fab_half_w + stroke * 4.0),
+            angle: 0.0,
+            text: suggested_name,
+            size: Point::new(0.5, 0.5),
+            layer: FAB_LAYER.to_owned(),
+        });
+    }
+    FootprintDefinition {
+        name: String::new(),
+        description: "Generated land pattern".into(),
+        keywords: String::new(),
+        pads,
+        graphics,
+        model: None,
+        rules: None,
+        raw_source: String::new(),
+        unsupported: vec![],
+    }
+}
+
+fn max_pad_reach(pads: &[FootprintPad]) -> f64 {
+    let mut reach = 0.0_f64;
+    for pad in pads {
+        let hx = pad.size.x / 2.0;
+        let hy = pad.size.y / 2.0;
+        let (c, s) = (
+            pad.rotation.to_radians().cos(),
+            pad.rotation.to_radians().sin(),
+        );
+        let reach_x = (hx * c).abs() + (hy * s).abs();
+        let reach_y = (hx * s).abs() + (hy * c).abs();
+        reach = reach.max(pad.position.y.abs() + reach_y);
+        reach = reach.max(pad.position.x.abs() + reach_x);
+    }
+    reach
+}
+
+fn bounds_from_pads(pads: &[FootprintPad], excess: f64) -> (f64, f64) {
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    for pad in pads {
+        let hx = pad.size.x / 2.0;
+        let hy = pad.size.y / 2.0;
+        let (c, s) = (
+            pad.rotation.to_radians().cos(),
+            pad.rotation.to_radians().sin(),
+        );
+        let reach_x = (hx * c).abs() + (hy * s).abs();
+        let reach_y = (hx * s).abs() + (hy * c).abs();
+        min_x = min_x.min(pad.position.x - reach_x);
+        min_y = min_y.min(pad.position.y - reach_y);
+        max_x = max_x.max(pad.position.x + reach_x);
+        max_y = max_y.max(pad.position.y + reach_y);
+    }
+    if min_x > max_x {
+        return (1.0, 1.0);
+    }
+    (
+        max_x.abs().max(min_x.abs()) + excess,
+        max_y.abs().max(min_y.abs()) + excess,
+    )
+}
+
+fn smd_roundrect(number: &str, x: f64, y: f64, w: f64, h: f64, ratio: f64) -> FootprintPad {
+    FootprintPad {
+        number: number.to_owned(),
+        pad_type: "smd".into(),
+        shape: "roundrect".into(),
+        position: Point::new(x, y),
+        rotation: 0.0,
+        size: Point::new(w, h),
+        layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+        drill: None,
+        roundrect_ratio: Some(ratio),
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    }
+}
+
+fn smd_rect(number: &str, x: f64, y: f64, w: f64, h: f64) -> FootprintPad {
+    FootprintPad {
+        number: number.to_owned(),
+        pad_type: "smd".into(),
+        shape: "rect".into(),
+        position: Point::new(x, y),
+        rotation: 0.0,
+        size: Point::new(w, h),
+        layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+        drill: None,
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    }
+}
+
+fn smd_circle(number: &str, x: f64, y: f64, diameter: f64) -> FootprintPad {
+    FootprintPad {
+        number: number.to_owned(),
+        pad_type: "smd".into(),
+        shape: "circle".into(),
+        position: Point::new(x, y),
+        rotation: 0.0,
+        size: Point::new(diameter, diameter),
+        layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+        drill: None,
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    }
+}
+
+fn th_pad(number: &str, x: f64, y: f64, size: f64, drill: f64) -> FootprintPad {
+    FootprintPad {
+        number: number.to_owned(),
+        pad_type: "thru_hole".into(),
+        shape: "circle".into(),
+        position: Point::new(x, y),
+        rotation: 0.0,
+        size: Point::new(size, size),
+        layers: vec!["*.Cu".into(), "*.Mask".into()],
+        drill: Some(Drill {
+            size: Point::new(drill, drill),
+            offset: Point::default(),
+        }),
+        roundrect_ratio: None,
+        chamfer: None,
+        polygon: vec![],
+        raw_source: String::new(),
+    }
+}
+
+fn metric_code(body_l: f64, body_w: f64) -> String {
+    let l = (body_l * 100.0).round() as u32;
+    let w = (body_w * 100.0).round() as u32;
+    format!("{l:04}{w:04}")
+}
+
+fn pitch_mils(pitch: f64) -> String {
+    let mils = (pitch / 0.0254).round() as u32;
+    format!("{mils}")
+}
+
+fn snap_grid(value: f64) -> f64 {
+    if !value.is_finite() {
+        return value;
+    }
+    (value / GRID_MM).round() * GRID_MM
 }
 
 #[cfg(test)]
-mod pin_graphical_tests {
+mod tests {
     use super::*;
+
     #[test]
-    fn inverted_clock_decoration_includes_connection_bubble() {
-        let pin = SymbolPin {
-            number: "1".into(),
-            name: "CLK".into(),
-            position: Point::new(0.0, 0.0),
-            angle: 0.0,
-            length: 2.54,
-            electrical_type: "input".into(),
-            unit: 1,
-            body_style: 1,
-            graphical_style: "inverted_clock".into(),
-            visible: true,
-        };
-        let bubbles = pin.decoration_bubbles();
-        assert_eq!(bubbles.len(), 1);
-        let (center, radius) = bubbles[0];
-        assert!(
-            (pin.position.distance(center) - radius).abs() < 0.05,
-            "connection sits on the bubble outline"
-        );
-        assert!(!pin.decoration_paths().is_empty());
+    fn suffix_returns_correct_char_for_each_density() {
+        assert_eq!(LandPatternDensity::Most.suffix(), 'M');
+        assert_eq!(LandPatternDensity::Nominal.suffix(), 'N');
+        assert_eq!(LandPatternDensity::Least.suffix(), 'L');
     }
 }

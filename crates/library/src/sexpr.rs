@@ -1,262 +1,483 @@
-use std::ops::Range;
-use thiserror::Error;
+use crate::*;
+use std::collections::BTreeSet;
+fn bad(message: &str) -> Error {
+    Error::Invalid(message.to_owned())
+}
+fn text(s: &str) -> Result<(), Error> {
+    if s.len() > 256 * 1024 || s.contains('\0') {
+        Err(bad("text exceeds bounds or contains NUL"))
+    } else {
+        Ok(())
+    }
+}
+fn scalar(v: f64) -> bool {
+    v.is_finite() && v.abs() <= 100_000.0
+}
+fn dimension(v: f64) -> bool {
+    scalar(v) && v >= 0.0
+}
+fn positive_size(p: Point) -> bool {
+    p.valid() && p.x > 0.0 && p.y > 0.0
+}
+fn metadata(raw: &str, unsupported: &[String]) -> Result<(), Error> {
+    if raw.len() > 8 * 1024 * 1024 || unsupported.len() > 10_000 {
+        return Err(Error::Limit("definition metadata"));
+    }
+    for s in unsupported {
+        text(s)?;
+    }
+    Ok(())
+}
+impl Graphic {
+    pub fn validate(&self) -> Result<(), Error> {
+        let valid = match self {
+            Self::Line {
+                start,
+                end,
+                width,
+                layer,
+            } => {
+                text(layer)?;
+                start.valid() && end.valid() && dimension(*width)
+            }
+            Self::Rectangle {
+                start,
+                end,
+                width,
+                fill,
+                layer,
+            } => {
+                text(fill)?;
+                text(layer)?;
+                start.valid() && end.valid() && dimension(*width)
+            }
+            Self::Circle {
+                center,
+                radius,
+                width,
+                fill,
+                layer,
+            } => {
+                text(fill)?;
+                text(layer)?;
+                center.valid() && *radius > 0.0 && dimension(*radius) && dimension(*width)
+            }
+            Self::Arc {
+                start,
+                mid,
+                end,
+                width,
+                layer,
+            } => {
+                text(layer)?;
+                start.valid() && mid.valid() && end.valid() && dimension(*width)
+            }
+            Self::Polyline {
+                points,
+                width,
+                fill,
+                layer,
+            } => {
+                text(fill)?;
+                text(layer)?;
+                points.len() >= 2
+                    && points.len() <= 10_000
+                    && points.iter().all(|p| p.valid())
+                    && dimension(*width)
+            }
+            Self::Text {
+                position,
+                angle,
+                text: content,
+                size,
+                layer,
+            } => {
+                text(content)?;
+                text(layer)?;
+                position.valid() && scalar(*angle) && positive_size(*size)
+            }
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(bad("invalid library graphic geometry"))
+        }
+    }
+}
+impl SymbolDefinition {
+    pub fn validate(&self) -> Result<(), Error> {
+        if self.name.is_empty() || self.pins.len() > 20_000 || self.graphics.len() > 20_000 {
+            return Err(bad("invalid symbol name or object count"));
+        }
+        for s in [
+            &self.name,
+            &self.reference,
+            &self.value,
+            &self.description,
+            &self.keywords,
+            &self.footprint,
+            &self.set,
+        ] {
+            text(s)?;
+        }
+        if let Some(parent) = &self.extends {
+            text(parent)?;
+        }
+        metadata(&self.raw_source, &self.unsupported)?;
+        let mut keys = BTreeSet::new();
+        for p in &self.pins {
+            text(&p.number)?;
+            text(&p.name)?;
+            text(&p.electrical_type)?;
+            text(&p.graphical_style)?;
+            if !SymbolPin::graphical_style_supported(&p.graphical_style) {
+                return Err(bad("invalid pin graphical style"));
+            }
+            if p.number.is_empty()
+                || p.electrical_type.is_empty()
+                || !p.position.valid()
+                || !scalar(p.angle)
+                || !dimension(p.length)
+                || p.unit > 1024
+                || p.body_style > 32
+                || !keys.insert((p.unit, p.body_style, &p.number))
+            {
+                return Err(bad("invalid or duplicate symbol pin"));
+            }
+        }
+        for g in &self.graphics {
+            if g.unit > 1024 || g.body_style > 32 {
+                return Err(bad("invalid graphic unit"));
+            }
+            g.primitive.validate()?;
+        }
+        Ok(())
+    }
+}
+impl FootprintDefinition {
+    pub fn validate(&self) -> Result<(), Error> {
+        if let Some(rules) = &self.rules {
+            for value in [rules.clearance, rules.mask_margin, rules.paste_margin]
+                .into_iter()
+                .flatten()
+            {
+                if !scalar(value) || value.abs() > 100.0 {
+                    return Err(bad(
+                        "footprint rule override must be finite, at most 100 mm",
+                    ));
+                }
+            }
+        }
+        if self.name.is_empty() || self.pads.len() > 20_000 || self.graphics.len() > 20_000 {
+            return Err(bad("invalid footprint name or object count"));
+        }
+        for s in [&self.name, &self.description, &self.keywords] {
+            text(s)?;
+        }
+        metadata(&self.raw_source, &self.unsupported)?;
+        if let Some(m) = &self.model {
+            text(&m.path)?;
+            metadata(&m.raw_source, &[])?;
+            if m.path.is_empty()
+                || m.path.len() > 1024
+                || !m.offset.iter().all(|v| scalar(*v))
+                || !m.rotate.iter().all(|v| scalar(*v))
+                || !m.scale.iter().all(|v| scalar(*v) && *v > 0.0)
+            {
+                return Err(bad("invalid 3D model reference"));
+            }
+        }
+        for p in &self.pads {
+            for s in [&p.number, &p.pad_type, &p.shape] {
+                text(s)?;
+            }
+            metadata(&p.raw_source, &[])?;
+            if !p.position.valid()
+                || !scalar(p.rotation)
+                || (!positive_size(p.size) && p.pad_type != "unplated")
+                || (p.layers.is_empty() && p.pad_type != "unplated")
+                || p.layers.len() > 64
+                || p.shape.is_empty()
+                || p.pad_type.is_empty()
+            {
+                return Err(bad("invalid footprint pad"));
+            }
+            for layer in &p.layers {
+                text(layer)?;
+            }
+            if p.pad_type == "unplated" {
+                if p.drill.is_none() {
+                    return Err(bad("unplated pad needs a drill"));
+                }
+                if p.layers.iter().any(|l| {
+                    l.ends_with(".Cu") || l.as_str() == "*.Cu" || l == "F.Cu" || l == "B.Cu"
+                }) {
+                    return Err(bad("unplated pad must not include copper layers"));
+                }
+                continue;
+            }
+            if p.roundrect_ratio
+                .is_some_and(|r| !r.is_finite() || !(0.0..=0.5).contains(&r))
+            {
+                return Err(bad("invalid roundrect ratio"));
+            }
+            if p.drill
+                .as_ref()
+                .is_some_and(|d| !positive_size(d.size) || !d.offset.valid())
+            {
+                return Err(bad("invalid pad drill"));
+            }
+            #[allow(clippy::collapsible_match)]
+            match (p.shape.as_str(), &p.chamfer) {
+                ("chamfered", Some(c)) => {
+                    #[allow(clippy::collapsible_match)]
+                    if !c.ratio.is_finite()
+                        || c.ratio <= 0.0
+                        || c.ratio > 0.5
+                        || !c.corners.any()
+                        || p.roundrect_ratio.is_some()
+                    {
+                        return Err(bad(
+                            "chamfered pad needs a ratio in (0, 0.5], at least one corner and no corner rounding",
+                        ));
+                    }
+                }
+                ("chamfered", None) => return Err(bad("chamfered pad is missing its chamfer")),
+                (shape, Some(_)) if shape != "chamfered" => {
+                    return Err(bad("chamfer is only valid on a chamfered pad"));
+                }
+                _ => {}
+            }
+            if !p.polygon.is_empty() {
+                if p.shape != "custom" || p.roundrect_ratio.is_some() {
+                    return Err(bad("pad polygon is only valid on a custom pad"));
+                }
+                if let Some(message) = custom_polygon_error(p.size, &p.polygon) {
+                    return Err(bad(message));
+                }
+            }
+        }
+        for g in &self.graphics {
+            g.validate()?;
+        }
+        Ok(())
+    }
+}
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("unexpected syntax at byte {offset}: {message}")]
-    Syntax { offset: usize, message: String },
-    #[error("library file exceeds {0}")]
-    Limit(&'static str),
-    #[error("invalid library file: {0}")]
-    Invalid(String),
-}
-#[derive(Clone, Copy, Debug)]
-pub struct Limits {
-    pub bytes: usize,
-    pub nodes: usize,
-    pub depth: usize,
-    pub atom_bytes: usize,
-}
-impl Default for Limits {
-    fn default() -> Self {
-        Self {
-            bytes: 32 * 1024 * 1024,
-            nodes: 1_000_000,
-            depth: 64,
-            atom_bytes: 256 * 1024,
-        }
+/// Why a custom pad polygon is unusable, or `None` when it is a bounded simple
+/// polygon that contains the pad's rectangular anchor of the given size.
+pub fn custom_polygon_error(anchor: Point, polygon: &[Point]) -> Option<&'static str> {
+    use pcbcraft_geom::{point_in_polygon, polygon_boundary_distance, polygon_edges};
+    if polygon.len() < 3 || polygon.len() > MAX_PAD_POLYGON_VERTICES {
+        return Some("custom pad polygon needs 3 to 256 vertices");
     }
-}
-#[derive(Clone, Debug)]
-pub(crate) struct Node {
-    pub atom: Option<String>,
-    pub children: Vec<Node>,
-    pub span: Range<usize>,
-}
-impl Node {
-    pub fn name(&self) -> &str {
-        self.children
-            .first()
-            .and_then(|x| x.atom.as_deref())
-            .unwrap_or("")
+    if polygon
+        .iter()
+        .any(|v| !v.x.is_finite() || !v.y.is_finite() || v.x.abs() > 1_000.0 || v.y.abs() > 1_000.0)
+    {
+        return Some("custom pad vertices must be finite and within 1000 mm of the pad origin");
     }
-    pub fn value(&self, n: usize) -> &str {
-        self.children
-            .get(n)
-            .and_then(|x| x.atom.as_deref())
-            .unwrap_or("")
+    if !pcbcraft_geom::polygon_is_simple(polygon) {
+        return Some(
+            "custom pad polygon must be simple, with non-zero area and no repeated vertices",
+        );
     }
-    pub fn child(&self, name: &str) -> Option<&Node> {
-        self.children.iter().find(|x| x.name() == name)
+    if !positive_size(anchor) {
+        return Some("custom pad anchor size must be positive");
     }
-    pub fn field(&self, name: &str) -> &str {
-        self.child(name).map(|x| x.value(1)).unwrap_or("")
+    let (hx, hy) = (anchor.x / 2.0, anchor.y / 2.0);
+    let corners = [
+        Point::new(-hx, -hy),
+        Point::new(hx, -hy),
+        Point::new(hx, hy),
+        Point::new(-hx, hy),
+    ];
+    let on_or_inside =
+        |p: Point| point_in_polygon(p, polygon) || polygon_boundary_distance(p, polygon) < 1e-7;
+    let anchor_inside = corners.iter().all(|c| on_or_inside(*c))
+        && !polygon_edges(&corners).any(|(a, b)| {
+            polygon_edges(polygon).any(|(c, d)| pcbcraft_geom::segments_cross(a, b, c, d))
+        })
+        && !polygon
+            .iter()
+            .any(|v| v.x.abs() < hx - 1e-7 && v.y.abs() < hy - 1e-7);
+    if !anchor_inside {
+        return Some("custom pad anchor rectangle must lie inside the polygon");
     }
-}
-pub(crate) fn parse(text: &str) -> Result<Node, Error> {
-    parse_limits(text, Limits::default())
-}
-pub(crate) fn parse_limits(text: &str, limits: Limits) -> Result<Node, Error> {
-    if text.len() > limits.bytes {
-        return Err(Error::Limit("source byte limit"));
-    }
-    let mut parser = Parser {
-        text,
-        pos: 0,
-        count: 0,
-        limits,
-    };
-    let node = parser.node(0)?;
-    parser.space();
-    if parser.pos != text.len() {
-        return Err(parser.syntax("trailing input"));
-    }
-    Ok(node)
-}
-struct Parser<'a> {
-    text: &'a str,
-    pos: usize,
-    count: usize,
-    limits: Limits,
-}
-
-impl Parser<'_> {
-    fn syntax(&self, message: &str) -> Error {
-        Error::Syntax {
-            offset: self.pos,
-            message: message.to_owned(),
-        }
-    }
-    fn space(&mut self) {
-        while self
-            .text
-            .as_bytes()
-            .get(self.pos)
-            .is_some_and(u8::is_ascii_whitespace)
-        {
-            self.pos += 1;
-        }
-    }
-    fn node(&mut self, depth: usize) -> Result<Node, Error> {
-        self.space();
-        if depth > self.limits.depth {
-            return Err(Error::Limit("nesting depth"));
-        }
-        self.count += 1;
-        if self.count > self.limits.nodes {
-            return Err(Error::Limit("node count"));
-        }
-        let start = self.pos;
-        match self.text.as_bytes().get(self.pos).copied() {
-            Some(b'(') => {
-                self.pos += 1;
-                let mut children = Vec::new();
-                loop {
-                    self.space();
-                    match self.text.as_bytes().get(self.pos) {
-                        Some(b')') => {
-                            self.pos += 1;
-                            break;
-                        }
-                        None => return Err(self.syntax("unclosed list")),
-                        _ => children.push(self.node(depth + 1)?),
-                    }
-                }
-                Ok(Node {
-                    atom: None,
-                    children,
-                    span: start..self.pos,
-                })
-            }
-            Some(b'"') => {
-                self.pos += 1;
-                let mut value = String::new();
-                loop {
-                    let rest = self
-                        .text
-                        .get(self.pos..)
-                        .ok_or_else(|| self.syntax("invalid UTF-8 boundary"))?;
-                    let c = rest
-                        .chars()
-                        .next()
-                        .ok_or_else(|| self.syntax("unclosed string"))?;
-                    self.pos += c.len_utf8();
-                    if c == '"' {
-                        break;
-                    }
-                    if c == '\\' {
-                        let c = self
-                            .text
-                            .get(self.pos..)
-                            .and_then(|s| s.chars().next())
-                            .ok_or_else(|| self.syntax("unclosed escape"))?;
-                        self.pos += c.len_utf8();
-                        value.push(match c {
-                            'n' => '\n',
-                            'r' => '\r',
-                            't' => '\t',
-                            other => other,
-                        });
-                    } else {
-                        value.push(c);
-                    }
-                    if value.len() > self.limits.atom_bytes {
-                        return Err(Error::Limit("atom byte limit"));
-                    }
-                }
-                Ok(Node {
-                    atom: Some(value),
-                    children: Vec::new(),
-                    span: start..self.pos,
-                })
-            }
-            Some(b')') | None => Err(self.syntax("expected expression")),
-            _ => {
-                while self
-                    .text
-                    .as_bytes()
-                    .get(self.pos)
-                    .is_some_and(|b| !b.is_ascii_whitespace() && *b != b'(' && *b != b')')
-                {
-                    self.pos += 1;
-                }
-                if self.pos - start > self.limits.atom_bytes {
-                    return Err(Error::Limit("atom byte limit"));
-                }
-                Ok(Node {
-                    atom: Some(self.text[start..self.pos].to_owned()),
-                    children: Vec::new(),
-                    span: start..self.pos,
-                })
-            }
-        }
-    }
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn byte_node_depth_and_atom_budgets() {
-        let defaults = Limits::default();
-        assert!(matches!(
-            parse_limits(
-                "(a)",
-                Limits {
-                    bytes: 2,
-                    ..defaults
-                }
-            ),
-            Err(Error::Limit(_))
-        ));
-        assert!(matches!(
-            parse_limits(
-                "(a b c)",
-                Limits {
-                    nodes: 3,
-                    ..defaults
-                }
-            ),
-            Err(Error::Limit(_))
-        ));
-        assert!(matches!(
-            parse_limits(
-                "((a))",
-                Limits {
-                    depth: 1,
-                    ..defaults
-                }
-            ),
-            Err(Error::Limit(_))
-        ));
-        assert!(matches!(
-            parse_limits(
-                "(abcd)",
-                Limits {
-                    atom_bytes: 3,
-                    ..defaults
-                }
-            ),
-            Err(Error::Limit(_))
-        ));
-        assert!(matches!(
-            parse_limits(
-                "(\"abcd\")",
-                Limits {
-                    atom_bytes: 3,
-                    ..defaults
-                }
-            ),
-            Err(Error::Limit(_))
-        ));
+    use crate::Point;
+
+    fn valid_polygon() -> Vec<Point> {
+        vec![
+            Point::new(-2.0, -2.0),
+            Point::new(2.0, -2.0),
+            Point::new(2.0, 2.0),
+            Point::new(-2.0, 2.0),
+        ]
     }
+
+    fn anchor() -> Point {
+        Point::new(1.0, 1.0)
+    }
+
     #[test]
-    fn unicode_escaped_strings_and_malformed_input() -> Result<(), Error> {
-        let tree = parse("(name \"µΩ\\\"\\n\")")?;
-        assert_eq!(tree.value(1), "µΩ\"\n");
-        for input in ["(\"unterminated)", "(\"escape\\", "(a) (b)", ")"] {
-            assert!(parse(input).is_err());
+    fn custom_polygon_error_valid_returns_none() {
+        assert_eq!(custom_polygon_error(anchor(), &valid_polygon()), None);
+    }
+
+    #[test]
+    fn custom_polygon_error_too_few_vertices() {
+        let poly = vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)];
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("3 to 256 vertices"));
+    }
+
+    #[test]
+    fn custom_polygon_error_too_many_vertices() {
+        let mut poly = Vec::with_capacity(300);
+        for i in 0..300 {
+            let angle = 2.0 * std::f64::consts::PI * (i as f64 / 300.0);
+            poly.push(Point::new(
+                2.0 * angle.cos(),
+                2.0 * angle.sin(),
+            ));
         }
-        Ok(())
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("3 to 256 vertices"));
+    }
+
+    #[test]
+    fn custom_polygon_error_non_finite_coordinates() {
+        let poly = vec![
+            Point::new(f64::NAN, 0.0),
+            Point::new(1.0, 1.0),
+            Point::new(1.0, -1.0),
+        ];
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("finite"));
+    }
+
+    #[test]
+    fn custom_polygon_error_coordinates_out_of_range() {
+        let poly = vec![
+            Point::new(-2000.0, -2000.0),
+            Point::new(2000.0, -2000.0),
+            Point::new(2000.0, 2000.0),
+            Point::new(-2000.0, 2000.0),
+        ];
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("1000 mm"));
+    }
+
+    #[test]
+    fn custom_polygon_error_self_intersecting() {
+        // Bow-tie shape (self-intersecting)
+        let poly = vec![
+            Point::new(-2.0, -2.0),
+            Point::new(2.0, 2.0),
+            Point::new(-2.0, 2.0),
+            Point::new(2.0, -2.0),
+        ];
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("simple"));
+    }
+
+    #[test]
+    fn custom_polygon_error_non_positive_anchor() {
+        let poly = valid_polygon();
+        let bad_anchor = Point::new(0.0, 1.0);
+        let result = custom_polygon_error(bad_anchor, &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("positive"));
+    }
+
+    #[test]
+    fn custom_polygon_error_anchor_outside_polygon() {
+        let poly = vec![
+            Point::new(-1.0, -1.0),
+            Point::new(1.0, -1.0),
+            Point::new(1.0, 1.0),
+            Point::new(-1.0, 1.0),
+        ];
+        let big_anchor = Point::new(4.0, 4.0);
+        let result = custom_polygon_error(big_anchor, &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("inside"));
+    }
+
+    #[test]
+    fn custom_polygon_error_repeated_vertices() {
+        let poly = vec![
+            Point::new(-2.0, -2.0),
+            Point::new(2.0, -2.0),
+            Point::new(2.0, -2.0),
+            Point::new(2.0, 2.0),
+            Point::new(-2.0, 2.0),
+        ];
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("repeated vertices"));
+    }
+
+    #[test]
+    fn custom_polygon_error_zero_area() {
+        // Collinear points
+        let poly = vec![
+            Point::new(-2.0, 0.0),
+            Point::new(0.0, 0.0),
+            Point::new(2.0, 0.0),
+        ];
+        let result = custom_polygon_error(anchor(), &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("non-zero area"));
+    }
+
+    #[test]
+    fn custom_polygon_error_anchor_edge_intersects() {
+        // Polygon that the anchor rectangle's edge crosses
+        let poly = vec![
+            Point::new(-3.0, -3.0),
+            Point::new(3.0, -3.0),
+            Point::new(3.0, 3.0),
+            Point::new(-3.0, 3.0),
+        ];
+        // Anchor that extends outside the polygon on one edge
+        let anchor = Point::new(8.0, 1.0);
+        let result = custom_polygon_error(anchor, &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("inside"));
+    }
+
+    #[test]
+    fn custom_polygon_error_vertex_inside_anchor() {
+        // A vertex of the polygon lies inside the anchor rectangle
+        let poly = vec![
+            Point::new(-3.0, -3.0),
+            Point::new(3.0, -3.0),
+            Point::new(3.0, 3.0),
+            Point::new(-3.0, 3.0),
+            Point::new(0.0, 0.0),
+        ];
+        let anchor = Point::new(2.0, 2.0);
+        let result = custom_polygon_error(anchor, &poly);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("inside"));
+    }
+
+    #[test]
+    fn custom_polygon_error_empty_polygon() {
+        let result = custom_polygon_error(anchor(), &[]);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("3 to 256 vertices"));
     }
 }
