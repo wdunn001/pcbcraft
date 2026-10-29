@@ -1,0 +1,16 @@
+name: WinGet Package
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit to WinGet
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: tangency-labs.pcbcraft
+          token: ${{ secrets.WINGET_TOKEN }}
+          installers-regex: "\\.msi$"

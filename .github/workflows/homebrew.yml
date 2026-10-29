@@ -1,0 +1,18 @@
+name: Homebrew Formula
+
+on:
+  release:
+    types: [released]
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bump Homebrew formula
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          formula-name: pcbcraft
+          homebrew-tap: tangency-labs/homebrew-pcbcraft
+          tag: ${{ github.ref }}
+        env:
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_BUMP_TOKEN }}
