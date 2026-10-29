@@ -609,6 +609,7 @@ pub fn commands() -> Vec<CommandSpec> {
                 }),
                 &["points"],
             ),
+        ),
         (
             "wire.split",
             "Split a drawn wire into two at a point on one of its segments",
