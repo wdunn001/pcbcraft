@@ -22635,6 +22635,8 @@ mod tests {
             None,
         )?;
         assert_eq!(summary["result"]["format"], "board");
+        assert!(summary["result"]["notices"].is_array());
+        assert!(summary["result"]["layers"].as_u64().is_some_and(|n| n >= 2));
         assert!(
             summary["result"]["footprints"]
                 .as_u64()

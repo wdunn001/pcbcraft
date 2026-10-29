@@ -178,6 +178,7 @@ struct ImportCtx {
     origin: Point,
     edge: Vec<EdgePiece>,
     edge_circles: Vec<(Point, Point)>,
+    outline_src: Vec<EdgePiece>,
     src: ImportCounts,
     spans: BTreeSet<(u8, u8)>,
     unassigned: Option<Id>,
@@ -200,6 +201,7 @@ impl ImportCtx {
             origin: Point::default(),
             edge: Vec::new(),
             edge_circles: Vec::new(),
+            outline_src: Vec::new(),
             src: ImportCounts::default(),
             spans: BTreeSet::new(),
             unassigned: None,
@@ -332,20 +334,30 @@ impl ImportCtx {
         }
         self.src.nets = names.len();
         self.src.layers = self.copper.len();
-        // Origin: top-left of the edge pieces, else of all footprints.
+        self.build_outline();
+        // Origin: top-left of the outline, else of all footprints.
         let mut min: Option<Point> = None;
-        for piece in &self.edge {
-            grow_min(&mut min, piece.a);
-            grow_min(&mut min, piece.b);
-            if let Some(m) = piece.mid {
-                for q in arc_samples(piece.a, m, piece.b) {
-                    grow_min(&mut min, q);
-                }
+        if !self.outline_src.is_empty() {
+            let points: Vec<Point> = self.outline_src.iter().map(|p| p.a).collect();
+            let arcs: Vec<Option<Point>> = self.outline_src.iter().map(|p| p.mid).collect();
+            if let Some((lo, _)) = pcbcraft_doc::outline_extent(&points, &arcs) {
+                grow_min(&mut min, lo);
             }
         }
-        for (c, e) in &self.edge_circles {
-            let r = c.distance(*e);
-            grow_min(&mut min, Point::new(c.x - r, c.y - r));
+        if self.outline_src.is_empty() {
+            for piece in &self.edge {
+                grow_min(&mut min, piece.a);
+                grow_min(&mut min, piece.b);
+                if let Some(m) = piece.mid {
+                    for q in arc_samples(piece.a, m, piece.b) {
+                        grow_min(&mut min, q);
+                    }
+                }
+            }
+            for (c, e) in &self.edge_circles {
+                let r = c.distance(*e);
+                grow_min(&mut min, Point::new(c.x - r, c.y - r));
+            }
         }
         if min.is_none() {
             for child in &root.children {
@@ -693,7 +705,14 @@ impl ImportCtx {
         let mut grow = |p: Point| {
             max = Point::new(max.x.max(p.x), max.y.max(p.y));
         };
-        for piece in &self.edge {
+        if !self.outline_src.is_empty() {
+            let points: Vec<Point> = self.outline_src.iter().map(|p| p.a).collect();
+            let arcs: Vec<Option<Point>> = self.outline_src.iter().map(|p| p.mid).collect();
+            if let Some((_, hi)) = pcbcraft_doc::outline_extent(&points, &arcs) {
+                grow(Point::new(hi.x - self.origin.x, hi.y - self.origin.y));
+            }
+        }
+        for piece in self.edge.iter().filter(|_| self.outline_src.is_empty()) {
             grow(Point::new(
                 piece.a.x - self.origin.x,
                 piece.a.y - self.origin.y,
@@ -708,7 +727,7 @@ impl ImportCtx {
                 }
             }
         }
-        for (c, e) in &self.edge_circles {
+        for (c, e) in self.edge_circles.iter().filter(|_| self.outline_src.is_empty()) {
             let r = c.distance(*e);
             grow(Point::new(c.x + r - self.origin.x, c.y + r - self.origin.y));
         }
@@ -717,7 +736,9 @@ impl ImportCtx {
     }
 
     /// Chain edge pieces into closed loops: the largest becomes the outline.
-    fn finish_outline(&mut self, board: &mut pcbcraft_doc::Board) {
+    /// Chain the edge pieces into loops and keep the largest as the outline,
+    /// still in source coordinates.
+    fn build_outline(&mut self) {
         let mut pieces: Vec<EdgePiece> = self
             .edge
             .iter()
@@ -829,6 +850,16 @@ impl ImportCtx {
                 "board outline has more than 64 edge pieces; the board is a rectangle",
                 &format!("{} pieces", merged.len()),
             );
+            return;
+        }
+        self.outline_src = merged;
+    }
+
+    /// Shift the kept outline to the origin and give it to the board when the
+    /// model accepts it.
+    fn finish_outline(&mut self, board: &mut pcbcraft_doc::Board) {
+        let merged = std::mem::take(&mut self.outline_src);
+        if merged.is_empty() {
             return;
         }
         let points: Vec<Point> = merged.iter().map(|p| self.shift(p.a)).collect();
@@ -1037,8 +1068,32 @@ impl ImportCtx {
         let value = property(node, "Value")
             .or_else(|| fp_text(node, "value"))
             .unwrap_or_default();
-        let slice = &self.source[node.span.clone()];
-        let read = read_footprint(slice);
+        let slice = self.source[node.span.clone()].to_owned();
+        let mut read = read_footprint(&slice);
+        if read.is_err() {
+            // Retry with the pads, model and header only: artwork the reader
+            // cannot parse must not cost the part its pads.
+            let mut reduced = format!("(footprint \"{}\"\n", node.value(1).replace('"', ""));
+            for child in &node.children {
+                if child.atom.is_none()
+                    && matches!(
+                        child.name(),
+                        "pad" | "model" | "layer" | "descr" | "tags" | "attr"
+                    )
+                {
+                    reduced.push_str(&self.source[child.span.clone()]);
+                    reduced.push('\n');
+                }
+            }
+            reduced.push(')');
+            if let Ok(def) = read_footprint(&reduced) {
+                self.notice(
+                    "footprint artwork that could not be read was dropped, pads kept",
+                    &reference,
+                );
+                read = Ok(def);
+            }
+        }
         let pad_nodes: Vec<&Node> = node.children.iter().filter(|c| c.name() == "pad").collect();
         if pad_nodes.is_empty() {
             self.notice(
@@ -1061,6 +1116,7 @@ impl ImportCtx {
                         .iter()
                         .filter(|u| {
                             ![
+                                "at",
                                 "uuid",
                                 "path",
                                 "sheetname",
@@ -1611,7 +1667,7 @@ impl ImportCtx {
             }
         }
         if layers.is_empty() {
-            self.notice("zones on no copper layer were skipped", &names.join(" "));
+            self.notice("zones and keepouts on no copper layer were skipped", &names.join(" "));
             return;
         }
         let polygon = node.child("polygon");

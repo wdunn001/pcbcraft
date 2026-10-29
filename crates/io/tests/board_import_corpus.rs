@@ -156,3 +156,48 @@ fn corpus_schematics_import_without_panic() {
         }
     }
 }
+
+/// Mutates one corpus board at random and requires that the reader never
+/// panics. Runs `PCBCRAFT_FUZZ_ROUNDS` rounds (default 50).
+#[test]
+fn corpus_mutations_never_panic() {
+    let Ok(root) = std::env::var("PCBCRAFT_OPENDRONE_DIR") else {
+        eprintln!("PCBCRAFT_OPENDRONE_DIR unset; skipping corpus mutations");
+        return;
+    };
+    let rounds: u64 = std::env::var("PCBCRAFT_FUZZ_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50);
+    let files = board_files(Path::new(&root));
+    let Some(path) = files.iter().find(|p| p.to_string_lossy().contains("OpenRX-Lite.kicad_pcb"))
+    else {
+        return;
+    };
+    let Ok(base) = std::fs::read(path) else { return };
+    let mut state: u64 = 0x1234_5678;
+    let mut next = move || {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (state >> 33) as usize
+    };
+    for _ in 0..rounds {
+        let mut bytes = base.clone();
+        for _ in 0..(1 + next() % 8) {
+            let at = next() % bytes.len();
+            match next() % 5 {
+                0 => {
+                    bytes.remove(at);
+                }
+                1 => bytes.insert(at, b'('),
+                2 => bytes.insert(at, b')'),
+                3 => {
+                    let end = (at + 1 + next() % 200).min(bytes.len());
+                    bytes.drain(at..end);
+                }
+                _ => bytes[at] = b"09-.\"x"[next() % 6],
+            }
+        }
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let _ = pcbcraft_io::read_board_interchange_report(&text);
+    }
+}

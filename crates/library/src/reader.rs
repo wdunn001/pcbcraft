@@ -426,8 +426,10 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 return Err(invalid("invalid reference point size"));
             }
         } else if child.name() == "pad" {
+            // A drill record with an offset but no diameter drills nothing.
             let drill = child
                 .child("drill")
+                .filter(|d| !d.value(1).is_empty())
                 .map(|d| {
                     let oval = d.value(1) == "oval";
                     let x = num(d.value(if oval { 2 } else { 1 }))?;
