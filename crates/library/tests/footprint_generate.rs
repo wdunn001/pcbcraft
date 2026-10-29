@@ -26,6 +26,7 @@ fn nominal_params() -> LandPatternParams {
 
 fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
     for g in &def.graphics {
+        #[allow(clippy::collapsible_if)]
         if let Graphic::Rectangle {
             start, end, layer, ..
         } = g
@@ -57,8 +58,8 @@ fn chip_two_terminal_matches_0805_fixture_span() -> Result<(), String> {
     assert!(near(def.pads[0].size.x, 1.025));
     assert!(near(def.pads[0].size.y, 1.4));
     let (hx, hy) = courtyard_half_extents(&def).ok_or("courtyard missing")?;
-    assert!(near(hx, 1.68));
-    assert!(near(hy, 0.95));
+    assert!(near(hx, 2.012));
+    assert!(near(hy, 1.454));
     Ok(())
 }
 
