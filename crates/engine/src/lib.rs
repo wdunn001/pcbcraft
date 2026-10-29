@@ -4,6 +4,7 @@ pub mod library;
 pub mod profiles;
 pub mod recents;
 mod route;
+mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -582,7 +583,6 @@ pub fn commands() -> Vec<CommandSpec> {
                 }),
                 &["points"],
             ),
-        ),
         (
             "wire.split",
             "Split a drawn wire into two at a point on one of its segments",
@@ -841,6 +841,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "hole.slot",
+            "Route an unplated mounting slot between two centres: width is the drill diameter, length runs centre to centre plus that width",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
+            ),
+        ),
+        (
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
@@ -937,6 +945,35 @@ pub fn commands() -> Vec<CommandSpec> {
                 json!({"segment":{"type":"integer","minimum":0,"description":"outline edge index"},"at":{"type":"number","description":"distance along the edge to the notch middle, millimetres"},"width":{"type":"number","exclusiveMinimum":0,"maximum":50,"description":"notch opening along the edge, millimetres"},"depth":{"type":"number","exclusiveMinimum":0,"maximum":25,"description":"how far the notch cuts in, millimetres"}}),
                 &["segment", "at", "width", "depth"],
             ),
+        ),
+        (
+            "board.datum_add",
+            "Add a named mounting datum for enclosure tools, at a position or at the centre of a drilled hole it then follows",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32,"description":"letters, digits, underscore or hyphen, unique ignoring case"},"position":point_schema(),"hole":id_schema()}),
+                &["name"],
+            ),
+        ),
+        (
+            "board.datum_move",
+            "Move a datum to a new position; a datum tied to a hole is released from it",
+            schema(
+                json!({"id":id_schema(),"position":point_schema()}),
+                &["id", "position"],
+            ),
+        ),
+        (
+            "board.datum_rename",
+            "Rename a datum",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string","minLength":1,"maxLength":32}}),
+                &["id", "name"],
+            ),
+        ),
+        (
+            "board.datum_remove",
+            "Remove a datum",
+            schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
             "via.place",
@@ -1064,6 +1101,14 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.unroute",
             "Rip up every track and via on the board in one undo step, leaving pads, zones, text and all nets' connectivity in place",
             schema(json!({}), &[]),
+        ),
+        (
+            "track.cleanup",
+            "Remove dangling track stubs, merge collinear same-net segments on one layer, and drop zero-length pieces in one undo step",
+            schema(
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &[],
+            ),
         ),
         (
             "board.resize",
@@ -1483,11 +1528,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "net.impedance",
-            "Report the approximate single-ended impedance of each routed net from its widest track and the recorded stackup; with a target ohm value also report the width that would meet it",
-            schema(json!({"net":id_schema(),"target":{"type":"number"}}), &[]),
-        ),
-        (
             "board.bounds",
             "Report the bounding box in millimetres of the board outline and of placed objects, overall and per copper side, from object anchors, pad and via extents and zone outlines",
             schema(json!({}), &[]),
@@ -1768,6 +1808,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "output_job.package",
+            "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+                &["path"],
+            ),
+        ),
+        (
             "variant.create",
             "Define a named assembly variant, optionally with a note and an initial set of component ids to leave unpopulated",
             schema(
@@ -1914,6 +1962,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(tuning::commands())
         .collect()
 }
 
@@ -2021,7 +2070,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with multi-vertex schematic wires committed in one step through wire.place so endpoint pins join a resolved net, ambiguous pin nets are refused with candidate names, and a tee can split an existing wire and drop a junction label, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with multi-vertex schematic wires committed in one step through wire.place so endpoint pins join a resolved net, ambiguous pin nets are refused with candidate names, and a tee can split an existing wire and drop a junction label, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; length-match groups over several nets reporting skew, a meander tuner that replaces one straight track with a serpentine to reach a target net length within a tolerance, and Hammerstad and Jensen microstrip, coupled microstrip and stripline impedance estimates with width solving; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, or as one package zip that carries a manifest naming every file, its export kind and the job that produced it, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
     }
     /// The 3D mesh of the current board, without changing the design. `layers`
     /// limits the parts built (board, copper, mask, silk, bodies); `geometry`
@@ -2121,16 +2170,141 @@ impl Session {
 fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
 }
-/// Approximate single-ended microstrip impedance in ohms, widths and heights
-/// in millimetres, assuming a standard 35 um copper thickness.
-fn microstrip_ohms(width: f64, height: f64, er: f64) -> f64 {
-    const COPPER: f64 = 0.035;
-    if width <= height {
-        (87.0 / (er + 1.41).sqrt()) * (5.98 * height / (0.8 * width + COPPER)).ln()
-    } else {
-        let ratio = width / height;
-        (120.0 * std::f64::consts::PI / er.sqrt()) / (ratio + 1.393 + 0.667 * (ratio + 1.444).ln())
+
+/// The kinds a package runs when the caller names none: the whole
+/// fabrication bundle, the bill of materials and the placement file.
+const PACKAGE_KINDS: [&str; 3] = ["bom", "gerbers", "placement"];
+
+/// Refuse a kind list longer than the schema allows or naming a kind this
+/// build cannot render, so an output job and a package refuse the same input.
+fn check_export_kinds(kinds: &[String]) -> Result<(), Error> {
+    if kinds.len() > pcbcraft_doc::MAX_OUTPUT_KINDS {
+        return Err(Error::Invalid(format!(
+            "output jobs list at most {} export kinds",
+            pcbcraft_doc::MAX_OUTPUT_KINDS
+        )));
     }
+    if kinds
+        .iter()
+        .any(|k| !pcbcraft_doc::OUTPUT_KINDS.contains(&k.as_str()))
+    {
+        return Err(Error::Invalid("output jobs list known export kinds".into()));
+    }
+    Ok(())
+}
+
+/// Render one export kind in memory: every file it writes, under the name it
+/// is written with. `creation` pins the date the Gerber job file records, so a
+/// package comes out byte-identical between runs, and `variant` picks the
+/// assembly variant the bill of materials prints.
+fn render_kind(
+    p: &Project,
+    kind: &str,
+    creation: Option<&str>,
+    variant: Option<&str>,
+    skipped: &mut Vec<String>,
+) -> Result<Vec<(String, Vec<u8>)>, Error> {
+    let mut out: Vec<(String, Vec<u8>)> = Vec::new();
+    match kind {
+        "gerbers" => {
+            let files = match creation {
+                Some(stamp) => pcbcraft_io::gerber_files_at(p, stamp)?,
+                None => pcbcraft_io::gerber_files(p)?,
+            };
+            for (name, text) in files {
+                out.push((name, text.into_bytes()));
+            }
+        }
+        "netlist" => out.push((
+            "pcb-netlist.net".into(),
+            pcbcraft_io::netlist_text(p)?.into_bytes(),
+        )),
+        "bom" => out.push((
+            "bom.csv".into(),
+            pcbcraft_io::bom_csv(p, &[], variant)?.into_bytes(),
+        )),
+        "placement" => out.push((
+            "placement.txt".into(),
+            pcbcraft_io::placement_text(p)?.into_bytes(),
+        )),
+        "dxf" => out.push(("pcb.dxf".into(), pcbcraft_io::dxf_board(p)?.into_bytes())),
+        "cmp" => out.push(("pcb.cmp".into(), pcbcraft_io::cmp_text(p)?.into_bytes())),
+        "idf" => out.push(("board.idf".into(), pcbcraft_io::idf_board(p)?.into_bytes())),
+        "vrml" => out.push(("board.wrl".into(), pcbcraft_io::vrml_board(p)?.into_bytes())),
+        "step" => out.push((
+            "board.step".into(),
+            pcbcraft_io::step_board(p)?.into_bytes(),
+        )),
+        "pdf" => out.push(("board.pdf".into(), pcbcraft_io::pdf_document(p, "pcb")?)),
+        "svg" => out.push(("board.svg".into(), pcbcraft_io::svg(p, "pcb")?.into_bytes())),
+        "ipc2581" => out.push((
+            "board.xml".into(),
+            pcbcraft_io::ipc2581_text(p)?.into_bytes(),
+        )),
+        "dsn" => out.push(("pcb.dsn".into(), pcbcraft_io::specctra_dsn(p)?.into_bytes())),
+        "ipc356" => out.push((
+            "test.brd".into(),
+            pcbcraft_io::ipc356_netlist(p)?.into_bytes(),
+        )),
+        "gencad" => out.push((
+            "board.gencad".into(),
+            pcbcraft_io::gencad_text(p)?.into_bytes(),
+        )),
+        "hyperlynx" => out.push((
+            "netlist.csv".into(),
+            pcbcraft_io::hyperlynx_csv(p)?.into_bytes(),
+        )),
+        "plot" => out.push((
+            "plot-report.csv".into(),
+            pcbcraft_io::plot_csv(p)?.into_bytes(),
+        )),
+        "report" => out.push((
+            "board-report.txt".into(),
+            pcbcraft_io::report_text(p)?.into_bytes(),
+        )),
+        "ps" => out.push((
+            "pcb.ps".into(),
+            pcbcraft_io::postscript(p, "pcb")?.into_bytes(),
+        )),
+        "odb" => out.push(("board.odb.zip".into(), pcbcraft_io::odb_package(p)?)),
+        "hpgl" => out.push((
+            "board.hpgl".into(),
+            pcbcraft_io::hpgl_plot(p, "pcb")?.into_bytes(),
+        )),
+        "stackup" => out.push((
+            "board-stackup.txt".into(),
+            pcbcraft_io::stackup_text(p)?.into_bytes(),
+        )),
+        "drill_chart" => out.push((
+            "board-drill-tools.csv".into(),
+            pcbcraft_io::drill_chart_csv(p)?.into_bytes(),
+        )),
+        "stats" => out.push((
+            "board-stats.csv".into(),
+            pcbcraft_io::stats_text(p)?.into_bytes(),
+        )),
+        "panel" => {
+            for (name, text) in pcbcraft_io::panel_fabrication_files(p)? {
+                out.push((name, text.into_bytes()));
+            }
+            out.push((
+                "panel-placement.txt".into(),
+                pcbcraft_io::panel_placement_text(p)?.into_bytes(),
+            ));
+        }
+        "layer_plots" => {
+            let plots = pcbcraft_io::drawn_layer_plots(p)?;
+            for (name, text) in plots.files {
+                out.push((name, text.into_bytes()));
+            }
+            skipped.extend(plots.skipped);
+        }
+        "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
+        other => {
+            return Err(Error::Invalid(format!("unknown export kind {other}")));
+        }
+    }
+    Ok(out)
 }
 /// Findings for the checks the designer wrote themselves, shaped like the
 /// built-in ones so they report, group and click through the same way.
@@ -2218,19 +2392,6 @@ fn custom_findings(p: &Project) -> Vec<Value> {
         }
     }
     out
-}
-/// Track width that comes closest to a target impedance, found by bisection.
-fn width_for_ohms(target: f64, height: f64, er: f64) -> f64 {
-    let (mut lo, mut hi) = (0.01f64, 100.0f64);
-    for _ in 0..60 {
-        let mid = (lo + hi) / 2.0;
-        if microstrip_ohms(mid, height, er) > target {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    (lo + hi) / 2.0
 }
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
@@ -2927,6 +3088,14 @@ struct NetUnrouteParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct TrackCleanupParams {
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    layer: Option<Layer>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NetTieParams {
     source: Id,
     target: Id,
@@ -2961,6 +3130,17 @@ struct OutputJobRef {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct OutputJobPackageParams {
+    path: String,
+    #[serde(default)]
+    job: Option<String>,
+    #[serde(default)]
+    kinds: Vec<String>,
+    #[serde(default)]
+    variant: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DxfImportParams {
     path: String,
     #[serde(default)]
@@ -2989,6 +3169,43 @@ struct ViaParams {
     diameter: Option<f64>,
     #[serde(default)]
     drill: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DatumAddParams {
+    name: String,
+    position: Option<Point>,
+    hole: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DatumRenameParams {
+    id: Id,
+    name: String,
+}
+fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Error> {
+    if !pcbcraft_doc::Datum::name_valid(name) {
+        return Err(Error::Invalid(
+            "datum names are 1 to 32 letters, digits, underscores or hyphens".into(),
+        ));
+    }
+    if p.board
+        .datums
+        .iter()
+        .any(|d| Some(d.id) != own && d.name.eq_ignore_ascii_case(name))
+    {
+        return Err(Error::Invalid("datum names must be unique".into()));
+    }
+    Ok(())
+}
+fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
+    if !position.valid() {
+        return Err(Error::Invalid("datum position is out of range".into()));
+    }
+    if !p.board_contains(position) {
+        return Err(Error::Invalid("a datum must lie inside the board".into()));
+    }
+    Ok(())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3542,14 +3759,6 @@ struct StackupParams {
     thickness: Option<f64>,
     #[serde(default)]
     er: Option<f64>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct NetImpedanceParams {
-    #[serde(default)]
-    net: Option<Id>,
-    #[serde(default)]
-    target: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4744,6 +4953,397 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
 }
+
+const TRACK_ENDPOINT_EPS: f64 = 1e-6;
+const TRACK_CLEANUP_MAX_CHANGES: usize = 4096;
+
+fn track_endpoints_near(a: Point, b: Point) -> bool {
+    a.distance(b) <= TRACK_ENDPOINT_EPS
+}
+
+fn track_cleanup_matches(t: &Track, net: Option<Id>, layer: Option<Layer>) -> bool {
+    net.is_none_or(|n| t.net == n) && layer.is_none_or(|l| t.layer == l)
+}
+
+fn pad_touches_track_point(p: &Project, point: Point, net: Id, layer: Layer) -> bool {
+    for footprint in &p.board.footprints {
+        for pad in &footprint.pads {
+            if pad.net != Some(net) {
+                continue;
+            }
+            let on_layer = pad
+                .geometry
+                .as_ref()
+                .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
+                .unwrap_or(layer == Layer::Front);
+            if !on_layer {
+                continue;
+            }
+            let anchor = footprint.pad_position(&pad.number).unwrap_or(pad.offset);
+            if point.distance(anchor) <= pad.bounding_radius() + TRACK_ENDPOINT_EPS {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn via_touches_track_point(p: &Project, point: Point, net: Id) -> bool {
+    p.board.vias.iter().any(|via| {
+        via.net == net && point.distance(via.position) <= via.diameter / 2.0 + TRACK_ENDPOINT_EPS
+    })
+}
+
+fn track_endpoint_touches_tracks(
+    tracks: &[Track],
+    point: Point,
+    net: Id,
+    layer: Layer,
+    skip: Id,
+) -> bool {
+    tracks.iter().any(|track| {
+        track.id != skip
+            && track.net == net
+            && track.layer == layer
+            && (track_endpoints_near(track.start, point) || track_endpoints_near(track.end, point))
+    })
+}
+
+fn track_endpoint_anchored(p: &Project, point: Point, net: Id, layer: Layer, skip: Id) -> bool {
+    track_endpoint_touches_tracks(&p.board.tracks, point, net, layer, skip)
+        || via_touches_track_point(p, point, net)
+        || pad_touches_track_point(p, point, net, layer)
+}
+
+fn track_is_zero_length(track: &Track) -> bool {
+    track.start.distance(track.end) <= TRACK_ENDPOINT_EPS
+}
+
+fn collinear_track_merge_endpoints(a: &Track, b: &Track) -> Option<(Point, Point)> {
+    if a.arc.is_some()
+        || b.arc.is_some()
+        || a.net != b.net
+        || a.layer != b.layer
+        || (a.width - b.width).abs() > TRACK_ENDPOINT_EPS
+    {
+        return None;
+    }
+    let endpoints = [a.start, a.end];
+    let shared = endpoints
+        .iter()
+        .find(|p| track_endpoints_near(**p, b.start) || track_endpoints_near(**p, b.end))?;
+    let far = |track: &Track| -> Option<Point> {
+        if track_endpoints_near(track.start, *shared) {
+            Some(track.end)
+        } else if track_endpoints_near(track.end, *shared) {
+            Some(track.start)
+        } else {
+            None
+        }
+    };
+    let fa = far(a)?;
+    let fb = far(b)?;
+    let ux = fa.x - shared.x;
+    let uy = fa.y - shared.y;
+    let vx = fb.x - shared.x;
+    let vy = fb.y - shared.y;
+    let ul = (ux * ux + uy * uy).sqrt();
+    let vl = (vx * vx + vy * vy).sqrt();
+    if ul <= TRACK_ENDPOINT_EPS || vl <= TRACK_ENDPOINT_EPS {
+        return None;
+    }
+    let cross = (ux / ul) * (vy / vl) - (uy / ul) * (vx / vl);
+    let dot = (ux / ul) * (vx / vl) + (uy / ul) * (vy / vl);
+    if cross.abs() > 1e-9 || dot >= 0.0 {
+        return None;
+    }
+    Some((fa, fb))
+}
+
+fn run_track_cleanup(
+    p: &mut Project,
+    net: Option<Id>,
+    layer: Option<Layer>,
+) -> Result<(usize, usize), Error> {
+    let mut removed = 0usize;
+    let mut merged = 0usize;
+    let bump_removed = |removed: &mut usize| -> Result<(), Error> {
+        *removed = removed.saturating_add(1);
+        if *removed > TRACK_CLEANUP_MAX_CHANGES {
+            return Err(Error::Invalid(
+                "track cleanup would change too many segments at once".into(),
+            ));
+        }
+        Ok(())
+    };
+    let bump_merged = |merged: &mut usize| -> Result<(), Error> {
+        *merged = merged.saturating_add(1);
+        if *merged > TRACK_CLEANUP_MAX_CHANGES {
+            return Err(Error::Invalid(
+                "track cleanup would change too many segments at once".into(),
+            ));
+        }
+        Ok(())
+    };
+    p.board.tracks.retain(|track| {
+        if !track_cleanup_matches(track, net, layer) || !track_is_zero_length(track) {
+            return true;
+        }
+        bump_removed(&mut removed).is_err()
+    });
+    let mut idx = 0usize;
+    while idx < p.board.tracks.len() {
+        let track = p.board.tracks[idx].clone();
+        if !track_cleanup_matches(&track, net, layer) {
+            idx += 1;
+            continue;
+        }
+        let anchored_start =
+            track_endpoint_anchored(p, track.start, track.net, track.layer, track.id);
+        let anchored_end = track_endpoint_anchored(p, track.end, track.net, track.layer, track.id);
+        if anchored_start && anchored_end {
+            idx += 1;
+        } else {
+            bump_removed(&mut removed)?;
+            p.board.tracks.remove(idx);
+        }
+    }
+    loop {
+        let mut merged_pair = false;
+        let len = p.board.tracks.len();
+        'search: for i in 0..len {
+            for j in (i + 1)..len {
+                let (Some(a), Some(b)) = (
+                    p.board.tracks.get(i).cloned(),
+                    p.board.tracks.get(j).cloned(),
+                ) else {
+                    continue;
+                };
+                if !track_cleanup_matches(&a, net, layer) || !track_cleanup_matches(&b, net, layer)
+                {
+                    continue;
+                }
+                let Some((start, end)) = collinear_track_merge_endpoints(&a, &b) else {
+                    continue;
+                };
+                bump_merged(&mut merged)?;
+                p.board.tracks[i].start = start;
+                p.board.tracks[i].end = end;
+                p.board.tracks[i].arc = None;
+                p.board.tracks.remove(j);
+                merged_pair = true;
+                break 'search;
+            }
+        }
+        if !merged_pair {
+            break;
+        }
+    }
+    if removed == 0 && merged == 0 {
+        return Err(Error::Invalid(
+            "the board has no track cleanup to perform".into(),
+        ));
+    }
+    Ok((removed, merged))
+}
+const WIRE_ENDPOINT_SNAP: f64 = 0.01;
+
+fn validate_drawn_wire_points(points: &[Point]) -> Result<(), Error> {
+    if points.len() < 2 || points.len() > 256 {
+        return Err(Error::Invalid("wire needs 2–256 vertices".into()));
+    }
+    if !points.iter().all(|p| p.valid()) {
+        return Err(Error::Invalid("wire vertex is out of range".into()));
+    }
+    if points.windows(2).any(|w| w[0] == w[1]) {
+        return Err(Error::Invalid("wire repeats a vertex".into()));
+    }
+    Ok(())
+}
+
+fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Result<Id, Error> {
+    if !at.valid() {
+        return Err(Error::Invalid("split point is out of range".into()));
+    }
+    let index = p
+        .drawn_wires
+        .iter()
+        .position(|w| w.id == id)
+        .ok_or_else(missing)?;
+    let wire = &p.drawn_wires[index];
+    let segment = (0..wire.points.len() - 1)
+        .find(|i| {
+            let (from, to) = (wire.points[*i], wire.points[*i + 1]);
+            at.distance(from) >= WIRE_ENDPOINT_SNAP
+                && at.distance(to) >= WIRE_ENDPOINT_SNAP
+                && pcbcraft_geom::point_segment(at, from, to) <= 1e-4
+        })
+        .ok_or_else(|| {
+            Error::Invalid("split point must lie on a wire segment, clear of its vertices".into())
+        })?;
+    let tail_id = allocate(next)?;
+    let net = wire.net;
+    let mut head = wire.points[..=segment].to_vec();
+    head.push(at);
+    let mut tail = vec![at];
+    tail.extend_from_slice(&wire.points[segment + 1..]);
+    p.drawn_wires[index].points = head;
+    p.drawn_wires.push(DrawnWire {
+        id: tail_id,
+        net,
+        points: tail,
+    });
+    Ok(tail_id)
+}
+
+fn merge_net_into(p: &mut Project, source: Id, target: Id) -> Result<(), Error> {
+    if source == target {
+        return Err(Error::Invalid("a net cannot be merged into itself".into()));
+    }
+    if !p.nets.iter().any(|n| n.id == source) || !p.nets.iter().any(|n| n.id == target) {
+        return Err(missing());
+    }
+    for c in p.components.iter_mut() {
+        for pin in c.pins.iter_mut() {
+            if pin.net == Some(source) {
+                pin.net = Some(target);
+            }
+        }
+    }
+    for w in p.drawn_wires.iter_mut() {
+        if w.net == Some(source) {
+            w.net = Some(target);
+        }
+    }
+    for w in p.wires.iter_mut() {
+        if w.net == source {
+            w.net = target;
+        }
+    }
+    for l in p.labels.iter_mut() {
+        if l.net == source {
+            l.net = target;
+        }
+    }
+    for t in p.board.tracks.iter_mut() {
+        if t.net == source {
+            t.net = target;
+        }
+    }
+    for v in p.board.vias.iter_mut() {
+        if v.net == source {
+            v.net = target;
+        }
+    }
+    for z in p.board.zones.iter_mut() {
+        if z.net == source {
+            z.net = target;
+        }
+    }
+    for class in p.net_classes.iter_mut() {
+        if class.nets.contains(&source) {
+            class.nets.retain(|n| *n != source && *n != target);
+            class.nets.push(target);
+            class.nets.sort_unstable();
+            class.nets.dedup();
+        }
+    }
+    for rule in p.board.pair_rules.iter_mut() {
+        if rule.a == source {
+            rule.a = target;
+        }
+        if rule.b == source {
+            rule.b = target;
+        }
+    }
+    p.board.pair_rules.retain(|r| r.a != r.b);
+    p.nets.retain(|n| n.id != source);
+    Ok(())
+}
+
+fn net_label_for_conflict(p: &Project, id: Id) -> Value {
+    p.nets
+        .iter()
+        .find(|n| n.id == id)
+        .map(|n| json!({"id": n.id, "name": n.name}))
+        .unwrap_or_else(|| json!({"id": id, "name": ""}))
+}
+
+fn wire_place_net_conflict(p: &Project, nets: &BTreeSet<Id>) -> Error {
+    let candidates: Vec<Value> = nets
+        .iter()
+        .map(|id| net_label_for_conflict(p, *id))
+        .collect();
+    let body = json!({"code": "net_conflict", "candidates": candidates});
+    let message = match serde_json::to_string(&body) {
+        Ok(text) => text,
+        Err(err) => err.to_string(),
+    };
+    Error::Invalid(message)
+}
+
+fn pin_on_wire_endpoint(p: &Project, pin: &PinRef, point: Point) -> Result<(), Error> {
+    let position = p.pin_position(pin).ok_or_else(missing)?;
+    if position.distance(point) > WIRE_ENDPOINT_SNAP {
+        return Err(Error::Invalid(
+            "pin must lie on the first or last wire vertex".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn allocate_auto_net(p: &mut Project, next: &mut Id) -> Result<Id, Error> {
+    let id = allocate(next)?;
+    let mut index = p.nets.len() + 1;
+    while p.nets.iter().any(|n| n.name == format!("N${index}")) {
+        index += 1;
+    }
+    p.nets.push(Net {
+        id,
+        name: format!("N${index}"),
+        ..Default::default()
+    });
+    Ok(id)
+}
+
+fn resolve_wire_place_net(
+    p: &mut Project,
+    next: &mut Id,
+    explicit: Option<Id>,
+    pins: &[PinRef],
+    tee_net: Option<Id>,
+) -> Result<Option<Id>, Error> {
+    if explicit.is_some_and(|net| !p.nets.iter().any(|n| n.id == net)) {
+        return Err(missing());
+    }
+    let mut assigned = BTreeSet::new();
+    for pin in pins {
+        if let Some(net) = p.pin(pin).ok_or_else(missing)?.net {
+            assigned.insert(net);
+        }
+    }
+    if assigned.len() > 1 && explicit.is_none() {
+        return Err(wire_place_net_conflict(p, &assigned));
+    }
+    let resolved = if let Some(net) = explicit {
+        net
+    } else if assigned.len() == 1 {
+        *assigned.iter().next().ok_or_else(missing)?
+    } else if let Some(net) = tee_net {
+        net
+    } else if !pins.is_empty() {
+        allocate_auto_net(p, next)?
+    } else {
+        return Ok(None);
+    };
+    for source in assigned {
+        if source != resolved {
+            merge_net_into(p, source, resolved)?;
+        }
+    }
+    Ok(Some(resolved))
+}
+
 fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
     p.board
         .diff_pairs
@@ -5061,204 +5661,6 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
-const WIRE_ENDPOINT_SNAP: f64 = 0.01;
-
-fn validate_drawn_wire_points(points: &[Point]) -> Result<(), Error> {
-    if points.len() < 2 || points.len() > 256 {
-        return Err(Error::Invalid("wire needs 2–256 vertices".into()));
-    }
-    if !points.iter().all(|p| p.valid()) {
-        return Err(Error::Invalid("wire vertex is out of range".into()));
-    }
-    if points.windows(2).any(|w| w[0] == w[1]) {
-        return Err(Error::Invalid("wire repeats a vertex".into()));
-    }
-    Ok(())
-}
-
-fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Result<Id, Error> {
-    if !at.valid() {
-        return Err(Error::Invalid("split point is out of range".into()));
-    }
-    let index = p
-        .drawn_wires
-        .iter()
-        .position(|w| w.id == id)
-        .ok_or_else(missing)?;
-    let wire = &p.drawn_wires[index];
-    let segment = (0..wire.points.len() - 1)
-        .find(|i| {
-            let (from, to) = (wire.points[*i], wire.points[*i + 1]);
-            at.distance(from) >= WIRE_ENDPOINT_SNAP
-                && at.distance(to) >= WIRE_ENDPOINT_SNAP
-                && pcbcraft_geom::point_segment(at, from, to) <= 1e-4
-        })
-        .ok_or_else(|| {
-            Error::Invalid("split point must lie on a wire segment, clear of its vertices".into())
-        })?;
-    let tail_id = allocate(next)?;
-    let net = wire.net;
-    let mut head = wire.points[..=segment].to_vec();
-    head.push(at);
-    let mut tail = vec![at];
-    tail.extend_from_slice(&wire.points[segment + 1..]);
-    p.drawn_wires[index].points = head;
-    p.drawn_wires.push(DrawnWire {
-        id: tail_id,
-        net,
-        points: tail,
-    });
-    Ok(tail_id)
-}
-
-fn merge_net_into(p: &mut Project, source: Id, target: Id) -> Result<(), Error> {
-    if source == target {
-        return Err(Error::Invalid("a net cannot be merged into itself".into()));
-    }
-    if !p.nets.iter().any(|n| n.id == source) || !p.nets.iter().any(|n| n.id == target) {
-        return Err(missing());
-    }
-    for c in p.components.iter_mut() {
-        for pin in c.pins.iter_mut() {
-            if pin.net == Some(source) {
-                pin.net = Some(target);
-            }
-        }
-    }
-    for w in p.drawn_wires.iter_mut() {
-        if w.net == Some(source) {
-            w.net = Some(target);
-        }
-    }
-    for w in p.wires.iter_mut() {
-        if w.net == source {
-            w.net = target;
-        }
-    }
-    for l in p.labels.iter_mut() {
-        if l.net == source {
-            l.net = target;
-        }
-    }
-    for t in p.board.tracks.iter_mut() {
-        if t.net == source {
-            t.net = target;
-        }
-    }
-    for v in p.board.vias.iter_mut() {
-        if v.net == source {
-            v.net = target;
-        }
-    }
-    for z in p.board.zones.iter_mut() {
-        if z.net == source {
-            z.net = target;
-        }
-    }
-    for class in p.net_classes.iter_mut() {
-        if class.nets.contains(&source) {
-            class.nets.retain(|n| *n != source && *n != target);
-            class.nets.push(target);
-            class.nets.sort_unstable();
-            class.nets.dedup();
-        }
-    }
-    for rule in p.board.pair_rules.iter_mut() {
-        if rule.a == source {
-            rule.a = target;
-        }
-        if rule.b == source {
-            rule.b = target;
-        }
-    }
-    p.board.pair_rules.retain(|r| r.a != r.b);
-    p.nets.retain(|n| n.id != source);
-    Ok(())
-}
-
-fn net_label_for_conflict(p: &Project, id: Id) -> Value {
-    p.nets
-        .iter()
-        .find(|n| n.id == id)
-        .map(|n| json!({"id": n.id, "name": n.name}))
-        .unwrap_or_else(|| json!({"id": id, "name": ""}))
-}
-
-fn wire_place_net_conflict(p: &Project, nets: &BTreeSet<Id>) -> Error {
-    let candidates: Vec<Value> = nets
-        .iter()
-        .map(|id| net_label_for_conflict(p, *id))
-        .collect();
-    let body = json!({"code": "net_conflict", "candidates": candidates});
-    let message = match serde_json::to_string(&body) {
-        Ok(text) => text,
-        Err(err) => err.to_string(),
-    };
-    Error::Invalid(message)
-}
-
-fn pin_on_wire_endpoint(p: &Project, pin: &PinRef, point: Point) -> Result<(), Error> {
-    let position = p.pin_position(pin).ok_or_else(missing)?;
-    if position.distance(point) > WIRE_ENDPOINT_SNAP {
-        return Err(Error::Invalid(
-            "pin must lie on the first or last wire vertex".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn allocate_auto_net(p: &mut Project, next: &mut Id) -> Result<Id, Error> {
-    let id = allocate(next)?;
-    let mut index = p.nets.len() + 1;
-    while p.nets.iter().any(|n| n.name == format!("N${index}")) {
-        index += 1;
-    }
-    p.nets.push(Net {
-        id,
-        name: format!("N${index}"),
-        ..Default::default()
-    });
-    Ok(id)
-}
-
-fn resolve_wire_place_net(
-    p: &mut Project,
-    next: &mut Id,
-    explicit: Option<Id>,
-    pins: &[PinRef],
-    tee_net: Option<Id>,
-) -> Result<Option<Id>, Error> {
-    if explicit.is_some_and(|net| !p.nets.iter().any(|n| n.id == net)) {
-        return Err(missing());
-    }
-    let mut assigned = BTreeSet::new();
-    for pin in pins {
-        if let Some(net) = p.pin(pin).ok_or_else(missing)?.net {
-            assigned.insert(net);
-        }
-    }
-    if assigned.len() > 1 && explicit.is_none() {
-        return Err(wire_place_net_conflict(p, &assigned));
-    }
-    let resolved = if let Some(net) = explicit {
-        net
-    } else if assigned.len() == 1 {
-        *assigned.iter().next().ok_or_else(missing)?
-    } else if let Some(net) = tee_net {
-        net
-    } else if !pins.is_empty() {
-        allocate_auto_net(p, next)?
-    } else {
-        return Ok(None);
-    };
-    for source in assigned {
-        if source != resolved {
-            merge_net_into(p, source, resolved)?;
-        }
-    }
-    Ok(Some(resolved))
-}
-
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
@@ -5320,6 +5722,9 @@ fn run_command(
     params: &Value,
 ) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = tuning::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -6386,6 +6791,14 @@ fn run_command(
             p.board.vias.retain(|v| v.net != a.net);
             Ok(json!({"net":a.net,"tracks":tracks,"vias":vias}))
         }
+        "track.cleanup" => {
+            let a: TrackCleanupParams = parse(params)?;
+            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+                return Err(missing());
+            }
+            let (removed, merged) = run_track_cleanup(p, a.net, a.layer)?;
+            Ok(json!({"removed": removed, "merged": merged}))
+        }
         "net.tie" => {
             let a: NetTieParams = parse(params)?;
             if a.source == a.target {
@@ -6456,6 +6869,7 @@ fn run_command(
                 }
             }
             p.board.pair_rules.retain(|r| r.a != r.b);
+            tuning::forget_net(p, a.source, Some(a.target));
             p.nets.retain(|n| n.id != a.source);
             Ok(json!({"merged":a.source,"into":a.target,"moved":moved}))
         }
@@ -10243,6 +10657,80 @@ fn run_command(
             hole.diameter = a.diameter;
             Ok(json!({"id":a.id,"diameter":a.diameter}))
         }
+        "board.datum_add" => {
+            let a: DatumAddParams = parse(params)?;
+            check_datum_name(p, &a.name, None)?;
+            if p.board.datums.len() >= pcbcraft_doc::Datum::MAX {
+                return Err(Error::Invalid("a board carries at most 64 datums".into()));
+            }
+            let (position, hole) = match (a.position, a.hole) {
+                (Some(_), Some(_)) | (None, None) => {
+                    return Err(Error::Invalid(
+                        "give either a position or a hole for the datum".into(),
+                    ));
+                }
+                (Some(position), None) => (position, None),
+                (None, Some(hole)) => {
+                    let h = p
+                        .board
+                        .holes
+                        .iter()
+                        .find(|h| h.id == hole)
+                        .ok_or_else(missing)?;
+                    (h.center(), Some(hole))
+                }
+            };
+            check_datum_position(p, position)?;
+            let id = allocate(next)?;
+            p.board.datums.push(pcbcraft_doc::Datum {
+                id,
+                name: a.name,
+                position,
+                hole,
+            });
+            Ok(json!({"id":id,"position":position}))
+        }
+        "board.datum_move" => {
+            let a: Move = parse(params)?;
+            check_datum_position(p, a.position)?;
+            let datum = p
+                .board
+                .datums
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            datum.position = a.position;
+            datum.hole = None;
+            Ok(json!({"id":a.id,"position":a.position}))
+        }
+        "board.datum_rename" => {
+            let a: DatumRenameParams = parse(params)?;
+            check_datum_name(p, &a.name, Some(a.id))?;
+            let datum = p
+                .board
+                .datums
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            datum.name = a.name;
+            let position = datum.position;
+            let position = p
+                .board
+                .datums
+                .iter()
+                .find(|d| d.id == a.id)
+                .map_or(position, |d| p.datum_position(d));
+            Ok(json!({"id":a.id,"position":position}))
+        }
+        "board.datum_remove" => {
+            let a: IdParams = parse(params)?;
+            let before = p.board.datums.len();
+            p.board.datums.retain(|d| d.id != a.id);
+            if p.board.datums.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"id":a.id}))
+        }
         "via.place" => {
             let a: ViaParams = parse(params)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
@@ -11666,50 +12154,6 @@ fn run_command(
             };
             Ok(json!({"steps": steps, "parts": steps.len(), "terminated": terminated}))
         }
-        "net.impedance" => {
-            let a: NetImpedanceParams = parse(params)?;
-            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
-                return Err(missing());
-            }
-            if a.target.is_some_and(|v| !(1.0..=1000.0).contains(&v)) {
-                return Err(Error::Invalid("target must be 1-1000 ohms".into()));
-            }
-            let height = p.board.thickness;
-            let er = p.board.er;
-            let mut rows: Vec<Value> = vec![];
-            for net in &p.nets {
-                if a.net.is_some_and(|id| id != net.id) {
-                    continue;
-                }
-                let width = p
-                    .board
-                    .tracks
-                    .iter()
-                    .filter(|t| t.net == net.id)
-                    .map(|t| t.width)
-                    .fold(0.0f64, f64::max);
-                if width <= 0.0 {
-                    continue;
-                }
-                let ohms = microstrip_ohms(width, height, er);
-                let mut row = json!({
-                    "net": net.id,
-                    "net_name": net.name,
-                    "width": width,
-                    "impedance_ohm": (ohms * 100.0).round() / 100.0,
-                });
-                if let Some(target) = a.target {
-                    row["delta_ohm"] = json!(((ohms - target) * 100.0).round() / 100.0);
-                    row["recommended_width"] =
-                        json!((width_for_ohms(target, height, er) * 1000.0).round() / 1000.0);
-                }
-                rows.push(row);
-            }
-            let count = rows.len();
-            Ok(
-                json!({"rows": rows, "count": count, "dielectric": height, "er": er, "target_ohm": a.target}),
-            )
-        }
         "rules.class_pair_set" => {
             let a: ClassPairSetParams = parse(params)?;
             if a.class_a == a.class_b {
@@ -12642,13 +13086,7 @@ fn run_command(
                     "an output job name must be 1 to 64 bytes".into(),
                 ));
             }
-            if a.kinds.len() > pcbcraft_doc::MAX_OUTPUT_KINDS
-                || a.kinds
-                    .iter()
-                    .any(|k| !pcbcraft_doc::OUTPUT_KINDS.contains(&k.as_str()))
-            {
-                return Err(Error::Invalid("output jobs list known export kinds".into()));
-            }
+            check_export_kinds(&a.kinds)?;
             if p.output_jobs.iter().any(|j| j.name == name) {
                 return Err(Error::Invalid("an output job with that name exists".into()));
             }
@@ -12686,208 +13124,10 @@ fn run_command(
             let mut written: Vec<String> = vec![];
             let mut skipped: Vec<String> = vec![];
             for kind in &job.kinds {
-                match kind.as_str() {
-                    "gerbers" => {
-                        let files = pcbcraft_io::gerber_files(p)?;
-                        for (name, text) in &files {
-                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
-                                .map_err(Error::Invalid)?;
-                            written.push(name.clone());
-                        }
-                    }
-                    "netlist" => {
-                        let text = pcbcraft_io::netlist_text(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("pcb-netlist.net"),
-                            text.as_bytes(),
-                        )
+                for (name, bytes) in render_kind(p, kind, None, None, &mut skipped)? {
+                    pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
                         .map_err(Error::Invalid)?;
-                        written.push("pcb-netlist.net".into());
-                    }
-                    "bom" => {
-                        let text = pcbcraft_io::bom_csv(p, &[], None)?;
-                        pcbcraft_io::atomic_write(&directory.join("bom.csv"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("bom.csv".into());
-                    }
-                    "placement" => {
-                        let text = pcbcraft_io::placement_text(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("placement.txt"),
-                            text.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("placement.txt".into());
-                    }
-                    "dxf" => {
-                        let text = pcbcraft_io::dxf_board(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("pcb.dxf"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("pcb.dxf".into());
-                    }
-                    "cmp" => {
-                        let text = pcbcraft_io::cmp_text(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("pcb.cmp"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("pcb.cmp".into());
-                    }
-                    "idf" => {
-                        let text = pcbcraft_io::idf_board(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("board.idf"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.idf".into());
-                    }
-                    "vrml" => {
-                        let text = pcbcraft_io::vrml_board(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("board.wrl"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.wrl".into());
-                    }
-                    "step" => {
-                        let text = pcbcraft_io::step_board(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("board.step"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.step".into());
-                    }
-                    "pdf" => {
-                        let bytes = pcbcraft_io::pdf_document(p, "pcb")?;
-                        pcbcraft_io::atomic_write(&directory.join("board.pdf"), &bytes)
-                            .map_err(Error::Invalid)?;
-                        written.push("board.pdf".into());
-                    }
-                    "svg" => {
-                        let text = pcbcraft_io::svg(p, "pcb")?;
-                        pcbcraft_io::atomic_write(&directory.join("board.svg"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.svg".into());
-                    }
-                    "ipc2581" => {
-                        let text = pcbcraft_io::ipc2581_text(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("board.xml"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.xml".into());
-                    }
-                    "dsn" => {
-                        let text = pcbcraft_io::specctra_dsn(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("pcb.dsn"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("pcb.dsn".into());
-                    }
-                    "ipc356" => {
-                        let text = pcbcraft_io::ipc356_netlist(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("test.brd"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("test.brd".into());
-                    }
-                    "gencad" => {
-                        let text = pcbcraft_io::gencad_text(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("board.gencad"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.gencad".into());
-                    }
-                    "hyperlynx" => {
-                        let text = pcbcraft_io::hyperlynx_csv(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("netlist.csv"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("netlist.csv".into());
-                    }
-                    "plot" => {
-                        let text = pcbcraft_io::plot_csv(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("plot-report.csv"),
-                            text.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("plot-report.csv".into());
-                    }
-                    "report" => {
-                        let text = pcbcraft_io::report_text(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("board-report.txt"),
-                            text.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("board-report.txt".into());
-                    }
-                    "ps" => {
-                        let text = pcbcraft_io::postscript(p, "pcb")?;
-                        pcbcraft_io::atomic_write(&directory.join("pcb.ps"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("pcb.ps".into());
-                    }
-                    "odb" => {
-                        let bytes = pcbcraft_io::odb_package(p)?;
-                        pcbcraft_io::atomic_write(&directory.join("board.odb.zip"), &bytes)
-                            .map_err(Error::Invalid)?;
-                        written.push("board.odb.zip".into());
-                    }
-                    "hpgl" => {
-                        let text = pcbcraft_io::hpgl_plot(p, "pcb")?;
-                        pcbcraft_io::atomic_write(&directory.join("board.hpgl"), text.as_bytes())
-                            .map_err(Error::Invalid)?;
-                        written.push("board.hpgl".into());
-                    }
-                    "stackup" => {
-                        let text = pcbcraft_io::stackup_text(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("board-stackup.txt"),
-                            text.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("board-stackup.txt".into());
-                    }
-                    "drill_chart" => {
-                        let text = pcbcraft_io::drill_chart_csv(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("board-drill-tools.csv"),
-                            text.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("board-drill-tools.csv".into());
-                    }
-                    "stats" => {
-                        let text = pcbcraft_io::stats_text(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("board-stats.csv"),
-                            text.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("board-stats.csv".into());
-                    }
-                    "panel" => {
-                        let files = pcbcraft_io::panel_fabrication_files(p)?;
-                        for (name, text) in &files {
-                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
-                                .map_err(Error::Invalid)?;
-                            written.push(name.clone());
-                        }
-                        let placement = pcbcraft_io::panel_placement_text(p)?;
-                        pcbcraft_io::atomic_write(
-                            &directory.join("panel-placement.txt"),
-                            placement.as_bytes(),
-                        )
-                        .map_err(Error::Invalid)?;
-                        written.push("panel-placement.txt".into());
-                    }
-                    "layer_plots" => {
-                        let plots = pcbcraft_io::drawn_layer_plots(p)?;
-                        for (name, text) in &plots.files {
-                            pcbcraft_io::atomic_write(&directory.join(name), text.as_bytes())
-                                .map_err(Error::Invalid)?;
-                            written.push(name.clone());
-                        }
-                        skipped.extend(plots.skipped);
-                    }
-                    "raster" => {
-                        for (name, bytes) in pcbcraft_io::raster_job_pngs(p)? {
-                            pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
-                                .map_err(Error::Invalid)?;
-                            written.push(name);
-                        }
-                    }
-                    other => {
-                        return Err(Error::Invalid(format!("unknown export kind {other}")));
-                    }
+                    written.push(name);
                 }
             }
             written.sort();
@@ -12896,6 +13136,90 @@ fn run_command(
             } else {
                 Ok(json!({"job":a.name,"directory":a.directory,"files":written,"skipped":skipped}))
             }
+        }
+        "output_job.package" => {
+            let a: OutputJobPackageParams = parse(params)?;
+            let path = a.path.trim();
+            if path.is_empty() || path.len() > 4096 {
+                return Err(Error::Invalid("the package path is out of range".into()));
+            }
+            if path.ends_with('/') || path.ends_with('\\') {
+                return Err(Error::Invalid(
+                    "a package path names a file, not a folder".into(),
+                ));
+            }
+            if std::path::Path::new(path).is_dir() {
+                return Err(Error::Invalid(
+                    "a package path names a file, not a folder".into(),
+                ));
+            }
+            // The package runs a recorded recipe or an explicit list of kinds,
+            // never both, and an empty list means the fabrication bundle.
+            let job_name = a.job.as_deref().map(str::trim).filter(|n| !n.is_empty());
+            let (job, kinds) = match job_name {
+                Some(name) => {
+                    if !a.kinds.is_empty() {
+                        return Err(Error::Invalid(
+                            "a package runs one recorded job or a list of kinds, not both".into(),
+                        ));
+                    }
+                    let job = p
+                        .output_jobs
+                        .iter()
+                        .find(|j| j.name == name)
+                        .ok_or_else(missing)?;
+                    (job.name.clone(), job.kinds.clone())
+                }
+                None if a.kinds.is_empty() => (
+                    "fab".to_string(),
+                    PACKAGE_KINDS.iter().map(|k| (*k).to_string()).collect(),
+                ),
+                None => {
+                    check_export_kinds(&a.kinds)?;
+                    let mut kinds = a.kinds.clone();
+                    kinds.sort();
+                    kinds.dedup();
+                    ("fab".to_string(), kinds)
+                }
+            };
+            let variant = match a.variant.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(name) => {
+                    if !p.variants.iter().any(|v| v.name == name) {
+                        return Err(Error::Invalid(format!("no variant named {name}")));
+                    }
+                    Some(name.to_string())
+                }
+            };
+            let mut entries: Vec<pcbcraft_io::PackageEntry> = Vec::new();
+            let mut skipped: Vec<String> = Vec::new();
+            for kind in &kinds {
+                for (name, bytes) in render_kind(
+                    p,
+                    kind,
+                    Some(pcbcraft_io::PACKAGE_CREATION_DATE),
+                    variant.as_deref(),
+                    &mut skipped,
+                )? {
+                    entries.push(pcbcraft_io::PackageEntry {
+                        name,
+                        kind: kind.clone(),
+                        bytes,
+                    });
+                }
+            }
+            let bytes = pcbcraft_io::package_zip(p, &job, variant.as_deref(), &entries)?;
+            pcbcraft_io::atomic_write(std::path::Path::new(path), &bytes)
+                .map_err(Error::Invalid)?;
+            Ok(json!({
+                "path": path,
+                "job": job,
+                "variant": variant,
+                "files": entries.len(),
+                "bytes": bytes.len(),
+                "manifest": pcbcraft_io::MANIFEST_NAME,
+                "skipped": skipped,
+            }))
         }
         "variant.create" => {
             let a: VariantCreateParams = parse(params)?;
@@ -14244,6 +14568,15 @@ fn run_command(
                 c.center = center;
                 return Ok(json!({"id": a.id}));
             }
+            if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == a.id) {
+                let position = shift(d.position);
+                if !position.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                d.position = position;
+                d.hole = None;
+                return Ok(json!({"id": a.id}));
+            }
             if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == a.id) {
                 let position = shift(t.position);
                 if !position.valid() {
@@ -14334,6 +14667,7 @@ fn run_command(
                 .diff_pairs
                 .retain(|d| d.net_p != a.id && d.net_n != a.id);
             p.board.rule_areas.retain(|r| r.net != Some(a.id));
+            tuning::forget_net(p, a.id, None);
             for class in p.net_classes.iter_mut() {
                 class.nets.retain(|net| *net != a.id);
             }
@@ -14356,6 +14690,20 @@ fn run_command(
             p.board.vias.retain(|v| v.id != a.id && v.net != a.id);
             p.board.zones.retain(|z| z.id != a.id && z.net != a.id);
             p.board.cutouts.retain(|c| c.id != a.id);
+            let detached: Vec<(Id, Point)> = p
+                .board
+                .datums
+                .iter()
+                .filter(|d| d.hole == Some(a.id))
+                .map(|d| (d.id, p.datum_position(d)))
+                .collect();
+            for (id, position) in detached {
+                if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == id) {
+                    d.position = position;
+                    d.hole = None;
+                }
+            }
+            p.board.datums.retain(|d| d.id != a.id);
             p.board.holes.retain(|h| h.id != a.id);
             p.board.fiducials.retain(|f| f.id != a.id);
             p.board
@@ -14660,6 +15008,36 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
+    /// Every entry of a stored ZIP written by the package command, by name.
+    /// The archive is uncompressed, so each local header is followed by its
+    /// name and then its bytes.
+    fn package_entries(zip: &[u8]) -> Result<Vec<(String, Vec<u8>)>, Error> {
+        let mut entries = Vec::new();
+        let mut at = 0usize;
+        while at + 30 <= zip.len() && &zip[at..at + 4] == b"PK\x03\x04" {
+            let read = |offset: usize| -> usize {
+                u32::from_le_bytes([
+                    zip[at + offset],
+                    zip[at + offset + 1],
+                    zip[at + offset + 2],
+                    zip[at + offset + 3],
+                ]) as usize
+            };
+            let (size, name_len, extra_len) = (read(18), read(26) & 0xffff, read(28) & 0xffff);
+            let name_at = at + 30;
+            let name = String::from_utf8_lossy(&zip[name_at..name_at + name_len]).into_owned();
+            let data_at = name_at + name_len + extra_len;
+            if data_at + size > zip.len() {
+                return Err(Error::Invalid(format!("{name} runs past the archive")));
+            }
+            entries.push((name, zip[data_at..data_at + size].to_vec()));
+            at = data_at + size;
+        }
+        if entries.is_empty() {
+            return Err(Error::Invalid("the archive holds no entries".into()));
+        }
+        Ok(entries)
+    }
     fn library_fixture(name: &str) -> String {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../library/tests/fixtures")
@@ -14714,6 +15092,12107 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 2);
         Ok(())
     }
+    #[test]
+    fn lines_and_polylines_convert_into_copper_and_replace_themselves() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"USB"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"line","points":[{"x":1.0,"y":1.0},{"x":9.0,"y":1.0}],"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let bad = [
+            json!({"id": line, "net": 999_999}),
+            json!({"id": 999_999, "net": net}),
+            json!({"id": line, "net": net, "width": 0.0}),
+        ]
+        .into_iter()
+        .map(|params| s.execute("graphic.to_track", params, None).is_err())
+        .collect::<Vec<_>>();
+        assert!(
+            bad.iter().all(|refused| *refused),
+            "bad conversions are refused"
+        );
+        let circle = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"circle","points":[{"x":5.0,"y":5.0}],"width":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("graphic.to_track", json!({"id": circle, "net": net}), None)
+                .is_err(),
+            "a circle is not a straight line"
+        );
+        let ids = s.execute("graphic.to_track", json!({"id": line, "net": net}), None)?["result"]
+            ["tracks"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(ids.len(), 1, "one segment becomes one track");
+        assert!(
+            s.project.graphics.iter().all(|g| g.id != line),
+            "the graphic is replaced by the copper"
+        );
+        let first = ids[0].as_u64().ok_or_else(missing)?;
+        let track = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.id == first)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            (track.width, track.net, track.start.x, track.end.x),
+            (0.3, net, 1.0, 9.0)
+        );
+        assert_eq!(track.layer, pcbcraft_doc::Layer::Front);
+        // A polyline becomes one track per vertex pair; an explicit width wins.
+        let polyline = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"polygon","points":[{"x":0.0,"y":0.0},{"x":4.0,"y":0.0},{"x":4.0,"y":3.0}],"width":0.1}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let ids = s.execute(
+            "graphic.to_track",
+            json!({"id": polyline, "net": net, "width": 0.5, "layer": "B.Cu"}),
+            None,
+        )?["result"]["tracks"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(ids.len(), 2, "a three-vertex polyline becomes two segments");
+        assert_eq!(s.project.board.tracks.len(), 3);
+        assert_eq!(s.project.board.tracks[1].width, 0.5);
+        assert_eq!(s.project.board.tracks[1].layer, pcbcraft_doc::Layer::Back);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 1);
+        assert_eq!(
+            s.project.graphics.len(),
+            2,
+            "the polyline comes back on undo"
+        );
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn graphic_scaling_moves_vertices_and_follows_or_keeps_the_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        let rect = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"rect","points":[{"x":0.0,"y":0.0},{"x":4.0,"y":2.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for bad in [
+            json!({"id": rect, "factor": 0.0}),
+            json!({"id": rect, "factor": 500.0}),
+            json!({"id": rect, "factor": 2.0, "around": {"x": null, "y": 0.0}}),
+            json!({"id": 999_999, "factor": 2.0}),
+        ] {
+            assert!(
+                s.execute("graphic.scale", bad, None).is_err(),
+                "bad scale requests are refused"
+            );
+        }
+        // Doubling about the centre keeps the centre and doubles the corners;
+        // the stroke follows the factor by default.
+        s.execute("graphic.scale", json!({"id": rect, "factor": 2.0}), None)?;
+        let points = &s.project.graphics[0].points;
+        assert_eq!(
+            (points[0].x, points[0].y, points[1].x, points[1].y),
+            (-2.0, -1.0, 6.0, 3.0)
+        );
+        assert_eq!(s.project.graphics[0].width, 0.4);
+        s.undo()?;
+        assert_eq!(s.project.graphics[0].width, 0.2);
+        // keep_width leaves the stroke alone while the shape still scales.
+        s.execute(
+            "graphic.scale",
+            json!({"id": rect, "factor": 3.0, "around": {"x": 0.0, "y": 0.0}, "keep_width": true}),
+            None,
+        )?;
+        let points = &s.project.graphics[0].points;
+        assert_eq!(
+            (points[0].x, points[0].y, points[1].x, points[1].y),
+            (0.0, 0.0, 12.0, 6.0)
+        );
+        assert_eq!(s.project.graphics[0].width, 0.2);
+        // A factor that would blow the radius past its bound is refused.
+        let circle = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"circle","points":[{"x":1.0,"y":1.0}],"width":11.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "graphic.scale",
+                json!({"id": circle, "factor": 100.0, "around": {"x": 1.0, "y": 1.0}}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.graphics[1].width, 11.0);
+        Ok(())
+    }
+
+    #[test]
+    fn graphic_add_validates_each_shape_and_deletes_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        for params in [
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":10.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"rect","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":3.0}],"width":0.2}),
+            json!({"layer":"board","shape":"circle","points":[{"x":10.0,"y":10.0}],"width":2.0}),
+            json!({"layer":"board","shape":"arc","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":7.0},{"x":10.0,"y":0.0}],"width":0.2}),
+            json!({"layer":"board","shape":"polygon","points":[{"x":0.0,"y":0.0},{"x":4.0,"y":0.0},{"x":2.0,"y":3.0}],"width":0.1}),
+            json!({"layer":"schematic","shape":"text","points":[{"x":2.0,"y":2.0}],"width":1.5,"text":"REV B"}),
+        ] {
+            s.execute("graphic.add", params, None)?;
+        }
+        assert_eq!(s.project.graphics.len(), 6);
+        assert!(s.project.validate().is_ok());
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .filter(|g| g.shape == "circle")
+                .flat_map(|g| g.outline().unwrap_or_default())
+                .count(),
+            25
+        );
+        // Unknown shapes, wrong vertex counts and misuse of text are rejected
+        // without touching state.
+        for params in [
+            json!({"layer":"schematic","shape":"spline","points":[{"x":1.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"text","points":[{"x":1.0,"y":1.0}],"width":1.0}),
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":2.0,"y":1.0}],"width":0.2,"text":"oops"}),
+            json!({"layer":"copper","shape":"line","points":[{"x":1.0,"y":1.0},{"x":2.0,"y":1.0}],"width":0.2}),
+            json!({"layer":"schematic","shape":"line","points":[{"x":1.0,"y":1.0},{"x":2.0,"y":1.0}],"width":0.0}),
+        ] {
+            assert!(s.execute("graphic.add", params, None).is_err());
+        }
+        assert_eq!(s.project.graphics.len(), 6);
+        let graphic = s.project.graphics[2].id;
+        s.execute("object.delete", json!({"id":graphic}), None)?;
+        assert_eq!(s.project.graphics.len(), 5);
+        s.undo()?;
+        assert_eq!(s.project.graphics.len(), 6);
+        Ok(())
+    }
+    #[test]
+    fn labels_and_no_connect_flags_validate_bind_and_undo_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"VCC"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for kind in ["label", "global", "hierarchical", "power"] {
+            s.execute(
+                "label.place",
+                json!({"kind":kind,"net":net,"position":{"x":10.0,"y":5.0},"rotation":90.0}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.labels.len(), 4);
+        assert!(s.project.validate().is_ok());
+        // A junction needs a drawn wire of its net under one of its vertices.
+        assert!(
+            s.execute(
+                "label.place",
+                json!({"kind":"junction","net":net,"position":{"x":10.0,"y":5.0}}),
+                None
+            )
+            .is_err()
+        );
+        s.execute(
+            "wire.draw",
+            json!({"points":[{"x":10.0,"y":5.0},{"x":20.0,"y":5.0}],"net":net}),
+            None,
+        )?;
+        s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":10.0,"y":5.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.labels.len(), 5);
+        // Unknown kinds, unknown nets and off-wire junctions change nothing.
+        for params in [
+            json!({"kind":"port","net":net,"position":{"x":1.0,"y":1.0}}),
+            json!({"kind":"label","net":9999,"position":{"x":1.0,"y":1.0}}),
+            json!({"kind":"junction","net":net,"position":{"x":15.0,"y":9.0}}),
+        ] {
+            assert!(s.execute("label.place", params, None).is_err());
+        }
+        assert_eq!(s.project.labels.len(), 5);
+        // No-connect flags need a real, unconnected pin.
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R9","value":"1 k","position":{"x":50.0,"y":30.0}}),
+            None,
+        )?;
+        let resistor = s
+            .project
+            .components
+            .last()
+            .ok_or_else(|| "missing resistor".to_string())?
+            .id;
+        let other = s.project.components[0].id;
+        s.execute(
+            "pin.no_connect",
+            json!({"pin":{"component":resistor,"pin":"1"}}),
+            None,
+        )?;
+        assert_eq!(s.project.no_connects.len(), 1);
+        for params in [
+            json!({"pin":{"component":9999,"pin":"1"}}),
+            json!({"pin":{"component":resistor,"pin":"7"}}),
+            json!({"pin":{"component":other,"pin":"1"}}),
+            json!({"pin":{"component":resistor,"pin":"1"}}),
+        ] {
+            assert!(s.execute("pin.no_connect", params, None).is_err());
+        }
+        assert_eq!(s.project.no_connects.len(), 1);
+        // Deleting the net removes the labels that named it.
+        s.execute("object.delete", json!({"id":net}), None)?;
+        assert!(s.project.labels.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.labels.len(), 5);
+        assert_eq!(s.project.no_connects.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn schematic_labels_can_be_retyped_and_reassigned_in_place() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "wire.draw",
+            json!({"net":a,"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0}]}),
+            None,
+        )?;
+        let lab = s.execute(
+            "label.place",
+            json!({"kind":"label","net":a,"position":{"x":30.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("label.set", json!({"id":lab,"kind":"global"}), None)?;
+        s.execute("label.set", json!({"id":lab,"net":b}), None)?;
+        let label = s
+            .project
+            .labels
+            .iter()
+            .find(|l| l.id == lab)
+            .ok_or_else(missing)?;
+        assert_eq!(label.kind, "global");
+        assert_eq!(label.net, b);
+        assert_eq!(label.position, Point::new(30.0, 20.0));
+        assert!(s.project.validate().is_ok());
+        // An off-wire label cannot become a junction where it stands.
+        assert!(
+            s.execute("label.set", json!({"id":lab,"kind":"junction"}), None)
+                .is_err()
+        );
+        // A junction on the wire may only name a net whose wire touches it.
+        let junc = s.execute(
+            "label.place",
+            json!({"kind":"junction","net":a,"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("label.set", json!({"id":junc,"net":b}), None)
+                .is_err()
+        );
+        s.execute(
+            "wire.draw",
+            json!({"net":b,"points":[{"x":20.0,"y":10.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute("label.set", json!({"id":junc,"net":b}), None)?;
+        // Released from the wire, the old junction moves freely again.
+        s.execute("label.set", json!({"id":junc,"kind":"label"}), None)?;
+        s.execute(
+            "label.move",
+            json!({"id":junc,"position":{"x":40.0,"y":40.0}}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":lab}),
+            json!({"id":lab,"kind":"global"}),
+            json!({"id":lab,"net":b}),
+            json!({"id":lab,"kind":"global","net":b}),
+            json!({"id":lab,"kind":"nonsense"}),
+            json!({"id":lab,"net":9999}),
+            json!({"id":9999,"kind":"global"}),
+            json!({"id":lab,"kind":"junction"}),
+            json!({"id":lab,"extra":1}),
+        ] {
+            assert!(
+                s.execute("label.set", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute("label.set", json!({"id":lab,"kind":"power"}), None)?;
+        s.undo()?;
+        let label = s
+            .project
+            .labels
+            .iter()
+            .find(|l| l.id == lab)
+            .ok_or_else(missing)?;
+        assert_eq!(label.kind, "global", "undo restores the kind");
+        assert_eq!(label.net, b);
+        Ok(())
+    }
+    #[test]
+    fn via_place_validates_binds_to_nets_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":1.4,"drill":0.4}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":12.0,"y":10.0},"diameter":1.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias.len(), 2);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"net":9999,"position":{"x":10.0,"y":10.0},"diameter":1.4}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":0.0}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":1.4,"drill":1.4}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":1.4,"drill":-0.1}),
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":101.0}),
+        ] {
+            assert!(s.execute("via.place", params, None).is_err());
+        }
+        assert_eq!(s.project.board.vias.len(), 2);
+        let via = s.project.board.vias[0].id;
+        s.execute("object.delete", json!({"id":via}), None)?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        // Deleting the net removes the vias that carry it.
+        s.execute("object.delete", json!({"id":net}), None)?;
+        assert!(s.project.board.vias.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn via_stitch_places_grids_and_validates_without_mutating() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "via.stitch",
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"spacing":5.0,"diameter":1.4,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(out["result"]["count"], 9);
+        assert_eq!(s.project.board.vias.len(), 9);
+        assert_eq!(s.project.board.vias[0].position, Point::new(7.5, 7.5));
+        assert_eq!(s.project.board.vias[8].position, Point::new(17.5, 17.5));
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"net":9999,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4}),
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4,"spacing":0.4}),
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4,"spacing":51.0}),
+            json!({"net":net,"bounds":{"x":50.0,"y":5.0,"width":20.0,"height":10.0},"diameter":1.4}),
+            json!({"net":net,"bounds":{"x":0.0,"y":0.0,"width":100.0,"height":100.0},"diameter":1.4,"spacing":0.5}),
+            json!({"net":net,"bounds":{"x":5.0,"y":5.0,"width":10.0,"height":10.0},"diameter":1.4,"drill":1.4}),
+        ] {
+            assert!(s.execute("via.stitch", params, None).is_err());
+        }
+        assert_eq!(s.project.board.vias.len(), 9);
+        s.undo()?;
+        assert!(s.project.board.vias.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn align_and_distribute_move_groups_and_undo_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for (x, y) in [(10.0, 10.0), (20.0, 14.0), (35.0, 8.0)] {
+            let out = s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":y}}),
+                None,
+            )?;
+            ids.push(out["result"]["id"].as_u64().ok_or_else(missing)?);
+        }
+        s.execute("align.distribute", json!({"ids":ids,"mode":"left"}), None)?;
+        for c in &s.project.components {
+            assert_eq!(c.position.x, 10.0, "left edge alignment");
+        }
+        s.undo()?;
+        assert_eq!(s.project.components[1].position.x, 20.0);
+        s.execute("align.distribute", json!({"ids":ids,"mode":"top"}), None)?;
+        for c in &s.project.components {
+            assert_eq!(c.position.y, 8.0, "top edge alignment");
+        }
+        s.execute(
+            "align.distribute",
+            json!({"ids":ids,"mode":"distribute_x"}),
+            None,
+        )?;
+        let xs: Vec<f64> = s.project.components.iter().map(|c| c.position.x).collect();
+        assert_eq!(
+            xs,
+            vec![10.0, 22.5, 35.0],
+            "even distribution between the ends"
+        );
+        let sync = s.execute("board.sync", json!({}), None)?;
+        let fp_ids: Vec<u64> = sync["result"]["footprints"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|f| f["id"].as_u64().unwrap_or_default())
+            .collect();
+        s.execute(
+            "footprint.move",
+            json!({"id":fp_ids[2],"position":{"x":30.0,"y":25.0}}),
+            None,
+        )?;
+        s.execute("align.distribute", json!({"ids":fp_ids,"mode":"top"}), None)?;
+        for f in &s.project.board.footprints {
+            assert_eq!(f.position.y, 10.0, "footprint top alignment");
+        }
+        for params in [
+            json!({"ids":[ids[0],9999],"mode":"left"}),
+            json!({"ids":ids,"mode":"sideways"}),
+            json!({"ids":[ids[0]],"mode":"left"}),
+            json!({"ids":ids,"mode":"left","extra":1}),
+        ] {
+            assert!(s.execute("align.distribute", params, None).is_err());
+        }
+        let xs: Vec<f64> = s.project.components.iter().map(|c| c.position.x).collect();
+        assert_eq!(
+            xs,
+            vec![10.0, 22.5, 35.0],
+            "rejections must not move anything"
+        );
+        let ys: Vec<f64> = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .map(|f| f.position.y)
+            .collect();
+        assert_eq!(ys, vec![10.0, 10.0, 10.0]);
+        Ok(())
+    }
+    #[test]
+    fn alignment_can_select_its_group_by_filter() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, x, y) in [
+            ("resistor", "R1", 10.0, 10.0),
+            ("resistor", "R2", 20.0, 14.0),
+            ("resistor", "R3", 35.0, 8.0),
+            ("capacitor", "C1", 50.0, 30.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"position":{"x":x,"y":y},"reference":reference}),
+                None,
+            )?;
+        }
+        s.execute(
+            "align.distribute",
+            json!({"filter":{"reference":"R*"},"mode":"left"}),
+            None,
+        )?;
+        for c in &s.project.components {
+            if c.kind == "resistor" {
+                assert_eq!(c.position.x, 10.0, "every matched part aligns");
+            } else {
+                assert_eq!(c.position.x, 50.0, "the unmatched part stays");
+            }
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.reference == "R2")
+                .ok_or_else(missing)?
+                .position
+                .x,
+            20.0
+        );
+        s.execute(
+            "align.distribute",
+            json!({"filter":{"reference":"*1"},"mode":"top"}),
+            None,
+        )?;
+        let ys: Vec<f64> = s
+            .project
+            .components
+            .iter()
+            .filter(|c| c.reference == "R1" || c.reference == "C1")
+            .map(|c| c.position.y)
+            .collect();
+        assert_eq!(ys[0], ys[1], "wildcard across kinds aligns both");
+        assert_ne!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.reference == "R2")
+                .ok_or_else(missing)?
+                .position
+                .y,
+            ys[0],
+            "unmatched parts stay put"
+        );
+        for params in [
+            json!({"mode":"left"}),
+            json!({"filter":{},"mode":"left"}),
+            json!({"filter":{"reference":"R1"},"mode":"left"}),
+            json!({"filter":{"reference":""},"mode":"left"}),
+            json!({"filter":{"kind":""},"mode":"left"}),
+            json!({"filter":{"kind":"capacitor"},"mode":"left"}),
+            json!({"filter":{"reference":"R*"},"mode":"left","extra":1}),
+        ] {
+            assert!(s.execute("align.distribute", params, None).is_err());
+        }
+        let r2_x = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R2")
+            .ok_or_else(missing)?
+            .position
+            .x;
+        assert_eq!(r2_x, 20.0, "rejections must not move anything");
+        Ok(())
+    }
+    #[test]
+    fn splitting_tracks_and_wires_preserves_geometry_and_rejects_bad_points() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wire = s.execute(
+            "wire.draw",
+            json!({"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0},{"x":20.0,"y":20.0}],"net":net}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tail = s.execute(
+            "wire.split",
+            json!({"id":wire,"at":{"x":15.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.drawn_wires[0].points.len(), 2);
+        assert_eq!(s.project.drawn_wires[1].points.len(), 3);
+        assert_eq!(s.project.drawn_wires[1].points[0], Point::new(15.0, 10.0));
+        assert_eq!(s.project.drawn_wires[0].net, Some(net));
+        assert_eq!(s.project.drawn_wires[1].net, Some(net));
+        assert_eq!(s.project.drawn_wires[1].id, tail);
+        assert!(s.project.validate().is_ok());
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":30.0,"y":30.0},"end":{"x":40.0,"y":30.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute(
+            "track.split",
+            json!({"id":track,"at":{"x":35.0,"y":30.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.tracks[0].end, Point::new(35.0, 30.0));
+        assert_eq!(s.project.board.tracks[1].start, Point::new(35.0, 30.0));
+        assert_eq!(s.project.board.tracks[1].end, Point::new(40.0, 30.0));
+        assert_eq!(s.project.board.tracks[1].layer, pcbcraft_doc::Layer::Back);
+        assert_eq!(s.project.board.tracks[1].net, net);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":wire,"at":{"x":15.0,"y":12.0}}),
+            json!({"id":wire,"at":{"x":20.0,"y":10.0}}),
+            json!({"id":9999,"at":{"x":15.0,"y":10.0}}),
+            json!({"id":track,"at":{"x":35.0,"y":31.0}}),
+            json!({"id":track,"at":{"x":30.005,"y":30.0}}),
+            json!({"id":track,"at":{"x":1e6,"y":30.0}}),
+        ] {
+            let command =
+                if params["id"].as_u64() == Some(track) || params["id"].as_u64() == Some(9999) {
+                    "track.split"
+                } else {
+                    "wire.split"
+                };
+            assert!(s.execute(command, params, None).is_err());
+        }
+        assert_eq!(s.project.board.tracks.len(), 2);
+        assert_eq!(s.project.drawn_wires.len(), 2);
+        assert_eq!(s.project.board.tracks[1].id, second);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 1);
+        assert_eq!(s.project.board.tracks[0].end, Point::new(40.0, 30.0));
+        assert_eq!(s.project.drawn_wires[0].points.len(), 2);
+        s.undo()?;
+        assert!(s.project.board.tracks.is_empty());
+        assert_eq!(s.project.drawn_wires.len(), 2);
+        s.undo()?;
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert_eq!(s.project.drawn_wires[0].points.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn duplicating_components_renews_references_and_brings_footprints() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"capacitor","position":{"x":30.0,"y":10.0},"reference":"C1"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let out = s.execute(
+            "object.duplicate",
+            json!({"ids":[r1],"offset":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        let new_id = out["result"]["duplicates"][0]["component"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let new_fp = out["result"]["duplicates"][0]["footprint"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.components.len(), 3);
+        let dup = s.project.component(new_id).ok_or_else(missing)?.clone();
+        assert_eq!(dup.reference, "R1 copy");
+        assert_eq!(dup.position, Point::new(15.0, 15.0));
+        assert_eq!(dup.kind, "resistor");
+        let fp = s.project.footprint(new_fp).ok_or_else(missing)?.clone();
+        assert_eq!(fp.component, new_id);
+        let original = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == r1)
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            fp.position,
+            Point::new(original.position.x + 5.0, original.position.y + 5.0)
+        );
+        assert_eq!(fp.pads, original.pads);
+        assert!(s.project.validate().is_ok());
+        s.execute(
+            "object.duplicate",
+            json!({"ids":[r1],"offset":{"x":0.0,"y":10.0}}),
+            None,
+        )?;
+        let references: Vec<String> = s
+            .project
+            .components
+            .iter()
+            .map(|c| c.reference.clone())
+            .collect();
+        assert_eq!(references, vec!["R1", "C1", "R1 copy", "R1 copy 3"]);
+        for params in [
+            json!({"ids":[9999],"offset":{"x":1.0,"y":1.0}}),
+            json!({"ids":[],"offset":{"x":1.0,"y":1.0}}),
+            json!({"ids":[r1],"offset":{"x":1e6,"y":0.0}}),
+            json!({"ids":[r1],"offset":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("object.duplicate", params, None).is_err());
+        }
+        assert_eq!(s.project.components.len(), 4);
+        assert_eq!(s.project.board.footprints.len(), 4);
+        s.undo()?;
+        assert_eq!(s.project.components.len(), 3);
+        assert_eq!(s.project.board.footprints.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn snapping_moves_placements_to_the_grid_only_when_needed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":11.4,"y":13.7},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":20.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("object.snap", json!({"ids":[r1,r2],"grid":2.5}), None)?;
+        assert_eq!(out["result"]["moved"], 1);
+        assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
+        assert_eq!(s.project.components[1].position, Point::new(20.0, 20.0));
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == r1)
+            .cloned()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.move",
+            json!({"id":fp.id,"position":{"x":23.3,"y":17.9}}),
+            None,
+        )?;
+        let out = s.execute("object.snap", json!({"ids":[fp.id],"grid":2.5}), None)?;
+        assert_eq!(out["result"]["moved"], 1);
+        assert_eq!(
+            s.project.footprint(fp.id).ok_or_else(missing)?.position,
+            Point::new(22.5, 17.5)
+        );
+        for params in [
+            json!({"ids":[r1],"grid":0.01}),
+            json!({"ids":[r1],"grid":30.0}),
+            json!({"ids":[9999],"grid":2.5}),
+            json!({"ids":[],"grid":2.5}),
+            json!({"ids":[r1],"grid":2.5,"extra":1}),
+        ] {
+            assert!(s.execute("object.snap", params, None).is_err());
+        }
+        assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
+        s.undo()?;
+        assert_eq!(
+            s.project.footprint(fp.id).ok_or_else(missing)?.position,
+            Point::new(23.3, 17.9),
+            "undo returns only the last snap"
+        );
+        assert_eq!(s.project.components[0].position, Point::new(12.5, 12.5));
+        Ok(())
+    }
+    #[test]
+    fn moving_graphics_and_labels_keeps_rules_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"line","points":[{"x":10.0,"y":10.0},{"x":20.0,"y":15.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "graphic.move",
+            json!({"id":line,"delta":{"x":5.0,"y":-5.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.graphics[0].points,
+            vec![Point::new(15.0, 5.0), Point::new(25.0, 10.0)]
+        );
+        let label = s.execute(
+            "label.place",
+            json!({"kind":"global","net":net,"position":{"x":30.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "label.move",
+            json!({"id":label,"position":{"x":40.0,"y":25.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.labels[0].position, Point::new(40.0, 25.0));
+        s.execute(
+            "wire.draw",
+            json!({"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0}],"net":net}),
+            None,
+        )?;
+        let junction = s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "label.move",
+            json!({"id":junction,"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.labels[1].position, Point::new(20.0, 10.0));
+        for params in [
+            json!({"id":junction,"position":{"x":15.0,"y":10.0}}),
+            json!({"id":line,"delta":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":1.0}}),
+            json!({"id":9999,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"delta":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            let command = if params.get("delta").is_some() {
+                "graphic.move"
+            } else {
+                "label.move"
+            };
+            assert!(s.execute(command, params, None).is_err());
+        }
+        assert_eq!(s.project.graphics[0].points[0], Point::new(15.0, 5.0));
+        assert_eq!(s.project.labels[1].position, Point::new(20.0, 10.0));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(s.project.labels[1].position, Point::new(10.0, 10.0));
+        s.undo()?;
+        assert_eq!(s.project.labels.len(), 1);
+        assert_eq!(s.project.labels[0].position, Point::new(40.0, 25.0));
+        s.undo()?;
+        assert!(s.project.drawn_wires.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.labels[0].position, Point::new(30.0, 20.0));
+        Ok(())
+    }
+    #[test]
+    fn moving_tracks_and_vias_updates_clearance_checks() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t1 = s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t2 = s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":10.3},"end":{"x":30.0,"y":10.3},"width":0.2,"layer":"F.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            !s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "parallel tracks closer than the clearance must be reported"
+        );
+        s.execute(
+            "track.move",
+            json!({"id":t2,"delta":{"x":0.0,"y":0.5}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks[1].start, Point::new(10.0, 10.8));
+        assert_eq!(s.project.board.tracks[1].end, Point::new(30.0, 10.8));
+        assert!(
+            s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "moving apart must clear the finding"
+        );
+        let via = s.execute(
+            "via.place",
+            json!({"net":a,"position":{"x":20.0,"y":20.0},"diameter":1.4,"drill":0.4}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.move",
+            json!({"id":via,"position":{"x":25.0,"y":30.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].position, Point::new(25.0, 30.0));
+        assert_eq!(s.project.board.vias[0].diameter, 1.4);
+        for params in [
+            json!({"id":t1,"delta":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":1.0}}),
+            json!({"id":via,"position":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":t1,"delta":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("track.move", params.clone(), None).is_err());
+            assert!(s.execute("via.move", params, None).is_err());
+        }
+        assert_eq!(s.project.board.tracks[1].start, Point::new(10.0, 10.8));
+        assert_eq!(s.project.board.vias[0].position, Point::new(25.0, 30.0));
+        s.undo()?;
+        assert_eq!(s.project.board.vias[0].position, Point::new(20.0, 20.0));
+        s.undo()?;
+        assert!(s.project.board.vias.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.tracks[1].start, Point::new(10.0, 10.3));
+        assert!(
+            !s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "undo restores the finding"
+        );
+        Ok(())
+    }
+    #[test]
+    fn moving_a_zone_shifts_outline_and_cutouts_together() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":net,"layer":"F.Cu","outline":[{"x":10.0,"y":10.0},{"x":40.0,"y":10.0},{"x":40.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":20.0,"y":15.0},{"x":25.0,"y":15.0},{"x":25.0,"y":20.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute(
+            "zone.move",
+            json!({"id":zone,"delta":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.zones[0].outline[1], Point::new(45.0, 15.0));
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][0],
+            Point::new(25.0, 20.0)
+        );
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":zone,"delta":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":1.0}}),
+            json!({"id":zone,"delta":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("zone.move", params, None).is_err());
+        }
+        assert_eq!(s.project.board.zones[0].outline[1], Point::new(45.0, 15.0));
+        s.undo()?;
+        assert_eq!(s.project.board.zones[0].outline[1], Point::new(40.0, 10.0));
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][0],
+            Point::new(20.0, 15.0)
+        );
+        Ok(())
+    }
+    #[test]
+    fn mirroring_symbols_and_footprints_flips_geometry_exactly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":15.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before: Vec<Point> = s
+            .project
+            .component(r1)
+            .ok_or_else(missing)?
+            .pins
+            .iter()
+            .map(|pin| pin.offset)
+            .collect();
+        s.execute("component.rotate", json!({"id":r1,"degrees":90.0}), None)?;
+        s.execute(
+            "component.mirror",
+            json!({"id":r1,"axis":"horizontal"}),
+            None,
+        )?;
+        let mirrored = s.project.component(r1).ok_or_else(missing)?.clone();
+        assert_eq!(mirrored.rotation, -90.0);
+        for (original, now) in before
+            .iter()
+            .zip(mirrored.pins.iter().map(|pin| pin.offset))
+        {
+            assert_eq!(now, Point::new(-original.x, original.y));
+        }
+        assert!(s.project.validate().is_ok());
+        s.execute(
+            "component.mirror",
+            json!({"id":r1,"axis":"horizontal"}),
+            None,
+        )?;
+        let restored = s.project.component(r1).ok_or_else(missing)?.clone();
+        assert_eq!(restored.rotation, 90.0);
+        for (original, now) in before
+            .iter()
+            .zip(restored.pins.iter().map(|pin| pin.offset))
+        {
+            assert_eq!(now, *original);
+        }
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("device.kicad_sym"),"symbol":"R","position":{"x":50.0,"y":40.0}}),
+            None,
+        )?;
+        let placed = s.project.components.last().ok_or_else(missing)?.id;
+        let outline_before = s
+            .project
+            .component(placed)
+            .ok_or_else(missing)?
+            .drawing_points();
+        s.execute(
+            "component.mirror",
+            json!({"id":placed,"axis":"horizontal"}),
+            None,
+        )?;
+        let outline_after = s
+            .project
+            .component(placed)
+            .ok_or_else(missing)?
+            .drawing_points();
+        assert_eq!(
+            outline_after,
+            outline_before
+                .iter()
+                .map(|point| Point::new(-point.x, point.y))
+                .collect::<Vec<_>>()
+        );
+        assert!(s.project.validate().is_ok());
+        s.execute("board.sync", json!({}), None)?;
+        let footprint = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == r1)
+            .cloned()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.mirror",
+            json!({"id":footprint.id,"axis":"vertical"}),
+            None,
+        )?;
+        let flipped = s
+            .project
+            .footprint(footprint.id)
+            .ok_or_else(missing)?
+            .clone();
+        for (original, now) in footprint.pads.iter().zip(flipped.pads.iter()) {
+            assert_eq!(
+                now.offset,
+                Point::new(original.offset.x, -original.offset.y)
+            );
+        }
+        s.execute(
+            "footprint.mirror",
+            json!({"id":footprint.id,"axis":"vertical"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.footprint(footprint.id).ok_or_else(missing)?.pads,
+            footprint.pads,
+            "two mirrors cancel exactly"
+        );
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":9999,"axis":"horizontal"}),
+            json!({"id":r1,"axis":"diagonal"}),
+            json!({"id":r1,"axis":"horizontal","extra":1}),
+        ] {
+            assert!(s.execute("component.mirror", params.clone(), None).is_err());
+            assert!(s.execute("footprint.mirror", params, None).is_err());
+        }
+        assert_eq!(
+            s.project
+                .component(placed)
+                .ok_or_else(missing)?
+                .drawing_points(),
+            outline_after
+        );
+        Ok(())
+    }
+    #[test]
+    fn chamfering_a_track_corner_replaces_it_with_a_diagonal() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let a = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let other = s.execute("net.create", json!({"name":"OTHER"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let d = s.execute(
+            "track.add",
+            json!({"net":other,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for params in [
+            json!({"a":a,"b":b,"size":0.0}),
+            json!({"a":a,"b":b,"size":6.0}),
+            json!({"a":a,"b":a,"size":1.0}),
+            json!({"a":a,"b":9999,"size":1.0}),
+            json!({"a":a,"b":b,"size":1.0,"extra":1}),
+            json!({"a":a,"b":d,"size":1.0}),
+            json!({"a":b,"b":d,"size":1.0}),
+        ] {
+            assert!(s.execute("track.chamfer", params, None).is_err());
+        }
+        assert_eq!(s.project.board.tracks.len(), 3);
+        let c = s.execute("track.chamfer", json!({"a":a,"b":b,"size":2.0}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tracks = &s.project.board.tracks;
+        assert_eq!(tracks.len(), 4);
+        let find = |id| {
+            tracks
+                .iter()
+                .find(|t| t.id == id)
+                .cloned()
+                .ok_or_else(missing)
+        };
+        assert_eq!(find(a)?.end, Point::new(8.0, 10.0));
+        assert_eq!(find(a)?.start, Point::new(0.0, 10.0));
+        assert_eq!(find(b)?.start, Point::new(10.0, 12.0));
+        assert_eq!(find(b)?.end, Point::new(10.0, 20.0));
+        let bridge = find(c)?;
+        assert_eq!(bridge.net, net);
+        assert_eq!(bridge.start, Point::new(8.0, 10.0));
+        assert_eq!(bridge.end, Point::new(10.0, 12.0));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 3);
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == a)
+                .ok_or_else(missing)?
+                .end,
+            Point::new(10.0, 10.0)
+        );
+        Ok(())
+    }
+    #[test]
+    fn schematic_cleanup_merges_junctions_and_trims_redundant_vertices() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"BUS"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("schematic.cleanup", json!({}), None).is_err(),
+            "a tidy schematic reports nothing to do"
+        );
+        s.execute(
+            "wire.draw",
+            json!({"net": net, "points": [
+                {"x": 10.0, "y": 10.0},
+                {"x": 20.0, "y": 10.0},
+                {"x": 30.0, "y": 10.0},
+                {"x": 40.0, "y": 10.0}
+            ]}),
+            None,
+        )?;
+        let wire = s.project.drawn_wires[0].id;
+        for _ in 0..2 {
+            s.execute(
+                "label.place",
+                json!({"kind": "junction", "net": net, "position": {"x": 30.0, "y": 10.0}}),
+                None,
+            )?;
+        }
+        let report = s.execute("schematic.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(report["junctions_merged"], 1, "the twin junction merges");
+        assert_eq!(
+            report["vertices_removed"], 1,
+            "the straight-through vertex goes"
+        );
+        assert_eq!(
+            s.project
+                .labels
+                .iter()
+                .filter(|l| l.kind == "junction")
+                .count(),
+            1
+        );
+        assert_eq!(s.project.drawn_wires[0].points.len(), 3);
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(
+            s.project.drawn_wires[0].points.len(),
+            4,
+            "cleanup is one undo step"
+        );
+        // A straight-through vertex a junction depends on stays put.
+        s.execute(
+            "wire.add_point",
+            json!({"id": wire, "index": 3, "position": {"x": 35.0, "y": 10.0}}),
+            None,
+        )?;
+        s.execute(
+            "label.place",
+            json!({"kind": "junction", "net": net, "position": {"x": 35.0, "y": 10.0}}),
+            None,
+        )?;
+        let report = s.execute("schematic.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(
+            report["junctions_merged"], 1,
+            "undo brought the twin junctions back, so they merge again"
+        );
+        assert_eq!(
+            report["vertices_removed"], 1,
+            "only the junction-free straight-through vertex goes"
+        );
+        assert_eq!(s.project.drawn_wires[0].points.len(), 4);
+        assert!(
+            s.project
+                .drawn_wires
+                .iter()
+                .any(|w| w.id == wire && w.points.iter().any(|q| q.x == 35.0)),
+        );
+        // A fresh straight-through vertex with no junction is tidied, and the
+        // junctions keep their vertices exactly where they are.
+        s.execute(
+            "wire.add_point",
+            json!({"id": wire, "index": 2, "position": {"x": 25.0, "y": 10.0}}),
+            None,
+        )?;
+        let before = s.inspect()["project"].clone();
+        let report = s.execute("schematic.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(report["junctions_merged"], 0);
+        assert_eq!(
+            report["vertices_removed"], 1,
+            "the plain straight-through vertex goes, the junctioned ones stay"
+        );
+        let points = s
+            .project
+            .drawn_wires
+            .iter()
+            .find(|w| w.id == wire)
+            .ok_or_else(missing)?
+            .points
+            .clone();
+        assert_eq!(points.len(), 4);
+        assert!(
+            !points.iter().any(|q| q.x == 25.0)
+                && points.iter().any(|q| q.x == 30.0)
+                && points.iter().any(|q| q.x == 35.0),
+            "only the junction-free vertex was removed"
+        );
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "undo restores the tidy input"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn wire_vertices_can_be_inserted_and_removed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wire = s.execute(
+            "wire.draw",
+            json!({"net":net,"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0},{"x":20.0,"y":20.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn points(s: &Session) -> Vec<Point> {
+            s.project.drawn_wires[0].points.clone()
+        }
+        s.execute(
+            "wire.add_point",
+            json!({"id":wire,"index":1,"position":{"x":15.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(points(&s)[1], Point::new(15.0, 12.0));
+        s.execute(
+            "wire.add_point",
+            json!({"id":wire,"index":4,"position":{"x":25.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(points(&s).len(), 5);
+        assert_eq!(points(&s)[4], Point::new(25.0, 20.0));
+        s.execute(
+            "wire.add_point",
+            json!({"id":wire,"index":0,"position":{"x":5.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(points(&s)[0], Point::new(5.0, 10.0));
+        for params in [
+            json!({"id":wire,"index":9,"position":{"x":0.0,"y":0.0}}),
+            json!({"id":wire,"index":1,"position":{"x":5.0,"y":10.0}}),
+            json!({"id":wire,"index":3,"position":{"x":20.0,"y":10.0}}),
+            json!({"id":wire,"index":1,"position":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"index":0,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":wire,"index":0,"position":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("wire.add_point", params, None).is_err());
+        }
+        assert_eq!(points(&s).len(), 6);
+        s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":20.0,"y":20.0}}),
+            None,
+        )?;
+        let before = points(&s);
+        assert!(
+            s.execute("wire.remove_point", json!({"id":wire,"index":4}), None)
+                .is_err()
+        );
+        s.execute("wire.remove_point", json!({"id":wire,"index":5}), None)?;
+        assert_eq!(
+            points(&s),
+            vec![before[0], before[1], before[2], before[3], before[4]]
+        );
+        s.execute("wire.remove_point", json!({"id":wire,"index":0}), None)?;
+        s.execute("wire.remove_point", json!({"id":wire,"index":1}), None)?;
+        s.execute("wire.remove_point", json!({"id":wire,"index":1}), None)?;
+        assert_eq!(points(&s).len(), 2);
+        assert!(s.project.validate().is_ok());
+        assert!(
+            s.execute("wire.remove_point", json!({"id":wire,"index":0}), None)
+                .is_err()
+        );
+        for params in [
+            json!({"id":wire,"index":9}),
+            json!({"id":9999,"index":0}),
+            json!({"id":wire,"index":0,"extra":1}),
+        ] {
+            assert!(s.execute("wire.remove_point", params, None).is_err());
+        }
+        assert_eq!(points(&s).len(), 2);
+        s.undo()?;
+        assert_eq!(points(&s).len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn drawn_wires_slide_and_bend_with_their_junctions() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wire = s.execute(
+            "wire.draw",
+            json!({"net":net,"points":[{"x":10.0,"y":10.0},{"x":20.0,"y":10.0},{"x":20.0,"y":20.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let junction = s.execute(
+            "label.place",
+            json!({"kind":"junction","net":net,"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "wire.move",
+            json!({"id":wire,"delta":{"x":5.0,"y":-2.0}}),
+            None,
+        )?;
+        let points = s.project.drawn_wires[0].points.clone();
+        assert_eq!(points[0], Point::new(15.0, 8.0));
+        assert_eq!(points[2], Point::new(25.0, 18.0));
+        let junction_position = |s: &Session| -> Point {
+            s.project
+                .labels
+                .iter()
+                .find(|l| l.id == junction)
+                .map(|l| l.position)
+                .unwrap_or(Point::new(-1.0, -1.0))
+        };
+        assert_eq!(junction_position(&s), Point::new(25.0, 8.0));
+        s.undo()?;
+        let points = s.project.drawn_wires[0].points.clone();
+        assert_eq!(points[0], Point::new(10.0, 10.0));
+        assert_eq!(junction_position(&s), Point::new(20.0, 10.0));
+        s.execute(
+            "wire.set_point",
+            json!({"id":wire,"index":0,"position":{"x":10.0,"y":15.0}}),
+            None,
+        )?;
+        let points = s.project.drawn_wires[0].points.clone();
+        assert_eq!(points[0], Point::new(10.0, 15.0));
+        assert_eq!(
+            junction_position(&s),
+            Point::new(20.0, 10.0),
+            "the junction stays where it is when its vertex does not move"
+        );
+        let before = s.inspect()["project"].clone();
+        for params in [
+            json!({"id":wire,"delta":{"x":0.0,"y":0.0}}),
+            json!({"id":wire,"delta":{"x":900000.0,"y":0.0}}),
+            json!({"id":9999,"delta":{"x":1.0,"y":0.0}}),
+            json!({"id":wire,"delta":{"x":1.0,"y":0.0},"extra":1}),
+            json!({"id":wire,"delta":{"x":f64::NAN,"y":0.0}}),
+        ] {
+            assert!(s.execute("wire.move", params.clone(), None).is_err());
+        }
+        for params in [
+            json!({"id":wire,"index":3,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":wire,"index":1,"position":{"x":20.0,"y":10.0}}),
+            json!({"id":wire,"index":1,"position":{"x":10.0,"y":10.0}}),
+            json!({"id":wire,"index":1,"position":{"x":1e6,"y":0.0}}),
+            json!({"id":wire,"index":0,"position":{"x":10.0,"y":15.0}}),
+            json!({"id":9999,"index":0,"position":{"x":1.0,"y":1.0}}),
+        ] {
+            assert!(s.execute("wire.set_point", params.clone(), None).is_err());
+        }
+        assert!(
+            s.execute(
+                "wire.set_point",
+                json!({"id":wire,"index":1,"position":{"x":15.0,"y":5.0}}),
+                None,
+            )
+            .is_err(),
+            "the junction would be left off the wire"
+        );
+        assert_eq!(s.inspect()["project"], before, "rejections change nothing");
+        Ok(())
+    }
+    #[test]
+    fn project_wide_find_and_replace_updates_every_text_field() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"VCC_MAIN"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let other = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"VCC resistor","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"10 k","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"note","value":"to VCC rail"}),
+            None,
+        )?;
+        s.execute(
+            "text.place",
+            json!({"text":"VCC testpoint","position":{"x":1.0,"y":1.0}}),
+            None,
+        )?;
+        s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"text","points":[{"x":2.0,"y":2.0}],"width":1.5,"text":"VCC note"}),
+            None,
+        )?;
+        let probe = json!({"search":"VCC","replace":"3V3"});
+        let dry = s.execute(
+            "project.replace",
+            json!({"search":"VCC","replace":"3V3","dry_run":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert!(dry["dry_run"].as_bool().is_some_and(|b| b));
+        assert_eq!(
+            dry["count"], 5,
+            "net, value, field, board text and graphic text"
+        );
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "project.replace",
+                json!({"search":"VCC","replace":"3V3","dry_run":true}),
+                None
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "a dry run must not touch the project"
+        );
+        let done = s.execute("project.replace", probe.clone(), None)?["result"].clone();
+        assert_eq!(done["count"], 5);
+        assert_eq!(
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == net)
+                .map(|n| n.name.as_str())
+                .unwrap_or_default(),
+            "3V3_MAIN"
+        );
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.value,
+            "3V3 resistor"
+        );
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.field("note"),
+            Some("to 3V3 rail")
+        );
+        assert_eq!(s.project.board.texts[0].text, "3V3 testpoint");
+        assert_eq!(s.project.graphics[0].text, "3V3 note");
+        assert_eq!(
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == other)
+                .map(|n| n.name.as_str())
+                .unwrap_or_default(),
+            "GND"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == net)
+                .map(|n| n.name.as_str())
+                .unwrap_or_default(),
+            "VCC_MAIN",
+            "one undo reverses the whole replace"
+        );
+        s.execute("project.replace", probe.clone(), None)?;
+        assert!(
+            s.execute(
+                "project.replace",
+                json!({"search":"VCC","replace":"3V3","scope":"components"}),
+                None,
+            )
+            .is_err(),
+            "the components scope has no VCC left"
+        );
+        let before = s.inspect()["project"].clone();
+        for params in [
+            json!({"search":"VCC","replace":"VCC"}),
+            json!({"search":"NOPE","replace":"x"}),
+            json!({"search":"GND","replace":"x","scope":"text"}),
+            json!({"search":"GND","replace":"x","scope":"nope"}),
+            json!({"search":"1","replace":"2"}),
+            json!({"search":"R1","replace":"R2"}),
+            json!({"search":"GND","replace":"3V3_MAIN"}),
+            json!({"search":"VCC"}),
+            json!({"search":"VCC","replace":"x","extra":1}),
+        ] {
+            assert!(s.execute("project.replace", params.clone(), None).is_err());
+        }
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "rejections and collisions change nothing"
+        );
+        Ok(())
+    }
+    #[test]
+    fn graphics_and_labels_rotate_in_steps() -> Result<(), Error> {
+        let mut s = Session::default();
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"line","points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn graphic(s: &Session, id: u64) -> Vec<Point> {
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == id)
+                .ok_or_else(missing)
+                .map(|g| g.points.clone())
+                .unwrap_or_default()
+        }
+        fn same(s: &Session, id: u64, expected: &[(f64, f64)]) -> bool {
+            let points = graphic(s, id);
+            points.len() == expected.len()
+                && points
+                    .iter()
+                    .zip(expected)
+                    .all(|(p, (x, y))| (p.x - x).abs() < 1e-9 && (p.y - y).abs() < 1e-9)
+        }
+        s.execute("graphic.rotate", json!({"id":line,"degrees":90.0}), None)?;
+        assert!(same(&s, line, &[(5.0, -5.0), (5.0, 5.0)]));
+        s.execute("graphic.rotate", json!({"id":line,"degrees":-90.0}), None)?;
+        assert!(same(&s, line, &[(0.0, 0.0), (10.0, 0.0)]));
+        s.execute(
+            "graphic.rotate",
+            json!({"id":line,"degrees":180.0,"around":{"x":0.0,"y":0.0}}),
+            None,
+        )?;
+        assert!(same(&s, line, &[(0.0, 0.0), (-10.0, 0.0)]));
+        let rect = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"rect","points":[{"x":0.0,"y":0.0},{"x":10.0,"y":2.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("graphic.rotate", json!({"id":rect,"degrees":90.0}), None)?;
+        assert!(same(&s, rect, &[(6.0, -4.0), (4.0, 6.0)]));
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"id":line,"degrees":45.0}),
+            json!({"id":line,"degrees":0.0}),
+            json!({"id":line,"degrees":90.0,"around":{"x":1e6,"y":0.0}}),
+            json!({"id":9999,"degrees":90.0}),
+            json!({"id":line,"degrees":90.0,"extra":1}),
+        ] {
+            assert!(s.execute("graphic.rotate", params, None).is_err());
+        }
+        assert!(same(&s, line, &[(0.0, 0.0), (-10.0, 0.0)]));
+        let net = s.execute("net.create", json!({"name":"N2"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let label = s.execute(
+            "label.place",
+            json!({"kind":"label","net":net,"position":{"x":30.0,"y":30.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("label.rotate", json!({"id":label,"degrees":45.0}), None)?;
+        assert_eq!(s.project.labels[0].rotation, 45.0);
+        s.execute("label.rotate", json!({"id":label,"degrees":-90.0}), None)?;
+        assert_eq!(s.project.labels[0].rotation, 315.0);
+        for params in [
+            json!({"id":9999,"degrees":90.0}),
+            json!({"id":label,"degrees":1.0,"extra":2}),
+        ] {
+            assert!(s.execute("label.rotate", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(s.project.labels[0].rotation, 45.0);
+        Ok(())
+    }
+    #[test]
+    fn renaming_references_and_nets_is_validated_unique() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.reference",
+            json!({"id":r1,"reference":"RV1"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.reference,
+            "RV1"
+        );
+        assert_eq!(s.project.component(r2).ok_or_else(missing)?.reference, "R2");
+        assert!(s.project.validate().is_ok());
+        let long = "R".repeat(65);
+        for params in [
+            json!({"id":r1,"reference":"R2"}),
+            json!({"id":r1,"reference":""}),
+            json!({"id":r1,"reference":long}),
+            json!({"id":9999,"reference":"R9"}),
+            json!({"id":r1,"reference":"R9","extra":1}),
+        ] {
+            assert!(s.execute("component.reference", params, None).is_err());
+        }
+        assert_eq!(
+            s.project.component(r1).ok_or_else(missing)?.reference,
+            "RV1"
+        );
+        s.execute(
+            "component.reference",
+            json!({"id":r1,"reference":"R1"}),
+            None,
+        )?;
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("net.rename", json!({"id":a,"name":"VCC"}), None)?;
+        assert_eq!(s.project.nets[0].name, "VCC");
+        assert_eq!(s.project.nets[1].name, "B");
+        assert!(s.project.validate().is_ok());
+        let long = "N".repeat(129);
+        for params in [
+            json!({"id":a,"name":"B"}),
+            json!({"id":a,"name":""}),
+            json!({"id":a,"name":long}),
+            json!({"id":9999,"name":"Z"}),
+            json!({"id":a,"name":"Z","extra":1}),
+        ] {
+            assert!(s.execute("net.rename", params, None).is_err());
+        }
+        assert_eq!(s.project.nets[0].name, "VCC");
+        assert_eq!(b, a + 1);
+        s.undo()?;
+        assert_eq!(s.project.nets[0].name, "A");
+        Ok(())
+    }
+    #[test]
+    fn importing_a_netlist_assigns_pins_by_reference() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?;
+        let result = s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]},{"name":"GND","pins":[{"reference":"R1","pin":"2"},{"reference":"R2","pin":"2"}]}]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(result["created"], 2);
+        assert_eq!(result["pins"], 4);
+        assert_eq!(s.project.nets.len(), 2);
+        fn net_id(s: &Session, name: &str) -> Option<u64> {
+            s.project.nets.iter().find(|n| n.name == name).map(|n| n.id)
+        }
+        fn pin_net(s: &Session, component: u64, pin: &str) -> Option<u64> {
+            s.project
+                .component(component)?
+                .pins
+                .iter()
+                .find(|p| p.number == pin)?
+                .net
+        }
+        assert_eq!(pin_net(&s, r1, "1"), net_id(&s, "PWR"));
+        assert_eq!(pin_net(&s, r1, "2"), net_id(&s, "GND"));
+        assert!(s.project.validate().is_ok());
+        let again = s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R1","pin":"1"}]}]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(again["created"], 0);
+        assert_eq!(again["pins"], 1);
+        for params in [
+            json!({"nets":[]}),
+            json!({"nets":[{"name":"X","pins":[]}]}),
+            json!({"nets":[{"name":"","pins":[{"reference":"R1","pin":"1"}]}]}),
+            json!({"nets":[{"name":"X","pins":[{"reference":"R9","pin":"1"}]}]}),
+            json!({"nets":[{"name":"X","pins":[{"reference":"R1","pin":"9"}]}]}),
+            json!({"nets":[{"name":"A","pins":[{"reference":"R1","pin":"1"}]},{"name":"B","pins":[{"reference":"R1","pin":"1"}]}]}),
+            json!({"nets":[{"name":"OTHER","pins":[{"reference":"R1","pin":"1"}]}]}),
+            json!({"nets":[{"name":"X","pins":[{"reference":"R1","pin":"1","extra":1}]}]}),
+        ] {
+            assert!(s.execute("netlist.import", params, None).is_err());
+        }
+        assert_eq!(s.project.nets.len(), 2);
+        assert_eq!(pin_net(&s, r1, "1"), net_id(&s, "PWR"));
+        assert_eq!(pin_net(&s, r1, "2"), net_id(&s, "GND"));
+        s.undo()?;
+        s.undo()?;
+        assert!(s.project.nets.is_empty());
+        assert_eq!(pin_net(&s, r1, "1"), None);
+        Ok(())
+    }
+    #[test]
+    fn exporting_a_netlist_lists_pins_by_reference() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R2","pin":"1"},{"reference":"R1","pin":"1"}]},{"name":"GND","pins":[{"reference":"R1","pin":"2"}]}]}),
+            None,
+        )?;
+        let before = s.project.clone();
+        let result = s.execute("netlist.export", json!({}), None)?["result"].clone();
+        assert_eq!(result["nets"].as_array().ok_or_else(missing)?.len(), 2);
+        assert_eq!(result["pins"], 3);
+        assert_eq!(result["nets"][0]["name"], "GND");
+        assert_eq!(result["nets"][1]["pins"][0]["reference"], "R1");
+        assert_eq!(result["nets"][1]["pins"][1]["reference"], "R2");
+        assert_eq!(
+            result["unconnected"].as_array().ok_or_else(missing)?.len(),
+            1
+        );
+        assert_eq!(result["unconnected"][0]["reference"], "R2");
+        assert_eq!(result["unconnected"][0]["pin"], "2");
+        assert_eq!(s.project, before);
+        let pwr = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "PWR")
+            .ok_or_else(missing)?
+            .id;
+        let filtered = s.execute("netlist.export", json!({"net": pwr}), None)?["result"].clone();
+        assert_eq!(filtered["nets"].as_array().ok_or_else(missing)?.len(), 1);
+        assert_eq!(filtered["nets"][0]["name"], "PWR");
+        assert_eq!(filtered["pins"], 2);
+        s.execute(
+            "pin.no_connect",
+            json!({"pin":{"component":r2,"pin":"2"}}),
+            None,
+        )?;
+        let flagged = s.execute("netlist.export", json!({}), None)?["result"].clone();
+        assert!(
+            flagged["unconnected"]
+                .as_array()
+                .ok_or_else(missing)?
+                .is_empty()
+        );
+        for params in [json!({"net": 9999}), json!({"extra": 1})] {
+            assert!(s.execute("netlist.export", params, None).is_err());
+        }
+        let after = s.project.clone();
+        s.execute("netlist.export", json!({}), None)?;
+        assert_eq!(s.project, after);
+        assert!(
+            s.project.component(r1).ok_or_else(missing)?.pins[0]
+                .net
+                .is_some()
+        );
+        Ok(())
+    }
+    #[test]
+    fn components_place_at_a_starting_rotation() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"rotation":90.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let held = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == r1)
+            .ok_or_else(missing)?;
+        assert_eq!(held.rotation, 90.0, "the symbol lands already turned");
+        let u = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0},"rotation":450.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let held = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == u)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            held.rotation, 90.0,
+            "a turn and a quarter lands as a quarter turn"
+        );
+        assert!(
+            s.execute(
+                "component.place_library",
+                json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":30.0,"y":40.0},"rotation":"turn"}),
+                None
+            )
+            .is_err(),
+            "rotation stays a number"
+        );
+        let mut symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        symbol.name = "TurnR".into();
+        s.execute("library.symbol.upsert", json!({"definition":symbol}), None)?;
+        let t = s.execute(
+            "component.place_custom",
+            json!({"name":"TurnR","position":{"x":40.0,"y":10.0},"rotation":270.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let held = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == t)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            held.rotation, 270.0,
+            "project-library symbols land turned too"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.components.len(),
+            2,
+            "undo drops the turned placement"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn pad_tables_report_nets_geometry_and_drills() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R2","pin":"1"},{"reference":"R1","pin":"1"}]}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let result = s.execute("pad.table", json!({}), None)?["result"].clone();
+        assert_eq!(result["count"], 4);
+        assert_eq!(result["unassigned"], 2);
+        let pads = result["pads"].as_array().ok_or_else(missing)?;
+        assert_eq!(pads[0]["reference"], "R1");
+        assert_eq!(pads[0]["pad"], "1");
+        assert_eq!(pads[0]["net"], "PWR");
+        assert_eq!(pads[1]["reference"], "R1");
+        assert_eq!(pads[1]["pad"], "2");
+        assert_eq!(pads[1]["net"], json!(null));
+        assert_eq!(pads[0]["shape"], "circle");
+        assert_eq!(pads[0]["size"]["x"], 1.6);
+        assert_eq!(pads[0]["drill"], json!(null));
+        let footprint = s.project.board.footprints.first().ok_or_else(missing)?;
+        let expected = footprint.pad_position("1").ok_or_else(missing)?;
+        let reported = pads[0]["position"].as_object().ok_or_else(missing)?;
+        let rx = reported["x"].as_f64().ok_or_else(missing)?;
+        let ry = reported["y"].as_f64().ok_or_else(missing)?;
+        assert!((rx - expected.x).abs() < 1e-9 && (ry - expected.y).abs() < 1e-9);
+        for (component, reference) in [(r1, "R1"), (r2, "R2")] {
+            let filtered =
+                s.execute("pad.table", json!({"component": component}), None)?["result"].clone();
+            assert_eq!(filtered["count"], 2);
+            assert_eq!(filtered["pads"][0]["reference"], reference);
+            assert_eq!(filtered["pads"][0]["net"], "PWR");
+        }
+        for params in [json!({"component": 9999}), json!({"extra": 1})] {
+            assert!(s.execute("pad.table", params, None).is_err());
+        }
+        let u = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":u,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let geometry = s.execute("pad.table", json!({"component": u}), None)?["result"].clone();
+        assert_eq!(geometry["count"], 8);
+        assert_eq!(geometry["unassigned"], 8);
+        let pads = geometry["pads"].as_array().ok_or_else(missing)?;
+        assert_eq!(
+            pads[0]["reference"],
+            s.project.component(u).ok_or_else(missing)?.reference
+        );
+        assert_eq!(pads[0]["shape"], "roundrect");
+        assert_eq!(pads[0]["size"]["x"], 1.6);
+        assert_eq!(pads[0]["drill"]["x"], 0.8);
+        assert_eq!(pads[7]["pad"], "8");
+        Ok(())
+    }
+    #[test]
+    fn footprint_refresh_propagates_package_edits_to_every_placed_copy() -> Result<(), Error> {
+        let folder = std::env::temp_dir()
+            .join(format!("pcbcraft-refresh-{}", std::process::id()))
+            .join("smd");
+        std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
+        let file = folder.join("smd.kicad_mod");
+        let fixture = library_fixture("DIP-8_W7.62mm.kicad_mod");
+        std::fs::copy(&fixture, &file).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut s = Session::default();
+        s.execute(
+            "library.link",
+            json!({"name":"smd","path":folder.to_string_lossy().to_string()}),
+            None,
+        )?;
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":chip,"path":file.to_string_lossy().to_string()}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let before = s.execute("pad.table", json!({"component":chip}), None)?["result"].clone();
+        assert_eq!(before["pads"][0]["drill"]["x"], 0.8);
+        let text = std::fs::read_to_string(&file).map_err(|e| Error::Invalid(e.to_string()))?;
+        std::fs::write(&file, text.replace("(drill 0.8)", "(drill 1.0)"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let refreshed = s.execute("footprint.refresh", json!({"library":"smd"}), None)?;
+        assert_eq!(
+            refreshed["result"]["assigned"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(refreshed["result"]["skipped"], json!([]));
+        let placed_drill = |s: &Session| {
+            s.project.board.footprints[0].pads[0]
+                .geometry
+                .as_ref()
+                .and_then(|g| g.drill.as_ref())
+                .map(|d| d.size.x)
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            placed_drill(&s),
+            1.0,
+            "the edited drill diameter reaches the placed pads"
+        );
+        assert_eq!(
+            s.project.board.footprints[0].pads[0]
+                .geometry
+                .as_ref()
+                .map(|g| g.shape.as_str()),
+            Some("roundrect"),
+            "the package shape survives"
+        );
+        assert!(
+            s.execute("footprint.refresh", json!({"library":"nope"}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("footprint.refresh", json!({"library":"smd","id":1}), None)
+                .is_err()
+        );
+        s.undo()?;
+        assert_eq!(
+            placed_drill(&s),
+            0.8,
+            "refreshing a package undoes in one step"
+        );
+        std::fs::remove_dir_all(
+            folder
+                .parent()
+                .ok_or_else(|| Error::Invalid("temp folder has no parent".into()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_refresh_propagates_symbol_edits_to_every_placed_copy() -> Result<(), Error> {
+        let tag = SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed);
+        let lib = format!("amps{tag}");
+        let tmp = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let folder = tmp.path().join(&lib);
+        std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
+        let file = folder.join("amps.kicad_sym");
+        let fixture = library_fixture("lm358.kicad_sym");
+        std::fs::copy(&fixture, &file).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut s = Session::default();
+        s.execute(
+            "library.link",
+            json!({"name":lib,"path":folder.to_string_lossy().to_string()}),
+            None,
+        )?;
+        let sym_path = format!("{lib}/amps.kicad_sym");
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":sym_path,"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let net = s.execute("net.create", json!({"name":"OUT"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":net,"pins":[{"component":chip,"pin":"1"}]}),
+            None,
+        )?;
+        let graphic_at = |s: &Session| {
+            s.project.components[0]
+                .library_symbol
+                .as_ref()
+                .map(|l| l.definition.graphics.len())
+                .unwrap_or_default()
+        };
+        let graphics_before = graphic_at(&s);
+        assert!(
+            graphics_before > 0,
+            "the placed symbol carries library artwork"
+        );
+        let text = std::fs::read_to_string(&file).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(
+            text.matches("(xy 5.08 0)").count(),
+            2,
+            "both symbol units draw the same triangle"
+        );
+        std::fs::write(&file, text.replace("(xy 5.08 0)", "(xy 6.08 0)"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let refreshed = s.execute(
+            "symbol.refresh",
+            json!({"path":sym_path,"symbol":"LM358"}),
+            None,
+        )?;
+        assert_eq!(
+            refreshed["result"]["assigned"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(refreshed["result"]["skipped"], json!([]));
+        let moved = s.project.components[0]
+            .library_symbol
+            .as_ref()
+            .map(|l| {
+                l.definition.graphics.iter().any(|g| {
+                    g.primitive
+                        .path_points()
+                        .iter()
+                        .any(|p| (p.x - 6.08).abs() < 1e-9)
+                })
+            })
+            .unwrap_or_default();
+        assert!(moved, "the edited artwork reaches the placed symbol");
+        assert_eq!(
+            graphic_at(&s),
+            graphics_before,
+            "the same artwork just moved"
+        );
+        assert_eq!(
+            s.project.components[0].pins[0].net,
+            Some(net),
+            "pin net bindings survive a symbol refresh"
+        );
+        assert!(
+            s.execute(
+                "symbol.refresh",
+                json!({"path":sym_path,"symbol":"NOPE"}),
+                None
+            )
+            .is_err()
+        );
+        s.undo()?;
+        let back = s.project.components[0]
+            .library_symbol
+            .as_ref()
+            .map(|l| {
+                l.definition.graphics.iter().any(|g| {
+                    g.primitive
+                        .path_points()
+                        .iter()
+                        .any(|p| (p.x - 6.08).abs() < 1e-9)
+                })
+            })
+            .unwrap_or_default();
+        assert!(!back, "refreshing a symbol undoes in one step");
+        std::fs::remove_dir_all(
+            folder
+                .parent()
+                .ok_or_else(|| Error::Invalid("temp folder has no parent".into()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn drill_chart_groups_every_drilled_hole_by_size() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (x, d) in [(10.0, 0.3), (12.0, 0.3), (14.0, 0.35), (16.0, 0.0)] {
+            s.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":x,"y":10.0},"diameter":0.6,"drill":d}),
+                None,
+            )?;
+        }
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":chip,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let chart = s.execute("drill.chart", json!({}), None)?["result"].clone();
+        assert_eq!(chart["total"], 11, "three drilled vias and eight pads");
+        assert_eq!(chart["board_thickness"], 1.6);
+        let holes = chart["holes"].as_array().ok_or_else(missing)?;
+        assert_eq!(holes.len(), 3, "the unplated via has no hole to count");
+        assert_eq!(holes[0]["shape"], "round");
+        assert_eq!(holes[0]["diameter"], 0.3);
+        assert_eq!(holes[0]["count"], 2);
+        assert_eq!(holes[1]["diameter"], 0.35);
+        assert_eq!(holes[1]["count"], 1);
+        assert_eq!(holes[2]["diameter"], 0.8);
+        assert_eq!(holes[2]["count"], 8);
+        let before = s.inspect()["project"].clone();
+        assert!(s.execute("drill.chart", json!({"extra": 1}), None).is_err());
+        assert!(s.execute("drill.chart", json!([]), None).is_err());
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "the report changes no project data"
+        );
+        Ok(())
+    }
+    #[test]
+    fn board_statistics_count_objects_and_the_finish_is_recorded() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":0.0,"y":4.0},"width":0.3,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":6.0,"y":5.0},"diameter":0.6,"drill":0.0}),
+            None,
+        )?;
+        s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":30.0,"y":20.0},"radius":2.0}),
+            None,
+        )?;
+        s.execute(
+            "text.place",
+            json!({"text":"REV A","position":{"x":10.0,"y":35.0},"size":1.5}),
+            None,
+        )?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["tracks"]["front"], 1);
+        assert_eq!(stats["tracks"]["back"], 1);
+        assert_eq!(stats["routed_length"]["total"], 14.0);
+        assert_eq!(stats["vias"], 2);
+        assert_eq!(
+            stats["drilled_holes"], 1,
+            "vias without a drill are not holes"
+        );
+        assert_eq!(stats["cutouts"], 1);
+        assert_eq!(stats["texts"], 1);
+        assert_eq!(stats["board_area"], 2400.0);
+        assert_eq!(stats["finish"], "HASL", "a fresh board records a finish");
+        s.execute("board.set_finish", json!({"finish":"ENIG"}), None)?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["finish"], "ENIG");
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute("board.set_finish", json!({"finish":""}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.set_finish", json!({"finish":"x".repeat(65)}), None)
+                .is_err(),
+            "the finish stays bounded"
+        );
+        assert!(
+            s.execute("board.set_finish", json!({"finish":"ENIG","extra":1}), None)
+                .is_err(),
+            "unknown parameters are refused"
+        );
+        assert!(
+            s.execute("board.statistics", json!({"extra":1}), None)
+                .is_err()
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "refusals and reports change no project data"
+        );
+        s.undo()?; // steps back over the no-op statistics report
+        s.undo()?; // steps back over the finish change itself
+        assert_eq!(s.inspect()["project"]["board"]["finish"], "HASL");
+        Ok(())
+    }
+    #[test]
+    fn references_can_be_renumbered_in_placement_order_with_a_dry_run() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, kind, x, y) in [
+            ("R5", "resistor", 30.0, 10.0),
+            ("R3", "resistor", 20.0, 20.0),
+            ("R1", "resistor", 10.0, 30.0),
+            ("C2", "capacitor", 5.0, 5.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"value":"1","position":{"x":x,"y":y}}),
+                None,
+            )?;
+        }
+        let plan = s.execute(
+            "components.reannotate",
+            json!({"prefix":"R","dry_run":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(plan["dry_run"], true);
+        assert_eq!(plan["count"], 3);
+        assert_eq!(plan["renamed"][0]["from"], "R5", "topmost first");
+        assert_eq!(plan["renamed"][0]["to"], "R1");
+        assert_eq!(plan["renamed"][2]["to"], "R3");
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "components.reannotate",
+                json!({"prefix":"R","start":0}),
+                None
+            )
+            .is_err(),
+            "the start number stays positive"
+        );
+        assert!(
+            s.execute("components.reannotate", json!({"prefix":"R9"}), None)
+                .is_err(),
+            "the prefix is letters only"
+        );
+        assert!(
+            s.execute("components.reannotate", json!({"prefix":"Q"}), None)
+                .is_err(),
+            "an empty group is an error, not a silent success"
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "dry runs and refusals change nothing"
+        );
+        s.execute("components.reannotate", json!({}), None)?;
+        let refs: Vec<String> = s.inspect()["project"]["components"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|c| c["reference"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(
+            refs,
+            ["R1", "R2", "R3", "C1"],
+            "each prefix renumbers itself"
+        );
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"r7","value":"1","position":{"x":40.0,"y":40.0}}),
+            None,
+        )?;
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "components.reannotate",
+                json!({"prefix":"R","start":1}),
+                None
+            )
+            .is_err(),
+            "two letter spellings that would produce the same names refuse the call"
+        );
+        assert_eq!(s.inspect()["project"], before);
+        Ok(())
+    }
+    #[test]
+    fn a_placed_footprint_can_be_stepped_and_repeated_as_one_undoable_array() -> Result<(), Error> {
+        let mut s = Session::default();
+        let chip = s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","reference":"U1","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":chip,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let array = s.execute(
+            "footprint.array",
+            json!({"footprint":fp,"columns":3,"rows":2,"dx":5.0,"dy":6.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(array["count"], 6, "the source plus five copies");
+        let project = s.inspect()["project"].clone();
+        let footprints = project["board"]["footprints"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert_eq!(footprints.len(), 6);
+        let refs: Vec<String> = project["components"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|c| c["reference"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(refs, ["U1", "U1-2", "U1-3", "U1-4", "U1-5", "U1-6"]);
+        let last = footprints.last().ok_or_else(missing)?;
+        assert_eq!(
+            last["position"]["x"],
+            footprints[0]["position"]["x"]
+                .as_f64()
+                .ok_or_else(missing)?
+                + 10.0,
+            "two columns right"
+        );
+        assert_eq!(
+            last["position"]["y"],
+            footprints[0]["position"]["y"]
+                .as_f64()
+                .ok_or_else(missing)?
+                + 6.0,
+            "one row down"
+        );
+        for bad in [
+            json!({"footprint":fp,"columns":0,"rows":2,"dx":5.0,"dy":6.0}),
+            json!({"footprint":fp,"columns":1,"rows":1,"dx":5.0,"dy":6.0}),
+            json!({"footprint":fp,"columns":2,"rows":2,"dx":0.0,"dy":6.0}),
+            json!({"footprint":999,"columns":2,"rows":2,"dx":5.0,"dy":6.0}),
+        ] {
+            assert!(s.execute("footprint.array", bad, None).is_err());
+        }
+        assert_eq!(s.inspect()["project"], project, "refusals change nothing");
+        s.undo()?;
+        let back = s.inspect()["project"].clone();
+        assert_eq!(
+            back["board"]["footprints"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1
+        );
+        assert_eq!(back["components"].as_array().ok_or_else(missing)?.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn net_chains_walk_series_parts_and_report_how_the_walk_ends() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for r in ["R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"] {
+            ids.push(
+                s.execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":r,"position":{"x":10.0,"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        s.execute(
+            "netlist.import",
+            json!({"nets":[
+                {"name":"A","pins":[{"reference":"R1","pin":"2"},{"reference":"R2","pin":"1"}]},
+                {"name":"B","pins":[{"reference":"R2","pin":"2"},{"reference":"R3","pin":"1"}]},
+                {"name":"C","pins":[{"reference":"R3","pin":"2"},{"reference":"R4","pin":"1"},{"reference":"R5","pin":"1"}]},
+                {"name":"D","pins":[{"reference":"R4","pin":"2"}]},
+                {"name":"L1","pins":[{"reference":"R6","pin":"1"},{"reference":"R7","pin":"2"}]},
+                {"name":"L2","pins":[{"reference":"R7","pin":"1"},{"reference":"R8","pin":"2"}]},
+                {"name":"L3","pins":[{"reference":"R8","pin":"1"},{"reference":"R6","pin":"2"}]},
+            ]}),
+            None,
+        )?;
+        let chain = |s: &mut Session, component: Id, pin: &str| -> Result<Value, Error> {
+            Ok(
+                s.execute("net.chain", json!({"component":component,"pin":pin}), None)?["result"]
+                    .clone(),
+            )
+        };
+        let open = chain(&mut s, ids[0], "1")?;
+        assert_eq!(open["terminated"], "open", "a pin with no net ends at once");
+        assert_eq!(open["parts"], 1);
+        assert!(open["steps"][0]["net"].is_null());
+        let branch = chain(&mut s, ids[0], "2")?;
+        assert_eq!(branch["parts"], 3, "R1 through R2 into R3");
+        assert_eq!(branch["terminated"], "branch", "two ways forward at R3");
+        let refs: Vec<&str> = branch["steps"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .map(|q| q["reference"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(refs, ["R1", "R2", "R3"]);
+        assert_eq!(branch["steps"][2]["net_name"], "C");
+        let back = chain(&mut s, ids[2], "1")?;
+        assert_eq!(
+            back["terminated"], "open",
+            "the chain walks both directions"
+        );
+        assert_eq!(back["parts"], 3);
+        assert_eq!(back["steps"][2]["pin"], "1");
+        let start_branch = chain(&mut s, ids[3], "1")?;
+        assert_eq!(start_branch["parts"], 1);
+        assert_eq!(start_branch["terminated"], "branch");
+        let cycle = chain(&mut s, ids[5], "1")?;
+        assert_eq!(
+            cycle["terminated"], "loop",
+            "a ring of series parts is detected"
+        );
+        assert_eq!(
+            cycle["parts"], 3,
+            "each ring part is listed once before the walk notices the close"
+        );
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","reference":"U1","position":{"x":40.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"M","pins":[{"reference":"U1","pin":"1"},{"reference":"R9","pin":"1"}]}]}),
+            None,
+        )?;
+        let multi = chain(&mut s, ids[8], "1")?;
+        assert_eq!(
+            multi["terminated"], "multi",
+            "a many-pin part stops the chain"
+        );
+        assert_eq!(multi["parts"], 2);
+        assert_eq!(multi["steps"][1]["reference"], "U1");
+        for bad in [
+            json!({"component":9999,"pin":"1"}),
+            json!({"component":ids[0],"pin":"9"}),
+            json!({"component":ids[0],"pin":"12345678901234567"}),
+            json!({"component":ids[0]}),
+        ] {
+            assert!(s.execute("net.chain", bad, None).is_err());
+        }
+        Ok(())
+    }
+    #[test]
+    fn recorded_stackup_drives_impedance_estimates_and_width_advice() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}),
+            None,
+        )?;
+        let net = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":12.0,"y":10.0},"end":{"x":28.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        let report = s.execute("net.impedance", json!({}), None)?["result"].clone();
+        assert_eq!(
+            report["count"], 1,
+            "only a net with copper has an impedance"
+        );
+        assert_eq!(report["rows"][0]["net_name"], "SIG");
+        assert_eq!(report["rows"][0]["width"], 0.3);
+        assert_eq!(report["dielectric"], 1.6, "the default board thickness");
+        assert_eq!(report["er"], 4.4, "the default glass-epoxy permittivity");
+        let wide = report["rows"][0]["impedance_ohm"]
+            .as_f64()
+            .ok_or_else(missing)?;
+        assert!((120.0..=140.0).contains(&wide), "a plausible 0.3 mm value");
+        let advised = s.execute("net.impedance", json!({"target":60.0}), None)?["result"].clone();
+        assert_eq!(
+            advised["rows"][0]["delta_ohm"],
+            ((wide - 60.0) * 100.0).round() / 100.0
+        );
+        let suggested = advised["rows"][0]["recommended_width"]
+            .as_f64()
+            .ok_or_else(missing)?;
+        assert!(
+            (1.5..=3.0).contains(&suggested),
+            "a wide track is needed for 60 ohms on this stackup"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":12.0,"y":12.0},"end":{"x":28.0,"y":12.0},"width":0.6}),
+            None,
+        )?;
+        let thicker = s.execute("net.impedance", json!({}), None)?["result"].clone();
+        assert_eq!(thicker["rows"][0]["width"], 0.6, "the widest track decides");
+        assert!(
+            thicker["rows"][0]["impedance_ohm"]
+                .as_f64()
+                .ok_or_else(missing)?
+                < wide,
+            "wider copper means lower impedance"
+        );
+        let stack =
+            s.execute("board.set_stackup", json!({"thickness":0.8,"er":3.5}), None)?["result"]
+                .clone();
+        assert_eq!(stack["thickness"], 0.8);
+        assert_eq!(stack["er"], 3.5);
+        let thinner = s.execute("net.impedance", json!({}), None)?["result"].clone();
+        assert_eq!(thinner["dielectric"], 0.8);
+        assert_eq!(thinner["er"], 3.5);
+        assert_ne!(
+            thinner["rows"][0]["impedance_ohm"], thicker["rows"][0]["impedance_ohm"],
+            "the stackup feeds the estimate"
+        );
+        for bad in [
+            json!({}),
+            json!({"thickness":0.05}),
+            json!({"er":0.5}),
+            json!({"er":21.0}),
+            json!({"er":5.0,"extra":1}),
+        ] {
+            assert!(s.execute("board.set_stackup", bad, None).is_err());
+        }
+        for bad in [
+            json!({"net":9999}),
+            json!({"target":0.5}),
+            json!({"target":1001.0}),
+            json!({"width":0.3}),
+        ] {
+            assert!(s.execute("net.impedance", bad, None).is_err());
+        }
+        let before = s.inspect()["project"].clone();
+        s.undo()?;
+        s.undo()?;
+        let back = s.inspect()["project"].clone();
+        assert_ne!(back, before, "the stackup edit undoes");
+        assert_eq!(back["board"]["er"], 4.4);
+        assert_eq!(back["board"]["thickness"], 1.6);
+        Ok(())
+    }
+    #[test]
+    fn drill_origin_is_recorded_undone_and_feeds_the_drill_map() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SIG"}), None)?;
+        let net = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":30.0,"y":20.0},"diameter":0.7,"drill":0.3}),
+            None,
+        )?;
+        let set = s.execute(
+            "board.set_drill_origin",
+            json!({"position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(set["drill_origin"]["x"], 20.0);
+        assert_eq!(set["drill_origin"]["y"], 10.0);
+        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
+        assert!(
+            drill.contains("X10.000Y10.000\n"),
+            "the recorded origin moves drill coordinates"
+        );
+        assert!(
+            !drill.contains("X30.000Y20.000"),
+            "absolute coordinates are gone once an origin is recorded"
+        );
+        let back = s.execute("board.reset_drill_origin", json!({}), None)?["result"].clone();
+        assert_eq!(back["drill_origin"]["x"], 0.0);
+        assert_eq!(back["drill_origin"]["y"], 0.0);
+        for bad in [
+            json!({"position":{"x":1001.0,"y":0.0}}),
+            json!({"position":{"x":0.0,"y":-1001.0}}),
+            json!({"position":[0.0]}),
+            json!({"position":{"x":0.0,"y":0.0},"extra":1}),
+            json!({}),
+        ] {
+            assert!(s.execute("board.set_drill_origin", bad, None).is_err());
+        }
+        assert!(
+            s.execute("board.reset_drill_origin", json!({"x":0.0}), None)
+                .is_err()
+        );
+        let before = s.inspect()["project"].clone();
+        s.execute(
+            "board.set_drill_origin",
+            json!({"position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(s.inspect()["project"], before, "the origin edit undoes");
+        Ok(())
+    }
+    #[test]
+    fn layer_records_are_named_replaced_ordered_undone_and_cleared() -> Result<(), Error> {
+        let mut s = Session::default();
+        let core = s.execute(
+            "board.set_layer_record",
+            json!({"name":"Core","kind":"core","thickness":1.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(core["count"], 1, "the first note is recorded");
+        s.execute(
+            "board.set_layer_record",
+            json!({"name":"F.Cu","kind":"copper","thickness":0.035}),
+            None,
+        )?;
+        let replaced = s.execute(
+            "board.set_layer_record",
+            json!({"name":"Core","kind":"prepreg","thickness":0.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(replaced["count"], 2, "a repeated name replaces its note");
+        let records = s.inspect()["project"]["board"]["layer_records"].clone();
+        assert_eq!(records[0]["name"], "Core");
+        assert_eq!(records[0]["kind"], "prepreg");
+        assert_eq!(records[0]["thickness"], 0.2);
+        assert_eq!(records[1]["name"], "F.Cu", "notes stay in stack order");
+        for bad in [
+            json!({"name":"  ","kind":"core","thickness":1.0}),
+            json!({"name":"L1","kind":"bronze","thickness":1.0}),
+            json!({"name":"L1","kind":"core","thickness":-0.1}),
+            json!({"name":"L1","kind":"core","thickness":101.0}),
+            json!({"name":"L1","kind":"core"}),
+        ] {
+            assert!(
+                s.execute("board.set_layer_record", bad, None).is_err(),
+                "bad layer notes are refused"
+            );
+        }
+        assert!(
+            s.execute("board.clear_layer_records", json!({"name":"Core"}), None)
+                .is_err(),
+            "board.clear_layer_records takes an empty object"
+        );
+        s.undo()?;
+        let records = s.inspect()["project"]["board"]["layer_records"].clone();
+        assert_eq!(records[0]["kind"], "core", "a replace undoes cleanly");
+        assert_eq!(records[0]["thickness"], 1.2);
+        let cleared = s.execute("board.clear_layer_records", json!({}), None)?["result"].clone();
+        assert_eq!(cleared["removed"], 2, "clearing reports what it dropped");
+        assert!(
+            s.inspect()["project"]["board"]
+                .get("layer_records")
+                .is_none_or(|a| a.as_array().is_some_and(|a| a.is_empty())),
+            "the board is left with no notes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["board"]["layer_records"]
+                .as_array()
+                .map_or(0, |a| a.len()),
+            2,
+            "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn project_unit_is_recorded_reported_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert_eq!(
+            s.inspect()["project"]["unit"],
+            "mm",
+            "projects start in millimetres"
+        );
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["unit"], "mm");
+        assert!(
+            s.execute("project.set_unit", json!({"unit": "mm"}), None)
+                .is_err(),
+            "recording the unit the project already uses is refused"
+        );
+        s.execute("project.set_unit", json!({"unit": "inch"}), None)?;
+        assert_eq!(s.inspect()["project"]["unit"], "inch");
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["unit"], "inch");
+        s.execute("project.set_unit", json!({"unit": "mil"}), None)?;
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["unit"],
+            "inch",
+            "one undo steps back to inch"
+        );
+        assert!(
+            s.execute("project.set_unit", json!({"unit": "furlong"}), None)
+                .is_err(),
+            "only mm, mil and inch are units"
+        );
+        assert_eq!(s.project.unit, "inch");
+        Ok(())
+    }
+
+    #[test]
+    fn project_metadata_records_replaces_clears_and_refuses_bad_keys() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "project.set_meta",
+            json!({"key":"title","value":"Sensor Board"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["value"], "Sensor Board", "the value is reported");
+        s.execute(
+            "project.set_meta",
+            json!({"key":"revision","value":"2.1"}),
+            None,
+        )?;
+        let meta = s.inspect()["project"]["meta"].clone();
+        assert_eq!(meta["title"], "Sensor Board", "metadata is stored");
+        assert_eq!(meta["revision"], "2.1", "entries accumulate");
+        s.execute(
+            "project.set_meta",
+            json!({"key":"title","value":"Sensor Board Rev A"}),
+            None,
+        )?;
+        for bad in [
+            json!({"key":"","value":"x"}),
+            json!({"key":"Title","value":"x"}),
+            json!({"key":"a-b","value":"x"}),
+            json!({"key":"title","value":"same","again":1}),
+        ] {
+            assert!(
+                s.execute("project.set_meta", bad, None).is_err(),
+                "bad metadata requests are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "project.set_meta",
+                json!({"key":"title","value":"Sensor Board Rev A"}),
+                None,
+            )
+            .is_err(),
+            "recording the same value again is refused"
+        );
+        s.execute("project.clear_meta", json!({"key":"revision"}), None)?;
+        assert!(
+            s.inspect()["project"]["meta"].get("revision").is_none(),
+            "clearing removes the entry"
+        );
+        assert!(
+            s.execute("project.clear_meta", json!({"key":"revision"}), None)
+                .is_err(),
+            "clearing an absent entry is refused"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["meta"]["revision"],
+            "2.1",
+            "clearing undoes"
+        );
+        s.execute(
+            "project.set_meta",
+            json!({"key":"company","value":"Quasar"}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["meta"].get("company").is_none(),
+            "recording undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn dimensions_can_be_re_measured_in_place() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "dimension.add",
+            json!({"start":[0.0,0.0],"end":[30.0,0.0],"layer":"schematic"}),
+            None,
+        )?["result"]
+            .clone();
+        let gid = out["id"].as_u64().ok_or_else(missing)?;
+        let out =
+            s.execute("dimension.set", json!({"id":gid,"end":[40.0,0.0]}), None)?["result"].clone();
+        assert_eq!(out["distance"], 40.0, "the new span is reported");
+        let rows = s.inspect()["project"]["graphics"]
+            .as_array()
+            .cloned()
+            .ok_or_else(missing)?;
+        let measured = rows
+            .iter()
+            .find(|g| g["shape"] == "text")
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(measured["text"], "40.00", "the label follows the new span");
+        assert_eq!(
+            s.inspect()["project"]["graphics"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            4,
+            "the pieces are rewritten in place, not replaced"
+        );
+        let before = s.inspect();
+        assert!(
+            s.execute("dimension.set", json!({"id":gid}), None).is_err(),
+            "a bare set changes nothing"
+        );
+        assert_eq!(
+            s.inspect(),
+            before,
+            "a refused set leaves the drawing alone"
+        );
+        assert!(
+            s.execute(
+                "dimension.set",
+                json!({"id":gid,"start":[0.0,0.0],"end":[0.0,0.0]}),
+                None
+            )
+            .is_err(),
+            "the ends must stay distinct"
+        );
+        let history = s.inspect()["history"]["undo"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(history, 2, "refused sets add no undo steps");
+        assert!(
+            s.execute(
+                "dimension.set",
+                json!({"id":gid,"start":[0.0,0.0],"end":[40.0,0.0],"offset":2.0}),
+                None
+            )
+            .is_err(),
+            "restoring the current span and offset is a no-op"
+        );
+        s.undo()?;
+        let rows = s.inspect()["project"]["graphics"]
+            .as_array()
+            .cloned()
+            .ok_or_else(missing)?;
+        let measured = rows
+            .iter()
+            .find(|g| g["shape"] == "text")
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            measured["text"], "30.00",
+            "one undo step restores the original span"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dimensions_measure_group_and_undo_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "dimension.add",
+            json!({"start":[0.0,0.0],"end":[30.0,0.0],"layer":"schematic"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["distance"], 30.0, "the distance is reported");
+        let gid = out["id"].as_u64().ok_or_else(missing)?;
+        let groups = s.inspect()["project"]["graphic_groups"].clone();
+        let group = groups
+            .as_array()
+            .and_then(|g| g.iter().find(|g| g["id"] == gid))
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            group["graphics"].as_array().ok_or_else(missing)?.len(),
+            4,
+            "witness lines, dimension line and text are grouped"
+        );
+        let graphics = s.inspect()["project"]["graphics"].clone();
+        let rows = graphics.as_array().ok_or_else(missing)?;
+        let measured = rows
+            .iter()
+            .find(|g| g["shape"] == "text")
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(measured["text"], "30.00", "the text states the span");
+        s.execute(
+            "graphic.translate",
+            json!({"id":gid,"delta":[0.0,10.0]}),
+            None,
+        )?;
+        let moved = s.inspect()["project"]["graphics"].clone();
+        let moved_rows = moved.as_array().ok_or_else(missing)?;
+        let first = moved_rows
+            .iter()
+            .find(|g| g["shape"] == "text")
+            .cloned()
+            .ok_or_else(missing)?;
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(
+            near(first["points"][0]["y"].as_f64().unwrap_or(0.0), 12.8),
+            "the whole dimension shifts together"
+        );
+        s.undo()?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["graphics"]
+                .as_array()
+                .is_some_and(|r| r.is_empty())
+                && s.inspect()["project"].get("graphic_groups").is_none(),
+            "the dimension undoes as one step"
+        );
+        let out = s.execute(
+            "dimension.add",
+            json!({"start":[0.0,0.0],"end":[3.0,4.0],"layer":"board","offset":-3.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["distance"], 5.0, "diagonal spans measure exactly");
+        for bad in [
+            json!({"start":[0.0,0.0],"end":[0.0,0.0],"layer":"schematic"}),
+            json!({"start":[0.0,0.0],"end":[1.0,0.0],"layer":"paste"}),
+            json!({"start":[0.0,0.0],"end":[1.0,0.0],"layer":"schematic","offset":200.0}),
+            json!({"start":[0.0,0.0],"end":[1.0,0.0],"layer":"schematic","nope":1}),
+        ] {
+            assert!(
+                s.execute("dimension.add", bad, None).is_err(),
+                "bad dimension requests are refused"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn board_outline_reshapes_the_board_and_its_edge_checks() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r = s.execute(
+            "board.set_outline",
+            json!({"points":[[0.0,0.0],[60.0,0.0],[60.0,40.0],[30.0,40.0],[30.0,20.0],[0.0,20.0]]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(r["vertices"], 6);
+        assert_eq!(r["area"], 1800.0);
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(
+            stats["board_area"], 1800.0,
+            "statistics count the traced shape, not the bounding box"
+        );
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":5.0,"y":30.0},"end":{"x":10.0,"y":30.0},"width":0.2}),
+            None,
+        )?;
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .any(|f| f["code"] == "board_edge"),
+            "copper in the cut-away corner sits outside the traced outline"
+        );
+        s.undo()?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":40.0,"y":30.0},"end":{"x":50.0,"y":30.0},"width":0.2}),
+            None,
+        )?;
+        assert!(
+            s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "the same copper inside the traced outline is clean"
+        );
+        s.undo()?;
+        for bad in [
+            json!({"points":[[0.0,0.0],[10.0,0.0]]}),
+            json!({"points":[[0.0,0.0],[10.0,0.0],[10.0,0.0]]}),
+            json!({"points":[[1.0,1.0],[2.0,1.0],[1.5,1.0]]}),
+            json!({"points":[[-1.0,0.0],[10.0,0.0],[10.0,10.0]]}),
+        ] {
+            assert!(
+                s.execute("board.set_outline", bad, None).is_err(),
+                "degenerate outlines are refused"
+            );
+        }
+        s.execute(
+            "board.set_outline",
+            json!({"points":[[10.0,10.0],[30.0,10.0],[30.0,30.0]]}),
+            None,
+        )?;
+        s.execute("board.clear_outline", json!({}), None)?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.outline.as_ref().map_or(0, |o| o.len()),
+            3,
+            "one undo restores the traced outline"
+        );
+        s.execute("board.clear_outline", json!({}), None)?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(
+            stats["board_area"], 400.0,
+            "the rectangle keeps the outline's bounding box size"
+        );
+        assert!(
+            s.execute("board.clear_outline", json!({}), None).is_err(),
+            "clearing twice is a missing outline"
+        );
+        Ok(())
+    }
+    #[test]
+    fn radial_dimensions_measure_circles_and_undo_as_one_unit() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r = s.execute(
+            "dimension.radius",
+            json!({"center":{"x":10.0,"y":10.0},"point":{"x":14.0,"y":10.0},"layer":"board"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(r["radius"], 4.0);
+        assert_eq!(s.project.graphic_groups.len(), 1);
+        assert_eq!(s.project.graphic_groups[0].graphics.len(), 3);
+        let last = s.project.graphics.len();
+        assert_eq!(s.project.graphics[last - 3].shape, "circle");
+        assert_eq!(s.project.graphics[last - 3].width, 4.0);
+        assert_eq!(
+            s.project.graphics[last - 2].points[0],
+            Point::new(10.0, 10.0)
+        );
+        assert_eq!(
+            s.project.graphics[last - 1].text,
+            "R 4.00",
+            "the label carries the measured radius"
+        );
+        s.undo()?;
+        assert!(
+            s.project.graphics.is_empty() && s.project.graphic_groups.is_empty(),
+            "one undo removes every piece of the dimension"
+        );
+        let d = s.execute(
+            "dimension.diameter",
+            json!({"center":{"x":0.0,"y":0.0},"point":{"x":3.0,"y":4.0},"layer":"schematic"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(d["radius"], 5.0);
+        let last = s.project.graphics.len();
+        assert_eq!(
+            s.project.graphics[last - 2].points[0],
+            Point::new(-3.0, -4.0),
+            "the diameter leader starts on the far rim"
+        );
+        assert_eq!(s.project.graphics[last - 1].text, "\u{d8} 10.00");
+        s.undo()?;
+        assert!(s.project.graphics.is_empty());
+        for bad in [
+            json!({"center":{"x":1.0,"y":1.0},"point":{"x":1.0,"y":1.0},"layer":"board"}),
+            json!({"center":{"x":1.0,"y":1.0},"point":{"x":2.0,"y":1.0},"layer":"copper"}),
+            json!({"center":{"x":1.0,"y":1.0},"point":{"x":2.0,"y":1.0}}),
+        ] {
+            assert!(
+                s.execute("dimension.radius", bad, None).is_err(),
+                "bad radial dimension requests are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "dimension.diameter",
+                json!({"center":{"x":1.0,"y":1.0},"point":{"x":1.0,"y":1.0},"layer":"board"}),
+                None,
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn tracks_can_be_bent_to_a_new_arc_and_straightened_back() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let id = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = |s: &Session| -> Option<Point> {
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == id)
+                .and_then(|t| t.arc)
+        };
+        assert!(track(&s).is_none(), "a fresh track runs straight");
+        let bent = s.execute(
+            "track.set_arc",
+            json!({"id":id,"mid":{"x":5.0,"y":2.0}}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(bent["arc"], json!({"x": 5.0, "y": 2.0}));
+        assert!(
+            bent["length"].as_f64().unwrap_or(0.0) > 10.0,
+            "the curve is longer than the chord it replaces"
+        );
+        assert_eq!(track(&s), Some(Point::new(5.0, 2.0)));
+        s.execute(
+            "track.set_arc",
+            json!({"id":id,"mid":{"x":5.0,"y":-2.0}}),
+            None,
+        )?;
+        assert_eq!(track(&s), Some(Point::new(5.0, -2.0)));
+        let straight = s.execute("track.straighten", json!({"id":id}), None)?["result"].clone();
+        assert!((straight["length"].as_f64().unwrap_or(0.0) - 10.0).abs() < 1e-9);
+        assert!(track(&s).is_none(), "straightening lets the curve go");
+        for bad in [
+            json!({"id":id,"mid":{"x":5.0,"y":0.0}}),
+            json!({"id":id,"mid":{"x":1e9,"y":2.0}}),
+            json!({"id":id + 77,"mid":{"x":5.0,"y":2.0}}),
+        ] {
+            assert!(
+                s.execute("track.set_arc", bad, None).is_err(),
+                "a flat, out-of-range or unknown bend is refused"
+            );
+        }
+        let t = |s: &Session| {
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|q| q.id == id)
+                .cloned()
+                .ok_or_else(missing)
+        };
+        s.undo()?;
+        assert_eq!(
+            t(&s)?.arc,
+            Some(Point::new(5.0, -2.0)),
+            "undoing the straightening brings the bend back"
+        );
+        s.undo()?;
+        assert_eq!(
+            t(&s)?.arc,
+            Some(Point::new(5.0, 2.0)),
+            "undoing the second bend restores the first"
+        );
+        s.undo()?;
+        assert_eq!(
+            t(&s)?.arc,
+            None,
+            "undoing the first bend runs the track straight again"
+        );
+        Ok(())
+    }
+    #[test]
+    fn curved_tracks_measure_shorten_and_keep_their_shape() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t = s.execute(
+            "track.add_arc",
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"mid":{"x":15.0,"y":12.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]
+        .clone();
+        let length = t["length"].as_f64().ok_or_else(missing)?;
+        assert!(
+            (length - 11.037).abs() < 0.01,
+            "the arc is longer than its 10 mm chord"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":14.0,"y":12.09},"end":{"x":16.0,"y":12.09},"width":0.2}),
+            None,
+        )?;
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        let total = stats["routed_length"]["total"]
+            .as_f64()
+            .ok_or_else(missing)?;
+        assert!(
+            (total - (length + 2.0)).abs() < 0.01,
+            "statistics count the curve, not the chord"
+        );
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .any(|f| f["code"] == "clearance" || f["code"] == "copper_short"),
+            "copper 0.09 mm over the curve apex must be reported"
+        );
+        s.execute("track.straighten", json!({"id": t["id"]}), None)?;
+        assert!(
+            s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "straightening moves the copper away"
+        );
+        s.undo()?;
+        assert!(s.project.board.tracks[0].arc.is_some());
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .any(|f| f["code"] == "clearance" || f["code"] == "copper_short"),
+            "undo restores the curve and its finding"
+        );
+        assert!(
+            s.execute(
+                "track.split",
+                json!({"id": t["id"], "at": {"x": 15.0, "y": 12.0}}),
+                None,
+            )
+            .is_err(),
+            "a curved track cannot be split"
+        );
+        s.execute(
+            "track.move",
+            json!({"id": t["id"], "delta": {"x": 0.0, "y": -2.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.tracks[0].arc,
+            Some(Point::new(15.0, 10.0)),
+            "moving a curved track carries its midpoint along"
+        );
+        assert!(
+            s.checks()["drc"].as_array().ok_or_else(missing)?.is_empty(),
+            "the moved curve clears the straight track"
+        );
+        s.execute(
+            "track.set_end",
+            json!({"id": t["id"], "end": "end", "position": {"x": 22.0, "y": 8.0}}),
+            None,
+        )?;
+        assert!(
+            s.project.board.tracks[0].arc.is_none(),
+            "dragging an end straightens the track"
+        );
+        for bad in [
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"mid":{"x":15.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"mid":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+        ] {
+            assert!(
+                s.execute("track.add_arc", bad, None).is_err(),
+                "collinear or repeated points cannot describe an arc"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project.board.tracks[0].arc, Some(Point::new(15.0, 10.0)));
+        Ok(())
+    }
+    #[test]
+    fn locked_footprints_refuse_placement_and_unlock_again() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"edge"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out =
+            s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?["result"]
+                .clone();
+        assert_eq!(out["locked"], true, "the lock is reported");
+        assert_eq!(
+            s.inspect()["project"]["board"]["footprints"][0]["locked"],
+            true,
+            "the lock is stored"
+        );
+        for (cmd, params) in [
+            ("footprint.move", json!({"id":fp,"position":[20,20]})),
+            ("footprint.rotate", json!({"id":fp,"degrees":90})),
+            ("footprint.mirror", json!({"id":fp,"axis":"horizontal"})),
+            (
+                "footprint.array",
+                json!({"footprint":fp,"columns":2,"rows":1,"dx":5,"dy":5}),
+            ),
+            ("footprint.dock_edge", json!({"id":fp,"edge":"left"})),
+        ] {
+            assert!(
+                s.execute(cmd, params, None).is_err(),
+                "{cmd} refuses a locked footprint"
+            );
+        }
+        s.execute(
+            "footprint.set_locked",
+            json!({"id":fp,"locked":false}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]
+                .get("locked")
+                .is_none(),
+            "unlocking drops the stored flag"
+        );
+        s.execute("footprint.move", json!({"id":fp,"position":[20,20]}), None)?;
+        s.execute("footprint.set_locked", json!({"id":fp,"locked":true}), None)?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]
+                .get("locked")
+                .is_none(),
+            "the lock undoes"
+        );
+        for bad in [
+            json!({"id":999,"locked":true}),
+            json!({"id":fp}),
+            json!({"id":fp,"locked":true,"nope":1}),
+        ] {
+            assert!(
+                s.execute("footprint.set_locked", bad, None).is_err(),
+                "bad lock requests are refused"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn footprints_dock_flush_to_board_edges_and_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"edge"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        let pad_x = |s: &mut Session, want: &str| -> Result<f64, Error> {
+            let pads = s.execute("pad.table", json!({}), None)?["result"]["pads"].clone();
+            let row = pads
+                .as_array()
+                .and_then(|rows| rows.iter().find(|r| r["pad"] == want))
+                .cloned()
+                .ok_or_else(missing)?;
+            row["position"]["x"].as_f64().ok_or_else(missing)
+        };
+        let left = s.execute("footprint.dock_edge", json!({"id":fp,"edge":"left"}), None)?;
+        assert!(
+            near(left["result"]["position"]["x"].as_f64().unwrap_or(0.0), 3.3),
+            "the leftmost pad radius lands on x = 0"
+        );
+        assert!(
+            near(pad_x(&mut s, "1")?, 0.8) && near(pad_x(&mut s, "2")?, 5.8),
+            "pads sit flush along the left edge"
+        );
+        let top = s.execute("footprint.dock_edge", json!({"id":fp,"edge":"top"}), None)?;
+        assert!(
+            near(top["result"]["position"]["y"].as_f64().unwrap_or(0.0), 39.2),
+            "the topmost pad radius lands on the board height"
+        );
+        assert!(
+            s.execute("footprint.dock_edge", json!({"id":fp,"edge":"top"}), None)
+                .is_err(),
+            "docking an already flush footprint is refused"
+        );
+        s.undo()?;
+        let back = s.inspect()["project"]["board"]["footprints"][0]["position"]["y"]
+            .as_f64()
+            .ok_or_else(missing)?;
+        assert!(near(back, 10.0), "the vertical dock undoes");
+        for bad in [
+            json!({"id":999,"edge":"left"}),
+            json!({"id":fp,"edge":"middle"}),
+            json!({"id":fp}),
+            json!({"id":fp,"edge":"left","nope":1}),
+        ] {
+            assert!(
+                s.execute("footprint.dock_edge", bad, None).is_err(),
+                "bad dock requests are refused"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn schematic_table_draws_sorted_rows_and_refuses_bad_requests() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R2","value":"10k"}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[20,20],"reference":"R1","value":"1k"}),
+            None,
+        )?;
+        let count = |s: &Session| -> Result<usize, Error> {
+            Ok(s.inspect()["project"]["graphics"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len())
+        };
+        let before = count(&s)?;
+        let out = s.execute(
+            "schematic.table",
+            json!({"position":[0,60],"max_rows":1}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["rows"], 1, "row cap honoured");
+        assert_eq!(out["columns"], 2, "reference and value by default");
+        assert_eq!(out["truncated"], true, "truncation is reported");
+        let graphics = s.inspect()["project"]["graphics"].clone();
+        let rows = graphics.as_array().ok_or_else(missing)?;
+        assert_eq!(rows.len() - before, 10, "grid lines plus text");
+        let texts: Vec<&str> = rows
+            .iter()
+            .filter(|g| g["shape"] == "text")
+            .map(|g| g["text"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(
+            texts,
+            vec!["reference", "value", "R1", "1k"],
+            "header then the first sorted row"
+        );
+        s.undo()?;
+        assert_eq!(count(&s)?, before, "the whole table undoes as one step");
+        let out = s.execute(
+            "schematic.table",
+            json!({"position":[0,60],"fields":["reference"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["columns"], 1, "one requested column");
+        assert_eq!(out["rows"], 2, "both sorted rows");
+        for bad in [
+            json!({"position":[0,60],"fields":[""]}),
+            json!({"position":[0,60],"fields":["a","b","c","d"]}),
+            json!({"position":[0,60],"max_rows":0}),
+            json!({"position":[99_990,0]}),
+            json!({"position":[0,60],"nope":1}),
+        ] {
+            assert!(
+                s.execute("schematic.table", bad, None).is_err(),
+                "bad table requests are refused"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn castellated_flags_mark_pads_reportedly_and_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","position":[10,10],"reference":"J1","value":"edge"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.inspect()["project"]["board"]["footprints"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let on = s.execute(
+            "footprint.set_castellated",
+            json!({"id":fp,"pad":"1","on":true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(on["castellated"], true, "the flag is reported");
+        let pads = s.execute("pad.table", json!({}), None)?["result"]["pads"].clone();
+        let first = pads
+            .as_array()
+            .and_then(|rows| rows.iter().find(|r| r["pad"] == "1"))
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(first["castellated"], true, "the pad table shows the flag");
+        let second = pads
+            .as_array()
+            .and_then(|rows| rows.iter().find(|r| r["pad"] == "2"))
+            .cloned()
+            .ok_or_else(missing)?;
+        assert_eq!(second["castellated"], false, "other pads stay plain");
+        s.execute(
+            "footprint.set_castellated",
+            json!({"id":fp,"pad":"1","on":false}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]["pads"][0]
+                .get("castellated")
+                .is_none(),
+            "clearing the flag drops the field"
+        );
+        for bad in [
+            json!({"id":999,"pad":"1","on":true}),
+            json!({"id":fp,"pad":"9","on":true}),
+            json!({"id":fp,"pad":"","on":true}),
+            json!({"id":fp,"pad":"1"}),
+            json!({"id":fp,"pad":"1","on":true,"nope":1}),
+        ] {
+            assert!(
+                s.execute("footprint.set_castellated", bad, None).is_err(),
+                "bad castellated requests are refused"
+            );
+        }
+        s.execute(
+            "footprint.set_castellated",
+            json!({"id":fp,"pad":"1","on":true}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["board"]["footprints"][0]["pads"][0]
+                .get("castellated")
+                .is_none(),
+            "the flag undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn barcode_place_draws_bars_in_one_step_and_refuses_bad_text() -> Result<(), Error> {
+        let mut s = Session::default();
+        let out = s.execute(
+            "barcode.place",
+            json!({"text":"pcb-1","position":[5,5]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["count"], 35, "each symbol contributes five bars");
+        let graphics = s.inspect()["project"]["graphics"].clone();
+        assert_eq!(graphics.as_array().map_or(0, |g| g.len()), 35);
+        assert_eq!(graphics[0]["layer"], "board");
+        assert_eq!(graphics[0]["shape"], "line");
+        assert_eq!(graphics[0]["points"][0]["x"], 5.125, "bars are centred");
+        assert_eq!(graphics[0]["width"], 0.25, "a narrow bar is one module");
+        assert_eq!(graphics[0]["points"][1]["y"], 8.0, "default height is 3 mm");
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["graphics"].get(0).is_none(),
+            "the whole barcode undoes in one step"
+        );
+        for bad in [
+            json!({"text":"AI-9#","position":[5,5]}),
+            json!({"text":"","position":[5,5]}),
+            json!({"text":"  ","position":[5,5]}),
+            json!({"text":"A".repeat(49),"position":[5,5]}),
+            json!({"text":"AB","position":[5,5],"height":0.4}),
+            json!({"text":"AB","position":[5,5],"module":0.04}),
+            json!({"text":"AB","position":[5,5],"layer":"copper"}),
+            json!({"text":"AB"}),
+        ] {
+            assert!(
+                s.execute("barcode.place", bad, None).is_err(),
+                "bad barcodes are refused"
+            );
+        }
+        let out2 = s.execute(
+            "barcode.place",
+            json!({"text":"OK","position":[0,0],"layer":"schematic","module":0.5,"height":5}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out2["count"], 20, "four symbols times five bars");
+        let g = s.inspect()["project"]["graphics"].clone();
+        assert_eq!(g[0]["layer"], "schematic");
+        assert_eq!(g[0]["width"], 0.5, "the module sets the narrow bar width");
+        Ok(())
+    }
+    #[test]
+    fn net_pair_rules_tighten_clearance_report_and_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":[10,10],"end":[30,10],"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":[10,10.5],"end":[30,10.5],"width":0.2}),
+            None,
+        )?;
+        let clear = |s: &Session| {
+            s.checks()["drc"]
+                .as_array()
+                .is_some_and(|f| f.iter().any(|x| x["code"] == "clearance"))
+        };
+        assert!(!clear(&s), "0.3 mm of copper gap passes the 0.2 mm default");
+        s.execute(
+            "board.set_pair_rule",
+            json!({"net_a":a,"net_b":b,"clearance":0.5}),
+            None,
+        )?;
+        assert!(clear(&s), "the pair rule demands a wider gap");
+        s.execute(
+            "board.set_pair_rule",
+            json!({"net_a":b,"net_b":a,"clearance":0.25}),
+            None,
+        )?;
+        assert!(!clear(&s), "a relaxed replacement rule passes again");
+        let rules = s.inspect()["project"]["board"]["pair_rules"].clone();
+        assert_eq!(
+            rules.as_array().map_or(0, |r| r.len()),
+            1,
+            "the same pair replaces its rule"
+        );
+        assert_eq!(rules[0]["a"], a.min(b), "net ids are stored ordered");
+        assert_eq!(rules[0]["clearance"], 0.25);
+        for bad in [
+            json!({"net_a":a,"net_b":a,"clearance":0.5}),
+            json!({"net_a":a,"net_b":999,"clearance":0.5}),
+            json!({"net_a":a,"net_b":b,"clearance":0.0}),
+            json!({"net_a":a,"net_b":b,"clearance":101.0}),
+            json!({"net_a":a,"net_b":b}),
+            json!({"net_a":a,"net_b":b,"clearance":0.5,"nope":1}),
+        ] {
+            assert!(
+                s.execute("board.set_pair_rule", bad, None).is_err(),
+                "bad pair rules are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "board.remove_pair_rule",
+                json!({"net_a":a,"net_b":b,"clearance":0.5}),
+                None
+            )
+            .is_err(),
+            "board.remove_pair_rule takes two nets only"
+        );
+        assert!(
+            s.execute("board.remove_pair_rule", json!({"net_a":9,"net_b":9}), None)
+                .is_err(),
+            "removing an absent rule is refused"
+        );
+        let removed =
+            s.execute("board.remove_pair_rule", json!({"net_a":b,"net_b":a}), None)?["result"]
+                .clone();
+        assert_eq!(removed["count"], 0, "the removal reports what remains");
+        assert!(
+            s.inspect()["project"]["board"].get("pair_rules").is_none(),
+            "the rule is gone"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["board"]["pair_rules"][0]["clearance"],
+            0.25,
+            "the removal undoes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["board"]["pair_rules"][0]["clearance"],
+            0.5,
+            "the replacement undoes"
+        );
+        assert!(clear(&s), "and the finding returns with it");
+        Ok(())
+    }
+    #[test]
+    fn panel_settings_save_load_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "panel.set",
+            json!({
+                "enabled": true,
+                "columns": 2,
+                "rows": 2,
+                "pitch_x": 60.0,
+                "pitch_y": 40.0,
+                "rail": 3.0,
+                "separation": "tab",
+                "tab_channel": 1.8
+            }),
+            None,
+        )?;
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate().map_err(Error::Invalid)?;
+        assert!(loaded.panel.enabled);
+        assert_eq!(loaded.panel.columns, 2);
+        assert_eq!(loaded.panel.tab_channel, 1.8);
+        Ok(())
+    }
+    #[test]
+    fn board_panel_reports_a_copy_grid_without_touching_the_design() -> Result<(), Error> {
+        let mut s = Session::default();
+        for bad in [
+            json!({"columns": 0, "rows": 2, "pitch_x": 61.0, "pitch_y": 41.0}),
+            json!({"columns": 33, "rows": 1, "pitch_x": 61.0, "pitch_y": 41.0}),
+            json!({"columns": 2, "rows": 2, "pitch_x": -1.0, "pitch_y": 41.0}),
+            json!({"columns": 2, "rows": 2, "pitch_x": 61.0, "pitch_y": -2.0}),
+            json!({"columns": 2, "rows": 2, "pitch_x": 61.0, "pitch_y": 41.0, "rail": 30.0}),
+        ] {
+            assert!(
+                s.execute("board.panel", bad, None).is_err(),
+                "impossible panel grids are refused"
+            );
+        }
+        let before = s.inspect()["project"].clone();
+        let panel = s.execute(
+            "board.panel",
+            json!({"columns": 2, "rows": 2, "pitch_x": 60.0, "pitch_y": 40.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(panel["copies"], 4);
+        assert_eq!(panel["board"]["width"], 60.0);
+        assert_eq!(
+            panel["panel"]["width"], 186.0,
+            "two copies, one gap and two rails"
+        );
+        assert_eq!(panel["panel"]["height"], 126.0);
+        assert_eq!(
+            panel["layout"][0]["x"], 3.0,
+            "the first copy starts inside the rail"
+        );
+        assert_eq!(panel["layout"][3]["x"], 123.0);
+        assert_eq!(panel["layout"][3]["y"], 83.0);
+        assert_eq!(
+            panel["layout"][3]["center_x"], 153.0,
+            "copy centres are reported for drill-and-break planning"
+        );
+        assert_eq!(
+            s.inspect()["project"],
+            before,
+            "a report changes no part of the design"
+        );
+        // A zero rail makes the panel exactly the copy grid.
+        let panel = s.execute(
+            "board.panel",
+            json!({"columns": 2, "rows": 1, "pitch_x": 60.0, "pitch_y": 40.0, "rail": 0.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(panel["panel"]["width"], 180.0);
+        // An outlined board panels by its outline bounding box.
+        s.execute(
+            "board.set_outline",
+            json!({"points": [
+                {"x": 5.0, "y": 5.0},
+                {"x": 35.0, "y": 5.0},
+                {"x": 35.0, "y": 25.0},
+                {"x": 5.0, "y": 25.0}
+            ]}),
+            None,
+        )?;
+        let panel = s.execute(
+            "board.panel",
+            json!({"columns": 3, "rows": 1, "pitch_x": 30.0, "pitch_y": 20.0, "rail": 2.0}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(panel["board"]["width"], 30.0);
+        assert_eq!(panel["board"]["height"], 20.0);
+        assert_eq!(
+            panel["panel"]["width"], 154.0,
+            "three copies, two gaps and two rails"
+        );
+        assert!(
+            s.execute(
+                "board.panel",
+                json!({"columns": 1, "rows": 1, "pitch_x": -1.0, "pitch_y": 19.0}),
+                None
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn designers_draw_layers_for_their_own_machines() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            s.execute("board.layer_add", json!({"name":"", "kind":"cut"}), None)
+                .is_err(),
+            "a layer needs a name"
+        );
+        assert!(
+            s.execute(
+                "board.layer_add",
+                json!({"name":"x", "kind":"engrave"}),
+                None
+            )
+            .is_err(),
+            "unknown machine jobs are refused"
+        );
+        let cut = s.execute(
+            "board.layer_add",
+            json!({"name":"Card Outline", "kind":"cut"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "board.layer_add",
+                json!({"name":"Card Outline", "kind":"silk"}),
+                None
+            )
+            .is_err(),
+            "layer names stay unique"
+        );
+        let perf = s.execute(
+            "board.layer_add",
+            json!({"name":"Snap Line", "kind":"perforation"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let first = s.execute(
+            "board.layer_line_add",
+            json!({"layer":cut, "x1":5.0, "y1":5.0, "x2":55.0, "y2":5.0}),
+            None,
+        )?["result"]["index"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(first, 0);
+        s.execute(
+            "board.layer_rect_add",
+            json!({"layer":cut, "x":10.0, "y":10.0, "width":20.0, "height":8.0}),
+            None,
+        )?;
+        s.execute(
+            "board.layer_circle_add",
+            json!({"layer":cut, "x":40.0, "y":20.0, "radius":3.0}),
+            None,
+        )?;
+        s.execute(
+            "board.layer_poly_add",
+            json!({"layer":cut, "points":[[5.0,30.0],[15.0,30.0],[15.0,35.0]]}),
+            None,
+        )?;
+        s.execute(
+            "board.layer_text_add",
+            json!({"layer":cut, "x":20.0, "y":36.0, "text":"MADE AT HOME", "size":1.2}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "board.layer_line_add",
+                json!({"layer":9999, "x1":0.0, "y1":0.0, "x2":1.0, "y2":1.0}),
+                None
+            )
+            .is_err(),
+            "shapes need a real layer"
+        );
+        let outline = s.project.user_layer(cut).ok_or_else(missing)?;
+        assert_eq!(outline.shapes.len(), 5);
+        assert!(!outline.dotted, "a cut line starts solid");
+        assert!(
+            s.project.user_layer(perf).ok_or_else(missing)?.dotted,
+            "a perforation starts dotted"
+        );
+        s.execute(
+            "board.layer_shape_delete",
+            json!({"layer":cut, "index":1}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.user_layer(cut).ok_or_else(missing)?.shapes.len(),
+            4
+        );
+        s.execute(
+            "board.layer_visible_set",
+            json!({"layer":cut, "on":false}),
+            None,
+        )?;
+        assert!(!s.project.user_layer(cut).ok_or_else(missing)?.visible);
+        s.execute(
+            "board.layer_rename",
+            json!({"layer":cut, "name":"Board Cut"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.user_layer(cut).ok_or_else(missing)?.name,
+            "Board Cut"
+        );
+        assert!(s.project.validate().is_ok());
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(
+            loaded.board.user_layers.len(),
+            2,
+            "drawn layers travel with the save"
+        );
+        s.execute("board.layer_delete", json!({"layer":perf}), None)?;
+        assert_eq!(s.project.board.user_layers.len(), 1);
+        assert!(
+            s.execute("board.layer_delete", json!({"layer":perf}), None)
+                .is_err(),
+            "gone layers are refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn rule_areas_carry_height_restrictions_reported_in_statistics() -> Result<(), Error> {
+        let mut s = Session::default();
+        for bad in [
+            json!({"clearance":0.3,"x":10.0,"y":10.0,"width":20.0,"height":15.0,"max_height":0.01}),
+            json!({"clearance":0.3,"x":10.0,"y":10.0,"width":20.0,"height":15.0,"max_height":200.0}),
+        ] {
+            assert!(
+                s.execute("rules.area_add", bad, None).is_err(),
+                "height limits outside 0.1 to 100 mm are refused"
+            );
+        }
+        let quiet = s.execute(
+            "rules.area_add",
+            json!({"name":"under cover","clearance":0.3,"x":10.0,"y":10.0,"width":20.0,"height":15.0,"max_height":2.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let open = s.execute(
+            "rules.area_add",
+            json!({"clearance":0.3,"x":40.0,"y":10.0,"width":10.0,"height":10.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(s.project.validate().is_ok());
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(
+            stats["height_areas"].as_array().ok_or_else(missing)?.len(),
+            1,
+            "only the height-restricted area is listed"
+        );
+        assert_eq!(stats["height_areas"][0]["id"], quiet);
+        assert_eq!(stats["height_areas"][0]["max_height"], 2.0);
+        assert_eq!(
+            stats["height_areas"][0]["name"], "under cover",
+            "the note travels with the restriction"
+        );
+        s.execute(
+            "rules.area_set_height",
+            json!({"id": quiet, "height": 2.5}),
+            None,
+        )?;
+        assert_eq!(s.project.board.rule_areas[0].max_height, Some(2.5));
+        s.undo()?;
+        assert_eq!(
+            s.project.board.rule_areas[0].max_height,
+            Some(2.0),
+            "retuning the limit undoes"
+        );
+        s.execute(
+            "rules.area_set_height",
+            json!({"id": quiet, "height": null}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.rule_areas[0].max_height, None,
+            "a null height clears the restriction"
+        );
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert!(
+            stats["height_areas"]
+                .as_array()
+                .ok_or_else(missing)?
+                .is_empty(),
+            "the cleared area leaves the height list"
+        );
+        assert!(
+            s.execute(
+                "rules.area_set_height",
+                json!({"id": open, "height": 200.0}),
+                None
+            )
+            .is_err(),
+            "out-of-range retunes are refused"
+        );
+        assert!(
+            s.execute(
+                "rules.area_set_height",
+                json!({"id": 999_999, "height": 2.0}),
+                None
+            )
+            .is_err(),
+            "unknown areas are refused"
+        );
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn rule_areas_tighten_clearance_only_inside_their_rectangle() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let c = s.execute("net.create", json!({"name":"C"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":[10,10],"end":[30,10],"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":[10,10.5],"end":[30,10.5],"width":0.2}),
+            None,
+        )?;
+        let clear = |s: &Session| {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|x| x["code"] == "clearance")
+        };
+        assert!(
+            clear(&s).is_none(),
+            "0.3 mm of copper gap passes the 0.2 mm default"
+        );
+        let cover = |s: &mut Session| -> Result<u64, Error> {
+            let out = s.execute(
+                "rules.area_add",
+                json!({"clearance":0.5,"x":5,"y":9,"width":30,"height":3,"layer":"F.Cu","net":a}),
+                None,
+            )?;
+            let id = out["result"]["id"].as_u64().ok_or_else(missing)?;
+            Ok(id)
+        };
+        let wide = s.execute(
+            "rules.area_add",
+            json!({"name":"sensor","clearance":0.5,"x":5,"y":9,"width":30,"height":3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let finding = clear(&s).ok_or_else(missing)?;
+        assert!(
+            finding["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("0.500 mm required")),
+            "the area's gap shows in the finding"
+        );
+        let stored = s.inspect()["project"]["board"]["rule_areas"].clone();
+        assert_eq!(stored.as_array().map_or(0, |r| r.len()), 1);
+        assert_eq!(stored[0]["name"], "sensor");
+        assert_eq!(stored[0]["clearance"], 0.5);
+        assert_eq!(stored[0]["region"]["width"], 30.0);
+        assert!(
+            stored[0].get("net").is_none(),
+            "an open area covers every net"
+        );
+        s.execute("rules.area_remove", json!({"id":wide}), None)?;
+        assert!(
+            clear(&s).is_none(),
+            "removing the area relaxes the board again"
+        );
+        let miss = s.execute(
+            "rules.area_add",
+            json!({"net":c,"clearance":0.5,"x":5,"y":9,"width":30,"height":3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            clear(&s).is_none(),
+            "an area narrowed to an unrelated net does not apply"
+        );
+        s.execute("rules.area_remove", json!({"id":miss}), None)?;
+        let one_side = cover(&mut s)?;
+        assert!(
+            clear(&s).is_some(),
+            "the area applies when either side of the pair matches its net"
+        );
+        s.execute("rules.area_remove", json!({"id":one_side}), None)?;
+        let wrong_layer = s.execute(
+            "rules.area_add",
+            json!({"layer":"B.Cu","clearance":0.5,"x":5,"y":9,"width":30,"height":3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            clear(&s).is_none(),
+            "an area on the other copper layer does not apply"
+        );
+        s.execute("rules.area_remove", json!({"id":wrong_layer}), None)?;
+        let elsewhere = s.execute(
+            "rules.area_add",
+            json!({"clearance":0.5,"x":40,"y":9,"width":20,"height":3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            clear(&s).is_none(),
+            "copper outside the rectangle keeps the default gap"
+        );
+        s.execute("rules.area_remove", json!({"id":elsewhere}), None)?;
+        for bad in [
+            json!({"clearance":0.0,"x":5,"y":9,"width":30,"height":3}),
+            json!({"clearance":101.0,"x":5,"y":9,"width":30,"height":3}),
+            json!({"clearance":0.5,"x":5,"y":9,"width":0,"height":3}),
+            json!({"clearance":0.5,"x":980,"y":9,"width":30,"height":3}),
+            json!({"clearance":0.5,"x":5,"y":9,"width":30,"height":3,"net":999}),
+            json!({"clearance":0.5,"x":5,"y":9,"width":30,"height":3,"layer":"C.Cu"}),
+            json!({"clearance":0.5,"x":5,"y":9,"width":30,"height":3,"name":""}),
+            json!({"clearance":0.5,"x":5,"y":9,"width":30,"height":3,"nope":1}),
+            json!({"x":5,"y":9,"width":30,"height":3}),
+        ] {
+            assert!(
+                s.execute("rules.area_add", bad, None).is_err(),
+                "bad rule areas are refused"
+            );
+        }
+        assert!(
+            s.execute("rules.area_remove", json!({"id":9999}), None)
+                .is_err(),
+            "removing an absent area is refused"
+        );
+        s.execute(
+            "rules.area_add",
+            json!({"net":c,"clearance":0.5,"x":5,"y":9,"width":30,"height":3}),
+            None,
+        )?;
+        assert!(
+            s.execute("object.delete", json!({"id":c}), None).is_ok(),
+            "a net with no copper on it can go"
+        );
+        assert!(
+            s.inspect()["project"]["board"].get("rule_areas").is_none(),
+            "deleting a net drops the areas scoped to it"
+        );
+        s.execute(
+            "rules.area_add",
+            json!({"clearance":0.4,"x":5,"y":9,"width":30,"height":3}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["board"].get("rule_areas").is_none(),
+            "adding an area undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn project_archives_export_and_import_whole_designs() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("project.rename", json!({"name":"Archived design"}), None)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"1k","position":{"x":10,"y":10}}),
+            None,
+        )?;
+        s.execute(
+            "file.attach",
+            json!({"name":"notes.txt","data":"travels with the archive"}),
+            None,
+        )?;
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-archive-{}.pcbcraft.zip",
+            std::process::id()
+        ));
+        let path = path.to_string_lossy().to_string();
+        let written = s.execute("project.export_archive", json!({"path": path}), None)?;
+        assert!(written["result"]["bytes"].as_u64().unwrap_or_default() > 100);
+        let raw = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            raw.starts_with(b"PK\x03\x04"),
+            "the archive is a real archive file"
+        );
+        let mut fresh = Session::default();
+        let summary = fresh.execute("project.import_archive", json!({"path": path}), None)?;
+        assert_eq!(summary["result"]["name"], "Archived design");
+        assert_eq!(summary["result"]["components"], 1);
+        assert_eq!(summary["result"]["files"], 1);
+        assert_eq!(fresh.project, s.project, "the archive restores everything");
+        fresh.undo()?;
+        assert_eq!(
+            fresh.project,
+            Session::default().project,
+            "importing over a project undoes"
+        );
+        let plain =
+            std::env::temp_dir().join(format!("pcbcraft-archive-{}.txt", std::process::id()));
+        std::fs::write(&plain, b"just text").map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut keeper = Session::default();
+        let before = keeper.project.clone();
+        let rejected = keeper.execute(
+            "project.import_archive",
+            json!({"path": plain.to_string_lossy()}),
+            None,
+        );
+        assert!(rejected.is_err(), "a plain text file is not an archive");
+        assert_eq!(keeper.project, before, "a refused import changes nothing");
+        std::fs::remove_file(&plain).ok();
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn board_mesh_is_a_read_only_query_over_the_sample_board() -> Result<(), Error> {
+        let s = Session::sample()?;
+        let before = s.revision;
+        let full = s.board_mesh(None, true)?;
+        assert_eq!(s.revision, before, "a mesh query never edits the design");
+        assert!(full["triangles"].as_u64().is_some_and(|n| n > 12));
+        assert_eq!(full["parts"][0]["kind"], "board");
+        assert!(full["parts"][0]["positions"].is_array());
+        let summary = s.board_mesh(Some(&["board".to_string()]), false)?;
+        assert_eq!(summary["parts"].as_array().map(Vec::len), Some(1));
+        assert!(summary["parts"][0].get("positions").is_none());
+        assert!(
+            summary["vertices"].as_u64().is_some_and(|n| n >= 24),
+            "the slab carries at least its outline"
+        );
+        assert!(s.board_mesh(Some(&["nope".to_string()]), false).is_err());
+        assert_eq!(full, s.board_mesh(None, true)?, "output is deterministic");
+        Ok(())
+    }
+    #[test]
+    fn legacy_inch_model_offset_exports_as_millimetres() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::read_footprint(
+            "(footprint LegacyR (layer F.Cu)\
+             (model \"r.wrl\" (at (xyz 0.1 0 0.05)))\
+             (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu))\
+             (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"LegacyR"}),
+            None,
+        )?;
+        let board = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board.contains("(offset (xyz 2.54 0 1.27))"),
+            "a legacy inch offset is written as millimetres: {board}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn library_footprint_model_references_read_edit_and_export() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let stored = s.inspect()["project"]["library"]["footprints"][0]["model"].clone();
+        assert!(
+            stored["path"]
+                .as_str()
+                .is_some_and(|p| p.ends_with("R_0805_2012Metric.step")),
+            "reading a footprint records its 3D model reference"
+        );
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let board = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board.contains("R_0805_2012Metric.step"),
+            "the embedded model travels into the board export"
+        );
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5],"rotate":[0,0,90]}),
+            None,
+        )?;
+        let m = s.inspect()["project"]["library"]["footprints"][0]["model"].clone();
+        assert_eq!(m["path"], "parts/resistor.wrl");
+        assert_eq!(m["offset"][2], 0.5);
+        assert_eq!(
+            m["scale"],
+            json!([1.0, 1.0, 1.0]),
+            "an absent scale is unit"
+        );
+        assert_eq!(m["rotate"][2], 90.0);
+        let board_now = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board_now.contains("R_0805_2012Metric.step"),
+            "placed instances keep their embedded copy until reassigned"
+        );
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let board_new = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board_new.contains("(model \"parts/resistor.wrl\""),
+            "reassigning carries the new model into the export"
+        );
+        for bad in [
+            json!({"name":"R_0805_2012Metric","path":""}),
+            json!({"name":"R_0805_2012Metric","path":"p".repeat(1025)}),
+            json!({"name":"R_0805_2012Metric","path":"a.wrl","offset":[0,0]}),
+            json!({"name":"R_0805_2012Metric","path":"a.wrl","scale":[1,0,1]}),
+            json!({"name":"nope","path":"a.wrl"}),
+            json!({"name":"R_0805_2012Metric","path":"a.wrl","nope":1}),
+            json!({"path":"a.wrl"}),
+        ] {
+            assert!(
+                s.execute("library.footprint.set_model", bad, None).is_err(),
+                "bad model requests are refused"
+            );
+        }
+        s.execute(
+            "library.footprint.clear_model",
+            json!({"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("model")
+                .is_none(),
+            "clearing drops the model field"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.clear_model",
+                json!({"name":"R_0805_2012Metric"}),
+                None
+            )
+            .is_err(),
+            "clearing an absent model is refused"
+        );
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"R_0805_2012Metric","path":"again.wrl"}),
+            None,
+        )?;
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("model")
+                .is_none(),
+            "setting a model undoes back to the cleared state"
+        );
+        Ok(())
+    }
+    #[test]
+    fn specctra_session_files_import_net_assignments() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, x) in [("R1", 10.0), ("R2", 20.0)] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":[x,10],"reference":reference,"value":"10k"}),
+                None,
+            )?;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-session-import-{}.ses",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "(session (net_map_out (net (number 0) (name UNCONNECTED)) (net (number 1) (name GND) (pins (pin R1-2) (pin R2-2))) (net (number 2) (name VCC) (pins (pin R1-1) (pin R2-1)))))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let params = json!({"path": path.to_string_lossy()});
+        let out = s.execute("netlist.import_session", params.clone(), None)?["result"].clone();
+        assert_eq!(out["nets"], 2, "the pin-less net is not imported");
+        assert_eq!(out["created"], 2);
+        assert_eq!(out["pins"], 4);
+        let nets = s.inspect()["project"]["nets"].clone();
+        assert_eq!(nets.as_array().map_or(0, |n| n.len()), 2);
+        assert_eq!(nets[0]["name"], "GND");
+        let first = &s.inspect()["project"]["components"][0]["pins"];
+        assert!(
+            first[0]["net"].is_number() && first[1]["net"].is_number(),
+            "every imported pin lands on a net"
+        );
+        let again = s.execute("netlist.import_session", params.clone(), None)?["result"].clone();
+        assert_eq!(
+            again["created"], 0,
+            "re-importing the same session reuses nets"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["nets"]
+                .as_array()
+                .map_or(0, |n| n.len()),
+            2,
+            "the no-op re-import undoes to the imported state"
+        );
+        s.undo()?;
+        assert!(
+            s.inspect()["project"]["nets"].get(0).is_none(),
+            "the import itself undoes in one step"
+        );
+        for bad in [
+            json!({"path": ""}),
+            json!({"path": "/nonexistent/dir/none.ses"}),
+            json!({"path": path.to_string_lossy(), "nope": 1}),
+            json!({}),
+        ] {
+            assert!(
+                s.execute("netlist.import_session", bad, None).is_err(),
+                "bad session requests are refused"
+            );
+        }
+        std::fs::remove_file(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+    #[test]
+    fn footprint_local_rules_tighten_clearance_and_read_edit_export() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let a = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":a,"pins":[{"component":r,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute(
+            "net.connect",
+            json!({"net":b,"pins":[{"component":r,"pin":"2"}]}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":[8.175,9],"end":[8.175,11],"width":0.2}),
+            None,
+        )?;
+        let bound = |s: &Session| {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|x| x["code"] == "pad_clearance_bound")
+        };
+        assert!(
+            bound(&s).is_none(),
+            "0.3 mm of copper gap passes the 0.2 mm default"
+        );
+        s.execute(
+            "library.footprint.set_rules",
+            json!({"name":"R_0805_2012Metric","clearance":0.5,"paste_margin":-0.02}),
+            None,
+        )?;
+        let stored = s.inspect()["project"]["library"]["footprints"][0]["rules"].clone();
+        assert_eq!(stored["clearance"], 0.5);
+        assert_eq!(stored["paste_margin"], -0.02);
+        assert!(
+            stored.get("mask_margin").is_none(),
+            "an unset margin stays absent"
+        );
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let board = pcbcraft_io::kicad_board(&s.project)?;
+        assert!(
+            board.contains("(clearance 0.5)") && board.contains("(solder_paste_margin -0.02)"),
+            "overrides travel into the board export with the embedded copy"
+        );
+        let hit = bound(&s).ok_or_else(missing)?;
+        assert!(
+            hit["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("0.500 mm required")),
+            "the footprint's own clearance tightens the check"
+        );
+        s.execute(
+            "library.footprint.clear_rules",
+            json!({"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("rules")
+                .is_none(),
+            "clearing removes the overrides"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["rules"]["clearance"],
+            0.5,
+            "clearing undoes back to the overrides"
+        );
+        for bad in [
+            json!({"name": "R_0805_2012Metric"}),
+            json!({"name": "R_0805_2012Metric", "clearance": 150.0}),
+            json!({"name": "nope", "clearance": 0.3}),
+            json!({"name": "R_0805_2012Metric", "clearance": 0.3, "nope": 1}),
+            json!({}),
+        ] {
+            assert!(
+                s.execute("library.footprint.set_rules", bad, None).is_err(),
+                "bad rule requests are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "library.footprint.clear_rules",
+                json!({"name":"R_0805_2012Metric"}),
+                None
+            )
+            .is_ok(),
+            "the overrides are still there after the refusals"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.clear_rules",
+                json!({"name":"R_0805_2012Metric"}),
+                None
+            )
+            .is_err(),
+            "clearing an absent override is refused"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn courtyard_generation_surrounds_pads_and_replaces_itself() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        for bad in [
+            json!({"name": "nope", "margin": 0.2}),
+            json!({"name": "R_0805_2012Metric", "margin": -0.1}),
+            json!({"name": "R_0805_2012Metric", "margin": 6.0}),
+            json!({"name": "R_0805_2012Metric"}),
+        ] {
+            assert!(
+                s.execute("library.footprint.generate_courtyard", bad, None)
+                    .is_err(),
+                "bad courtyard requests are refused"
+            );
+        }
+        let box_of = |s: &Session| -> Vec<f64> {
+            s.inspect()["project"]["library"]["footprints"][0]["graphics"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|g| g["Rectangle"]["layer"].as_str() == Some("pcbcraft.courtyard"))
+                .and_then(|g| {
+                    let corner = |name: &str| -> Option<Vec<f64>> {
+                        let at = g["Rectangle"][name].as_object()?;
+                        Some(vec![at["x"].as_f64()?, at["y"].as_f64()?])
+                    };
+                    Some([corner("start")?, corner("end")?].concat())
+                })
+                .unwrap_or_default()
+        };
+        s.execute(
+            "library.footprint.generate_courtyard",
+            json!({"name": "R_0805_2012Metric", "margin": 0.25}),
+            None,
+        )?;
+        let first = box_of(&s);
+        assert_eq!(first.len(), 4, "the courtyard rectangle is stored");
+        assert!(
+            first[0] < -1.0 && first[2] > 1.0,
+            "the ring grows past the outer pad edges: {first:?}"
+        );
+        s.execute(
+            "library.footprint.generate_courtyard",
+            json!({"name": "R_0805_2012Metric", "margin": 0.1}),
+            None,
+        )?;
+        let stored = s.inspect()["project"]["library"]["footprints"][0]["graphics"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            stored
+                .iter()
+                .filter(|g| g["Rectangle"]["layer"].as_str() == Some("pcbcraft.courtyard"))
+                .count(),
+            1,
+            "regenerating replaces the courtyard instead of stacking one"
+        );
+        let second = box_of(&s);
+        assert!(
+            second[0] > first[0],
+            "a smaller margin grows a smaller ring"
+        );
+        s.undo()?;
+        assert_eq!(box_of(&s), first, "regenerating undoes in one step");
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let embedded =
+            s.inspect()["project"]["components"][0]["library_footprint"]["definition"]["graphics"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+        assert!(
+            embedded
+                .iter()
+                .any(|g| g["Rectangle"]["layer"].as_str() == Some("pcbcraft.courtyard")),
+            "assigned copies carry the courtyard with them"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_upserts_valid_definition() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert_eq!(s.project.library.footprints.len(), 0);
+        s.execute(
+            "library.footprint.generate",
+            json!({
+                "family": "qfn",
+                "density": "B",
+                "name": "QFN50P500X500X100-33N",
+                "pitch": 0.5,
+                "pin_count": 32,
+                "body_x": 5.0,
+                "body_y": 5.0,
+                "body_z": 1.0,
+                "thermal": true
+            }),
+            None,
+        )?;
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(
+            s.project.library.footprints[0].name,
+            "QFN50P500X500X100-33N"
+        );
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        assert!(
+            commands()
+                .iter()
+                .any(|c| c.id == "library.footprint.generate"),
+            "MCP clients must see library.footprint.generate"
+        );
+        assert!(
+            commands().iter().any(|c| c.id == "library.footprint.check"),
+            "MCP clients must see library.footprint.check"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_rejects_unknown_family() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.revision;
+        assert!(
+            s.execute(
+                "library.footprint.generate",
+                json!({"family": "not_a_family", "name": "X", "pitch": 0.5, "pin_count": 8}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.revision, before);
+        assert_eq!(s.project.library.footprints.len(), 0);
+        let before = s.revision;
+        assert!(
+            s.execute(
+                "library.footprint.generate",
+                json!({
+                    "family": "qfn",
+                    "name": "Q",
+                    "pitch": 0.5,
+                    "pin_count": 30,
+                    "body_x": 5.0,
+                    "body_y": 5.0,
+                    "thermal": true
+                }),
+                None
+            )
+            .is_err(),
+            "invalid QFN pin count must refuse"
+        );
+        assert_eq!(s.revision, before);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_check_overlap_fixture() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "OverlapFixture".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(0.0, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(2.0, 2.0),
+                    layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "2".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(0.5, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(2.0, 2.0),
+                    layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+            ],
+            graphics: vec![pcbcraft_library::Graphic::Rectangle {
+                start: pcbcraft_geom::Point::new(-5.0, -5.0),
+                end: pcbcraft_geom::Point::new(5.0, 5.0),
+                width: 0.1,
+                fill: String::new(),
+                layer: "pcbcraft.courtyard".into(),
+            }],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let out = s.execute(
+            "library.footprint.check",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let findings = out["result"]["findings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            findings.iter().any(|f| f["code"] == "lib_pad_overlap"),
+            "overlap fixture must report lib_pad_overlap: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn pad_renumbering_follows_embedded_copies_and_refuses_collisions() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        for bad in [
+            json!({"name": "nope", "renames": [{"old": "1", "new": "A"}]}),
+            json!({"name": "R_0805_2012Metric", "renames": []}),
+            json!({"name": "R_0805_2012Metric", "renames": [{"old": "9", "new": "A"}]}),
+            json!({"name": "R_0805_2012Metric", "renames": [{"old": "1", "new": "2"}]}),
+            json!({
+                "name": "R_0805_2012Metric",
+                "renames": [{"old": "1", "new": "A"}, {"old": "2", "new": "A"}]
+            }),
+            json!({
+                "name": "R_0805_2012Metric",
+                "renames": [{"old": "1", "new": "A"}, {"old": "1", "new": "B"}]
+            }),
+        ] {
+            assert!(
+                s.execute("library.footprint.renumber_pads", bad, None)
+                    .is_err(),
+                "colliding or unknown renumber maps are refused"
+            );
+        }
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"}]}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "library.footprint.renumber_pads",
+            json!({"name": "R_0805_2012Metric", "renames": [{"old": "1", "new": "A"}, {"old": "2", "new": "B"}]}),
+            None,
+        )?;
+        let numbers = |s: &Session| -> Vec<String> {
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .map(|p| p.number.clone())
+                .collect()
+        };
+        assert_eq!(
+            numbers(&s),
+            ["A", "B"],
+            "placed pads follow the new numbers"
+        );
+        let pins = s.project.components[0]
+            .pins
+            .iter()
+            .map(|p| p.number.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            pins,
+            ["A", "B"],
+            "component pins follow so pads stay in sync"
+        );
+        assert!(s.project.board.tracks.is_empty());
+        s.undo()?;
+        assert_eq!(numbers(&s), ["1", "2"], "one undo restores every number");
+        Ok(())
+    }
+    #[test]
+    fn variants_are_named_flagged_by_dnp_sets_removed_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[0,0],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,0],"reference":"R2","value":"22k"}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let created = s.execute(
+            "variant.create",
+            json!({"name":"No LED build","note":"factory option","dnp":[r2]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(created["count"], 1, "the first variant is defined");
+        s.execute("variant.create", json!({"name":"Budget"}), None)?;
+        let variants = s.inspect()["project"]["variants"].clone();
+        assert_eq!(
+            variants[0]["name"], "Budget",
+            "variants stay ordered by name"
+        );
+        assert_eq!(variants[1]["dnp"][0], r2);
+        assert_eq!(variants[1]["note"], "factory option");
+        let added = s.execute(
+            "variant.set_dnp",
+            json!({"name":"No LED build","ids":[r1]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(added["dnp"], 2, "ids join the do-not-populate set");
+        let dropped = s.execute(
+            "variant.set_dnp",
+            json!({"name":"No LED build","ids":[r2],"dnp":false}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(dropped["dnp"], 1, "ids can leave the set");
+        let cleared = s.execute(
+            "variant.set_dnp",
+            json!({"name":"No LED build","ids":[]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(cleared["dnp"], 0, "an empty list clears the set");
+        for bad in [
+            json!({"name":"  "}),
+            json!({"name":"Budget"}),
+            json!({"name":"x","dnp":[999]}),
+            json!({"name":"x".repeat(65)}),
+            json!({"name":"y","note":"x".repeat(257)}),
+            json!({"name":"y","dnp": vec![1u64; 513]}),
+        ] {
+            assert!(
+                s.execute("variant.create", bad, None).is_err(),
+                "bad variant definitions are refused"
+            );
+        }
+        for bad in [
+            json!({"name":"absent","ids":[]}),
+            json!({"name":"Budget","ids":[999]}),
+            json!({"name":"Budget","ids":[1],"nope":true}),
+            json!({"name":"Budget"}),
+        ] {
+            assert!(
+                s.execute("variant.set_dnp", bad, None).is_err(),
+                "bad do-not-populate updates are refused"
+            );
+        }
+        assert!(
+            s.execute("variant.remove", json!({"name":"absent"}), None)
+                .is_err(),
+            "removing an absent variant is refused"
+        );
+        let removed =
+            s.execute("variant.remove", json!({"name":"Budget"}), None)?["result"].clone();
+        assert_eq!(removed["count"], 1, "the removal reports what remains");
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"][0]["name"],
+            "Budget",
+            "the removal undoes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"][1]["dnp"]
+                .as_array()
+                .map_or(0, |d| d.len()),
+            1,
+            "the clear undoes"
+        );
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(s.inspect()["project"]["variants"][1]["dnp"][0], r2);
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"]
+                .as_array()
+                .map_or(0, |v| v.len()),
+            1,
+            "creating the second variant undoes too"
+        );
+        assert_eq!(
+            s.inspect()["project"]["variants"][0]["name"],
+            "No LED build"
+        );
+        for i in 0..15 {
+            s.execute("variant.create", json!({"name":format!("v{i:02}")}), None)?;
+        }
+        assert!(
+            s.execute("variant.create", json!({"name":"v15"}), None)
+                .is_err(),
+            "a seventeenth variant is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn variant_footprint_swaps_reach_a_variant_bill_of_materials() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R2","value":"22k","position":{"x":20.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("variant.create", json!({"name":"Slim"}), None)?;
+        let swap = s.execute(
+            "variant.set_footprint",
+            json!({"name":"Slim","component":r1,"footprint":"R_0603"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(swap["footprint"], "R_0603", "the swap is echoed");
+        let plain = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(plain["components"], 2, "the plain bill counts both parts");
+        assert_eq!(plain["items"][0]["footprint"], "starter pads");
+        let slim = s.execute("bom.export", json!({"variant":"Slim"}), None)?["result"].clone();
+        assert_eq!(
+            slim["variant"], "Slim",
+            "the bill reports the build it prints"
+        );
+        assert_eq!(slim["components"], 2);
+        assert_eq!(
+            slim["items"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .find(|item| item["references"][0] == "R1")
+                .ok_or_else(missing)?["footprint"],
+            "R_0603",
+            "the variant bill prints the swap"
+        );
+        s.execute("variant.set_dnp", json!({"name":"Slim","ids":[r2]}), None)?;
+        let slim = s.execute("bom.export", json!({"variant":"Slim"}), None)?["result"].clone();
+        assert_eq!(slim["components"], 1, "the unpopulated part is skipped");
+        assert_eq!(slim["groups"], 1);
+        let plain = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(plain["components"], 2, "the plain bill is untouched");
+        s.execute(
+            "variant.set_footprint",
+            json!({"name":"Slim","component":r1,"footprint":"R_0402"}),
+            None,
+        )?;
+        let swaps = s.inspect()["project"]["variants"][0]["footprints"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(swaps.len(), 1, "re-swapping one part replaces its entry");
+        assert_eq!(swaps[0]["footprint"], "R_0402");
+        let cleared = s.execute(
+            "variant.clear_footprint",
+            json!({"name":"Slim","component":r1}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(cleared["swaps"], 0);
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["variants"][0]["footprints"]
+                .as_array()
+                .ok_or_else(missing)?
+                .len(),
+            1,
+            "undoing the clear restores the swap"
+        );
+        s.redo()?;
+        assert!(
+            s.inspect()["project"]["variants"][0]
+                .get("footprints")
+                .is_none(),
+            "redoing the clear strips the swap again"
+        );
+        let slim = s.execute("bom.export", json!({"variant":"Slim"}), None)?["result"].clone();
+        assert_eq!(
+            slim["items"][0]["footprint"], "starter pads",
+            "clearing restores the placed footprint"
+        );
+        for bad in [
+            json!({"name":"Ghost","component":r1,"footprint":"X"}),
+            json!({"name":"Slim","component":999,"footprint":"X"}),
+            json!({"name":"Slim","component":r1,"footprint":"   "}),
+            json!({"name":"Slim","component":r1,"footprint":"x".repeat(129)}),
+        ] {
+            assert!(
+                s.execute("variant.set_footprint", bad, None).is_err(),
+                "malformed swaps are refused"
+            );
+        }
+        assert!(
+            s.execute(
+                "variant.clear_footprint",
+                json!({"name":"Slim","component":r1}),
+                None
+            )
+            .is_err(),
+            "clearing an absent swap is refused"
+        );
+        assert!(
+            s.execute(
+                "variant.clear_footprint",
+                json!({"name":"Slim","component":r1,"footprint":"X"}),
+                None,
+            )
+            .is_err(),
+            "the clear command rejects a stray footprint"
+        );
+        assert!(
+            s.execute("bom.export", json!({"variant":"Ghost"}), None)
+                .is_err(),
+            "a bill for an unknown variant is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn items_update_edits_tracks_vias_and_labels_in_one_undoable_batch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"].clone();
+        let other = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"].clone();
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":[0,0],"end":[10,0]}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":[5,5],"diameter":0.8,"drill":0.4}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let label = s.execute(
+            "text.place",
+            json!({"text":"REV A","position":[1,1],"size":1.0}),
+            None,
+        )?["result"]["id"]
+            .clone();
+        let out = s.execute(
+            "items.update",
+            json!({"items":[
+                {"id":track,"width":0.5,"net":other},
+                {"id":via,"diameter":1.0,"drill":0.5},
+                {"id":label,"text":"REV B","size":2.0,"layer":"B.Cu"}
+            ]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["changed"], 3, "all three objects changed");
+        let board = &s.inspect()["project"]["board"];
+        assert_eq!(board["tracks"][0]["width"], 0.5);
+        assert_eq!(board["tracks"][0]["net"], other, "the track moved nets");
+        assert_eq!(board["vias"][0]["diameter"], 1.0);
+        assert_eq!(board["vias"][0]["drill"], 0.5);
+        assert_eq!(board["texts"][0]["text"], "REV B");
+        assert_eq!(board["texts"][0]["size"], 2.0);
+        assert_eq!(board["texts"][0]["layer"], "B.Cu");
+        for bad in [
+            json!({"items":[]}),
+            json!({"items":[{"id":track}]}),
+            json!({"items":[{"id":track,"diameter":1.0}]}),
+            json!({"items":[{"id":track,"width":0.0}]}),
+            json!({"items":[{"id":via,"width":0.2}]}),
+            json!({"items":[{"id":via,"drill":1.2}]}),
+            json!({"items":[{"id":label,"drill":0.3}]}),
+            json!({"items":[{"id":label,"text":""}]}),
+            json!({"items":[{"id":9999,"width":0.2}]}),
+            json!({"items":[{"id":track,"nope":1}]}),
+        ] {
+            assert!(
+                s.execute("items.update", bad, None).is_err(),
+                "bad batch updates are refused"
+            );
+        }
+        let many = json!({"items": vec![json!({"id":track,"width":0.2}); 129]});
+        assert!(
+            s.execute("items.update", many, None).is_err(),
+            "a 129-item batch is refused"
+        );
+        s.undo()?;
+        let board = &s.inspect()["project"]["board"];
+        assert_eq!(
+            board["tracks"][0]["net"], net,
+            "the batch undoes in one step"
+        );
+        assert_eq!(board["vias"][0]["drill"], 0.4);
+        assert_eq!(board["texts"][0]["text"], "REV A");
+        Ok(())
+    }
+    #[test]
+    fn machining_notes_merge_replace_and_clear_with_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let first = s.execute(
+            "board.set_machining",
+            json!({"edge_plating":true,"drill_tolerance":0.05}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(first["machining"]["edge_plating"], true);
+        assert_eq!(first["machining"]["drill_tolerance"], 0.05);
+        assert_eq!(
+            first["machining"].get("edge_tolerance"),
+            None,
+            "unmentioned notes stay absent"
+        );
+        let merged =
+            s.execute("board.set_machining", json!({"edge_tolerance":0.1}), None)?["result"]
+                .clone();
+        assert_eq!(
+            merged["machining"]["edge_plating"], true,
+            "a partial update keeps the other notes"
+        );
+        assert_eq!(merged["machining"]["edge_tolerance"], 0.1);
+        let replaced =
+            s.execute("board.set_machining", json!({"drill_tolerance":0.02}), None)?["result"]
+                .clone();
+        assert_eq!(replaced["machining"]["drill_tolerance"], 0.02);
+        assert_eq!(replaced["machining"]["edge_tolerance"], 0.1);
+        for bad in [
+            json!({}),
+            json!({"drill_tolerance":-0.01}),
+            json!({"edge_tolerance":1.1}),
+            json!({"edge_plating":"yes"}),
+            json!({"tolerance":0.05}),
+        ] {
+            assert!(
+                s.execute("board.set_machining", bad, None).is_err(),
+                "bad machining notes are refused"
+            );
+        }
+        assert!(
+            s.execute("board.clear_machining", json!({"edge_plating":true}), None)
+                .is_err(),
+            "board.clear_machining takes an empty object"
+        );
+        let cleared = s.execute("board.clear_machining", json!({}), None)?["result"].clone();
+        assert_eq!(cleared["removed"], true, "clearing reports it held notes");
+        assert!(s.inspect()["project"]["board"].get("machining").is_none());
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["board"]["machining"]["drill_tolerance"],
+            0.02,
+            "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn attached_files_are_named_replaced_ordered_removed_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        let first = s.execute(
+            "file.attach",
+            json!({"name":"notes.txt","data":"built to house style"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(first["count"], 1, "the first file attaches");
+        s.execute("file.attach", json!({"name":"LICENCE","data":"MIT"}), None)?;
+        let replaced = s.execute(
+            "file.attach",
+            json!({"name":"notes.txt","data":"revised house style"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(replaced["count"], 2, "a repeated name replaces contents");
+        let files = s.inspect()["project"]["files"].clone();
+        assert_eq!(files[0]["name"], "LICENCE");
+        assert_eq!(files[1]["name"], "notes.txt", "files stay ordered by name");
+        assert_eq!(files[1]["data"], "revised house style");
+        for bad in [
+            json!({"name":"  ","data":"x"}),
+            json!({"name":"x".repeat(129),"data":"x"}),
+            json!({"name":"big","data":"x".repeat(262_145)}),
+            json!({"data":"x"}),
+        ] {
+            assert!(
+                s.execute("file.attach", bad, None).is_err(),
+                "bad attachments are refused"
+            );
+        }
+        assert!(
+            s.execute("file.remove", json!({"name":"absent"}), None)
+                .is_err(),
+            "removing an absent file is refused"
+        );
+        let removed =
+            s.execute("file.remove", json!({"name":"notes.txt"}), None)?["result"].clone();
+        assert_eq!(removed["count"], 1, "the removal reports what remains");
+        assert_eq!(
+            s.inspect()["project"]["files"][0]["name"],
+            "LICENCE",
+            "the right file went"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["files"]
+                .as_array()
+                .map_or(0, |f| f.len()),
+            2,
+            "the removal undoes"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["files"][1]["data"],
+            "built to house style",
+            "a replace undoes to the previous contents"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bom_fields_are_defined_used_by_exports_cleared_and_undone() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        let set = s.execute(
+            "bom.set_fields",
+            json!({"fields":[{"key":"MPN","label":"Manufacturer part"},{"key":"Rating"}]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(set["count"], 2, "columns are recorded in order");
+        let fields = s.inspect()["project"]["bom_fields"].clone();
+        assert_eq!(fields[0]["key"], "MPN");
+        assert_eq!(fields[0]["label"], "Manufacturer part");
+        assert_eq!(fields[1]["label"], "", "an omitted label defaults to empty");
+        s.execute(
+            "component.field",
+            json!({"id":1,"key":"MPN","value":"RC0603"}),
+            None,
+        )?;
+        let bom = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(
+            bom["items"][0]["fields"]["MPN"], "RC0603",
+            "the recorded columns feed the export"
+        );
+        let explicit =
+            s.execute("bom.export", json!({"fields":["Rating"]}), None)?["result"].clone();
+        assert_eq!(
+            explicit["items"][0]["fields"]["MPN"],
+            Value::Null,
+            "an explicit request overrides the recorded columns"
+        );
+        assert_eq!(explicit["items"][0]["fields"]["Rating"], "");
+        for bad in [
+            json!({"fields":[]}),
+            json!({"fields":[{"key":"","label":"x"}]}),
+            json!({"fields":[{"key":"A"},{"key":"A"}]}),
+            json!({"fields":[{"key":"A","label":"x".repeat(65)}]}),
+            json!({"fields":(1..=17).map(|i| json!({"key":format!("f{i}")})).collect::<Vec<Value>>()}),
+        ] {
+            assert!(
+                s.execute("bom.set_fields", bad, None).is_err(),
+                "bad column definitions are refused"
+            );
+        }
+        assert!(
+            s.execute("bom.clear_fields", json!({"fields":[]}), None)
+                .is_err(),
+            "bom.clear_fields takes an empty object"
+        );
+        let cleared = s.execute("bom.clear_fields", json!({}), None)?["result"].clone();
+        assert_eq!(cleared["removed"], 2, "clearing reports what it dropped");
+        assert!(
+            s.inspect()["project"]
+                .get("bom_fields")
+                .is_none_or(|f| f.as_array().is_some_and(|f| f.is_empty())),
+            "the project is left with no columns"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.inspect()["project"]["bom_fields"]
+                .as_array()
+                .map_or(0, |f| f.len()),
+            2,
+            "the clear undoes"
+        );
+        Ok(())
+    }
+    #[test]
+    fn board_bounds_cover_tracks_and_vias_per_copper_side() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SIG"}), None)?;
+        let net = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":12.0},"width":0.4}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":5.0,"y":20.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":14.0},"diameter":0.7}),
+            None,
+        )?;
+        let bounds = s.execute("board.bounds", json!({}), None)?["result"].clone();
+        assert_eq!(
+            bounds["overall"]["points"], 6,
+            "two tracks and a via, corner pairs"
+        );
+        assert_eq!(
+            bounds["front"]["points"], 4,
+            "the back track is its own box"
+        );
+        assert_eq!(bounds["back"]["min_x"], 4.9, "track width feeds the box");
+        assert_eq!(bounds["back"]["max_y"], 20.1);
+        assert_eq!(
+            bounds["front"]["max_y"], 14.35,
+            "the via pad diameter feeds the box"
+        );
+        assert_eq!(bounds["overall"]["width"], 30.2 - 4.9);
+        assert_eq!(bounds["board"]["width"], 60.0);
+        let mut fresh = Session::default();
+        let empty = fresh.execute("board.bounds", json!({}), None)?["result"].clone();
+        assert_eq!(empty["overall"]["empty"], true, "a bare board has no box");
+        assert!(
+            fresh
+                .execute("board.bounds", json!({"layer":"F.Cu"}), None)
+                .is_err(),
+            "board.bounds takes no parameters"
+        );
+        Ok(())
+    }
+    #[test]
+    fn items_find_lists_ids_by_kind_with_net_and_layer_filters() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SIG"}), None)?;
+        s.execute("net.create", json!({"name":"GND"}), None)?;
+        let sig = s.inspect()["project"]["nets"][0]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gnd = s.inspect()["project"]["nets"][1]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":gnd,"start":{"x":10.0,"y":12.0},"end":{"x":30.0,"y":12.0},"layer":"B.Cu"}),
+            None,
+        )?;
+        let found = s.execute("items.find", json!({"kind":"track"}), None)?["result"].clone();
+        assert_eq!(found["count"], 2, "both tracks by default");
+        let one =
+            s.execute("items.find", json!({"kind":"track","net":sig}), None)?["result"].clone();
+        assert_eq!(one["count"], 1, "the net filter narrows the list");
+        assert_eq!(one["items"][0]["net"], sig);
+        let back = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?["result"]
+            .clone();
+        assert_eq!(back["count"], 1, "the copper-side filter narrows the list");
+        let none = s.execute("items.find", json!({"kind":"zone"}), None)?["result"].clone();
+        assert_eq!(none["count"], 0, "a kind with nothing placed lists nothing");
+        for bad in [
+            json!({"kind":"widget"}),
+            json!({"kind":"track","net":9999}),
+            json!({"kind":"track","layer":"F.Adge"}),
+            json!({"kind":"track","extra":1}),
+            json!({}),
+        ] {
+            assert!(s.execute("items.find", bad, None).is_err());
+        }
+        Ok(())
+    }
+    #[test]
+    fn routed_copper_lengths_are_reported_per_net() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"PWR","pins":[{"reference":"R2","pin":"1"},{"reference":"R1","pin":"1"}]},{"name":"GND","pins":[{"reference":"R1","pin":"2"}]}]}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let before = s.execute("net.lengths", json!({}), None)?["result"].clone();
+        assert_eq!(before["routed"], 0);
+        assert_eq!(before["unrouted"].as_array().ok_or_else(missing)?.len(), 2);
+        let before_total = before["total"].as_f64().ok_or_else(missing)?;
+        assert!(before_total.abs() < 1e-9);
+        let pwr = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "PWR")
+            .ok_or_else(missing)?
+            .id;
+        let gnd = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "GND")
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "track.add",
+            json!({"net":pwr,"start":{"x":0.0,"y":0.0},"end":{"x":3.0,"y":0.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":pwr,"start":{"x":0.0,"y":0.0},"end":{"x":0.0,"y":4.0},"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":gnd,"position":{"x":1.0,"y":1.0},"diameter":1.5,"drill":0.8}),
+            None,
+        )?;
+        let after = s.execute("net.lengths", json!({}), None)?["result"].clone();
+        assert_eq!(after["routed"], 2);
+        assert!(after["unrouted"].as_array().ok_or_else(missing)?.is_empty());
+        let nets = after["nets"].as_array().ok_or_else(missing)?;
+        assert_eq!(nets[0]["name"], "PWR");
+        assert_eq!(nets[0]["segments"], 2);
+        assert_eq!(nets[0]["vias"], 0);
+        let length = nets[0]["length"].as_f64().ok_or_else(missing)?;
+        assert!((length - 7.0).abs() < 1e-9);
+        assert_eq!(nets[1]["name"], "GND");
+        assert_eq!(nets[1]["segments"], 0);
+        assert_eq!(nets[1]["vias"], 1);
+        let gnd_length = nets[1]["length"].as_f64().ok_or_else(missing)?;
+        assert!((gnd_length - 0.0).abs() < 1e-9);
+        let total = after["total"].as_f64().ok_or_else(missing)?;
+        assert!((total - 7.0).abs() < 1e-9);
+        let single = s.execute("net.lengths", json!({"net": gnd}), None)?["result"].clone();
+        assert_eq!(single["routed"], 1);
+        assert_eq!(single["nets"].as_array().ok_or_else(missing)?.len(), 1);
+        assert_eq!(single["nets"][0]["name"], "GND");
+        for params in [json!({"net": 9999}), json!({"extra": 1})] {
+            assert!(s.execute("net.lengths", params, None).is_err());
+        }
+        let unchanged = s.project.clone();
+        s.execute("net.lengths", json!({"net": pwr}), None)?;
+        assert_eq!(s.project, unchanged);
+        assert!(r1 > 0 && r2 > 0);
+        Ok(())
+    }
+    #[test]
+    fn a_netclass_set_renames_it_and_moves_its_default_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.3,"width":0.6,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out =
+            s.execute("netclass.set", json!({"class":class,"width":0.9}), None)?["result"].clone();
+        assert_eq!(out["name"], "POWER");
+        assert_eq!(out["width"], json!(0.9));
+        assert_eq!(
+            out["clearance"],
+            json!(0.3),
+            "the untouched clearance is echoed back"
+        );
+        assert_eq!(out["nets"], 1, "membership survives a rule change");
+        let out = s.execute(
+            "netclass.set",
+            json!({"class":class,"name":"HIGH-POWER"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["name"], "HIGH-POWER");
+        assert_eq!(
+            out["width"],
+            json!(0.9),
+            "the width change survives the rename"
+        );
+        for bad in [
+            json!({"class":class}),
+            json!({"class":class,"name":"HIGH-POWER"}),
+            json!({"class":class,"width":0.9}),
+            json!({"class":class,"name":"HIGH-POWER","width":0.9}),
+            json!({"class":class,"name":""}),
+            json!({"class":class,"name":"n".repeat(129)}),
+            json!({"class":class,"width":0.0}),
+            json!({"class":class,"width":-1.0}),
+            json!({"class":class,"width":1e9}),
+            json!({"class":class + 77,"width":0.5}),
+        ] {
+            assert!(
+                s.execute("netclass.set", bad.clone(), None).is_err(),
+                "empty, no-op, over-long, out-of-range and unknown-class sets are refused: {bad}"
+            );
+        }
+        s.execute(
+            "netclass.add",
+            json!({"name":"SIG","clearance":0.2,"width":0.2}),
+            None,
+        )?;
+        assert!(
+            s.execute("netclass.set", json!({"class":class,"name":"SIG"}), None)
+                .is_err(),
+            "class names must stay unique"
+        );
+        s.undo()?;
+        s.undo()?;
+        s.undo()?;
+        let held = s
+            .project
+            .net_classes
+            .iter()
+            .find(|k| k.id == class)
+            .ok_or_else(missing)?;
+        assert_eq!(
+            (held.name.as_str(), held.width),
+            ("POWER", 0.6),
+            "undo steps back through the rename and the width change"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn net_class_width_bounds_flag_member_tracks_only() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let free = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.3,"width":0.6,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn widths(s: &Session) -> Vec<String> {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| f["code"] == json!("track_width"))
+                .map(|f| f["message"].as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+        let thin = s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let wide = s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":0.0,"y":5.0},"end":{"x":10.0,"y":5.0},"width":0.9}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let loose = s.execute(
+            "track.add",
+            json!({"net":free,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.05}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            widths(&s).is_empty(),
+            "a class without width bounds flags nothing"
+        );
+        s.execute(
+            "netclass.width_rules",
+            json!({"class":class,"min_width":0.4,"max_width":0.8}),
+            None,
+        )?;
+        let flagged = widths(&s);
+        assert_eq!(flagged.len(), 2);
+        assert!(
+            flagged
+                .iter()
+                .any(|m| m.contains("at least 0.400 mm") && m.contains("PWR"))
+        );
+        assert!(
+            flagged
+                .iter()
+                .any(|m| m.contains("at most 0.800 mm") && m.contains("PWR"))
+        );
+        assert!(
+            !flagged.iter().any(|m| m.contains("SIG")),
+            "unclassified nets keep their old behaviour"
+        );
+        s.execute(
+            "track.move",
+            json!({"id":thin,"delta":{"x":0.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":0.0,"y":30.0},"end":{"x":10.0,"y":30.0},"width":0.5}),
+            None,
+        )?;
+        let flagged = widths(&s);
+        assert_eq!(flagged.len(), 2, "in-bounds copper stays quiet");
+        s.execute(
+            "netclass.width_rules",
+            json!({"class":class,"min_width":0.1}),
+            None,
+        )?;
+        let flagged = widths(&s);
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].contains("at most 0.800 mm"));
+        s.execute(
+            "rules.severity",
+            json!({"code":"track_width","severity":"off"}),
+            None,
+        )?;
+        assert!(widths(&s).is_empty(), "the new code is silenceable");
+        s.execute(
+            "rules.severity",
+            json!({"code":"track_width","severity":"warning"}),
+            None,
+        )?;
+        let downgraded = s.checks()["drc"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter(|f| f["code"] == json!("track_width"))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(downgraded.len(), 1);
+        assert_eq!(downgraded[0]["severity"], "warning");
+        assert!(s.project.validate().is_ok());
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        s.undo()?;
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.project.net_classes.first().ok_or_else(missing)?.min_width,
+            Some(0.4)
+        );
+        assert!(!s.project.rule_severity.contains_key("track_width"));
+        for params in [
+            json!({"class":9999,"min_width":0.4}),
+            json!({"class":class,"min_width":0.0}),
+            json!({"class":class,"max_width":101.0}),
+            json!({"class":class,"min_width":0.9,"max_width":0.3}),
+            json!({"class":class,"min_width":0.7,"max_width":0.6}),
+            json!({"class":class}),
+            json!({"class":class,"min_width":0.4,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.width_rules", params, None).is_err());
+        }
+        let before = s.inspect();
+        assert_eq!(s.inspect(), before);
+        assert!(s.project.validate().is_ok());
+        assert!(thin > 0 && wide > 0 && loose > 0);
+        Ok(())
+    }
+    #[test]
+    fn a_single_net_can_carry_its_own_length_target() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let diff = s.execute("net.create", json!({"name":"DIFF"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn flagged(s: &Session, net: u64) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "track_length" && f["objects"][0] == net)
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":18.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        assert!(
+            flagged(&s, sig).is_empty(),
+            "an untargeted net is never a length finding"
+        );
+        let out = s.execute(
+            "net.set_length",
+            json!({"id":sig,"target":12.0,"tolerance":0.5}),
+            None,
+        )?;
+        assert_eq!(out["result"]["target"], 12.0);
+        let messages = flagged(&s, sig);
+        assert_eq!(messages.len(), 1, "8 mm misses a 12 mm target");
+        assert!(
+            messages[0].contains("8.000 mm") && messages[0].contains("targets 12.000 mm"),
+            "the message names the routed length and the net's own target"
+        );
+        s.execute(
+            "net.set_length",
+            json!({"id":sig,"target":12.0,"tolerance":8.0}),
+            None,
+        )?;
+        assert!(
+            flagged(&s, sig).is_empty(),
+            "a wider tolerance closes the gap"
+        );
+        let rows = s.execute("net.lengths", json!({"net":sig}), None)?["result"]["nets"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(
+            rows[0]["target_length"], 12.0,
+            "lengths show the net target"
+        );
+        assert_eq!(rows[0]["length_tolerance"], 8.0);
+        s.execute("net.set_length", json!({"id":sig}), None)?;
+        assert!(
+            flagged(&s, sig).is_empty(),
+            "clearing the target stops the findings"
+        );
+        assert!(
+            s.project
+                .nets
+                .iter()
+                .any(|n| n.id == sig && n.target_length.is_none() && n.length_tolerance.is_none()),
+            "clearing also drops the tolerance"
+        );
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[diff]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"target_length":20.0}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":diff,"start":{"x":30.0,"y":10.0},"end":{"x":45.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        assert_eq!(
+            flagged(&s, diff).len(),
+            1,
+            "the class target still applies on its own"
+        );
+        s.execute("net.set_length", json!({"id":diff,"target":15.0}), None)?;
+        assert!(
+            flagged(&s, diff).is_empty(),
+            "the net's own target wins over the class target"
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"id":sig,"target":0.0}),
+            json!({"id":sig,"target":-4.0}),
+            json!({"id":sig,"target":1e9}),
+            json!({"id":sig,"target":null,"tolerance":1.0}),
+            json!({"id":sig,"tolerance":-1.0}),
+            json!({"id":999,"target":12.0}),
+            json!({"id":sig,"target":12.0,"extra":1}),
+        ] {
+            assert!(s.execute("net.set_length", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(
+            flagged(&s, diff).len(),
+            1,
+            "undo hands the net back to its class target"
+        );
+        Ok(())
+    }
+    #[test]
+    fn net_class_length_targets_flag_member_nets_outside_the_window() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn flagged(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "track_length")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        for (start, end) in [
+            (json!({"x":10.0,"y":10.0}), json!({"x":20.0,"y":10.0})),
+            (json!({"x":20.0,"y":10.0}), json!({"x":20.0,"y":14.0})),
+        ] {
+            s.execute(
+                "track.add",
+                json!({"net":power,"start":start,"end":end,"width":0.3}),
+                None,
+            )?;
+        }
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"target_length":16.0,"length_tolerance":1.0}),
+            None,
+        )?;
+        let messages = flagged(&s);
+        assert_eq!(messages.len(), 1, "14 mm misses a 16 mm target");
+        assert!(
+            messages[0].contains("14.000 mm") && messages[0].contains("targets 16.000 mm"),
+            "the message names the routed length and the target"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":20.0,"y":14.0},"end":{"x":22.0,"y":14.0},"width":0.3}),
+            None,
+        )?;
+        assert!(flagged(&s).is_empty(), "16 mm lands inside the window");
+        s.undo()?;
+        assert_eq!(flagged(&s).len(), 1, "undo reopens the gap");
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"length_tolerance":2.0}),
+            None,
+        )?;
+        assert!(
+            flagged(&s).is_empty(),
+            "a wider tolerance keeps the stored target"
+        );
+        s.execute("netclass.assign", json!({"net":sig,"class":class}), None)?;
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"length_tolerance":0.5}),
+            None,
+        )?;
+        let messages = flagged(&s);
+        assert_eq!(
+            messages.len(),
+            1,
+            "an unrouted member is not a length finding"
+        );
+        assert!(messages[0].contains("PWR"));
+        let rows = s.execute("net.lengths", json!({}), None)?["result"]["nets"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        let row = rows.iter().find(|n| n["id"] == power).ok_or_else(missing)?;
+        assert_eq!(row["target_length"], 16.0, "lengths name the target");
+        assert_eq!(row["length_tolerance"], 0.5);
+        for params in [
+            json!({"class":class,"target_length":0.0}),
+            json!({"class":class,"target_length":10001.0}),
+            json!({"class":class,"length_tolerance":-0.1}),
+            json!({"class":class,"length_tolerance":1001.0}),
+            json!({"class":class}),
+            json!({"class":999,"target_length":5.0}),
+            json!({"class":class,"target_length":5.0,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.length_rules", params, None).is_err());
+        }
+        let plain = s.execute(
+            "netclass.add",
+            json!({"name":"OTHER","clearance":0.2,"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "netclass.length_rules",
+                json!({"class":plain,"length_tolerance":1.0}),
+                None
+            )
+            .is_err(),
+            "a tolerance needs a target"
+        );
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    #[test]
+    fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {
+        let mut s = Session::default();
+        let names = ["USB_DP", "USB_DM", "USB_STAT", "FB_IN", "OUT_FB", "usb_low"];
+        let mut ids = Vec::new();
+        for name in names {
+            ids.push(
+                s.execute("net.create", json!({"name": name}), None)?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        let power = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.6}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let usb = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.3,"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let result = s.execute(
+            "netclass.assign_pattern",
+            json!({"class":power,"pattern":"*_IN"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(result["matched"], 1);
+        fn class_of(s: &Session, net: u64) -> Option<u64> {
+            s.project
+                .net_classes
+                .iter()
+                .find(|c| c.nets.contains(&net))
+                .map(|c| c.id)
+        }
+        assert_eq!(class_of(&s, ids[3]), Some(power));
+        assert_eq!(class_of(&s, ids[4]), None);
+        let result = s.execute(
+            "netclass.assign_pattern",
+            json!({"class":usb,"pattern":"USB*"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(result["matched"], 3);
+        for net in [ids[0], ids[1], ids[2]] {
+            assert_eq!(class_of(&s, net), Some(usb));
+        }
+        assert_eq!(class_of(&s, ids[3]), Some(power));
+        assert!(s.project.validate().is_ok());
+        s.execute(
+            "netclass.assign_pattern",
+            json!({"class":power,"pattern":"usb*"}),
+            None,
+        )?;
+        assert_eq!(class_of(&s, ids[5]), Some(power));
+        let single = s.execute(
+            "netclass.assign_pattern",
+            json!({"class":usb,"pattern":"*"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(single["matched"], 6);
+        for net in &ids {
+            assert_eq!(class_of(&s, *net), Some(usb), "one class holds them all");
+        }
+        s.execute(
+            "netclass.assign_pattern",
+            json!({"class":power,"pattern":"USB?DP"}),
+            None,
+        )?;
+        assert_eq!(class_of(&s, ids[0]), Some(power));
+        let before = s.inspect();
+        for params in [
+            json!({"class":power,"pattern":"POWER"}),
+            json!({"class":power,"pattern":"NOSUCH*"}),
+            json!({"class":9999,"pattern":"*"}),
+            json!({"class":power,"pattern":""}),
+            json!({"class":power,"pattern":"x".repeat(65)}),
+            json!({"class":power,"pattern":"*","extra":1}),
+        ] {
+            assert!(s.execute("netclass.assign_pattern", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        s.undo()?;
+        assert_eq!(class_of(&s, ids[0]), Some(usb));
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn check_codes_can_be_relevelled_and_silenced() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":10.3},"end":{"x":30.0,"y":10.3},"width":0.2}),
+            None,
+        )?;
+        fn drc(s: &Session) -> Vec<Value> {
+            s.checks()["drc"].as_array().cloned().unwrap_or_default()
+        }
+        let findings = drc(&s);
+        let clearance = findings
+            .iter()
+            .find(|f| f["code"] == json!("clearance"))
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(clearance["severity"], "error");
+        s.execute(
+            "rules.severity",
+            json!({"code":"clearance","severity":"warning"}),
+            None,
+        )?;
+        let findings = drc(&s);
+        let downgraded = findings
+            .iter()
+            .find(|f| f["code"] == json!("clearance"))
+            .ok_or_else(missing)?
+            .clone();
+        assert_eq!(downgraded["severity"], "warning");
+        assert_eq!(downgraded["message"], clearance["message"]);
+        s.execute(
+            "rules.severity",
+            json!({"code":"clearance","severity":"off"}),
+            None,
+        )?;
+        assert!(
+            drc(&s).iter().all(|f| f["code"] != json!("clearance")),
+            "a silenced code must not be reported"
+        );
+        s.execute("rules.severity", json!({"code":"clearance"}), None)?;
+        let findings = drc(&s);
+        assert_eq!(
+            findings
+                .iter()
+                .find(|f| f["code"] == json!("clearance"))
+                .ok_or_else(missing)?["severity"],
+            "error"
+        );
+        let single_pin = {
+            let erc = s.checks()["erc"].as_array().ok_or_else(missing)?.clone();
+            erc.iter()
+                .find(|f| f["code"] == json!("single_pin_net"))
+                .cloned()
+                .ok_or_else(missing)?
+        };
+        assert_eq!(single_pin["severity"], "warning");
+        s.execute(
+            "rules.severity",
+            json!({"code":"single_pin_net","severity":"error"}),
+            None,
+        )?;
+        let erc = s.checks()["erc"].as_array().ok_or_else(missing)?.clone();
+        assert_eq!(
+            erc.iter()
+                .find(|f| f["code"] == json!("single_pin_net"))
+                .ok_or_else(missing)?["severity"],
+            "error"
+        );
+        assert!(s.project.validate().is_ok());
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        s.undo()?;
+        assert!(!s.project.rule_severity.contains_key("single_pin_net"));
+        let before = s.inspect();
+        for params in [
+            json!({"code":"","severity":"warning"}),
+            json!({"code":"x".repeat(33),"severity":"warning"}),
+            json!({"code":"clearance","severity":"fatal"}),
+            json!({"code":"nope"}),
+            json!({"code":"clearance","severity":"warning","extra":1}),
+        ] {
+            assert!(s.execute("rules.severity", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        assert!(s.project.validate().is_ok());
+        assert!(a > 0 && b > 0);
+        Ok(())
+    }
+    #[test]
+    fn check_findings_can_be_excluded_per_object_and_restored() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.6,"nets":[a]}),
+            None,
+        )?;
+        let mut track_ids = vec![];
+        for (net, y) in [(a, 10.0), (b, 10.5)] {
+            let out = s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":30.0,"y":y},"width":0.2}),
+                None,
+            )?;
+            track_ids.push(out["result"]["id"].as_u64().ok_or_else(missing)?);
+        }
+        fn clearance(s: &Session) -> Result<usize, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter(|f| f["code"] == "clearance")
+                .count())
+        }
+        assert_eq!(clearance(&s)?, 1);
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[0]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 1, "one of two objects is not enough");
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 0, "every named object excluded");
+        s.undo()?;
+        assert_eq!(clearance(&s)?, 1, "undo brings the finding back");
+        s.redo()?;
+        assert_eq!(clearance(&s)?, 0);
+        s.execute(
+            "rules.include",
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 1);
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            None,
+        )?;
+        assert_eq!(clearance(&s)?, 0);
+        s.execute("rules.include", json!({"code":"clearance"}), None)?;
+        assert_eq!(
+            clearance(&s)?,
+            1,
+            "lifting every exclusion restores the finding"
+        );
+        assert!(s.project.rule_exclusions.is_empty());
+        s.execute(
+            "rules.exclude",
+            json!({"code":"clearance","ids":[track_ids[0]]}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"code":"","ids":[track_ids[1]]}),
+            json!({"code":"clearance","ids":[]}),
+            json!({"code":"clearance","ids":[9999]}),
+            json!({"code":"clearance","ids":[track_ids[0]]}),
+            json!({"code":"clearance","ids":[track_ids[1]],"extra":1}),
+            json!({"code":"clearance"}),
+        ] {
+            assert!(s.execute("rules.exclude", params, None).is_err());
+        }
+        for params in [
+            json!({"code":"clearance","ids":[track_ids[1]]}),
+            json!({"code":"nothing_here"}),
+            json!({"code":""}),
+            json!({"code":"clearance","ids":[]}),
+            json!({"code":"clearance","extra":1}),
+        ] {
+            assert!(s.execute("rules.include", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert!(s.project.rule_exclusions.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn check_findings_can_be_excluded_by_rectangle_and_restored() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, sx) in [(a, 5.0), (b, 15.1), (a, 35.0), (b, 45.1)] {
+            let y = if sx < 30.0 { 10.0 } else { 30.0 };
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":sx,"y":y},"end":{"x":sx + 10.0,"y":y},"width":0.3}),
+                None,
+            )?;
+        }
+        let shorts = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| f["code"] == "copper_short")
+                .count()
+        };
+        assert_eq!(shorts(&s), 2, "two pairs of tracks touch in two places");
+        s.execute(
+            "rules.exclude_region",
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":22.0,"height":10.0}),
+            None,
+        )?;
+        assert_eq!(
+            shorts(&s),
+            1,
+            "only the short inside the rectangle falls silent"
+        );
+        s.execute(
+            "rules.exclude_region",
+            json!({"code":"copper_short","x":34.0,"y":25.0,"width":22.0,"height":10.0}),
+            None,
+        )?;
+        assert_eq!(shorts(&s), 0, "a second rectangle covers the other one");
+        assert!(
+            s.execute(
+                "rules.include_region",
+                json!({"code":"copper_short","index":2}),
+                None,
+            )
+            .is_err()
+        );
+        s.execute(
+            "rules.include_region",
+            json!({"code":"copper_short","index":0}),
+            None,
+        )?;
+        assert_eq!(
+            shorts(&s),
+            1,
+            "lifting the first rectangle restores its finding"
+        );
+        s.execute("rules.include_region", json!({"code":"copper_short"}), None)?;
+        assert_eq!(
+            shorts(&s),
+            2,
+            "lifting every rectangle restores both findings"
+        );
+        assert!(s.project.rule_regions.is_empty());
+        let before = s.inspect();
+        for params in [
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":0.0,"height":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":-5.0,"height":10.0}),
+            json!({"code":"copper_short","x":-1001.0,"y":5.0,"width":10.0,"height":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":1e9,"height":10.0}),
+            json!({"code":"copper_short","x":null,"y":5.0,"width":10.0,"height":10.0}),
+            json!({"code":"","x":4.0,"y":5.0,"width":10.0,"height":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":10.0}),
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":10.0,"height":10.0,"extra":1}),
+        ] {
+            assert!(
+                s.execute("rules.exclude_region", params.clone(), None)
+                    .is_err(),
+                "{params:?} refused"
+            );
+        }
+        for params in [
+            json!({"code":"nothing_here"}),
+            json!({"code":"copper_short"}),
+            json!({"code":"copper_short","index":0}),
+            json!({"code":"copper_short","index":-1}),
+            json!({"code":""}),
+            json!({"code":"copper_short","extra":1}),
+        ] {
+            assert!(
+                s.execute("rules.include_region", params.clone(), None)
+                    .is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute(
+            "rules.exclude_region",
+            json!({"code":"copper_short","x":4.0,"y":5.0,"width":22.0,"height":10.0}),
+            None,
+        )?;
+        assert_eq!(shorts(&s), 1);
+        s.undo()?;
+        assert!(
+            s.project.rule_regions.is_empty(),
+            "undo removes the rectangle again"
+        );
+        assert_eq!(shorts(&s), 2, "and both findings return");
+        Ok(())
+    }
+    #[test]
+    fn net_classes_drive_clearance_and_default_track_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, y) in [(a, 10.0), (b, 10.5)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":30.0,"y":y},"width":0.2}),
+                None,
+            )?;
+        }
+        fn drc(s: &Session) -> Result<Vec<Value>, Error> {
+            Ok(s.checks()["drc"].as_array().ok_or_else(missing)?.clone())
+        }
+        assert!(!drc(&s)?.iter().any(|f| f["code"] == "clearance"));
+        let power = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.6,"nets":[a]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            drc(&s)?.iter().any(|f| f["code"] == "clearance"
+                && f["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("0.500 mm required"))),
+            "the class clearance raises the requirement"
+        );
+        let added = s.execute(
+            "track.add",
+            json!({"net":a,"start":{"x":10.0,"y":20.0},"end":{"x":20.0,"y":20.0}}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(added["width"], 0.6);
+        let explicit = s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":25.0},"end":{"x":20.0,"y":25.0},"width":0.2}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(explicit["width"], 0.2);
+        let logic = s.execute(
+            "netclass.add",
+            json!({"name":"LOGIC","clearance":0.1,"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("netclass.assign", json!({"net": b, "class": logic}), None)?;
+        assert!(drc(&s)?.iter().any(|f| f["code"] == "clearance"));
+        s.execute("netclass.assign", json!({"net": a, "class": null}), None)?;
+        assert!(!drc(&s)?.iter().any(|f| f["code"] == "clearance"));
+        s.execute("netclass.assign", json!({"net": b, "class": power}), None)?;
+        assert_eq!(
+            s.project
+                .net_classes
+                .iter()
+                .filter(|k| k.nets.contains(&b))
+                .count(),
+            1
+        );
+        assert_eq!(s.project.net_classes[0].nets.len(), 1);
+        assert!(s.project.net_classes[1].nets.is_empty());
+        let before = s.inspect();
+        for params in [
+            json!({"name":"POWER","clearance":0.4,"width":0.3}),
+            json!({"name":"","clearance":0.4,"width":0.3}),
+            json!({"name":"X","clearance":0.0,"width":0.3}),
+            json!({"name":"X","clearance":0.4,"width":0.0}),
+            json!({"name":"X","clearance":0.4,"width":0.3,"nets":[9999]}),
+            json!({"name":"X","clearance":0.4,"width":0.3,"nets":[b]}),
+            json!({"name":"X","clearance":0.4,"width":0.3,"extra":1}),
+            json!({"net": 9999, "class": power}),
+            json!({"net": b, "class": 9999}),
+            json!({"net": b, "class": power, "extra": 1}),
+        ] {
+            let command = if params.get("class").is_some() {
+                "netclass.assign"
+            } else {
+                "netclass.add"
+            };
+            assert!(s.execute(command, params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        let c = s.execute("net.create", json!({"name":"C"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("netclass.assign", json!({"net": c, "class": logic}), None)?;
+        assert!(s.project.net_classes[1].nets.contains(&c));
+        s.execute("object.delete", json!({"id": c}), None)?;
+        assert!(s.project.net_classes.iter().all(|k| !k.nets.contains(&c)));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert!(s.project.net_classes[1].nets.contains(&c));
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn component_fields_are_set_replaced_cleared_and_copied() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn field(s: &Session, id: u64, key: &str) -> Option<String> {
+            s.project.component(id)?.field(key).map(str::to_string)
+        }
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":"ds1.pdf"}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Datasheet").as_deref(), Some("ds1.pdf"));
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":"ds2.pdf"}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Datasheet").as_deref(), Some("ds2.pdf"));
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Acme"}),
+            None,
+        )?;
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.fields.len(), 2);
+        assert!(s.project.validate().is_ok());
+        let copy = s.execute(
+            "object.duplicate",
+            json!({"ids":[r1],"offset":{"x":0.0,"y":10.0}}),
+            None,
+        )?["result"]["duplicates"][0]["component"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(field(&s, copy, "Datasheet").as_deref(), Some("ds2.pdf"));
+        assert_ne!(
+            s.project.component(copy).ok_or_else(missing)?.reference,
+            s.project.component(r1).ok_or_else(missing)?.reference
+        );
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":null}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Datasheet"), None);
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.fields.len(), 1);
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Part","value":""}),
+            None,
+        )?;
+        assert_eq!(field(&s, r1, "Part").as_deref(), Some(""));
+        for i in 0..30 {
+            s.execute(
+                "component.field",
+                json!({"id":copy,"key":format!("note{i}"),"value":"v"}),
+                None,
+            )?;
+        }
+        assert_eq!(
+            s.project.component(copy).ok_or_else(missing)?.fields.len(),
+            32
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"id":copy,"key":"note30","value":"v"}),
+            json!({"id":r1,"key":""}),
+            json!({"id":r1,"key":"x".repeat(65),"value":"v"}),
+            json!({"id":r1,"key":"k","value":"x".repeat(257)}),
+            json!({"id":9999,"key":"k","value":"v"}),
+            json!({"id":r1,"key":"Nope"}),
+            json!({"id":r1,"key":"k","value":"v","extra":1}),
+        ] {
+            assert!(s.execute("component.field", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Globemans"}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(field(&s, r1, "Manufacturer").as_deref(), Some("Acme"));
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn components_can_be_found_by_reference_pattern_value_and_kind() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, value) in [
+            ("resistor", "R1", "1k"),
+            ("resistor", "R2", "10k"),
+            ("resistor", "RV1", "1k"),
+            ("capacitor", "C1", "100n"),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"position":{"x":10.0,"y":10.0},"reference":reference,"value":value}),
+                None,
+            )?;
+        }
+        let r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .ok_or_else(missing)?
+            .id;
+        s.execute("board.sync", json!({}), None)?;
+        fn references(found: &Value) -> Vec<String> {
+            found["components"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .map(|c| c["reference"].as_str().unwrap_or_default().to_string())
+                .collect()
+        }
+        let by_pattern =
+            s.execute("component.find", json!({"reference":"R*"}), None)?["result"].clone();
+        assert_eq!(references(&by_pattern), ["R1", "R2", "RV1"]);
+        assert_eq!(by_pattern["count"], 3);
+        assert!(
+            by_pattern["components"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .any(|c| c["reference"] == "R1" && c["id"] == r1 && c["placed"] == json!(true))
+        );
+        let exact = s.execute(
+            "component.find",
+            json!({"reference":"R?", "value":"1k"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(references(&exact), ["R1"]);
+        let by_value = s.execute("component.find", json!({"value":"1k"}), None)?["result"].clone();
+        assert_eq!(references(&by_value), ["R1", "RV1"]);
+        let by_kind =
+            s.execute("component.find", json!({"kind":"resistor"}), None)?["result"].clone();
+        assert_eq!(by_kind["count"], 3);
+        let c1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "C1")
+            .ok_or_else(missing)?
+            .id;
+        let combo = s.execute(
+            "component.find",
+            json!({"reference":"*1","kind":"capacitor"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(references(&combo), ["C1"]);
+        assert_eq!(combo["components"][0]["id"], c1);
+        let none = s.execute("component.find", json!({"reference":"ZZ*"}), None)?["result"].clone();
+        assert_eq!(none["count"], 0);
+        assert!(none["components"].as_array().is_some_and(|c| c.is_empty()));
+        let before = s.inspect();
+        for params in [
+            json!({}),
+            json!({"reference":"R1"}),
+            json!({"reference":""}),
+            json!({"reference":"x".repeat(65)}),
+            json!({"value":""}),
+            json!({"kind":""}),
+            json!({"kind":"x".repeat(65)}),
+            json!({"reference":"R*","extra":1}),
+        ] {
+            assert!(s.execute("component.find", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        let unchanged = s.project.clone();
+        s.execute("component.find", json!({"reference":"?*"}), None)?;
+        assert_eq!(s.project, unchanged);
+        Ok(())
+    }
+    #[test]
+    fn footprints_can_be_assigned_to_every_component_matching_a_pattern() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, x) in [
+            ("resistor", "R1", 10.0),
+            ("resistor", "R2", 25.0),
+            ("resistor", "R3", 40.0),
+            ("connector", "J1", 55.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let path = library_fixture("R_0805_2012Metric.kicad_mod");
+        let out = s.execute(
+            "footprint.assign_pattern",
+            json!({"pattern":"R*","path":path}),
+            None,
+        )?;
+        assert_eq!(out["result"]["assigned"].as_array().map(Vec::len), Some(3));
+        assert_eq!(out["result"]["skipped"].as_array().map(Vec::len), Some(0));
+        for c in &s.project.components {
+            if c.kind == "resistor" {
+                assert!(
+                    c.library_footprint.is_some(),
+                    "{} took the footprint",
+                    c.reference
+                );
+            } else {
+                assert!(
+                    c.library_footprint.is_none(),
+                    "{} was left alone",
+                    c.reference
+                );
+            }
+        }
+        s.undo()?;
+        assert!(
+            s.project
+                .components
+                .iter()
+                .all(|c| c.library_footprint.is_none()),
+            "one undo releases every bulk assignment"
+        );
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM2904","reference":"U1","position":{"x":70.0,"y":30.0}}),
+            None,
+        )?;
+        let out = s.execute(
+            "footprint.assign_pattern",
+            json!({"pattern":"*","path":path}),
+            None,
+        )?;
+        assert_eq!(out["result"]["assigned"].as_array().map(Vec::len), Some(4));
+        assert_eq!(out["result"]["skipped"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .filter(|c| c.library_footprint.is_some())
+                .count(),
+            4,
+            "the eight-pin package cannot take a two-pad resistor footprint"
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"pattern":"R1","path":path}),
+            json!({"pattern":"","path":path}),
+            json!({"pattern":"X*","path":path}),
+            json!({"pattern":"R*","path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            json!({"pattern":"R*","path":""}),
+            json!({"pattern":"R*","path":library_fixture("absent.kicad_mod")}),
+            json!({"pattern":"R*","path":path,"extra":1}),
+        ] {
+            assert!(s.execute("footprint.assign_pattern", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn a_footprint_assignment_table_applies_many_rows_in_one_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, x) in [
+            ("resistor", "R1", 10.0),
+            ("resistor", "R2", 25.0),
+            ("connector", "J1", 55.0),
+        ] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        s.execute(
+            "component.place_library",
+            json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM2904","reference":"U1","position":{"x":70.0,"y":30.0}}),
+            None,
+        )?;
+        let resistor = library_fixture("R_0805_2012Metric.kicad_mod");
+        let dip = library_fixture("DIP-8_W7.62mm.kicad_mod");
+        let out = s.execute(
+            "footprint.assign_table",
+            json!({"rows":[
+                {"reference":"R1","path":resistor},
+                {"reference":"R2","path":resistor},
+                {"reference":"J1","path":resistor},
+                {"reference":"U1","path":resistor},
+                {"reference":"U1","path":dip},
+                {"reference":"R9","path":dip}
+            ]}),
+            None,
+        )?;
+        assert_eq!(
+            out["result"]["assigned"],
+            json!(["R1", "R2", "J1", "U1"]),
+            "rows that fit are assigned in table order"
+        );
+        assert_eq!(
+            out["result"]["skipped"],
+            json!(["U1"]),
+            "an eight-pin package cannot take a two-pad resistor footprint"
+        );
+        assert_eq!(
+            out["result"]["not_found"],
+            json!(["R9"]),
+            "a row naming a missing reference is reported"
+        );
+        for reference in ["R1", "R2", "J1", "U1"] {
+            assert!(
+                s.project
+                    .components
+                    .iter()
+                    .find(|c| c.reference == reference)
+                    .is_some_and(|c| c.library_footprint.is_some()),
+                "{reference} took its footprint from the table"
+            );
+        }
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.reference == "U1")
+                .and_then(|c| c.library_footprint.as_ref())
+                .map(|f| f.definition.pads.len()),
+            Some(8),
+            "the later row for the same reference wins with its eight-pad package"
+        );
+        s.undo()?;
+        assert!(
+            s.project
+                .components
+                .iter()
+                .all(|c| c.library_footprint.is_none()),
+            "one undo releases every row at once"
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"rows":[]}),
+            json!({"rows":[{"reference":"R1","path":resistor}],"extra":1}),
+            json!({"rows":[{"reference":"R*","path":resistor}]}),
+            json!({"rows":[{"reference":"","path":resistor}]}),
+            json!({"rows":[{"reference":"R1","path":""}]}),
+            json!({"rows":[{"reference":"R1","path":library_fixture("absent.kicad_mod")}]}),
+            json!({"rows":[{"reference":"R9","path":resistor}]}),
+            json!({"rows":[{"reference":"J1","path":dip}]}),
+            json!({"rows":[{"reference":"R1","path":dip}]}),
+        ] {
+            assert!(s.execute("footprint.assign_table", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn track_cleanup_reports_two_changes_on_dangle_and_collinear_fixture() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":0.0,"y":0.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":0.0},"end":{"x":20.0,"y":0.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":20.0,"y":0.0},"end":{"x":20.0,"y":3.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks.len(), 3);
+        let report = s.execute("track.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(report["removed"], 1, "the dangling stub goes");
+        assert_eq!(
+            report["merged"], 1,
+            "the collinear pair becomes one segment"
+        );
+        assert_eq!(
+            report["removed"].as_u64().ok_or_else(missing)?
+                + report["merged"].as_u64().ok_or_else(missing)?,
+            2,
+            "two changes in total"
+        );
+        assert_eq!(s.project.board.tracks.len(), 1);
+        let kept = &s.project.board.tracks[0];
+        assert_eq!(kept.net, net);
+        assert_eq!(kept.start, Point::new(0.0, 0.0));
+        assert_eq!(kept.end, Point::new(20.0, 0.0));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn track_cleanup_leaves_revision_unchanged_when_nothing_to_do() -> Result<(), Error> {
+        let mut s = Session::default();
+        let revision = s.revision;
+        assert!(
+            s.execute("track.cleanup", json!({}), None).is_err(),
+            "an empty board has nothing to clean up"
+        );
+        assert_eq!(s.revision, revision);
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":0.0,"y":0.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":0.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?;
+        let revision = s.revision;
+        assert!(
+            s.execute("track.cleanup", json!({}), None).is_err(),
+            "a single anchored segment needs no cleanup"
+        );
+        assert_eq!(s.revision, revision);
+        Ok(())
+    }
+    #[test]
+    fn track_cleanup_does_not_merge_different_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net_a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let net_b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, y) in [(net_a, 0.0_f64), (net_b, 5.0_f64)] {
+            s.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":0.0,"y":y},"diameter":0.6,"drill":0.3}),
+                None,
+            )?;
+            s.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":20.0,"y":y},"diameter":0.6,"drill":0.3}),
+                None,
+            )?;
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":10.0,"y":y}}),
+                None,
+            )?;
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":20.0,"y":y}}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.board.tracks.len(), 4);
+        let report = s.execute("track.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(
+            report["merged"], 2,
+            "each net merges its own collinear pair"
+        );
+        assert_eq!(report["removed"], 0);
+        assert_eq!(s.project.board.tracks.len(), 2);
+        let nets: std::collections::BTreeSet<_> =
+            s.project.board.tracks.iter().map(|t| t.net).collect();
+        assert_eq!(nets.len(), 2);
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn unrouting_the_board_clears_all_copper_and_undoes_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, x) in [("R1", 10.0), ("R2", 30.0)] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","reference":reference,"position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        s.execute(
+            "netlist.import",
+            json!({"nets":[{"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]}]}),
+            None,
+        )?;
+        let net = s.project.nets.first().map(|n| n.id).ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.25,"layer":"F.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        let out = s.execute("board.unroute", json!({}), None)?["result"].clone();
+        assert_eq!(out["tracks"], json!(1));
+        assert_eq!(out["vias"], json!(1));
+        assert!(s.project.board.tracks.is_empty());
+        assert!(s.project.board.vias.is_empty());
+        assert!(
+            s.project
+                .board
+                .footprints
+                .iter()
+                .any(|f| !f.pads.is_empty()),
+            "pads stay through a board rip-up"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.tracks.len(),
+            1,
+            "one undo restores the track"
+        );
+        assert_eq!(s.project.board.vias.len(), 1, "one undo restores the via");
+        let before = json!({"tracks":s.project.board.tracks,"vias":s.project.board.vias});
+        s.execute("board.unroute", json!({}), None)?;
+        assert!(
+            s.execute("board.unroute", json!({}), None).is_err(),
+            "an unrouted board has nothing to rip up"
+        );
+        s.undo()?;
+        assert_eq!(
+            json!({"tracks":s.project.board.tracks,"vias":s.project.board.vias}),
+            before,
+            "undo returns to the routed board"
+        );
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn unrouting_a_net_removes_its_copper_and_undoes_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, x) in [("R1", 10.0), ("R2", 30.0)] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","reference":reference,"position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        s.execute(
+            "netlist.import",
+            json!({"nets":[
+                {"name":"SIG","pins":[{"reference":"R1","pin":"1"},{"reference":"R2","pin":"1"}]},
+                {"name":"GND","pins":[{"reference":"R1","pin":"2"},{"reference":"R2","pin":"2"}]}
+            ]}),
+            None,
+        )?;
+        let net = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "SIG")
+            .map(|n| n.id)
+            .ok_or_else(missing)?;
+        let other = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "GND")
+            .map(|n| n.id)
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.25,"layer":"F.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":20.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":other,"start":{"x":10.0,"y":12.0},"end":{"x":30.0,"y":12.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?;
+        let out = s.execute("net.unroute", json!({"net":net}), None)?["result"].clone();
+        assert_eq!(
+            out["tracks"],
+            json!(2),
+            "both segments on the net are ripped up"
+        );
+        assert_eq!(out["vias"], json!(1), "the via joining the layers goes too");
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.net != net),
+            "no copper stays on the ripped net"
+        );
+        assert!(
+            s.project.board.tracks.iter().any(|t| t.net == other),
+            "the other net keeps its route"
+        );
+        assert!(
+            s.project.nets.iter().any(|n| n.id == net),
+            "the net itself survives its rip-up"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .filter(|t| t.net == net)
+                .count(),
+            2,
+            "one undo puts both segments back"
+        );
+        assert_eq!(
+            s.project.board.vias.iter().filter(|v| v.net == net).count(),
+            1,
+            "one undo puts the via back too"
+        );
+        let empty = s.execute("net.create", json!({"name":"FREE"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect();
+        assert!(
+            s.execute("net.unroute", json!({"net":empty}), None)
+                .is_err(),
+            "a net with no copper has nothing to rip up"
+        );
+        assert!(
+            s.execute("net.unroute", json!({"net":999}), None).is_err(),
+            "an unknown net is refused"
+        );
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn a_footprint_assignment_file_applies_every_row_and_undoes_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (kind, reference, x) in [("resistor", "R1", 10.0), ("resistor", "R2", 25.0)] {
+            s.execute(
+                "component.add",
+                json!({"kind":kind,"reference":reference,"position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let resistor = library_fixture("R_0805_2012Metric.kicad_mod");
+        let dip = library_fixture("DIP-8_W7.62mm.kicad_mod");
+        let file = std::env::temp_dir().join(format!("pcbcraft-assign-{}.txt", std::process::id()));
+        std::fs::write(
+            &file,
+            format!(
+                "# reference footprint\nR1 {}\n\nR2\t{}\nR9 {}\n",
+                resistor, resistor, dip
+            ),
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = s.execute(
+            "footprint.assign_file",
+            json!({"path":file.to_string_lossy()}),
+            None,
+        )?;
+        assert_eq!(
+            out["result"]["assigned"],
+            json!(["R1", "R2"]),
+            "comment and blank lines are ignored and rows apply in file order"
+        );
+        assert_eq!(
+            out["result"]["not_found"],
+            json!(["R9"]),
+            "a row naming a missing reference is reported"
+        );
+        for reference in ["R1", "R2"] {
+            assert!(
+                s.project
+                    .components
+                    .iter()
+                    .find(|c| c.reference == reference)
+                    .is_some_and(|c| c.library_footprint.is_some()),
+                "{reference} took its footprint from the file"
+            );
+        }
+        s.undo()?;
+        for reference in ["R1", "R2"] {
+            assert!(
+                s.project
+                    .components
+                    .iter()
+                    .find(|c| c.reference == reference)
+                    .is_some_and(|c| c.library_footprint.is_none()),
+                "one undo clears every assignment from the file"
+            );
+        }
+        std::fs::remove_file(&file).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn bills_of_materials_group_by_value_footprint_and_properties() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0},"reference":"R2"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let c1 = s.execute(
+            "component.add",
+            json!({"kind":"capacitor","position":{"x":50.0,"y":10.0},"reference":"C1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (id, value) in [(r1, "1k"), (r2, "1k"), (c1, "100n")] {
+            s.execute("component.value", json!({"id": id, "value": value}), None)?;
+        }
+        for id in [r1, r2] {
+            s.execute(
+                "component.field",
+                json!({"id":id,"key":"Datasheet","value":"dsA.pdf"}),
+                None,
+            )?;
+        }
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Acme"}),
+            None,
+        )?;
+        fn row_in(table: &Value, reference: &str) -> Result<Value, Error> {
+            table["items"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .find(|i| {
+                    i["references"]
+                        .as_array()
+                        .is_some_and(|r| r.contains(&json!(reference)))
+                })
+                .cloned()
+                .ok_or_else(missing)
+        }
+        let plain = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(plain["components"], 3);
+        assert_eq!(plain["groups"], 2);
+        assert_eq!(plain["items"][0]["value"], "100n");
+        assert_eq!(plain["items"][0]["quantity"], 1);
+        assert_eq!(plain["items"][0]["footprint"], "starter pads");
+        assert!(
+            plain["items"][0]["fields"]
+                .as_object()
+                .is_some_and(|f| f.is_empty())
+        );
+        assert_eq!(plain["items"][1]["quantity"], 2);
+        assert_eq!(plain["items"][1]["references"][0], "R1");
+        assert_eq!(plain["items"][1]["references"][1], "R2");
+        let with_fields = s.execute(
+            "bom.export",
+            json!({"fields":["Datasheet","Manufacturer"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(with_fields["groups"], 3);
+        assert_eq!(row_in(&with_fields, "R1")?["quantity"], 1);
+        assert_eq!(
+            row_in(&with_fields, "R1")?["fields"]["Manufacturer"],
+            "Acme"
+        );
+        assert_eq!(row_in(&with_fields, "R2")?["fields"]["Manufacturer"], "");
+        assert_eq!(
+            row_in(&with_fields, "R2")?["fields"]["Datasheet"],
+            "dsA.pdf"
+        );
+        s.execute(
+            "footprint.assign",
+            json!({"id":r1,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        let assigned = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(assigned["groups"], 3);
+        assert_eq!(
+            row_in(&assigned, "R1")?["footprint"],
+            "fixtures:R_0805_2012Metric"
+        );
+        assert_eq!(row_in(&assigned, "R2")?["footprint"], "starter pads");
+        assert_eq!(row_in(&assigned, "R2")?["quantity"], 1);
+        let before = s.inspect();
+        for params in [
+            json!({"fields":[""]}),
+            json!({"fields":["x".repeat(65)]}),
+            json!({"fields":(0..17).map(|i| format!("f{i}")).collect::<Vec<String>>()}),
+            json!({"fields":["Datasheet"],"extra":1}),
+        ] {
+            assert!(s.execute("bom.export", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before);
+        let unchanged = s.project.clone();
+        s.execute("bom.export", json!({"fields":["Datasheet"]}), None)?;
+        assert_eq!(s.project, unchanged);
+        Ok(())
+    }
+    #[test]
+    fn zone_place_validates_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let square = json!([
+            {"x":5.0,"y":5.0},
+            {"x":55.0,"y":5.0},
+            {"x":55.0,"y":35.0},
+            {"x":5.0,"y":35.0},
+            {"x":5.0,"y":5.0}
+        ]);
+        s.execute(
+            "zone.place",
+            json!({"net":net,"layer":"F.Cu","outline":square}),
+            None,
+        )?;
+        s.execute("zone.place", json!({"net":net,"outline":square}), None)?;
+        assert_eq!(s.project.board.zones.len(), 2);
+        assert_eq!(s.project.board.zones[0].layer, pcbcraft_doc::Layer::Front);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"net":9999,"outline":square}),
+            json!({"net":net,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":0.0,"y":0.0}]}),
+            json!({"net":net,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0},{"x":1.0,"y":5.0}]}),
+            json!({"net":net,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0},{"x":0.0,"y":5.0}]}),
+            json!({"net":net,"outline":[{"x":0.0,"y":0.0},{"x":0.0,"y":0.0},{"x":0.0,"y":0.0},{"x":0.0,"y":0.0}]}),
+            json!({"net":net,"outline":[{"x":100001.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0},{"x":0.0,"y":5.0},{"x":0.0,"y":0.0}]}),
+        ] {
+            assert!(s.execute("zone.place", params, None).is_err());
+        }
+        assert_eq!(s.project.board.zones.len(), 2);
+        let zone = s.project.board.zones[0].id;
+        s.execute("object.delete", json!({"id":zone}), None)?;
+        assert_eq!(s.project.board.zones.len(), 1);
+        s.execute("object.delete", json!({"id":net}), None)?;
+        assert!(s.project.board.zones.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.zones.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn zone_cutout_validates_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let square = json!([
+            {"x":5.0,"y":5.0},
+            {"x":55.0,"y":5.0},
+            {"x":55.0,"y":35.0},
+            {"x":5.0,"y":35.0},
+            {"x":5.0,"y":5.0}
+        ]);
+        s.execute("zone.place", json!({"net":net,"outline":square}), None)?;
+        let zone = s.project.board.zones[0].id;
+        let cut = json!([
+            {"x":20.0,"y":15.0},
+            {"x":30.0,"y":15.0},
+            {"x":30.0,"y":25.0},
+            {"x":20.0,"y":25.0},
+            {"x":20.0,"y":15.0}
+        ]);
+        let out = s.execute("zone.cutout", json!({"zone":zone,"outline":cut}), None)?;
+        assert_eq!(out["result"]["cutouts"], 1);
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"zone":9999,"outline":cut}),
+            json!({"zone":zone,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0}]}),
+            json!({"zone":zone,"outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0},{"x":1.0,"y":5.0}]}),
+            json!({"zone":zone,"outline":[{"x":0.0,"y":0.0},{"x":0.0,"y":0.0},{"x":0.0,"y":0.0},{"x":0.0,"y":0.0}]}),
+        ] {
+            assert!(s.execute("zone.cutout", params, None).is_err());
+        }
+        assert_eq!(s.project.board.zones[0].cutouts.len(), 1);
+        s.undo()?;
+        assert!(s.project.board.zones[0].cutouts.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn imported_definitions_survive_roundtrip_and_assignment_is_undoable() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("component.place_library",json!({"path":library_fixture("device.kicad_sym"),"symbol":"R","position":{"x":20,"y":15}}),None)?;
+        s.execute("board.sync", json!({}), None)?;
+        assert!(
+            s.project.board.footprints.is_empty(),
+            "unassigned symbols must not invent a physical package"
+        );
+        s.execute(
+            "footprint.assign",
+            json!({"id":1,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .component(1)
+                .is_some_and(|c| c.library_footprint.is_some())
+        );
+        s.undo()?;
+        assert!(
+            s.project
+                .component(1)
+                .is_some_and(|c| c.library_footprint.is_none())
+        );
+        s.redo()?;
+        s.execute("board.sync", json!({}), None)?;
+        let f = s.project.board.footprints.first().ok_or_else(missing)?;
+        assert_eq!(f.pads.len(), 2);
+        assert!(
+            f.pads
+                .iter()
+                .all(|p| p.geometry.as_ref().is_some_and(|g| g.shape == "roundrect"))
+        );
+        assert!(
+            f.pads
+                .first()
+                .is_some_and(|p| (p.offset.x + 0.9125).abs() < 1e-6)
+        );
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        let mut tampered = loaded;
+        if let Some(pad) = tampered
+            .board
+            .footprints
+            .first_mut()
+            .and_then(|f| f.pads.first_mut())
+        {
+            pad.geometry = None;
+        }
+        assert!(
+            tampered.validate().is_err(),
+            "embedded physical geometry must not silently become generic"
+        );
+        Ok(())
+    }
+    #[test]
+    fn multiunit_package_has_one_footprint_and_independent_unit_history() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("component.place_library",json!({"path":library_fixture("lm358.kicad_sym"),"symbol":"LM358","position":{"x":20,"y":15}}),None)?;
+        let c = s.project.component(1).ok_or_else(missing)?;
+        assert_eq!(c.pins.len(), 8);
+        assert_eq!(c.units.len(), 2);
+        assert_eq!(
+            c.schematic_views()
+                .iter()
+                .map(|c| c.reference.as_str())
+                .collect::<Vec<_>>(),
+            vec!["U1A", "U1B", "U1C"]
+        );
+        let first = c.pin_position("1").ok_or_else(missing)?;
+        let second = c.pin_position("5").ok_or_else(missing)?;
+        s.execute(
+            "component.move",
+            json!({"id":1,"unit":2,"position":{"x":50,"y":28}}),
+            None,
+        )?;
+        s.execute(
+            "component.rotate",
+            json!({"id":1,"unit":2,"degrees":90}),
+            None,
+        )?;
+        let c = s.project.component(1).ok_or_else(missing)?;
+        assert_eq!(c.pin_position("1"), Some(first));
+        assert_ne!(c.pin_position("5"), Some(second));
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.project.component(1).and_then(|c| c.pin_position("5")),
+            Some(second)
+        );
+        s.redo()?;
+        s.redo()?;
+        let before = s.inspect();
+        assert!(
+            s.execute(
+                "footprint.assign",
+                json!({"id":1,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.inspect(), before);
+        s.execute(
+            "footprint.assign",
+            json!({"id":1,"path":library_fixture("DIP-8_W7.62mm.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(
+            s.project.board.footprints.first().map(|f| f.pads.len()),
+            Some(8)
+        );
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert_eq!(loaded, s.project);
+        // A project with a corrupted pin map is rejected at the document boundary.
+        let mut corrupted = s.project.clone();
+        if let Some(pin) = corrupted
+            .components
+            .first_mut()
+            .and_then(|c| c.pins.first_mut())
+        {
+            pin.number = "99".into();
+        }
+        assert!(s.replace(corrupted).is_err());
+        let before = s.inspect();
+        let batch = [
+            Command {
+                command: "project.rename".into(),
+                params: json!({"name":"uncommitted"}),
+            },
+            Command {
+                command: "footprint.assign".into(),
+                params: json!({"id":999,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+            },
+        ];
+        assert!(s.batch(&batch, None).is_err());
+        assert_eq!(s.inspect(), before);
+        Ok(())
+    }
+    #[test]
+    fn editable_library_entries_are_atomic_and_placed_copies_are_stable() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        symbol.name = "CustomR".into();
+        let footprint = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.batch(&[Command {command:"library.symbol.upsert".into(),params:json!({"definition":symbol,"notice":"KiCad-derived fixture; license retained"})},Command {command:"library.footprint.upsert".into(),params:json!({"definition":footprint})}],None)?;
+        assert_eq!(s.project.library.symbols.len(), 1);
+        assert_eq!(s.project.library.notices.len(), 1);
+        s.undo()?;
+        assert!(s.project.library.symbols.is_empty());
+        s.redo()?;
+        s.execute(
+            "component.place_custom",
+            json!({"name":"CustomR","position":{"x":20,"y":10}}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":1,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let before = s.project.components.clone();
+        symbol.pins.first_mut().ok_or_else(missing)?.position.x += 1.0;
+        s.execute("library.symbol.upsert", json!({"definition":symbol}), None)?;
+        assert_eq!(
+            s.project.components, before,
+            "editing library does not silently change placed circuits"
+        );
+        let saved = s.inspect();
+        let mut invalid = footprint.clone();
+        invalid.pads.first_mut().ok_or_else(missing)?.size.x = -1.0;
+        assert!(
+            s.batch(
+                &[
+                    Command {
+                        command: "library.symbol.remove".into(),
+                        params: json!({"name":"CustomR"})
+                    },
+                    Command {
+                        command: "library.footprint.upsert".into(),
+                        params: json!({"definition":invalid})
+                    }
+                ],
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.inspect(), saved);
+        s.execute("library.symbol.remove", json!({"name":"CustomR"}), None)?;
+        assert_eq!(s.project.components, before);
+        s.project.validate()?;
+        Ok(())
+    }
+    #[test]
+    fn auto_net_and_wire_commit_as_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        for x in [10, 30] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10}}),
+                None,
+            )?;
+        }
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"1"}}),
+            None,
+        )?;
+        assert_eq!(s.project.nets.len(), 1);
+        assert_eq!(s.project.wires.len(), 1);
+        s.undo()?;
+        assert!(s.project.nets.is_empty());
+        assert!(s.project.wires.is_empty());
+        assert_eq!(s.project.components.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn sample_wire_paths_never_run_through_foreign_pins() -> Result<(), Error> {
+        let s = Session::sample()?;
+        for w in &s.project.wires {
+            let path = s.project.wire_path(w).ok_or_else(missing)?;
+            for c in &s.project.components {
+                for pin in &c.pins {
+                    if pin.net == Some(w.net) {
+                        continue;
+                    }
+                    let point = c.pin_position(&pin.number).ok_or_else(missing)?;
+                    for segment in path.windows(2) {
+                        if let Some((a, b)) = segment.first().zip(segment.get(1)) {
+                            assert!(
+                                pcbcraft_geom::point_segment(point, *a, *b) > 0.5,
+                                "distinct nets must not overlap visually in sample"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    fn counterclockwise_pad_rotation_matches_y_down_board_coordinates() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("footprint.rotate", json!({"id":11,"degrees":90}), None)?;
+        let f = s.project.footprint(11).ok_or_else(missing)?;
+        let pin = f.pad_position("1").ok_or_else(missing)?;
+        assert!((pin.x - 28.0).abs() < 1e-6);
+        assert!((pin.y - 14.5).abs() < 1e-6);
+        Ok(())
+    }
+    #[test]
+    fn failed_batch_is_atomic_and_stale_edits_reject() {
+        let mut s = Session::default();
+        let before = s.inspect();
+        let batch = [
+            Command {
+                command: "net.create".into(),
+                params: json!({"name":"GND"}),
+            },
+            Command {
+                command: "component.move".into(),
+                params: json!({"id":999,"position":{"x":1,"y":2}}),
+            },
+        ];
+        assert!(s.batch(&batch, None).is_err());
+        assert_eq!(s.inspect(), before);
+        assert!(
+            s.execute("net.create", json!({"name":"GND"}), Some(100))
+                .is_err()
+        );
+        assert_eq!(s.inspect(), before);
+    }
+    #[test]
+    fn ports_can_be_renamed_and_their_net_follows_without_breaking_pages() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let sheet =
+            s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        let net = 4; // VCC from the sample design
+        let id = s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let feed = s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_FEED","net":net,"sheet":sheet,"position":{"x":5.0,"y":5.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gnd = s.execute(
+            "schematic.place_port",
+            json!({"name":"GND_IN","net":5,"sheet":0,"position":{"x":5.0,"y":50.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let names = |s: &Session| -> Vec<String> {
+            s.project.ports.iter().map(|o| o.name.clone()).collect()
+        };
+        s.execute(
+            "schematic.rename_port",
+            json!({"id":id,"name":"MAIN_IN"}),
+            None,
+        )?;
+        assert!(names(&s).contains(&"MAIN_IN".to_string()));
+        assert!(!names(&s).contains(&"VCC_IN".to_string()));
+        let kept = s
+            .project
+            .ports
+            .iter()
+            .find(|o| o.id == id)
+            .ok_or_else(missing)?;
+        assert_eq!(kept.net, net, "renaming never disturbs the carried net");
+        assert_eq!(kept.sheet, 0, "renaming never disturbs the page");
+        for bad in [
+            json!({"id":id,"name":"MAIN_IN"}),
+            json!({"id":gnd,"name":"MAIN_IN"}),
+            json!({"id":gnd,"name":"VCC_FEED"}),
+            json!({"id":id,"name":"bad-name"}),
+            json!({"id":id,"name":""}),
+            json!({"id":id + 77,"name":"ANY"}),
+        ] {
+            assert!(
+                s.execute("schematic.rename_port", bad, None).is_err(),
+                "colliding, cross-net and malformed renames are refused"
+            );
+        }
+        s.execute(
+            "schematic.rename_port",
+            json!({"id":feed,"name":"MAIN_IN"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project
+                .ports
+                .iter()
+                .filter(|o| o.name == "MAIN_IN")
+                .count(),
+            2,
+            "the same name may serve one net on two pages"
+        );
+        s.undo()?;
+        assert!(names(&s).contains(&"VCC_FEED".to_string()));
+        s.undo()?;
+        assert!(names(&s).contains(&"VCC_IN".to_string()));
+        assert!(!names(&s).contains(&"MAIN_IN".to_string()));
+        Ok(())
+    }
+    #[test]
+    fn ports_hand_one_net_between_pages_and_refuse_conflicts() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let sheet =
+            s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        let net = 4; // VCC from the sample design
+        let port = s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":0,"position":{"x":5.0,"y":40.0}}),
+            None,
+        )?["result"]
+            .clone();
+        let id = port["id"].as_u64().ok_or_else(missing)?;
+        s.execute(
+            "schematic.place_port",
+            json!({"name":"VCC_IN","net":net,"sheet":sheet,"position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        assert_eq!(s.ports_count(), 2);
+        assert!(
+            s.execute(
+                "schematic.place_port",
+                json!({"name":"VCC_IN","net":net,"sheet":0,"position":{"x":9.0,"y":40.0}}),
+                None
+            )
+            .is_err(),
+            "one page cannot carry the port name twice"
+        );
+        assert!(
+            s.execute(
+                "schematic.place_port",
+                json!({"name":"VCC_IN","net":5,"sheet":sheet,"position":{"x":9.0,"y":5.0}}),
+                None
+            )
+            .is_err(),
+            "a port name may only hand one net between pages"
+        );
+        assert!(
+            s.execute(
+                "schematic.place_port",
+                json!({"name":"VCC_IN","net":net,"sheet":sheet + 40,"position":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err(),
+            "unknown pages are refused"
+        );
+        assert!(
+            s.execute(
+                "schematic.place_port",
+                json!({"name":"VCC IN!","net":net,"sheet":0,"position":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err(),
+            "port names stay identifier-shaped"
+        );
+        s.execute(
+            "schematic.move_port",
+            json!({"id":id,"sheet":0,"position":{"x":7.0,"y":41.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.ports[0].position, Point::new(7.0, 41.0));
+        assert!(
+            s.execute("schematic.move_port", json!({"id":id}), None)
+                .is_err(),
+            "a move must say where it goes"
+        );
+        s.execute("schematic.remove_port", json!({"id":id}), None)?;
+        assert_eq!(s.ports_count(), 1);
+        assert!(
+            s.execute("schematic.remove_port", json!({"id":id}), None)
+                .is_err()
+        );
+        s.project.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    fn bus_labels_rename_in_place_and_widen_their_group() -> Result<(), Error> {
+        let mut s = Session::default();
+        let id = s.execute(
+            "label.place_bus",
+            json!({"name":"DB*8","position":{"x":10.0,"y":20.0},"rotation":90.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let label = |s: &Session| -> Result<(String, Point, f64), Error> {
+            let l = s
+                .project
+                .labels
+                .iter()
+                .find(|l| l.id == id)
+                .ok_or_else(missing)?;
+            Ok((l.text.clone(), l.position, l.rotation))
+        };
+        let out =
+            s.execute("label.set_bus", json!({"id":id,"name":"DB*16"}), None)?["result"].clone();
+        assert_eq!(out["name"], "DB*16");
+        assert_eq!(
+            out["created"].as_u64(),
+            Some(8),
+            "widening creates exactly the eight new members"
+        );
+        assert_eq!(out["members"].as_array().map(Vec::len), Some(16));
+        assert_eq!(
+            label(&s)?,
+            ("DB*16".into(), Point::new(10.0, 20.0), 90.0),
+            "the name changes while the point and angle stay put"
+        );
+        s.execute("label.set_bus", json!({"id":id,"name":"ADDR*4"}), None)?;
+        assert_eq!(label(&s)?.0, "ADDR*4", "a rename to another stem works");
+        for bad in [
+            json!({"id":id,"name":"ADDR*4"}),
+            json!({"id":id,"name":"DB8"}),
+            json!({"id":id,"name":"DB*0"}),
+            json!({"id":id + 77,"name":"DB*16"}),
+        ] {
+            assert!(
+                s.execute("label.set_bus", bad, None).is_err(),
+                "no-op, malformed, empty-group and unknown renames are refused"
+            );
+        }
+        let plain = s.execute(
+            "label.place",
+            json!({"kind":"label","net":1,"position":{"x":1.0,"y":1.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("label.set_bus", json!({"id":plain,"name":"DB*8"}), None)
+                .is_err(),
+            "a plain net label has no notation to rename"
+        );
+        s.undo()?;
+        assert_eq!(
+            label(&s)?.0,
+            "ADDR*4",
+            "undoing the plain label lift leaves the bus name alone"
+        );
+        s.undo()?;
+        assert_eq!(
+            label(&s)?.0,
+            "DB*16",
+            "undoing the stem rename brings the old name back"
+        );
+        s.undo()?;
+        assert_eq!(
+            label(&s)?.0,
+            "DB*8",
+            "undoing the widening restores the placed bus"
+        );
+        Ok(())
+    }
+    #[test]
+    fn bus_notation_fans_out_into_numbered_member_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"DB3"}), None)?;
+        let report = s.execute(
+            "label.place_bus",
+            json!({"name":"DB*8","position":{"x":10.0,"y":20.0}}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(report["created"], 7, "DB3 already existed");
+        let members = report["members"].as_array().ok_or_else(missing)?;
+        assert_eq!(members.len(), 8);
+        let names: Vec<String> = (0..8).map(|i| format!("DB{i}")).collect();
+        for name in &names {
+            assert!(
+                s.project.nets.iter().any(|n| &n.name == name),
+                "{name} must exist after the bus label"
+            );
+        }
+        let bus_label_id = report["id"].as_u64().ok_or_else(missing)?;
+        let label = s
+            .project
+            .labels
+            .iter()
+            .find(|l| l.id == bus_label_id)
+            .ok_or_else(missing)?;
+        assert_eq!(label.kind, "bus");
+        assert_eq!(label.text, "DB*8");
+        assert_eq!(label.net, 0);
+        for bad in ["DB", "DB*0", "DB*65", "*8", "D-B*2", "DB*x"] {
+            assert!(
+                s.execute(
+                    "label.place_bus",
+                    json!({"name":bad,"position":{"x":1.0,"y":1.0}}),
+                    None
+                )
+                .is_err(),
+                "{bad} is not a valid bus name"
+            );
+        }
+        assert!(
+            s.execute(
+                "label.place",
+                json!({"kind":"bus","net":1,"position":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err(),
+            "plain label.place cannot mint bus labels"
+        );
+        let bus_id = bus_label_id;
+        assert!(
+            s.execute(
+                "label.retype",
+                json!({"id":bus_id,"kind":"label","net":1}),
+                None
+            )
+            .is_err(),
+            "a bus label names a group and refuses to be retyped"
+        );
+        let wire = s.execute(
+            "wire.draw_bus",
+            json!({"points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"name":"ADDR*4"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(wire["created"], 4);
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert!(s.project.drawn_wires[0].net.is_none());
+        assert_eq!(s.project.labels.len(), 2);
+        assert_eq!(s.project.labels[1].position, Point::new(0.0, 0.0));
+        s.project.validate()?;
+        Ok(())
+    }
+
+    impl Session {
+        fn ports_count(&self) -> usize {
+            self.project.ports.len()
+        }
+    }
+
+    #[test]
+    fn sheets_page_components_and_refuse_unsafe_removals() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let before = s.project.component(1).ok_or_else(missing)?.position;
+        let sheet =
+            s.execute("schematic.new_sheet", json!({"name":"Power"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        assert!(
+            s.execute("schematic.new_sheet", json!({"name":"Power"}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("schematic.new_sheet", json!({"name":""}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute(
+                "schematic.rename_sheet",
+                json!({"id":0,"name":"Root?"}),
+                None
+            )
+            .is_err()
+        );
+        let moved = s.execute(
+            "schematic.move_component",
+            json!({"id":1,"sheet":sheet}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(moved["previous"], 0);
+        assert_eq!(moved["sheet"], sheet);
+        let after = s.project.component(1).ok_or_else(missing)?;
+        assert_eq!(after.position, before, "page moves never nudge a part");
+        assert_eq!(after.sheet, sheet);
+        assert!(
+            s.execute(
+                "schematic.move_component",
+                json!({"id":1,"sheet":sheet}),
+                None
+            )
+            .is_err(),
+            "moving onto the sheet a part already sits on is refused"
+        );
+        assert!(
+            s.execute(
+                "schematic.move_component",
+                json!({"id":1,"sheet":sheet + 500}),
+                None
+            )
+            .is_err()
+        );
+        let view = s.inspect();
+        let listed = view["project"]["sheets"].as_array().ok_or_else(missing)?;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["name"], "Power");
+        s.execute(
+            "schematic.rename_sheet",
+            json!({"id":sheet,"name":"Core"}),
+            None,
+        )?;
+        assert_eq!(s.project.sheets[0].name, "Core");
+        assert!(
+            s.execute("schematic.remove_sheet", json!({"id":sheet}), None)
+                .is_err(),
+            "a page that still holds parts needs a destination"
+        );
+        assert!(
+            s.execute(
+                "schematic.remove_sheet",
+                json!({"id":sheet,"move_to":sheet + 500}),
+                None
+            )
+            .is_err()
+        );
+        s.execute(
+            "schematic.remove_sheet",
+            json!({"id":sheet,"move_to":0}),
+            None,
+        )?;
+        assert!(s.project.sheets.is_empty());
+        assert_eq!(s.project.component(1).ok_or_else(missing)?.sheet, 0);
+        Ok(())
+    }
+    #[test]
+    fn sheet_pages_survive_save_round_trips() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let sheet =
+            s.execute("schematic.new_sheet", json!({"name":"Audio"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        s.execute(
+            "schematic.move_component",
+            json!({"id":2,"sheet":sheet}),
+            None,
+        )?;
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(back, s.project);
+        assert_eq!(back.sheets.len(), 1);
+        assert_eq!(back.component(2).ok_or_else(missing)?.sheet, sheet);
+        s.undo()?;
+        assert_eq!(s.project.component(2).ok_or_else(missing)?.sheet, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn undo_branch_never_reuses_ids() {
+        let mut s = Session::default();
+        assert!(s.execute("net.create", json!({"name":"A"}), None).is_ok());
+        assert!(s.undo().is_ok());
+        assert!(s.execute("net.create", json!({"name":"B"}), None).is_ok());
+        assert_eq!(s.project.nets.first().map(|n| n.id), Some(2));
+        assert!(s.redo().is_err());
+    }
+    #[test]
+    fn sample_is_valid_and_pcb_sync_retains_placements() {
+        let result = Session::sample();
+        assert!(result.is_ok());
+        if let Ok(mut s) = result {
+            assert!(s.project.validate().is_ok());
+            let before = s.project.board.footprints.clone();
+            assert!(s.execute("board.sync", json!({}), None).is_ok());
+            assert_eq!(before, s.project.board.footprints);
+            assert!(pcbcraft_rules::erc(&s.project).is_empty());
+        }
+    }
+    #[test]
+    fn hostile_inputs_leave_state_untouched() {
+        let mut s = Session::default();
+        let before = s.inspect();
+        for params in [
+            json!({"kind":"resistor","position":{"x":1e200,"y":0}}),
+            json!({"kind":"resistor","position":{"x":0,"y":0},"unexpected":true}),
+            json!({"kind":"bogus","position":{"x":0,"y":0}}),
+        ] {
+            assert!(s.execute("component.add", params, None).is_err());
+            assert_eq!(s.inspect(), before);
+        }
+    }
+    #[test]
+    fn drawn_graphics_keep_their_properties_editable() -> Result<(), Error> {
+        let mut s = Session::default();
+        let line = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"line","points":[{"x":5.0,"y":5.0},{"x":25.0,"y":5.0}],"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let note = s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"text","points":[{"x":10.0,"y":30.0}],"width":1.2,"text":"note"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let circle = s.execute(
+            "graphic.add",
+            json!({"layer":"board","shape":"circle","points":[{"x":40.0,"y":20.0}],"width":2.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "graphic.set",
+            json!({"id":line,"layer":"schematic","width":0.5}),
+            None,
+        )?;
+        assert_eq!(out["result"]["layer"].as_str(), Some("schematic"));
+        assert_eq!(out["result"]["width"].as_f64(), Some(0.5));
+        s.execute("graphic.set", json!({"id":note,"text":"changed"}), None)?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == note)
+                .map(|g| g.text.as_str()),
+            Some("changed")
+        );
+        s.execute(
+            "graphic.set_point",
+            json!({"id":line,"index":1,"position":{"x":25.0,"y":15.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == line)
+                .map(|g| g.points[1]),
+            Some(Point::new(25.0, 15.0)),
+            "one corner moves and the other stays put"
+        );
+        s.execute("graphic.set", json!({"id":circle,"width":3.5}), None)?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == circle)
+                .map(|g| g.width),
+            Some(3.5),
+            "the same field is the radius on a circle"
+        );
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":line}),
+            json!({"id":line,"layer":"copper"}),
+            json!({"id":line,"width":0.0}),
+            json!({"id":line,"width":1001.0}),
+            json!({"id":line,"text":"x"}),
+            json!({"id":note,"text":""}),
+            json!({"id":999,"width":0.3}),
+            json!({"id":line,"width":0.3,"extra":1}),
+        ] {
+            assert!(s.execute("graphic.set", params, None).is_err());
+        }
+        for params in [
+            json!({"id":line,"index":2,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"index":0,"position":{"x":null,"y":1.0}}),
+            json!({"id":line,"index":0,"position":{"x":1e9,"y":1.0}}),
+            json!({"id":999,"index":0,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"position":{"x":1.0,"y":1.0}}),
+            json!({"id":line,"index":0,"position":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("graphic.set_point", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .find(|g| g.id == circle)
+                .map(|g| g.width),
+            Some(2.0)
+        );
+        Ok(())
+    }
+    #[test]
+    fn pins_leave_a_net_and_placed_copper_can_switch_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let one = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let two = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let v1 = s.execute("net.create", json!({"name":"V1"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let v2 = s.execute("net.create", json!({"name":"V2"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net":v1,"pins":[{"component":one,"pin":"1"},{"component":two,"pin":"1"}]}),
+            None,
+        )?;
+        s.execute(
+            "footprint.assign",
+            json!({"id":one,"path":library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .find(|pad| pad.number == "1")
+                .and_then(|pad| pad.net),
+            Some(v1),
+            "the placed pad carries the net its pin was given"
+        );
+        let track = s.execute(
+            "track.add",
+            json!({"net":v1,"start":{"x":8.0,"y":20.0},"end":{"x":20.0,"y":20.0},"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":v1,"position":{"x":25.0,"y":20.0},"diameter":0.7,"drill":0.35}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":v1,"layer":"B.Cu","outline":[{"x":5.0,"y":25.0},{"x":25.0,"y":25.0},{"x":25.0,"y":35.0},{"x":5.0,"y":35.0},{"x":5.0,"y":25.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute(
+            "net.disconnect",
+            json!({"net":v1,"pins":[{"component":one,"pin":"1"}]}),
+            None,
+        )?;
+        assert_eq!(out["result"]["released"].as_u64(), Some(1));
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.id == one)
+                .and_then(|c| c.pins.iter().find(|pin| pin.number == "1"))
+                .and_then(|pin| pin.net),
+            None,
+            "the symbol pin is free again"
+        );
+        assert_eq!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .find(|pad| pad.number == "1")
+                .and_then(|pad| pad.net),
+            None,
+            "its placed pad is cleared too"
+        );
+        assert_eq!(
+            s.project
+                .components
+                .iter()
+                .find(|c| c.id == two)
+                .and_then(|c| c.pins.iter().find(|pin| pin.number == "1"))
+                .and_then(|pin| pin.net),
+            Some(v1),
+            "the other pin keeps its assignment"
+        );
+        for id in [track, via, zone] {
+            s.execute("copper.set_net", json!({"id":id,"net":v2}), None)?;
+        }
+        assert_eq!(s.project.board.tracks[0].net, v2);
+        assert_eq!(s.project.board.vias[0].net, v2);
+        assert_eq!(s.project.board.zones[0].net, v2);
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"net":999,"pins":[{"component":one,"pin":"1"}]}),
+            json!({"net":v1,"pins":[{"component":one,"pin":"2"}]}),
+            json!({"net":v1,"pins":[{"component":999,"pin":"1"}]}),
+            json!({"net":v1,"pins":[]}),
+            json!({"net":v1}),
+            json!({"net":v1,"pins":[{"component":one,"pin":"1"}],"extra":1}),
+        ] {
+            assert!(s.execute("net.disconnect", params, None).is_err());
+        }
+        for params in [
+            json!({"id":track,"net":999}),
+            json!({"id":track,"net":v2}),
+            json!({"id":one,"net":v1}),
+            json!({"id":999,"net":v1}),
+            json!({"id":track}),
+            json!({"id":track,"net":v1,"layer":"B.Cu"}),
+        ] {
+            assert!(s.execute("copper.set_net", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(s.project.board.zones[0].net, v1);
+        Ok(())
+    }
+    #[test]
+    fn board_cutouts_move_and_resize_within_the_outline() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":30.0,"y":20.0},"radius":1.6}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let near = s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":5.0,"y":5.0},"radius":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":gnd,"start":{"x":5.0,"y":20.0},"end":{"x":25.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        fn tight(s: &Session) -> Result<usize, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter(|f| f["code"] == json!("cutout_clearance"))
+                .count())
+        }
+        assert_eq!(tight(&s)?, 0, "the hole starts clear of the copper");
+        s.execute(
+            "board.cutout.move",
+            json!({"id":hole,"center":{"x":26.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.cutouts[0].center.x, 26.0);
+        assert_eq!(
+            tight(&s)?,
+            1,
+            "moving the hole next to the track breaks clearance"
+        );
+        s.execute(
+            "board.cutout.move",
+            json!({"id":hole,"center":{"x":35.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(tight(&s)?, 0, "moving it away clears the finding");
+        s.execute(
+            "board.cutout.resize",
+            json!({"id":hole,"radius":12.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.cutouts[0].radius, 12.0);
+        assert_eq!(tight(&s)?, 1, "a bigger hole reaches the copper again");
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":hole,"center":{"x":1.0,"y":20.0}}),
+            json!({"id":hole,"center":{"x":59.0,"y":20.0}}),
+            json!({"id":hole,"center":{"x":null,"y":20.0}}),
+            json!({"id":hole,"center":{"x":1e200,"y":20.0}}),
+            json!({"id":999,"center":{"x":10.0,"y":10.0}}),
+            json!({"id":hole}),
+            json!({"id":hole,"center":{"x":10.0,"y":10.0},"radius":1.0}),
+        ] {
+            assert!(s.execute("board.cutout.move", params, None).is_err());
+        }
+        for params in [
+            json!({"id":near,"radius":6.0}),
+            json!({"id":hole,"radius":20.0}),
+            json!({"id":hole,"radius":0.0}),
+            json!({"id":hole,"radius":-1.0}),
+            json!({"id":hole,"radius":1001.0}),
+            json!({"id":999,"radius":2.0}),
+            json!({"id":hole}),
+            json!({"id":hole,"radius":2.0,"center":{"x":1.0,"y":1.0}}),
+        ] {
+            assert!(s.execute("board.cutout.resize", params, None).is_err());
+        }
+        assert_eq!(
+            s.project.board.cutouts[0].radius, 12.0,
+            "the corner cutout stays where it was"
+        );
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(s.project.board.cutouts[0].radius, 1.6);
+        Ok(())
+    }
+    #[test]
+    fn net_classes_can_be_retuned_and_removed_releasing_their_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, y) in [(a, 10.0), (b, 10.5)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":30.0,"y":y},"width":0.2}),
+                None,
+            )?;
+        }
+        fn tight(s: &Session) -> Result<usize, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter(|f| f["code"] == json!("clearance"))
+                .count())
+        }
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.5,"width":0.4,"nets":[a]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(tight(&s)?, 1, "the class raises the requirement");
+        s.execute(
+            "netclass.clearance",
+            json!({"class":class,"clearance":0.25}),
+            None,
+        )?;
+        assert_eq!(
+            tight(&s)?,
+            0,
+            "relaxing the class clears the finding at once"
+        );
+        s.execute(
+            "netclass.clearance",
+            json!({"class":class,"clearance":0.45}),
+            None,
+        )?;
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .any(|f| f["code"] == json!("clearance")
+                    && f["message"]
+                        .as_str()
+                        .is_some_and(|m| m.contains("0.450 mm required"))),
+            "the new clearance is the one reported"
+        );
+        let removed = s.execute("netclass.remove", json!({"class":class}), None)?;
+        assert_eq!(removed["result"]["nets_released"].as_u64(), Some(1));
+        assert!(s.project.net_classes.is_empty());
+        assert!(
+            s.project.net_class(a).is_none(),
+            "the freed net falls back to the board default"
+        );
+        assert_eq!(tight(&s)?, 0, "the board default is looser than the class");
+        s.undo()?;
+        assert_eq!(s.project.net_classes.len(), 1);
+        assert_eq!(s.project.net_classes[0].clearance, 0.45);
+        assert_eq!(s.project.net_classes[0].nets, vec![a]);
+        let before = s.inspect();
+        for params in [
+            json!({"class":class,"clearance":0.0}),
+            json!({"class":class,"clearance":-0.1}),
+            json!({"class":class,"clearance":100.5}),
+            json!({"class":class,"clearance":null}),
+            json!({"class":class}),
+            json!({"class":999,"clearance":0.3}),
+            json!({"class":class,"clearance":0.3,"width":0.9}),
+        ] {
+            assert!(s.execute("netclass.clearance", params, None).is_err());
+        }
+        for params in [
+            json!({"class":999}),
+            json!({"class":999,"extra":1}),
+            json!({"class":null}),
+        ] {
+            assert!(s.execute("netclass.remove", params, None).is_err());
+        }
+        assert_eq!(
+            s.inspect(),
+            before,
+            "rejections change nothing and undo stays put"
+        );
+        Ok(())
+    }
+    #[test]
+    fn copper_sizes_can_be_edited_after_placement() -> Result<(), Error> {
+        let mut s = Session::default();
+        let power = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"POWER","clearance":0.3,"width":0.6,"nets":[power]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":power,"start":{"x":5.0,"y":5.0},"end":{"x":40.0,"y":5.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":power,"position":{"x":40.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn thin_tracks(s: &Session) -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| f["code"] == json!("track_width"))
+                .count()
+        }
+        s.execute(
+            "netclass.width_rules",
+            json!({"class":class,"min_width":0.4}),
+            None,
+        )?;
+        assert_eq!(
+            thin_tracks(&s),
+            1,
+            "the thin track sits below the class floor"
+        );
+        let out = s.execute("track.set_width", json!({"id":track,"width":0.7}), None)?;
+        assert_eq!(out["result"]["width"].as_f64(), Some(0.7));
+        assert_eq!(
+            thin_tracks(&s),
+            0,
+            "resizing the track clears the finding at once"
+        );
+        s.execute("via.set_size", json!({"id":via,"diameter":1.2}), None)?;
+        assert_eq!(s.project.board.vias[0].diameter, 1.2);
+        assert_eq!(
+            s.project.board.vias[0].drill, 0.3,
+            "an omitted drill keeps the size it was placed with"
+        );
+        s.execute(
+            "via.set_size",
+            json!({"id":via,"diameter":0.8,"drill":0.4}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].diameter, 0.8);
+        assert_eq!(s.project.board.vias[0].drill, 0.4);
+        let before = s.inspect();
+        for params in [
+            json!({"id":track,"width":0.0}),
+            json!({"id":track,"width":-0.2}),
+            json!({"id":track,"width":120.0}),
+            json!({"id":track,"width":null}),
+            json!({"id":track}),
+            json!({"id":999,"width":0.5}),
+            json!({"id":track,"width":0.5,"layer":"B.Cu"}),
+        ] {
+            assert!(s.execute("track.set_width", params, None).is_err());
+        }
+        for params in [
+            json!({"id":via,"diameter":0.0}),
+            json!({"id":via,"diameter":120.0}),
+            json!({"id":via,"diameter":1.0,"drill":1.0}),
+            json!({"id":via,"diameter":1.0,"drill":-0.1}),
+            json!({"id":via,"diameter":0.3}),
+            json!({"id":via,"diameter":1.0,"extra":1}),
+            json!({"id":via}),
+            json!({"id":999,"diameter":1.0}),
+        ] {
+            assert!(s.execute("via.set_size", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute("track.set_width", json!({"id":track,"width":0.3}), None)?;
+        assert_eq!(s.project.board.tracks[0].width, 0.3);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks[0].width, 0.7);
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let near = s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":5.0,"y":5.1},"end":{"x":40.0,"y":5.1},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let touching = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    (f["code"] == json!("copper_short") || f["code"] == json!("clearance"))
+                        && f["objects"]
+                            .as_array()
+                            .is_some_and(|o| o.contains(&json!(track)) && o.contains(&json!(near)))
+                })
+                .count()
+        };
+        assert_eq!(
+            touching(&s),
+            1,
+            "two nets overlapping on the same layer touch"
+        );
+        let moved = s.execute("track.set_layer", json!({"id":near,"layer":"B.Cu"}), None)?;
+        assert_eq!(moved["result"]["layer"], json!("B.Cu"));
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == near)
+                .map(|t| t.layer),
+            Some(pcbcraft_doc::Layer::Back),
+            "the segment keeps its ends and only changes layer"
+        );
+        assert_eq!(
+            touching(&s),
+            0,
+            "copper on opposite layers no longer touches"
+        );
+        for params in [
+            json!({"id":near,"layer":"C.Cu"}),
+            json!({"id":near,"layer":"B.Cu"}),
+            json!({"id":near,"layer":null}),
+            json!({"id":near,"layer":"B.Cu","extra":1}),
+            json!({"id":999,"layer":"B.Cu"}),
+            json!({"id":near}),
+        ] {
+            assert!(s.execute("track.set_layer", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .find(|t| t.id == near)
+                .map(|t| t.layer),
+            Some(pcbcraft_doc::Layer::Front),
+            "undo brings the segment back to the front"
+        );
+        assert_eq!(touching(&s), 1, "and the touch reappears");
+        Ok(())
+    }
+    #[test]
+    fn zones_can_be_re_bound_to_another_net() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?;
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let pwr = s.execute("net.create", json!({"name":"PWR"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let outline = json!([
+            {"x":0.0,"y":0.0},
+            {"x":10.0,"y":0.0},
+            {"x":10.0,"y":10.0},
+            {"x":0.0,"y":10.0},
+            {"x":0.0,"y":0.0}
+        ]);
+        let z = s.execute(
+            "zone.place",
+            json!({"net":gnd,"layer":"F.Cu","outline":outline}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("zone.set_net", json!({"id":z,"net":pwr}), None)?["result"].clone();
+        assert_eq!(out["net"], pwr, "the zone follows the new net");
+        assert_eq!(out["net_name"], "PWR", "the result names the new net");
+        assert_eq!(out["layer"], "F.Cu", "the layer stays put");
+        assert_eq!(out["filled"], true, "the pour state stays put");
+        assert_eq!(out["outline_vertices"], 5, "the outline is untouched");
+        let held = s
+            .project
+            .board
+            .zones
+            .iter()
+            .find(|q| q.id == z)
+            .ok_or_else(missing)?;
+        assert_eq!(held.net, pwr, "the document holds the new net");
+        assert!(
+            s.execute("zone.set_net", json!({"id":z,"net":pwr}), None)
+                .is_err(),
+            "a same-net re-bind is refused"
+        );
+        assert!(
+            s.execute("zone.set_net", json!({"id":z,"net":999}), None)
+                .is_err(),
+            "the new net must exist"
+        );
+        s.undo()?;
+        let held = s
+            .project
+            .board
+            .zones
+            .iter()
+            .find(|q| q.id == z)
+            .ok_or_else(missing)?;
+        assert_eq!(held.net, gnd, "one undo step restores the old net");
+        Ok(())
+    }
+
+    #[test]
+    fn poured_zones_can_switch_copper_layers() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":15.0},{"x":50.0,"y":15.0},{"x":50.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":15.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":20.0,"y":16.0},{"x":30.0,"y":16.0},{"x":30.0,"y":24.0},{"x":20.0,"y":24.0},{"x":20.0,"y":16.0}]}),
+            None,
+        )?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":15.0},"end":{"x":45.0,"y":15.0},"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let touching = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    f["objects"]
+                        .as_array()
+                        .is_some_and(|o| o.contains(&json!(zone)) && o.contains(&json!(track)))
+                })
+                .count()
+        };
+        assert_eq!(
+            touching(&s),
+            1,
+            "a signal track crossing a ground zone on the same layer shorts"
+        );
+        let out = s.execute("zone.set_layer", json!({"id":zone,"layer":"B.Cu"}), None)?;
+        assert_eq!(out["result"]["layer"], json!("B.Cu"));
+        assert_eq!(
+            s.project.board.zones[0].outline,
+            [
+                Point::new(10.0, 15.0),
+                Point::new(50.0, 15.0),
+                Point::new(50.0, 30.0),
+                Point::new(10.0, 30.0),
+                Point::new(10.0, 15.0),
+            ],
+            "the outline does not move when the layer changes"
+        );
+        assert_eq!(
+            s.project.board.zones[0].cutouts.len(),
+            1,
+            "cutouts stay attached to their zone"
+        );
+        assert_eq!(
+            touching(&s),
+            0,
+            "copper on opposite sides no longer touches"
+        );
+        for params in [
+            json!({"id":zone,"layer":"C.Cu"}),
+            json!({"id":zone,"layer":"B.Cu"}),
+            json!({"id":zone,"layer":null}),
+            json!({"id":zone,"layer":"B.Cu","extra":1}),
+            json!({"id":999,"layer":"F.Cu"}),
+            json!({"id":zone}),
+        ] {
+            assert!(s.execute("zone.set_layer", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones[0].layer,
+            pcbcraft_doc::Layer::Front,
+            "undo pours the zone back on the front"
+        );
+        assert_eq!(touching(&s), 1, "and the short reappears");
+        Ok(())
+    }
+    #[test]
+    fn track_ends_drag_to_shorten_lengthen_and_reaim() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t1 = s.execute(
+            "track.add",
+            json!({"net":a,"layer":"F.Cu","width":0.3,"start":{"x":10.0,"y":40.0},"end":{"x":20.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let t2 = s.execute(
+            "track.add",
+            json!({"net":b,"layer":"F.Cu","width":0.3,"start":{"x":25.0,"y":40.0},"end":{"x":35.0,"y":40.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.set_end",
+            json!({"id":t1,"end":"end","position":{"x":18.0,"y":40.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.tracks[0].end,
+            Point::new(18.0, 40.0),
+            "the track grew two millimetres shorter"
+        );
+        assert_eq!(
+            s.project.board.tracks[0].start,
+            Point::new(10.0, 40.0),
+            "the other end did not move"
+        );
+        s.execute(
+            "track.set_end",
+            json!({"id":t1,"end":"start","position":{"x":6.0,"y":42.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.tracks[0].start,
+            Point::new(6.0, 42.0),
+            "the far end can be dragged too"
+        );
+        let near = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    f["objects"]
+                        .as_array()
+                        .is_some_and(|o| o.contains(&json!(t1)) && o.contains(&json!(t2)))
+                })
+                .count()
+        };
+        assert_eq!(near(&s), 0, "the gap between the two nets is comfortable");
+        s.execute(
+            "track.set_end",
+            json!({"id":t1,"end":"end","position":{"x":24.9,"y":40.0}}),
+            None,
+        )?;
+        assert_eq!(
+            near(&s),
+            1,
+            "extending the track closes the gap until the checks complain"
+        );
+        s.undo()?;
+        assert_eq!(near(&s), 0, "undoing the extension opens the gap again");
+        let before = s.inspect();
+        for params in [
+            json!({"id":t1,"end":"end","position":{"x":6.0,"y":42.0}}),
+            json!({"id":t1,"end":"middle","position":{"x":12.0,"y":40.0}}),
+            json!({"id":t1,"end":null,"position":{"x":12.0,"y":40.0}}),
+            json!({"id":t1,"position":{"x":12.0,"y":40.0}}),
+            json!({"id":t1,"end":"end","position":{"x":1e9,"y":40.0}}),
+            json!({"id":t1,"end":"end","position":{"x":null,"y":40.0}}),
+            json!({"id":999,"end":"start","position":{"x":12.0,"y":40.0}}),
+            json!({"id":t1,"end":"end","position":{"x":12.0,"y":40.0},"extra":1}),
+        ] {
+            assert!(
+                s.execute("track.set_end", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.undo()?;
+        assert_eq!(
+            s.project.board.tracks[0].start,
+            Point::new(10.0, 40.0),
+            "undo restores the original end point"
+        );
+        Ok(())
+    }
+    #[test]
+    fn placed_footprint_pads_can_be_offset_and_resized() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let footprint = s.project.board.footprints[0].id;
+        let before = s.project.board.footprints[0].pads.clone();
+        assert_eq!(before.len(), 2, "a synced resistor has two pads");
+        let p1 = &before[0];
+        let shifted = Point::new(p1.offset.x, p1.offset.y + 1.5);
+        s.execute(
+            "footprint.set_pad",
+            json!({"id":footprint,"pad":p1.number,"offset":{"x":shifted.x,"y":shifted.y}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.footprints[0].pads[0].offset, shifted);
+        assert_eq!(
+            s.project.board.footprints[0].pads[1], before[1],
+            "the other pad is untouched"
+        );
+        s.execute(
+            "footprint.set_pad",
+            json!({"id":footprint,"pad":"2","diameter":0.9}),
+            None,
+        )?;
+        assert_eq!(s.project.board.footprints[0].pads[1].diameter, 0.9);
+        assert!(s.project.validate().is_ok());
+        let snap = s.inspect();
+        for params in [
+            json!({"id":footprint,"pad":p1.number}),
+            json!({"id":footprint,"pad":"9","offset":{"x":0.0,"y":0.0}}),
+            json!({"id":9999,"pad":"1","diameter":0.5}),
+            json!({"id":footprint,"pad":"1","diameter":0.0}),
+            json!({"id":footprint,"pad":"1","diameter":1e9}),
+            json!({"id":footprint,"pad":"1","offset":{"x":null,"y":0.0}}),
+            json!({"id":footprint,"pad":"","diameter":0.5}),
+            json!({"id":footprint,"pad":"2","diameter":0.9}),
+            json!({"id":footprint,"pad":"1","diameter":0.5,"extra":1}),
+        ] {
+            assert!(
+                s.execute("footprint.set_pad", params.clone(), None)
+                    .is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), snap, "rejections change nothing");
+        s.execute(
+            "footprint.set_pad",
+            json!({"id":footprint,"pad":p1.number,"offset":{"x":0.0,"y":0.0}}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.footprints[0].pads[0].offset, shifted,
+            "undo puts the pad back"
+        );
+        Ok(())
+    }
+    #[test]
+    fn placed_board_objects_slide_by_a_distance_with_object_nudge() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"N"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":25.0,"y":15.0},"diameter":0.8}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":net,"outline":[{"x":40.0,"y":10.0},{"x":50.0,"y":10.0},{"x":50.0,"y":20.0},{"x":40.0,"y":20.0},{"x":40.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":44.0,"y":14.0},{"x":46.0,"y":14.0},{"x":46.0,"y":16.0},{"x":44.0,"y":16.0},{"x":44.0,"y":14.0}]}),
+            None,
+        )?;
+        let text = s.execute(
+            "text.place",
+            json!({"text":"TOP","position":{"x":5.0,"y":5.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("object.nudge", json!({"id":track,"dx":1.5,"dy":2.0}), None)?;
+        assert_eq!(s.project.board.tracks[0].start, Point::new(11.5, 12.0));
+        assert_eq!(s.project.board.tracks[0].end, Point::new(21.5, 12.0));
+        s.execute("object.nudge", json!({"id":via,"dx":0.0,"dy":-4.0}), None)?;
+        assert_eq!(s.project.board.vias[0].position, Point::new(25.0, 11.0));
+        s.execute("object.nudge", json!({"id":zone,"dx":-5.0,"dy":0.0}), None)?;
+        assert_eq!(s.project.board.zones[0].outline[0], Point::new(35.0, 10.0));
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][0],
+            Point::new(39.0, 14.0),
+            "the cutout travels with its zone"
+        );
+        s.execute("object.nudge", json!({"id":text,"dx":2.0,"dy":2.0}), None)?;
+        assert_eq!(s.project.board.texts[0].position, Point::new(7.0, 7.0));
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":track,"dx":0.0,"dy":0.0}),
+            json!({"id":track,"dx":1.0}),
+            json!({"id":9999,"dx":1.0,"dy":1.0}),
+            json!({"id":track,"dx":1e9,"dy":0.0}),
+            json!({"id":track,"dx":1001.0,"dy":0.0}),
+            json!({"id":track,"dx":null,"dy":0.0}),
+            json!({"id":track,"dx":1.0,"dy":1.0,"extra":2}),
+            json!({"id":net,"dx":1.0,"dy":1.0}),
+        ] {
+            assert!(
+                s.execute("object.nudge", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert_eq!(
+            s.project.board.zones[0].outline[0],
+            Point::new(35.0, 10.0),
+            "a refused zone nudge leaves every vertex alone"
+        );
+        s.execute(
+            "object.nudge",
+            json!({"id":track,"dx":-1.5,"dy":-2.0}),
+            None,
+        )?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.tracks[0].start,
+            Point::new(11.5, 12.0),
+            "undo puts the nudge back"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zone_outlines_and_cutouts_are_editable_vertex_by_vertex() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":50.0,"y":10.0},{"x":50.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":20.0,"y":15.0},{"x":30.0,"y":15.0},{"x":30.0,"y":25.0},{"x":20.0,"y":25.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute(
+            "zone.set_point",
+            json!({"id":zone,"index":2,"position":{"x":45.0,"y":28.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].outline[2],
+            Point::new(45.0, 28.0),
+            "one corner moves"
+        );
+        assert_eq!(
+            s.project.board.zones[0].outline[1],
+            Point::new(50.0, 10.0),
+            "the neighbours stay put"
+        );
+        s.execute(
+            "zone.set_point",
+            json!({"id":zone,"index":0,"position":{"x":12.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].outline.first(),
+            s.project.board.zones[0].outline.last(),
+            "moving the opening vertex moves the closing vertex with it"
+        );
+        s.execute(
+            "zone.set_point",
+            json!({"id":zone,"cutout":0,"index":1,"position":{"x":25.0,"y":15.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][1],
+            Point::new(25.0, 15.0),
+            "cutout vertices move through the same command"
+        );
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"layer":"F.Cu","width":0.3,"start":{"x":5.0,"y":12.0},"end":{"x":60.0,"y":12.0}}),
+            None,
+        )?;
+        let touching = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    f["objects"]
+                        .as_array()
+                        .is_some_and(|o| o.contains(&json!(zone)))
+                })
+                .count()
+        };
+        assert_eq!(
+            touching(&s),
+            1,
+            "the track runs along the zone's lower edge and touches it"
+        );
+        s.execute(
+            "zone.set_point",
+            json!({"id":zone,"index":1,"position":{"x":50.0,"y":14.0}}),
+            None,
+        )?;
+        s.execute(
+            "zone.set_point",
+            json!({"id":zone,"index":0,"position":{"x":12.0,"y":14.0}}),
+            None,
+        )?;
+        assert_eq!(
+            touching(&s),
+            0,
+            "lifting both lower corners off the track clears the finding"
+        );
+        s.undo()?;
+        assert_eq!(touching(&s), 1, "and undo brings it back");
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"index":5,"position":{"x":10.0,"y":10.0}}),
+            json!({"id":zone,"index":-1,"position":{"x":10.0,"y":10.0}}),
+            json!({"id":zone,"index":1,"position":{"x":1e9,"y":10.0}}),
+            json!({"id":zone,"index":1,"position":{"x":null,"y":10.0}}),
+            json!({"id":zone,"cutout":1,"index":0,"position":{"x":20.0,"y":15.0}}),
+            json!({"id":zone,"cutout":-1,"index":0,"position":{"x":20.0,"y":15.0}}),
+            json!({"id":999,"index":0,"position":{"x":10.0,"y":10.0}}),
+            json!({"id":zone,"position":{"x":10.0,"y":10.0}}),
+            json!({"id":zone,"index":1,"position":{"x":10.0,"y":10.0},"extra":1}),
+        ] {
+            assert!(s.execute("zone.set_point", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":70.0,"y":10.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?;
+        let thin = s.project.board.zones.len() - 1;
+        assert!(
+            s.execute(
+                "zone.set_point",
+                json!({"id":thin,"index":1,"position":{"x":10.0,"y":30.0}}),
+                None,
+            )
+            .is_err(),
+            "collapsing an outline to a line is refused"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones.len(),
+            1,
+            "undo removes the test triangle again"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones[0].outline[1],
+            Point::new(50.0, 10.0),
+            "undo restores the lifted corner"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zone_outlines_gain_and_lose_one_vertex_at_a_time() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":50.0,"y":10.0},{"x":50.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "zone.cutout",
+            json!({"zone":zone,"outline":[{"x":20.0,"y":15.0},{"x":30.0,"y":15.0},{"x":30.0,"y":25.0},{"x":20.0,"y":25.0},{"x":20.0,"y":15.0}]}),
+            None,
+        )?;
+        s.execute(
+            "zone.insert_point",
+            json!({"id":zone,"index":2,"position":{"x":55.0,"y":20.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].outline,
+            [
+                Point::new(10.0, 10.0),
+                Point::new(50.0, 10.0),
+                Point::new(55.0, 20.0),
+                Point::new(50.0, 30.0),
+                Point::new(10.0, 30.0),
+                Point::new(10.0, 10.0),
+            ],
+            "a new corner slides between the two it was inserted before"
+        );
+        s.execute(
+            "zone.insert_point",
+            json!({"id":zone,"index":0,"position":{"x":8.0,"y":12.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].outline.first(),
+            s.project.board.zones[0].outline.last(),
+            "inserting at the opening keeps the outline closed"
+        );
+        s.execute(
+            "zone.insert_point",
+            json!({"id":zone,"cutout":0,"index":1,"position":{"x":25.0,"y":14.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0][1],
+            Point::new(25.0, 14.0),
+            "cutouts gain corners through the same command"
+        );
+        s.execute(
+            "zone.remove_point",
+            json!({"id":zone,"cutout":0,"index":1}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.zones[0].cutouts[0],
+            [
+                Point::new(20.0, 15.0),
+                Point::new(30.0, 15.0),
+                Point::new(30.0, 25.0),
+                Point::new(20.0, 25.0),
+                Point::new(20.0, 15.0),
+            ],
+            "and lose them again"
+        );
+        s.execute("zone.remove_point", json!({"id":zone,"index":0}), None)?;
+        assert_eq!(
+            s.project.board.zones[0].outline.first(),
+            s.project.board.zones[0].outline.last(),
+            "removing the opening vertex keeps the outline closed"
+        );
+        s.execute("zone.remove_point", json!({"id":zone,"index":2}), None)?;
+        assert_eq!(
+            s.project.board.zones[0].outline,
+            [
+                Point::new(10.0, 10.0),
+                Point::new(50.0, 10.0),
+                Point::new(50.0, 30.0),
+                Point::new(10.0, 30.0),
+                Point::new(10.0, 10.0),
+            ],
+            "two removals return the square to its original corners"
+        );
+        assert!(s.project.validate().is_ok());
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"index":5,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"index":-1,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"index":1,"position":{"x":1e9,"y":20.0}}),
+            json!({"id":zone,"index":1,"position":{"x":20.0,"y":null}}),
+            json!({"id":zone,"cutout":1,"index":0,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":999,"index":0,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"position":{"x":20.0,"y":20.0}}),
+            json!({"id":zone,"index":1,"position":{"x":20.0,"y":20.0},"extra":1}),
+        ] {
+            assert!(
+                s.execute("zone.insert_point", params.clone(), None)
+                    .is_err(),
+                "insert {params:?} refused"
+            );
+        }
+        for params in [
+            json!({"id":zone,"index":4}),
+            json!({"id":zone,"index":-1}),
+            json!({"id":zone,"cutout":1,"index":0}),
+            json!({"id":zone,"cutout":-1,"index":0}),
+            json!({"id":999,"index":0}),
+            json!({"id":zone}),
+            json!({"id":zone,"index":1,"extra":1}),
+        ] {
+            assert!(
+                s.execute("zone.remove_point", params.clone(), None)
+                    .is_err(),
+                "remove {params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        let ring: Vec<serde_json::Value> = (0..256)
+            .map(|i| {
+                let t = std::f64::consts::TAU * i as f64 / 256.0;
+                json!({"x":30.0 + 20.0 * t.cos(),"y":30.0 + 20.0 * t.sin()})
+            })
+            .collect();
+        let mut fat = ring.clone();
+        fat.push(ring[0].clone());
+        let round =
+            s.execute("zone.place", json!({"net":gnd,"outline":fat}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "zone.insert_point",
+                json!({"id":round,"index":0,"position":{"x":30.0,"y":50.5}}),
+                None,
+            )
+            .is_err(),
+            "a full outline cannot gain another vertex"
+        );
+        let three = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":55.0,"y":10.0},{"x":58.0,"y":10.0},{"x":56.5,"y":13.0},{"x":55.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute("zone.remove_point", json!({"id":three,"index":1}), None)
+                .is_err(),
+            "removing a corner from a triangle would leave a line"
+        );
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones.len(),
+            1,
+            "undo removes both test zones again"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.zones[0].outline.len(),
+            6,
+            "undo brings the removed corner back"
+        );
+        Ok(())
+    }
+    #[test]
+    fn zone_copper_can_be_taken_out_and_poured_back_in() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":a,"outline":[{"x":10.0,"y":10.0},{"x":30.0,"y":10.0},{"x":30.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":b,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let pairs = |s: &Session| -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .iter()
+                .filter(|f| {
+                    f["objects"]
+                        .as_array()
+                        .is_some_and(|o| o.contains(&json!(zone)) && o.contains(&json!(track)))
+                })
+                .count()
+        };
+        assert!(pairs(&s) >= 1, "the track rides the filled zone edge");
+        s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
+        assert_eq!(pairs(&s), 0, "an unfilled zone carries no copper");
+        assert!(!s.project.board.zones[0].filled);
+        s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
+        assert!(pairs(&s) >= 1, "pouring it back restores the finding");
+        s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"filled":false}),
+            json!({"id":zone,"filled":true,"extra":1}),
+            json!({"id":zone}),
+            json!({"id":zone,"filled":"yes"}),
+            json!({"id":zone,"filled":null}),
+            json!({"id":9999,"filled":true}),
+        ] {
+            assert!(
+                s.execute("zone.set_fill", params.clone(), None).is_err(),
+                "{params:?} refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
+        assert!(pairs(&s) >= 1);
+        s.undo()?;
+        assert!(
+            !s.project.board.zones[0].filled,
+            "undo takes the copper out again"
+        );
+        assert_eq!(pairs(&s), 0, "and the finding falls silent");
+        Ok(())
+    }
+    #[test]
+    fn board_text_labels_place_move_edit_and_delete_with_one_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let placed = s.execute(
+            "text.place",
+            json!({"text":"Acme Labs","position":{"x":10.0,"y":5.0}}),
+            None,
+        )?;
+        let id = placed["result"]["id"].as_u64().ok_or_else(missing)?;
+        assert_eq!(s.project.board.texts.len(), 1);
+        assert_eq!(s.project.board.texts[0].size, 1.0);
+        assert_eq!(
+            s.project.board.texts[0].layer,
+            pcbcraft_doc::Layer::Front,
+            "labels default to the front copper side"
+        );
+        s.execute(
+            "text.move",
+            json!({"id":id,"position":{"x":12.0,"y":6.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.texts[0].position.x, 12.0);
+        s.execute(
+            "text.set",
+            json!({"id":id,"text":"Acme 2026","size":2.5,"layer":"B.Cu"}),
+            None,
+        )?;
+        assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        assert_eq!(s.project.board.texts[0].size, 2.5);
+        assert_eq!(s.project.board.texts[0].layer, pcbcraft_doc::Layer::Back);
+        assert_eq!(
+            s.project.board.texts[0].rotation, 0.0,
+            "a placed label starts upright"
+        );
+        let turned = s.execute("text.rotate", json!({"id":id,"degrees":90.0}), None)?;
+        assert_eq!(turned["result"]["rotation"], 90.0);
+        s.execute("text.set", json!({"id":id,"rotation":-45.0}), None)?;
+        assert_eq!(s.project.board.texts[0].rotation, -45.0);
+        assert_eq!(
+            s.project.board.texts[0].text, "Acme 2026",
+            "turning a label leaves its string and size alone"
+        );
+        for params in [
+            json!({"id":id,"degrees":null}),
+            json!({"id":id,"degrees":1e9}),
+            json!({"id":id,"degrees":90.0,"extra":1}),
+            json!({"id":999,"degrees":90.0}),
+            json!({"id":id}),
+            json!({"id":id,"rotation":90.0}),
+        ] {
+            assert!(s.execute("text.rotate", params, None).is_err());
+        }
+        for params in [
+            json!({"id":id}),
+            json!({"id":id,"rotation":1e9}),
+            json!({"id":id,"rotation":null,"text":null}),
+        ] {
+            assert!(s.execute("text.set", params, None).is_err());
+        }
+        s.undo()?;
+        assert_eq!(
+            s.project.board.texts[0].rotation, 90.0,
+            "undo restores the previous angle"
+        );
+        assert!(s.project.validate().is_ok());
+        for params in [
+            json!({"text":"","position":{"x":1.0,"y":1.0}}),
+            json!({"text":"x".repeat(200),"position":{"x":1.0,"y":1.0}}),
+            json!({"text":"x","position":{"x":null,"y":1.0}}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"size":0.01}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"size":90.0}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"layer":"C.Cu"}),
+            json!({"text":"x","position":{"x":1.0,"y":1.0},"extra":1}),
+        ] {
+            assert!(s.execute("text.place", params, None).is_err());
+        }
+        assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        assert!(
+            s.execute(
+                "text.move",
+                json!({"id":id + 7,"position":{"x":1.0,"y":1.0}}),
+                None
+            )
+            .is_err()
+        );
+        assert!(s.execute("text.set", json!({"id":id}), None).is_err());
+        assert!(
+            s.execute("text.set", json!({"id":id,"size":0.02}), None)
+                .is_err()
+        );
+        assert_eq!(s.project.board.texts[0].size, 2.5);
+        s.execute("object.delete", json!({"id":id}), None)?;
+        assert!(s.project.board.texts.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.texts.len(), 1);
+        assert_eq!(s.project.board.texts[0].text, "Acme 2026");
+        Ok(())
+    }
+    #[test]
+    fn board_text_variables_bind_expand_and_stay_reversible() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let r1 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R1")
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"note","value":"330 ohm link"}),
+            None,
+        )?;
+        let placed = s.execute(
+            "text.place",
+            json!({"text":"${REFERENCE}=${VALUE} ${note} ${MISSING}","position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        let id = placed["result"]["id"].as_u64().ok_or_else(missing)?;
+        let bound = s.execute("text.bind", json!({"id":id,"component":r1}), None)?;
+        assert_eq!(bound["result"]["component"], r1);
+        let expanded = s.execute("text.expand", json!({"id":id}), None)?;
+        assert_eq!(expanded["result"]["count"], 1);
+        assert_eq!(
+            s.project.board.texts[0].text, "R1=330 \u{3a9} 330 ohm link ${MISSING}",
+            "known tokens resolve and unknown tokens stay"
+        );
+        s.execute("text.bind", json!({"id":id,"component":null}), None)?;
+        assert!(s.project.board.texts[0].component.is_none());
+        for params in [
+            json!({"id":id,"component":999}),
+            json!({"id":999,"component":r1}),
+            json!({"id":id,"component":r1,"extra":1}),
+            json!({"component":r1}),
+        ] {
+            assert!(s.execute("text.bind", params, None).is_err());
+        }
+        assert!(
+            s.execute("text.expand", json!({}), None).is_err(),
+            "nothing is bound to expand"
+        );
+        assert!(s.execute("text.expand", json!({"id":999}), None).is_err());
+        s.execute("text.bind", json!({"id":id,"component":r1}), None)?;
+        let all = s.execute("text.expand", json!({}), None)?;
+        assert_eq!(
+            all["result"]["count"], 1,
+            "expanding all finds the bound text"
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.texts[0].component,
+            Some(r1),
+            "undo restores the binding"
+        );
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn differential_pairs_check_the_coupling_gap_and_length_skew() -> Result<(), Error> {
+        let mut s = Session::default();
+        let p = s.execute("net.create", json!({"name":"USB_D+"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n = s.execute("net.create", json!({"name":"USB_D-"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let other = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for bad in [
+            json!({"name":"USB","net_p":p,"net_n":p,"gap":0.2}),
+            json!({"name":"USB","net_p":p,"net_n":9_999,"gap":0.2}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.001}),
+            json!({"name":"  ","net_p":p,"net_n":n,"gap":0.2}),
+        ] {
+            assert!(s.execute("board.set_diffpair", bad, None).is_err());
+        }
+        let id = s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.3,"length_tolerance":0.5}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.diff_pairs.len(), 1);
+        assert!(
+            s.execute(
+                "board.set_diffpair",
+                json!({"name":"USB","net_p":p,"net_n":other,"gap":0.3}),
+                None,
+            )
+            .is_err(),
+            "a second pair cannot reuse the name over other nets"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":p,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":n,"start":{"x":10.0,"y":10.25},"end":{"x":30.0,"y":10.25},"width":0.2}),
+            None,
+        )?;
+        fn codes(s: &mut Session) -> Result<Vec<String>, Error> {
+            Ok(s.checks()["drc"]
+                .as_array()
+                .ok_or_else(missing)?
+                .iter()
+                .filter_map(|f| f["code"].as_str().map(str::to_string))
+                .collect())
+        }
+        assert!(codes(&mut s)?.contains(&"diffpair_gap".to_string()));
+        s.execute(
+            "track.add",
+            json!({"net":p,"start":{"x":30.0,"y":10.0},"end":{"x":40.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        assert!(codes(&mut s)?.contains(&"diffpair_skew".to_string()));
+        for track in &s.project.board.tracks.clone() {
+            if track.net == p {
+                s.execute(
+                    "track.set_layer",
+                    json!({"id":track.id,"layer":"B.Cu"}),
+                    None,
+                )?;
+            }
+        }
+        let after = codes(&mut s)?;
+        assert!(
+            !after.contains(&"diffpair_gap".to_string()),
+            "0.4 mm between the sides satisfies the 0.3 mm coupling"
+        );
+        assert!(after.contains(&"diffpair_skew".to_string()));
+        s.execute(
+            "board.rename_diffpair",
+            json!({"id":id,"name":"USB2"}),
+            None,
+        )?;
+        assert_eq!(s.project.board.diff_pairs[0].name, "USB2");
+        assert!(
+            s.execute("board.rename_diffpair", json!({"id":id,"name":"  "}), None)
+                .is_err()
+        );
+        s.execute("board.remove_diffpair", json!({"id":id}), None)?;
+        assert!(s.project.board.diff_pairs.is_empty());
+        assert!(!codes(&mut s)?.contains(&"diffpair_skew".to_string()));
+        s.undo()?;
+        assert_eq!(s.project.board.diff_pairs.len(), 1);
+        Ok(())
+    }
+
+    fn pair_pitch_footprint(
+        name: &str,
+        pitch: f64,
+    ) -> Result<pcbcraft_library::FootprintDefinition, Error> {
+        let template = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))
+        .map_err(Error::Invalid)?;
+        let pad = template.pads.first().ok_or_else(missing)?.clone();
+        let mut fp = template;
+        fp.name = name.into();
+        fp.pads = ["1", "2"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, number)| {
+                let mut item = pad.clone();
+                item.number = number.into();
+                item.position = Point::new(0.0, if i == 0 { -pitch / 2.0 } else { pitch / 2.0 });
+                item
+            })
+            .collect();
+        Ok(fp)
+    }
+
+    fn drc_codes(s: &mut Session) -> Result<Vec<String>, Error> {
+        Ok(s.checks()["drc"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(|f| f["code"].as_str().map(str::to_string))
+            .collect())
+    }
+
+    fn setup_parallel_pair_connectors(
+        s: &mut Session,
+        gap: f64,
+        width: f64,
+    ) -> Result<(Id, Id, Id, Id), Error> {
+        let pitch = gap + width;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": pair_pitch_footprint("PairConn", pitch)?}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","reference":"J1","position":{"x":10.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"connector","reference":"J2","position":{"x":50.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"1"},"to":{"component":2,"pin":"1"}}),
+            None,
+        )?;
+        let net_p = s.project.components[0].pins[0].net.ok_or_else(missing)?;
+        s.execute(
+            "wire.connect",
+            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"2"}}),
+            None,
+        )?;
+        let net_n = s.project.components[0].pins[1].net.ok_or_else(missing)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        for component in [1_u64, 2] {
+            s.execute(
+                "footprint.assign_custom",
+                json!({"id":component,"name":"PairConn"}),
+                None,
+            )?;
+        }
+        let fp_j1 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == 1)
+            .ok_or_else(missing)?
+            .id;
+        let fp_j2 = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == 2)
+            .ok_or_else(missing)?
+            .id;
+        Ok((fp_j1, fp_j2, net_p, net_n))
+    }
+
+    #[test]
+    fn route_pair_parallel_connectors_meets_gap_and_no_diffpair_gap() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        let before = s.project.board.tracks.len();
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        assert!(s.project.board.tracks.len() > before);
+        assert!(
+            !drc_codes(&mut s)?.contains(&"diffpair_gap".to_string()),
+            "coupled routes should satisfy the declared gap"
+        );
+        let mut min_gap = f64::INFINITY;
+        let tracks = s.project.board.tracks.clone();
+        let p_tracks: Vec<_> = tracks
+            .iter()
+            .filter(|t| t.net == s.project.board.diff_pairs[0].net_p)
+            .collect();
+        let n_tracks: Vec<_> = tracks
+            .iter()
+            .filter(|t| t.net == s.project.board.diff_pairs[0].net_n)
+            .collect();
+        for a in &p_tracks {
+            for b in &n_tracks {
+                let separation = segment_distance(a.start, a.end, b.start, b.end)
+                    - a.width / 2.0
+                    - b.width / 2.0;
+                if separation < min_gap {
+                    min_gap = separation;
+                }
+            }
+        }
+        assert!(
+            (min_gap - gap).abs() < 1e-3,
+            "minimum edge gap should match the pair gap, got {min_gap}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn route_pair_refuses_narrow_channel_and_leaves_tracks_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, 0.3, 0.2)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":5.0}),
+            None,
+        )?;
+        let tracks_before = s.project.board.tracks.clone();
+        assert!(
+            s.execute(
+                "track.route_pair",
+                json!({
+                    "from_p":{"footprint":fp_j1,"pad":"1"},
+                    "from_n":{"footprint":fp_j1,"pad":"2"},
+                    "to_p":{"footprint":fp_j2,"pad":"1"},
+                    "to_n":{"footprint":fp_j2,"pad":"2"},
+                    "width":0.2,
+                }),
+                None,
+            )
+            .is_err(),
+            "pad spacing cannot honour a 5 mm coupling gap"
+        );
+        assert_eq!(s.project.board.tracks, tracks_before);
+        Ok(())
+    }
+
+    #[test]
+    fn unplated_holes_drill_move_resize_and_keep_copper_away() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.hole_place",
+            json!({"position":{"x":30.0,"y":20.0},"diameter":3.2}),
+            None,
+        )?;
+        assert_eq!(s.project.board.holes.len(), 1);
+        s.undo()?;
+        assert!(s.project.board.holes.is_empty());
+        let id = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":30.0,"y":20.0},"diameter":3.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.hole_place",
+            json!({"position":{"x":5.0,"y":20.0},"diameter":0.3}),
+            None,
+        )?;
+        for bad in [
+            json!({"position":{"x":30.0,"y":20.0},"diameter":0.01}),
+            json!({"position":{"x":30.0,"y":20.0},"diameter":40.0}),
+            json!({"position":{"x":null,"y":20.0},"diameter":3.2}),
+            json!({"position":{"x":30.0,"y":20.0},"diameter":3.2,"net":1}),
+        ] {
+            assert!(s.execute("board.hole_place", bad, None).is_err());
+        }
+        s.execute(
+            "board.hole_move",
+            json!({"id":id,"position":{"x":28.0,"y":18.0}}),
+            None,
+        )?;
+        s.execute("board.hole_set_size", json!({"id":id,"diameter":4.0}), None)?;
+        assert_eq!(s.project.board.holes[0].diameter, 4.0);
+        assert!(
+            s.execute("board.hole_set_size", json!({"id":id,"diameter":0.0}), None)
+                .is_err()
+        );
+        // A track crossing the drilled annulus is a clearance violation even
+        // though nothing shares a net with an unplated hole.
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":20.0,"y":18.0},"end":{"x":36.0,"y":18.0},"width":0.2}),
+            None,
+        )?;
+        let drc = s.checks()["drc"].clone();
+        let findings = drc.as_array().ok_or_else(missing)?;
+        assert!(
+            findings
+                .iter()
+                .any(|f| f["objects"].as_array().is_some_and(|o| {
+                    o.iter().any(|x| x.as_u64() == Some(id))
+                        && f["code"].as_str() != Some("board_edge")
+                }))
+        );
+        let second = s.project.board.holes[1].id;
+        s.execute("object.delete", json!({"id":id}), None)?;
+        s.execute("object.delete", json!({"id":second}), None)?;
+        assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn parameters_are_set_read_and_listed() -> Result<(), Error> {
+        let mut s = Session::default();
+        let stored = s.execute(
+            "parameter.set",
+            json!({"name":"hole_pitch","value":3.2,"note":"mounting holes"}),
+            None,
+        )?;
+        assert_eq!(stored["result"]["value"], json!(3.2));
+        s.execute("parameter.set", json!({"name":"rail","value":1.0}), None)?;
+        let listed = s.execute("parameter.list", json!({}), None)?;
+        let rows = listed["result"]["parameters"]
+            .as_array()
+            .ok_or_else(missing)?;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["name"], json!("hole_pitch"));
+        assert_eq!(rows[0]["value"], json!(3.2));
+        assert_eq!(rows[0]["note"], json!("mounting holes"));
+        assert_eq!(rows[1]["name"], json!("rail"));
+        assert_eq!(rows[1]["note"], json!(""));
+        assert_eq!(rows[0]["drives"], json!([]));
+        // Setting a name again changes its value and keeps one row.
+        s.execute(
+            "parameter.set",
+            json!({"name":"hole_pitch","value":4.0}),
+            None,
+        )?;
+        assert_eq!(s.project.parameters.len(), 2);
+        assert_eq!(
+            s.project.parameter("hole_pitch").map(|p| p.value),
+            Some(4.0)
+        );
+        assert!(s.project.parameter("missing").is_none());
+        Ok(())
+    }
+    #[test]
+    fn bad_parameter_names_and_values_are_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut bad = vec![
+            json!({"name":"","value":1.0}),
+            json!({"name":"1pitch","value":1.0}),
+            json!({"name":"hole-pitch","value":1.0}),
+            json!({"name":"a b","value":1.0}),
+            json!({"name":"pitch","value":10_001.0}),
+            json!({"name":"pitch","value":-10_001.0}),
+            json!({"name":"pitch","value":"hole_pitch*2"}),
+            json!({"name":"pitch","value":1.0,"note":"x".repeat(257)}),
+            json!({"name":"pitch","value":1.0,"unknown":true}),
+            json!({"name":"x".repeat(33),"value":1.0}),
+        ];
+        bad.push(json!({"name":"pitch"}));
+        for request in bad {
+            assert!(
+                s.execute("parameter.set", request.clone(), None).is_err(),
+                "{request}"
+            );
+        }
+        assert!(s.project.parameters.is_empty());
+        // The table stays bounded.
+        for index in 0..pcbcraft_doc::MAX_PARAMETERS {
+            s.execute(
+                "parameter.set",
+                json!({"name":format!("p{index}"),"value":1.0}),
+                None,
+            )?;
+        }
+        assert!(
+            s.execute(
+                "parameter.set",
+                json!({"name":"one_too_many","value":1.0}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.parameters.len(), pcbcraft_doc::MAX_PARAMETERS);
+        Ok(())
+    }
+    #[test]
+    fn a_hole_placed_with_a_parameter_follows_it() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        s.execute("parameter.set", json!({"name":"drill","value":1.0}), None)?;
+        let left = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":{"param":"pitch"}},"diameter":{"param":"drill"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let right = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":20.0},"diameter":{"param":"drill"}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        // The left hole follows the pitch twice and the drill, the right one
+        // follows the pitch for its x only.
+        assert_eq!(s.project.bindings.len(), 5);
+        assert_eq!(s.project.board.holes[0].position, Point::new(3.2, 3.2));
+        assert_eq!(s.project.board.holes[0].diameter, 1.0);
+        assert_eq!(s.project.board.holes[1].position, Point::new(3.2, 20.0));
+        let revision = s.revision;
+        let changed = s.execute("parameter.set", json!({"name":"pitch","value":8.0}), None)?;
+        assert_eq!(changed["revision"].as_u64(), Some(revision + 1));
+        assert_eq!(s.project.board.holes[0].position, Point::new(8.0, 8.0));
+        assert_eq!(s.project.board.holes[1].position, Point::new(8.0, 20.0));
+        assert_eq!(changed["result"]["updated"], json!([left, right]));
+        assert_eq!(changed["result"]["drives"], json!(3));
+        // One undo puts every hole back where it was.
+        s.undo()?;
+        assert_eq!(s.project.board.holes[0].position, Point::new(3.2, 3.2));
+        assert_eq!(s.project.board.holes[1].position, Point::new(3.2, 20.0));
+        assert_eq!(s.project.parameter("pitch").map(|p| p.value), Some(3.2));
+        Ok(())
+    }
+    #[test]
+    fn a_parameter_change_that_breaks_a_bound_hole_is_refused_and_leaves_everything()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"drill","value":1.0}), None)?;
+        s.execute(
+            "board.hole_place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":{"param":"drill"}}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let failure = s.execute("parameter.set", json!({"name":"drill","value":30.0}), None);
+        assert!(failure.is_err());
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert_eq!(s.project.board.holes[0].diameter, 1.0);
+        assert_eq!(s.project.parameter("drill").map(|p| p.value), Some(1.0));
+        Ok(())
+    }
+    #[test]
+    fn removing_a_used_parameter_names_its_users() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let failure = s
+            .execute("parameter.remove", json!({"name":"pitch"}), None)
+            .err()
+            .ok_or_else(missing)?;
+        let message = failure.to_string();
+        assert!(message.contains("pitch"), "{message}");
+        assert!(message.contains(&hole.to_string()), "{message}");
+        assert_eq!(s.project.parameters.len(), 1);
+        // Releasing the users leaves their geometry exactly as it stands.
+        let released = s.execute(
+            "parameter.remove",
+            json!({"name":"pitch","unbind":true}),
+            None,
+        )?;
+        assert_eq!(released["result"]["released"], json!([hole]));
+        assert!(s.project.parameters.is_empty());
+        assert!(s.project.bindings.is_empty());
+        assert_eq!(s.project.board.holes[0].position.x, 3.2);
+        assert!(
+            s.execute("parameter.remove", json!({"name":"pitch"}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn deleting_a_bound_object_drops_its_binding() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let first = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":4.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let second = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":8.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.bindings.len(), 2);
+        s.execute("object.delete", json!({"id":first}), None)?;
+        assert_eq!(s.project.bindings.len(), 1);
+        assert!(
+            s.project
+                .bindings
+                .iter()
+                .all(|binding| binding.object == second)
+        );
+        // The surviving hole still follows the parameter.
+        s.execute("parameter.set", json!({"name":"pitch","value":9.0}), None)?;
+        assert_eq!(s.project.board.holes[0].position.x, 9.0);
+        Ok(())
+    }
+    #[test]
+    fn a_plain_edit_unbinds_the_field() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("parameter.set", json!({"name":"pitch","value":3.2}), None)?;
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":{"param":"pitch"},"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.bindings.len(), 1);
+        let moved = s.execute(
+            "board.hole_move",
+            json!({"id":hole,"position":{"x":6.0,"y":10.0}}),
+            None,
+        )?;
+        assert_eq!(
+            moved["result"]["unbound"],
+            json!([{"object":hole,"field":"hole_x"}])
+        );
+        assert!(s.project.bindings.is_empty());
+        // A later parameter change leaves the edited hole where it was put.
+        s.execute("parameter.set", json!({"name":"pitch","value":9.0}), None)?;
+        assert_eq!(s.project.board.holes[0].position.x, 6.0);
+        Ok(())
+    }
+    #[test]
+    fn parameters_reach_vias_and_other_commands_refuse_them() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "parameter.set",
+            json!({"name":"via_drill","value":0.4}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":20.0,"y":20.0},"diameter":1.2,"drill":{"param":"via_drill"}}),
+            None,
+        )?;
+        s.execute(
+            "parameter.set",
+            json!({"name":"via_drill","value":0.6}),
+            None,
+        )?;
+        assert_eq!(s.project.board.vias[0].drill, 0.6);
+        // A drill that no longer fits under the pad is refused.
+        assert!(
+            s.execute(
+                "parameter.set",
+                json!({"name":"via_drill","value":1.4}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.vias[0].drill, 0.6);
+        let refusal = s
+            .execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":{"param":"via_drill"}}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(
+            refusal
+                .to_string()
+                .contains("cannot take a named parameter"),
+            "{refusal}"
+        );
+        let unknown = s
+            .execute(
+                "board.hole_place",
+                json!({"position":{"x":{"param":"nope"},"y":0.0},"diameter":1.0}),
+                None,
+            )
+            .err()
+            .ok_or_else(missing)?;
+        assert!(unknown.to_string().contains("nope"), "{unknown}");
+        assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn slot_must_fit_inside_the_board() -> Result<(), Error> {
+        let mut s = Session::default();
+        let result = s.execute(
+            "hole.slot",
+            json!({"start":{"x":10.0,"y":10.0},"end":{"x":14.0,"y":10.0},"width":1.0}),
+            None,
+        )?;
+        assert!(result["result"]["id"].as_u64().is_some());
+        assert_eq!(s.project.board.holes.len(), 1);
+        let hole = &s.project.board.holes[0];
+        assert!(hole.is_slot());
+        assert_eq!(hole.finish(), Point::new(14.0, 10.0));
+        assert!((hole.length() - 5.0).abs() < 1e-12);
+        // A cap hanging over the rim is refused and leaves the design alone.
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":0.4,"y":10.0},"end":{"x":6.0,"y":10.0},"width":1.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":50.0,"y":10.0},"end":{"x":59.8,"y":10.0},"width":1.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn slot_length_must_exceed_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        // A length equal to the width is a round drill, not a slot.
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":2.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":10.0,"y":10.0},"end":{"x":10.005,"y":10.0},"width":2.0}),
+                None,
+            )
+            .is_err(),
+            "centres closer than 0.01 mm cannot describe a slot"
+        );
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":5.0,"y":20.0},"end":{"x":5.4,"y":20.0},"width":0.5}),
+                None,
+            )
+            .is_ok(),
+            "a 0.9 mm long by 0.5 mm wide slot is legal"
+        );
+        assert!(s.project.board.holes[0].is_slot());
+        Ok(())
+    }
+    #[test]
+    fn a_three_by_two_pattern_writes_six_hits_under_one_tool() -> Result<(), Error> {
+        let mut s = Session::default();
+        let slot = s.execute(
+            "hole.slot",
+            json!({"start":{"x":10.0,"y":10.0},"end":{"x":14.0,"y":10.0},"width":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let repeated = s.execute(
+            "pattern.repeat",
+            json!({"ids":[slot],"columns":3,"rows":2,"dx":10.0,"dy":8.0}),
+            None,
+        )?;
+        assert_eq!(
+            repeated["result"]["count"].as_u64(),
+            Some(5),
+            "a 3 by 2 pattern adds five copies"
+        );
+        assert_eq!(s.project.board.holes.len(), 6);
+        let ids: Vec<u64> = repeated["result"]["ids"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        assert_eq!(ids.len(), 5);
+        // Row-major: three copies along row 1, then two in row 2.
+        let xs: Vec<f64> = ids
+            .iter()
+            .filter_map(|id| s.project.board.holes.iter().find(|h| h.id == *id))
+            .map(|h| h.position.x)
+            .collect();
+        assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
+        let files = pcbcraft_io::gerber_files(&s.project)?;
+        let drill = &files["pcb-Drill.drl"];
+        assert_eq!(
+            drill.matches("G85").count(),
+            6,
+            "every copy is a slotted hit: {drill}"
+        );
+        let tools: Vec<&str> = drill
+            .lines()
+            .filter(|l| l.starts_with('T') && l.contains('C'))
+            .collect();
+        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
+        Ok(())
+    }
+    #[test]
+    fn patterns_refuse_when_any_copy_leaves_the_board_and_leave_the_design() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":40.0,"y":10.0},"diameter":2.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.project.board.holes.clone();
+        let revision = s.revision;
+        assert!(
+            s.execute(
+                "pattern.repeat",
+                json!({"ids":[hole],"columns":3,"rows":1,"dx":10.0,"dy":1.0}),
+                None,
+            )
+            .is_err(),
+            "the third column would fall off the 60 mm board"
+        );
+        assert_eq!(s.project.board.holes, before);
+        assert_eq!(s.revision, revision, "a refused pattern writes nothing");
+        assert!(
+            s.execute(
+                "pattern.repeat",
+                json!({"ids":[hole],"columns":2,"rows":2,"dx":10.0,"dy":10.0}),
+                None,
+            )
+            .is_ok()
+        );
+        Ok(())
+    }
+    #[test]
+    fn patterns_respect_the_hole_limit() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":5.0,"y":5.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "pattern.repeat",
+                json!({"ids":[hole],"columns":23,"rows":23,"dx":0.5,"dy":0.5}),
+                None,
+            )
+            .is_err(),
+            "529 copies would pass the 512-hole ceiling"
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn patterns_copy_cutouts_and_holes_together() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let cutout = s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":14.0,"y":10.0},"radius":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "pattern.repeat",
+            json!({"ids":[hole,cutout],"columns":2,"rows":1,"dx":10.0,"dy":1.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.holes.len(), 2);
+        assert_eq!(s.project.board.cutouts.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn a_notch_inserts_four_corners_and_moves_the_edge_check() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let area_before =
+            pcbcraft_doc::outline_area(&s.project.board.outline.clone().unwrap_or_else(|| {
+                vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(60.0, 0.0),
+                    Point::new(60.0, 40.0),
+                    Point::new(0.0, 40.0),
+                ]
+            }));
+        let result = s.execute(
+            "board.notch",
+            json!({"segment":0,"at":10.0,"width":4.0,"depth":3.0}),
+            None,
+        )?;
+        assert_eq!(
+            result["result"]["vertices"].as_u64(),
+            Some(8),
+            "the plain rectangle gains four corners"
+        );
+        let outline = s.project.board.outline.clone().ok_or_else(missing)?;
+        assert_eq!(
+            outline,
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(8.0, 0.0),
+                Point::new(8.0, 3.0),
+                Point::new(12.0, 3.0),
+                Point::new(12.0, 0.0),
+                Point::new(60.0, 0.0),
+                Point::new(60.0, 40.0),
+                Point::new(0.0, 40.0),
+            ]
+        );
+        let area_after = pcbcraft_doc::outline_area(&outline);
+        assert!(
+            (area_before - area_after - 12.0).abs() < 1e-9,
+            "the notch removes 4 mm by 3 mm of board"
+        );
+        // Copper inside the notch now sits outside the board.
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":9.0,"y":2.0},"end":{"x":11.0,"y":2.0},"width":0.2}),
+            None,
+        )?;
+        let drc = s.checks()["drc"].clone();
+        let findings = drc.as_array().ok_or_else(missing)?;
+        assert!(
+            findings.iter().any(|f| f["code"] == "board_edge"),
+            "copper inside the notch is outside the board: {drc}"
+        );
+        assert!(
+            s.execute(
+                "board.notch",
+                json!({"segment":0,"at":1.0,"width":4.0,"depth":1.0}),
+                None,
+            )
+            .is_err(),
+            "a notch cannot cross the corner it is measured from"
+        );
+        // A notch deeper than the board it is cut into is refused.
+        let mut small = Session::default();
+        small.execute("board.resize", json!({"width":20.0,"height":10.0}), None)?;
+        assert!(
+            small
+                .execute(
+                    "board.notch",
+                    json!({"segment":0,"at":10.0,"width":4.0,"depth":12.0}),
+                    None,
+                )
+                .is_err(),
+            "a 12 mm notch cannot fit across a 10 mm board"
+        );
+        assert!(small.project.board.outline.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn assign_to_ignores_unplated_pads_when_matching_pins() -> Result<(), Error> {
+        let footprint = pcbcraft_library::read_footprint(
+            "(footprint PegConn (pad 1 thru_hole circle (at -2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
+             (pad 2 thru_hole circle (at 2.54 0) (size 1.6 1.6) (drill 0.8) (layers *.Cu *.Mask)) \
+             (pad \"\" np_thru_hole circle (at -5 5) (size 0 0) (drill 3) (layers)) \
+             (pad \"\" np_thru_hole circle (at 5 5) (size 0 0) (drill 3) (layers)))",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(
+            footprint
+                .pads
+                .iter()
+                .filter(|p| p.pad_type == "unplated")
+                .count(),
+            2
+        );
+        let mut s = Session::default();
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": footprint}),
+            None,
+        )?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id": id, "name":"PegConn"}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .component(id)
+                .and_then(|c| c.library_footprint.as_ref())
+                .is_some(),
+            "numbered pads match the two-pin symbol even with mechanical pegs"
+        );
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].pads.len(), 4);
+        assert!(
+            s.project.board.footprints[0]
+                .pads
+                .iter()
+                .filter(|p| p
+                    .geometry
+                    .as_ref()
+                    .is_some_and(|g| g.pad_type == "unplated"))
+                .all(|p| p.net.is_none())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn net_ties_can_be_re_aimed_at_another_pair_and_resized() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut net = |name: &str| -> Result<u64, Error> {
+            let id = s.execute("net.create", json!({"name": name}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            Ok(id)
+        };
+        let a = net("PWR")?;
+        let b = net("GND")?;
+        let c = net("SIG")?;
+        let id = s.execute(
+            "board.nettie_place",
+            json!({"net_a":a,"net_b":b,"position":{"x":10.0,"y":10.0},"diameter":1.5}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tie = |s: &Session| -> Result<(u64, u64, f64), Error> {
+            let t = s
+                .project
+                .board
+                .netties
+                .iter()
+                .find(|t| t.id == id)
+                .ok_or_else(missing)?;
+            Ok((t.net_a, t.net_b, t.diameter))
+        };
+        let out =
+            s.execute("board.nettie_set", json!({"id":id,"net_b":c}), None)?["result"].clone();
+        assert_eq!(out["net_a"], a);
+        assert_eq!(out["net_b"], c);
+        assert_eq!(tie(&s)?, (a, c, 1.5), "the pad size survives a retarget");
+        s.execute("board.nettie_set", json!({"id":id,"diameter":2.0}), None)?;
+        assert_eq!(tie(&s)?, (a, c, 2.0), "pads grow without touching the pair");
+        s.execute(
+            "board.nettie_set",
+            json!({"id":id,"net_a":b,"net_b":a,"diameter":1.0}),
+            None,
+        )?;
+        assert_eq!(tie(&s)?, (b, a, 1.0), "the whole bridge moves in one step");
+        for bad in [
+            json!({"id":id + 77,"diameter":1.0}),
+            json!({"id":id,"net_a":c,"net_b":c}),
+            json!({"id":id,"net_a":9999}),
+            json!({"id":id,"diameter":0.1}),
+            json!({"id":id,"diameter":21.0}),
+            json!({"id":id}),
+            json!({"id":id,"net_a":b,"net_b":a,"diameter":1.0}),
+        ] {
+            assert!(
+                s.execute("board.nettie_set", bad, None).is_err(),
+                "unknown ties, collapsed pairs, phantom nets, bad sizes, empty and no-op sets are refused"
+            );
+        }
+        s.undo()?;
+        assert_eq!(
+            tie(&s)?,
+            (a, c, 2.0),
+            "undoing the whole-bridge set steps back once"
+        );
+        s.undo()?;
+        assert_eq!(
+            tie(&s)?,
+            (a, c, 1.5),
+            "undoing the resize keeps the new pair"
+        );
+        s.undo()?;
+        assert_eq!(
+            tie(&s)?,
+            (a, b, 1.5),
+            "undoing the retarget restores the placed bridge"
+        );
+        Ok(())
+    }
+    #[test]
+    fn board_net_ties_bridge_two_nets_without_a_short() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for bad in [
+            json!({"net_a":gnd,"net_b":gnd,"position":{"x":30.0,"y":20.0},"diameter":1.2}),
+            json!({"net_a":gnd,"net_b":9_999,"position":{"x":30.0,"y":20.0},"diameter":1.2}),
+            json!({"net_a":gnd,"net_b":sig,"position":{"x":30.0,"y":20.0},"diameter":0.05}),
+            json!({"net_a":gnd,"net_b":sig,"position":{"x":null,"y":20.0},"diameter":1.2}),
+        ] {
+            assert!(s.execute("board.nettie_place", bad, None).is_err());
+        }
+        let id = s.execute(
+            "board.nettie_place",
+            json!({"net_a":gnd,"net_b":sig,"position":{"x":30.0,"y":20.0},"rotation":90.0,"diameter":1.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.netties.len(), 1);
+        let drc = s.checks()["drc"].clone();
+        let findings = drc.as_array().ok_or_else(missing)?;
+        assert!(
+            !findings.iter().any(|f| {
+                f["code"].as_str().is_some_and(|c| c.starts_with("copper"))
+                    && f["objects"]
+                        .as_array()
+                        .is_some_and(|o| o.iter().any(|x| x.as_u64() == Some(id)))
+            }),
+            "the declared bridge is the point, not a short"
+        );
+        s.execute(
+            "board.nettie_move",
+            json!({"id":id,"position":{"x":28.0,"y":18.0},"rotation":0.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.netties[0].rotation, 0.0);
+        assert_eq!(
+            s.execute(
+                "board.nettie_move",
+                json!({"id":id,"position":{"x":28.0,"y":18.0},"rotation":270.0}),
+                None,
+            )?["result"]["id"],
+            json!(id)
+        );
+        assert_eq!(s.project.board.netties[0].rotation, 270.0);
+        // Copper on either net may reach its own tie pad, but a track of the
+        // other net crossing the gap still reports a clearance finding.
+        s.execute(
+            "track.add",
+            json!({"net":gnd,"start":{"x":20.0,"y":18.0},"end":{"x":28.6,"y":18.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":29.5,"y":18.0},"end":{"x":36.0,"y":18.0},"width":0.2}),
+            None,
+        )?;
+        let drc = s.checks()["drc"].clone();
+        let findings = drc.as_array().ok_or_else(missing)?;
+        assert!(
+            !findings.iter().any(|f| {
+                f["objects"].as_array().is_some_and(|o| {
+                    o.iter().any(|x| x.as_u64() == Some(id))
+                        && o.len() == 2
+                        && o.iter().all(|x| x.as_u64() == Some(id))
+                })
+            }),
+            "the tie's own two pads never report a short between them"
+        );
+        s.execute("object.delete", json!({"id":id}), None)?;
+        assert!(s.project.board.netties.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.netties.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn fiducial_marks_can_be_resized_and_moved_to_the_other_side() -> Result<(), Error> {
+        let mut s = Session::default();
+        let id = s.execute(
+            "board.fiducial_place",
+            json!({"position":{"x":2.0,"y":2.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let mark = |s: &Session| -> Result<(f64, bool), Error> {
+            let m = s
+                .project
+                .board
+                .fiducials
+                .iter()
+                .find(|m| m.id == id)
+                .ok_or_else(missing)?;
+            Ok((m.diameter, m.layer == pcbcraft_doc::Layer::Back))
+        };
+        let out = s.execute("board.fiducial_set", json!({"id":id,"diameter":1.2}), None)?["result"]
+            .clone();
+        assert_eq!(out["diameter"], 1.2);
+        assert_eq!(out["layer"], "F.Cu");
+        assert_eq!(mark(&s)?, (1.2, false));
+        let out = s.execute("board.fiducial_set", json!({"id":id,"layer":"B.Cu"}), None)?["result"]
+            .clone();
+        assert_eq!(out["layer"], "B.Cu");
+        assert_eq!(
+            mark(&s)?,
+            (1.2, true),
+            "the diameter survives the layer move"
+        );
+        s.execute(
+            "board.fiducial_set",
+            json!({"id":id,"diameter":0.9,"layer":"F.Cu"}),
+            None,
+        )?;
+        assert_eq!(mark(&s)?, (0.9, false), "both fields move in one step");
+        for bad in [
+            json!({"id":id + 77,"diameter":1.0}),
+            json!({"id":id,"diameter":0.1}),
+            json!({"id":id,"diameter":11.0}),
+            json!({"id":id,"layer":"F.Paste"}),
+            json!({"id":id}),
+            json!({"id":id,"diameter":0.9,"layer":"F.Cu"}),
+        ] {
+            assert!(
+                s.execute("board.fiducial_set", bad, None).is_err(),
+                "out-of-range, wrong-layer, empty and no-op sets are refused"
+            );
+        }
+        s.undo()?;
+        assert_eq!(
+            mark(&s)?,
+            (1.2, true),
+            "undoing the pair restores the back-side mark"
+        );
+        s.undo()?;
+        assert_eq!(
+            mark(&s)?,
+            (1.2, false),
+            "undoing the layer move brings it front again"
+        );
+        s.undo()?;
+        assert_eq!(
+            mark(&s)?,
+            (1.0, false),
+            "undoing the resize restores the placed disc"
+        );
+        Ok(())
+    }
+    #[test]
+    fn fiducial_marks_place_move_remove_and_delete() -> Result<(), Error> {
+        let mut s = Session::default();
+        for bad in [
+            json!({"position": {"x": 5.0, "y": 5.0}, "diameter": 0.05}),
+            json!({"position": {"x": 5.0, "y": 5.0}, "diameter": 40.0}),
+            json!({"position": {"x": null, "y": 5.0}, "diameter": 1.0}),
+            json!({"position": {"x": 5.0, "y": 5.0}, "diameter": 1.0, "layer": "F.Mask"}),
+            json!({"position": {"x": 5.0, "y": 5.0}}),
+        ] {
+            assert!(
+                s.execute("board.fiducial_place", bad, None).is_err(),
+                "bad fiducial requests are refused"
+            );
+        }
+        let front = s.execute(
+            "board.fiducial_place",
+            json!({"position": {"x": 5.0, "y": 5.0}, "diameter": 1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let back = s.execute(
+            "board.fiducial_place",
+            json!({"position": {"x": 55.0, "y": 35.0}, "diameter": 1.2, "layer": "B.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.fiducials.len(), 2);
+        assert_eq!(
+            s.project.board.fiducials[0].layer,
+            pcbcraft_doc::Layer::Front
+        );
+        assert_eq!(
+            s.project.board.fiducials[1].layer,
+            pcbcraft_doc::Layer::Back
+        );
+        s.execute(
+            "board.fiducial_move",
+            json!({"id": front, "position": {"x": 6.0, "y": 6.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.fiducials[0].position.x, 6.0);
+        s.undo()?;
+        assert_eq!(s.project.board.fiducials[0].position.x, 5.0);
+        s.execute("board.fiducial_remove", json!({"id": back}), None)?;
+        assert_eq!(s.project.board.fiducials.len(), 1);
+        s.undo()?;
+        assert_eq!(s.project.board.fiducials.len(), 2);
+        s.execute("object.delete", json!({"id": front}), None)?;
+        assert_eq!(s.project.board.fiducials.len(), 1);
+        assert!(
+            s.execute("board.fiducial_remove", json!({"id": 999_999}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn net_tie_merges_everything_and_net_swap_exchanges_names_only() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "wire.connect",
+            json!({"net":a,"from":{"component":r1,"pin":"1"},"to":{"component":r2,"pin":"1"}}),
+            None,
+        )?;
+        s.execute(
+            "wire.connect",
+            json!({"net":b,"from":{"component":r1,"pin":"2"},"to":{"component":r2,"pin":"2"}}),
+            None,
+        )?;
+        s.execute(
+            "board.set_pair_rule",
+            json!({"net_a":a,"net_b":b,"clearance":0.5}),
+            None,
+        )?;
+        // While both nets exist, a swap exchanges only their names.
+        s.execute("net.swap", json!({"id_a":a,"id_b":b}), None)?;
+        let name = |s: &Session, id: u64| {
+            s.project
+                .nets
+                .iter()
+                .find(|n| n.id == id)
+                .map(|n| n.name.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(name(&s, a), "B");
+        assert_eq!(name(&s, b), "A");
+        for c in &s.project.components {
+            for pin in &c.pins {
+                let expected = if pin.number == "1" { a } else { b };
+                assert_eq!(pin.net, Some(expected));
+            }
+        }
+        s.undo()?;
+        assert_eq!(name(&s, a), "A");
+        assert_eq!(name(&s, b), "B");
+        assert!(
+            s.execute("net.swap", json!({"id_a":a,"id_b":a}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("net.swap", json!({"id_a":a,"id_b":99}), None)
+                .is_err()
+        );
+        // Merging folds every member of one net into the other.
+        assert!(
+            s.execute("net.tie", json!({"source":a,"target":a}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("net.tie", json!({"source":b,"target":99}), None)
+                .is_err()
+        );
+        let moved = s.execute("net.tie", json!({"source":b,"target":a}), None)?["result"]["moved"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(moved >= 2, "the merge should report the members it moved");
+        assert!(!s.project.nets.iter().any(|n| n.id == b));
+        for c in &s.project.components {
+            for pin in &c.pins {
+                assert_eq!(pin.net, Some(a));
+            }
+        }
+        assert!(s.project.board.pair_rules.is_empty());
+        s.undo()?;
+        assert!(s.project.nets.iter().any(|n| n.id == b));
+        assert_eq!(s.project.board.pair_rules.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn dxf_import_draws_files_in_as_graphics_and_can_trace_the_outline() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let path =
+            std::env::temp_dir().join(format!("pcbcraft-dxf-import-{}.dxf", std::process::id()));
+        let drawing = "0\nSECTION\n2\nENTITIES\n\
+            0\nLWPOLYLINE\n8\nEdge\n90\n4\n70\n1\n10\n-10\n20\n-10\n10\n50\n20\n-10\n10\n50\n20\n30\n10\n-10\n20\n30\n\
+            0\nLINE\n8\nF_Cu\n10\n-10\n20\n5\n11\n0\n21\n5\n\
+            0\nCIRCLE\n8\nDrill\n10\n0\n20\n0\n40\n2\n\
+            0\nARC\n8\nF_Cu\n10\n20\n20\n20\n40\n5\n50\n0\n51\n90\n\
+            0\nTEXT\n8\nF_Silk\n10\n5\n20\n5\n40\n1.5\n1\nHELLO\n\
+            0\nLWPOLYLINE\n8\nF_Cu\n90\n3\n70\n0\n10\n-10\n20\n5\n10\n0\n20\n5\n10\n0\n20\n15\n\
+            0\nENDSEC\n0\nEOF\n";
+        std::fs::write(&path, drawing).map_err(|e| Error::Invalid(e.to_string()))?;
+        let empty =
+            std::env::temp_dir().join(format!("pcbcraft-dxf-empty-{}.dxf", std::process::id()));
+        std::fs::write(&empty, "0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        for bad in [
+            json!({}),
+            json!({"path": "", "nope": 1}),
+            json!({"path": "pcbcraft-dxf-missing-file.dxf"}),
+            json!({"path": path.to_string_lossy(), "use_outline": "yes"}),
+            json!({"path": empty.to_string_lossy()}),
+        ] {
+            let shown = format!("{bad:?}");
+            assert!(
+                s.execute("dxf.import", bad, None).is_err(),
+                "{shown} must fail"
+            );
+        }
+        let before = s.project.graphics.len();
+        let outline_before = s.project.board.outline.clone();
+        let out = s.execute("dxf.import", json!({"path": path}), None)?["result"].clone();
+        assert_eq!(out["graphics"], 7, "every entity becomes graphics");
+        assert_eq!(out["outline"], serde_json::Value::Null);
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "polygon" && g.points[0].x < 0.0),
+            "without use_outline coordinates are kept as drawn"
+        );
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "text" && g.text == "HELLO"),
+            "text entities become text graphics"
+        );
+        s.undo()?;
+        assert_eq!(s.project.graphics.len(), before, "undo removes the import");
+        let out = s.execute(
+            "dxf.import",
+            json!({"path": path, "use_outline": true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(
+            out["graphics"], 6,
+            "the outline polyline is not also a graphic"
+        );
+        assert_eq!(out["outline"], 4);
+        assert_eq!(s.project.board.width, 60.0);
+        assert_eq!(s.project.board.height, 40.0);
+        let outline = s
+            .project
+            .board
+            .outline
+            .clone()
+            .ok_or_else(|| Error::Invalid("the outline should be set".into()))?;
+        assert!(
+            !outline.iter().any(|q| q.x < 0.0 || q.y < 0.0),
+            "the outline shifts to the first quadrant"
+        );
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "circle" && (g.points[0].x - 10.0).abs() < 1e-9),
+            "every graphic shifts by the same amount as the outline"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.outline, outline_before);
+        assert_eq!(s.project.graphics.len(), before);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&empty);
+        Ok(())
+    }
+
+    #[test]
+    fn svg_import_draws_files_in_as_graphics_and_can_trace_the_outline() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let path =
+            std::env::temp_dir().join(format!("pcbcraft-svg-import-{}.svg", std::process::id()));
+        let drawing = "<svg width=\"60mm\" height=\"50mm\" stroke=\"none\">\
+            <line x1=\"-10mm\" y1=\"15mm\" x2=\"0mm\" y2=\"15mm\" stroke=\"red\"/>\
+            <polygon points=\"-10,60 50,60 50,20 -10,20\" stroke=\"edge\"/>\
+            <circle cx=\"10mm\" cy=\"10mm\" r=\"2mm\"/>\
+            <text x=\"5mm\" y=\"45mm\" font-size=\"2mm\">HELLO</text>\
+            <path d=\"M-10 30 L50 30 L50 -10 Z\"/>\
+            <g><line x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\"/></g>\
+            <polyline points=\"-10,45 0,45 0,35\"/>\
+            </svg>\n";
+        std::fs::write(&path, drawing).map_err(|e| Error::Invalid(e.to_string()))?;
+        let empty =
+            std::env::temp_dir().join(format!("pcbcraft-svg-empty-{}.svg", std::process::id()));
+        std::fs::write(&empty, "<svg width=\"10mm\" height=\"10mm\"></svg>\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let curvy =
+            std::env::temp_dir().join(format!("pcbcraft-svg-curvy-{}.svg", std::process::id()));
+        std::fs::write(
+            &curvy,
+            "<svg width=\"10mm\" height=\"10mm\"><path d=\"M0 0 C1 1 2 2 3 3\"/></svg>\n",
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        for bad in [
+            json!({}),
+            json!({"path": "", "nope": 1}),
+            json!({"path": "pcbcraft-svg-missing-file.svg"}),
+            json!({"path": path.to_string_lossy(), "use_outline": "yes"}),
+            json!({"path": empty.to_string_lossy()}),
+            json!({"path": curvy.to_string_lossy()}),
+        ] {
+            let shown = format!("{bad:?}");
+            assert!(
+                s.execute("svg.import", bad, None).is_err(),
+                "{shown} must fail"
+            );
+        }
+        let before = s.project.graphics.len();
+        let outline_before = s.project.board.outline.clone();
+        let out = s.execute("svg.import", json!({"path": path}), None)?["result"].clone();
+        assert_eq!(
+            out["graphics"], 7,
+            "groups are skipped and open polylines split into segments"
+        );
+        assert_eq!(out["outline"], serde_json::Value::Null);
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "polygon" && g.points[0].x.abs() < 1e-9),
+            "without use_outline coordinates are kept as drawn"
+        );
+        assert!(
+            s.project
+                .graphics
+                .iter()
+                .any(|g| g.shape == "text" && g.text == "HELLO"),
+            "text elements become text graphics"
+        );
+        s.undo()?;
+        assert_eq!(s.project.graphics.len(), before, "undo removes the import");
+        let out = s.execute(
+            "svg.import",
+            json!({"path": path, "use_outline": true}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(
+            out["graphics"], 6,
+            "the outline polygon is not also a graphic"
+        );
+        assert_eq!(out["outline"], 4);
+        assert_eq!(s.project.board.width, 60.0);
+        assert_eq!(s.project.board.height, 40.0);
+        let outline = s
+            .project
+            .board
+            .outline
+            .clone()
+            .ok_or_else(|| Error::Invalid("the outline should be set".into()))?;
+        assert!(
+            !outline.iter().any(|q| q.x < 0.0 || q.y < 0.0),
+            "the outline shifts to the first quadrant"
+        );
+        assert!(
+            s.project.graphics.iter().any(|g| g.shape == "circle"
+                && (g.points[0].x - 20.0).abs() < 1e-9
+                && (g.points[0].y - 50.0).abs() < 1e-9),
+            "the page flips y and every graphic shifts by the same amount as the outline"
+        );
+        assert_eq!(
+            s.project
+                .graphics
+                .iter()
+                .filter(|g| g.shape == "polygon")
+                .count(),
+            1,
+            "the traced polygon is not duplicated as a graphic"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.outline, outline_before);
+        assert_eq!(s.project.graphics.len(), before);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&empty);
+        let _ = std::fs::remove_file(&curvy);
+        Ok(())
+    }
+
+    #[test]
+    fn import_sheet_arrives_as_a_new_page_with_components_and_ports() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute("net.create", json!({"name":"5V"}), None)?;
+        s.execute("schematic.new_sheet", json!({"name":"power"}), None)?;
+        let tmp = std::env::temp_dir();
+        let path = tmp.join(format!("pcbcraft-import-sheet-{}.json", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"{"components":[
+                {"kind":"resistor","reference":"R9","value":"10k","position":{"x":10,"y":20},
+                 "rotation":90,"fields":[{"key":"Datasheet","value":"an12"}]},
+                {"kind":"led","position":{"x":30,"y":20}}],
+             "ports":[{"name":"VIN","position":{"x":0,"y":0},"net":"5V"}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let lonely = tmp.join(format!(
+            "pcbcraft-import-lonely-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &lonely,
+            r#"{"ports":[{"name":"OUT","position":{"x":0,"y":0}}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let wrong = tmp.join(format!("pcbcraft-import-wrong-{}.json", std::process::id()));
+        std::fs::write(
+            &wrong,
+            r#"{"ports":[{"name":"X","position":{"x":0,"y":0},"net":"9V"}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let odd = tmp.join(format!("pcbcraft-import-odd-{}.json", std::process::id()));
+        std::fs::write(
+            &odd,
+            r#"{"components":[{"kind":"magic","position":{"x":0,"y":0}}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        for bad in [
+            json!({}),
+            json!({"path": "", "nope": 1}),
+            json!({"path": "pcbcraft-missing-sheet.json"}),
+            json!({"path": path.to_string_lossy(), "name": "power"}),
+            json!({"path": lonely.to_string_lossy()}),
+            json!({"path": wrong.to_string_lossy()}),
+            json!({"path": odd.to_string_lossy()}),
+        ] {
+            let shown = format!("{bad:?}");
+            assert!(
+                s.execute("schematic.import_sheet", bad, None).is_err(),
+                "{shown} must fail"
+            );
+        }
+        let sheets_before = s.project.sheets.len();
+        let out = s.execute(
+            "schematic.import_sheet",
+            json!({"path": path.to_string_lossy(), "name": "input stage"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["components"], 2);
+        assert_eq!(out["ports"], 1);
+        assert_eq!(out["name"], "input stage");
+        let sheet = out["sheet"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("the result carries no sheet id".into()))?;
+        assert_eq!(s.project.sheets.len(), sheets_before + 1);
+        let r9 = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == "R9")
+            .cloned()
+            .ok_or_else(|| Error::Invalid("R9 should have been imported".into()))?;
+        assert_eq!(r9.sheet, sheet);
+        assert_eq!(r9.value, "10k");
+        assert!((r9.rotation - 90.0).abs() < 1e-9);
+        assert_eq!(r9.field("Datasheet"), Some("an12"));
+        let d = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.kind == "led" && c.sheet == sheet)
+            .cloned()
+            .ok_or_else(|| Error::Invalid("the LED should have been imported".into()))?;
+        assert!(
+            d.reference.starts_with('D'),
+            "auto references follow the template prefix"
+        );
+        let net5 = s
+            .project
+            .nets
+            .iter()
+            .find(|n| n.name == "5V")
+            .cloned()
+            .ok_or_else(|| Error::Invalid("the 5V net should exist".into()))?;
+        let vin = s
+            .project
+            .ports
+            .iter()
+            .find(|o| o.name == "VIN")
+            .cloned()
+            .ok_or_else(|| Error::Invalid("VIN should have been imported".into()))?;
+        assert_eq!(vin.sheet, sheet);
+        assert_eq!(vin.net, net5.id);
+        let joined = tmp.join(format!(
+            "pcbcraft-import-joined-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &joined,
+            r#"{"ports":[{"name":"VIN","position":{"x":1,"y":1}}]}"#,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = s.execute(
+            "schematic.import_sheet",
+            json!({"path": joined.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        let second = out["sheet"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("the result carries no sheet id".into()))?;
+        let vin2 = s
+            .project
+            .ports
+            .iter()
+            .find(|o| o.name == "VIN" && o.sheet == second)
+            .cloned()
+            .ok_or_else(|| Error::Invalid("the second VIN should have been imported".into()))?;
+        assert_eq!(
+            vin2.net, net5.id,
+            "a port without a net joins the net its name already carries"
+        );
+        assert!(
+            out["name"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("pcbcraft-import-joined")),
+            "the file stem names the page when no name is given"
+        );
+        assert!(
+            s.execute(
+                "schematic.import_sheet",
+                json!({"path": path.to_string_lossy(), "name": "again"}),
+                None
+            )
+            .is_err(),
+            "references collide on the second import of the same file"
+        );
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&lonely);
+        let _ = std::fs::remove_file(&wrong);
+        let _ = std::fs::remove_file(&odd);
+        let _ = std::fs::remove_file(&joined);
+        Ok(())
+    }
+
+    #[test]
+    fn output_jobs_write_mechanical_and_drawing_kinds() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-mech-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"mech","kinds":["cmp","idf","vrml","step","pdf","svg","ipc2581","ps","odb","hpgl","stackup","drill_chart","stats"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"mech","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "pcb.cmp",
+            "board.idf",
+            "board.wrl",
+            "board.step",
+            "board.pdf",
+            "board.svg",
+            "board.xml",
+            "pcb.ps",
+            "board.odb.zip",
+            "board.hpgl",
+            "board-stackup.txt",
+            "board-drill-tools.csv",
+            "board-stats.csv",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn output_jobs_write_test_router_and_report_kinds() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"test","kinds":["dsn","ipc356","gencad","hyperlynx","plot","report"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"test","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "pcb.dsn",
+            "test.brd",
+            "board.gencad",
+            "netlist.csv",
+            "plot-report.csv",
+            "board-report.txt",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn raster_job_writes_six_pngs_into_the_folder() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-raster-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"layers","kinds":["raster"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"layers","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "layer-copper-top.png",
+            "layer-copper-bottom.png",
+            "layer-mask-top.png",
+            "layer-mask-bottom.png",
+            "layer-legend-top.png",
+            "layer-legend-bottom.png",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn output_jobs_record_recipes_and_write_their_files_on_demand() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        for bad in [
+            json!({"name":"","kinds":["gerbers"]}),
+            json!({"name":"x","kinds":[]}),
+            json!({"name":"x","kinds":["gerbers","netlist","bom","placement","dxf","extra"]}),
+            json!({"name":"x","kinds":["gerbers","unknown"]}),
+            json!({"name":"fab","kinds":["gerbers"],"nope":1}),
+        ] {
+            assert!(s.execute("output_job.add", bad, None).is_err());
+        }
+        s.execute(
+            "output_job.add",
+            json!({"name":"fab","kinds":["dxf","gerbers","gerbers"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"docs","kinds":["bom","netlist","placement"]}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "output_job.add",
+                json!({"name":"fab","kinds":["bom"]}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.output_jobs.len(), 2);
+        assert_eq!(s.project.output_jobs[0].kinds, ["dxf", "gerbers"]);
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-output-jobs-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = s.execute(
+            "output_job.run",
+            json!({"name":"fab","directory":directory.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(
+            out["files"],
+            json!([
+                "README-fabrication.txt",
+                "pcb-B.Cu.gbr",
+                "pcb-B.Mask.gbr",
+                "pcb-B.Paste.gbr",
+                "pcb-B.SilkS.gbr",
+                "pcb-Drill.drl",
+                "pcb-DrillMap.gbr",
+                "pcb-Edge.gbr",
+                "pcb-F.Cu.gbr",
+                "pcb-F.Mask.gbr",
+                "pcb-F.Paste.gbr",
+                "pcb-F.SilkS.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
+                "pcb-job.gbrjob",
+                "pcb.dxf"
+            ])
+        );
+        for name in [
+            "pcb-F.Cu.gbr",
+            "pcb-B.Cu.gbr",
+            "pcb-Plated.drl",
+            "pcb-DrillMap.gbr",
+            "pcb-Edge.gbr",
+            "pcb-F.Mask.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
+            "README-fabrication.txt",
+            "pcb.dxf",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        // The recipe is stable: re-running after an edit picks up new copper.
+        s.execute(
+            "track.add",
+            json!({"net":4,"start":{"x":10.0,"y":30.0},"end":{"x":20.0,"y":30.0},"width":0.3}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"fab","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let front = std::fs::read_to_string(directory.join("pcb-F.Cu.gbr"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            front.contains("X20.000000Y30.000000"),
+            "the new track is exported"
+        );
+        s.execute(
+            "output_job.run",
+            json!({"name":"docs","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in ["bom.csv", "pcb-netlist.net", "placement.txt"] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        assert!(
+            s.execute(
+                "output_job.run",
+                json!({"name":"missing","directory":directory.to_string_lossy()}),
+                None,
+            )
+            .is_err()
+        );
+        s.execute("output_job.remove", json!({"name":"docs"}), None)?;
+        assert_eq!(s.project.output_jobs.len(), 1);
+        s.undo()?;
+        assert_eq!(s.project.output_jobs.len(), 2);
+        for name in [
+            "pcb-F.Cu.gbr",
+            "pcb-B.Cu.gbr",
+            "pcb-Plated.drl",
+            "pcb-Edge.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
+            "pcb.dxf",
+            "bom.csv",
+            "pcb-netlist.net",
+            "placement.txt",
+        ] {
+            let _ = std::fs::remove_file(directory.join(name));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn package_on_the_sample_design_lists_every_expected_file_in_its_manifest() -> Result<(), Error>
+    {
+        let mut s = Session::sample()?;
+        let path =
+            std::env::temp_dir().join(format!("pcbcraft-package-{}.zip", std::process::id()));
+        let out = s.execute(
+            "output_job.package",
+            json!({"path": path.to_string_lossy()}),
+            None,
+        )?;
+        assert_eq!(out["result"]["manifest"], "manifest.json");
+        assert_eq!(out["result"]["job"], "fab");
+        assert_eq!(out["result"]["variant"], Value::Null);
+        let zip = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let entries = package_entries(&zip)?;
+        let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names.first().copied(), Some("manifest.json"));
+        let manifest: Value =
+            serde_json::from_slice(&entries[0].1).map_err(|e| Error::Invalid(e.to_string()))?;
+        let listed: Vec<&str> = manifest["files"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("the manifest lists its files".into()))?
+            .iter()
+            .filter_map(|f| f["name"].as_str())
+            .collect();
+        let expected = [
+            "README-fabrication.txt",
+            "bom.csv",
+            "pcb-B.Cu.gbr",
+            "pcb-B.Mask.gbr",
+            "pcb-B.Paste.gbr",
+            "pcb-B.SilkS.gbr",
+            "pcb-Drill.drl",
+            "pcb-DrillMap.gbr",
+            "pcb-Edge.gbr",
+            "pcb-F.Cu.gbr",
+            "pcb-F.Mask.gbr",
+            "pcb-F.Paste.gbr",
+            "pcb-F.SilkS.gbr",
+            "pcb-NPTH.drl",
+            "pcb-Plated.drl",
+            "pcb-job.gbrjob",
+            "placement.txt",
+        ];
+        assert_eq!(listed, expected, "the manifest names the whole bundle");
+        let mut on_disk: Vec<&str> = names[1..].to_vec();
+        on_disk.sort_unstable();
+        assert_eq!(on_disk, expected, "every listed file is in the zip");
+        assert_eq!(
+            manifest["files"]
+                .as_array()
+                .ok_or_else(|| Error::Invalid("a file list".into()))?
+                .len(),
+            entries.len() - 1,
+            "the manifest lists every file but itself"
+        );
+        for record in manifest["files"]
+            .as_array()
+            .ok_or_else(|| Error::Invalid("a file list".into()))?
+        {
+            let name = record["name"]
+                .as_str()
+                .ok_or_else(|| Error::Invalid("a name".into()))?;
+            let bytes = entries
+                .iter()
+                .find(|(entry, _)| entry == name)
+                .map(|(_, bytes)| bytes)
+                .ok_or_else(|| Error::Invalid(format!("{name} is in the zip")))?;
+            assert_eq!(record["bytes"], bytes.len(), "{name} size");
+            assert_eq!(
+                record["crc32"],
+                format!("{:08x}", pcbcraft_io::crc32(bytes)),
+                "{name} checksum"
+            );
+            assert!(
+                record["job"] == "fab",
+                "{name} records the job that produced it"
+            );
+        }
+        assert!(
+            manifest["files"]
+                .as_array()
+                .ok_or_else(|| Error::Invalid("a file list".into()))?
+                .iter()
+                .any(|f| f["name"] == "pcb-F.Cu.gbr" && f["function"] == "Copper,L1,Top"),
+            "the copper layer records its Gerber function"
+        );
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn package_twice_is_byte_identical_and_leaves_the_design_alone() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let first = std::env::temp_dir().join(format!("pcbcraft-again-{}.zip", std::process::id()));
+        let second =
+            std::env::temp_dir().join(format!("pcbcraft-again2-{}.zip", std::process::id()));
+        s.execute(
+            "output_job.package",
+            json!({"path": first.to_string_lossy()}),
+            None,
+        )?;
+        s.execute(
+            "output_job.package",
+            json!({"path": second.to_string_lossy()}),
+            None,
+        )?;
+        let one = std::fs::read(&first).map_err(|e| Error::Invalid(e.to_string()))?;
+        let two = std::fs::read(&second).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(
+            one, two,
+            "the same design always packages to the same bytes"
+        );
+        assert!(
+            s.project.output_jobs.is_empty(),
+            "packaging does not record a job on the design"
+        );
+        assert!(
+            s.project.components.len() == Session::sample()?.project.components.len(),
+            "packaging writes a file and leaves the design untouched"
+        );
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+        Ok(())
+    }
+
+    #[test]
+    fn package_runs_a_recorded_job_and_refuses_unknown_input() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"assembly","kinds":["bom","placement"]}),
+            None,
+        )?;
+        let path = std::env::temp_dir().join(format!("pcbcraft-job-{}.zip", std::process::id()));
+        let out = s.execute(
+            "output_job.package",
+            json!({"path": path.to_string_lossy(), "job":"assembly"}),
+            None,
+        )?;
+        assert_eq!(out["result"]["job"], "assembly");
+        let entries =
+            package_entries(&std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?)?;
+        let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["manifest.json", "bom.csv", "placement.txt"]);
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": path.to_string_lossy(), "job":"missing"}),
+                None,
+            )
+            .is_err(),
+            "an unnamed job is refused"
+        );
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": path.to_string_lossy(), "job":"assembly", "kinds":["gerbers"]}),
+                None,
+            )
+            .is_err(),
+            "a job and a kind list are refused together"
+        );
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": path.to_string_lossy(), "variant":"unbuilt"}),
+                None,
+            )
+            .is_err(),
+            "a variant the design does not define is refused"
+        );
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": path.to_string_lossy(), "kinds":["nonsense"]}),
+                None,
+            )
+            .is_err(),
+            "an unknown export kind is refused"
+        );
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": std::env::temp_dir().to_string_lossy()}),
+                None,
+            )
+            .is_err(),
+            "a folder is refused as a package path"
+        );
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+
     #[test]
     fn wire_place_creates_drawn_wire_and_connects_two_pins_in_one_undo() -> Result<(), Error> {
         let mut s = Session::default();
@@ -30977,6 +43456,176 @@ mod tests {
                 .is_err(),
             "clearing stack notes is refused while inner copper is in use"
         );
+        Ok(())
+    }
+    fn datum_id(s: &mut Session, params: Value) -> Result<u64, Error> {
+        s.execute("board.datum_add", params, None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)
+    }
+    #[test]
+    fn datums_are_added_moved_renamed_and_removed_with_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":6.0}}))?;
+        assert_eq!(s.project.board.datums.len(), 1);
+        s.execute(
+            "board.datum_move",
+            json!({"id":a,"position":{"x":7.0,"y":8.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.datums[0].position, Point::new(7.0, 8.0));
+        s.execute("board.datum_rename", json!({"id":a,"name":"Mount-1"}), None)?;
+        assert_eq!(s.project.board.datums[0].name, "Mount-1");
+        s.undo()?;
+        assert_eq!(s.project.board.datums[0].name, "A");
+        s.execute("board.datum_remove", json!({"id":a}), None)?;
+        assert!(s.project.board.datums.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.datums.len(), 1);
+        assert!(
+            s.execute("board.datum_remove", json!({"id":9_999}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn datum_names_are_unique_and_bounded() -> Result<(), Error> {
+        let mut s = Session::default();
+        datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":6.0}}))?;
+        let long = "x".repeat(33);
+        for bad in [
+            json!({"name":"a","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"","position":{"x":9.0,"y":6.0}}),
+            json!({"name":long,"position":{"x":9.0,"y":6.0}}),
+            json!({"name":"has space","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"it's","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"B"}),
+            json!({"name":"B","position":{"x":9.0,"y":6.0},"hole":1}),
+        ] {
+            assert!(s.execute("board.datum_add", bad, None).is_err());
+        }
+        let b = datum_id(&mut s, json!({"name":"B","position":{"x":9.0,"y":6.0}}))?;
+        assert!(
+            s.execute("board.datum_rename", json!({"id":b,"name":"A"}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.datum_rename", json!({"id":b,"name":"B"}), None)
+                .is_ok()
+        );
+        for i in 0..62 {
+            datum_id(
+                &mut s,
+                json!({"name":format!("N{i}"),"position":{"x":10.0,"y":6.0}}),
+            )?;
+        }
+        assert_eq!(s.project.board.datums.len(), 64);
+        assert!(
+            s.execute(
+                "board.datum_add",
+                json!({"name":"Over","position":{"x":10.0,"y":6.0}}),
+                None
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn datums_outside_the_board_are_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        let w = s.project.board.width;
+        for bad in [
+            json!({"name":"A","position":{"x":-1.0,"y":5.0}}),
+            json!({"name":"A","position":{"x":w + 1.0,"y":5.0}}),
+        ] {
+            assert!(s.execute("board.datum_add", bad, None).is_err());
+        }
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":5.0}}))?;
+        assert!(
+            s.execute(
+                "board.datum_move",
+                json!({"id":a,"position":{"x":w + 5.0,"y":5.0}}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.datums[0].position, Point::new(5.0, 5.0));
+        Ok(())
+    }
+    #[test]
+    fn a_datum_tied_to_a_hole_follows_the_hole() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":4.0,"y":4.0},"diameter":3.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let d = datum_id(&mut s, json!({"name":"M1","hole":hole}))?;
+        assert_eq!(
+            s.project.datum_position(&s.project.board.datums[0]),
+            Point::new(4.0, 4.0)
+        );
+        s.execute(
+            "board.hole_move",
+            json!({"id":hole,"position":{"x":12.0,"y":9.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.datum_position(&s.project.board.datums[0]),
+            Point::new(12.0, 9.0)
+        );
+        // Deleting the hole detaches the datum where the hole last was.
+        s.execute("object.delete", json!({"id":hole}), None)?;
+        let kept = s.project.board.datums.first().ok_or_else(missing)?;
+        assert_eq!(kept.id, d);
+        assert_eq!(kept.hole, None);
+        assert_eq!(s.project.datum_position(kept), Point::new(12.0, 9.0));
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn datum_ids_are_never_reused_after_save_and_open() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":5.0}}))?;
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let project: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut reopened = Session::default();
+        reopened.replace(project)?;
+        let b = datum_id(
+            &mut reopened,
+            json!({"name":"B","position":{"x":6.0,"y":5.0}}),
+        )?;
+        assert_ne!(a, b);
+        assert!(b > a);
+        Ok(())
+    }
+    #[test]
+    fn datums_write_into_the_mechanical_outputs_of_a_job() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        datum_id(&mut s, json!({"name":"DA","position":{"x":3.0,"y":3.0}}))?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-datum-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"mech","kinds":["step","svg","dxf"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"mech","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let step = std::fs::read_to_string(directory.join("board.step"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(step.contains("'DATUM_DA'"));
+        let svg = std::fs::read_to_string(directory.join("board.svg"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(svg.contains(">DA</text>"));
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 }
