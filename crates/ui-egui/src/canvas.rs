@@ -1053,6 +1053,7 @@ impl App {
                     return Some(PinRef {
                         component: c.id,
                         pin: pin.number.clone(),
+                        unit: None,
                     });
                 }
             }

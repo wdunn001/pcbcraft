@@ -2426,7 +2426,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }
     }
     Ok(files)
-
 }
 
 /// Gerber drill-map layer with one marker per tool and a legend table.
@@ -6638,6 +6637,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -6647,6 +6647,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -7234,6 +7235,7 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 direction: Some(p.angle),
                 unit: p.unit,
+                appearances: vec![],
             })
             .collect();
         let pads = footprint
@@ -7340,6 +7342,7 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 direction: Some(p.angle),
                 unit: p.unit,
+                appearances: vec![],
             })
             .collect();
         c.library_symbol = Some(pcbcraft_doc::LibrarySymbol {
@@ -7887,6 +7890,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(180.0),
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -7896,6 +7900,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -8081,6 +8086,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 }],
                 units: vec![],
                 library_symbol: None,
@@ -8172,6 +8178,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -8181,6 +8188,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -8289,6 +8297,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -8298,6 +8307,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -8379,6 +8389,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -8388,6 +8399,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -8534,6 +8546,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -8543,6 +8556,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -8702,6 +8716,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -8737,6 +8752,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -9449,6 +9465,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -9458,6 +9475,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -9540,6 +9558,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -9549,6 +9568,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -9621,6 +9641,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     })
                     .to_vec(),
                 units: vec![],
@@ -9783,6 +9804,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -9931,6 +9953,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -9940,6 +9963,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                 ],
                 units: vec![],
@@ -10074,6 +10098,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -10083,6 +10108,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -10251,6 +10277,7 @@ mod tests {
                         electrical_type: "passive".into(),
                         direction: None,
                         unit: 1,
+                        appearances: vec![],
                     },
                     pcbcraft_doc::Pin {
                         number: "2".into(),
@@ -10334,6 +10361,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(180.0),
                     unit: 1,
+                    appearances: vec![],
                 },
                 pcbcraft_doc::Pin {
                     number: "2".into(),
@@ -10343,6 +10371,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: Some(0.0),
                     unit: 1,
+                    appearances: vec![],
                 },
             ],
             units: vec![],
@@ -10376,6 +10405,7 @@ mod tests {
             pin: pcbcraft_doc::PinRef {
                 component: 3,
                 pin: "2".into(),
+                unit: None,
             },
         });
         project.validate()?;
@@ -10774,6 +10804,7 @@ mod tests {
                 electrical_type: definition.electrical_type.clone(),
                 direction: Some(definition.angle),
                 unit: definition.unit,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: Some(pcbcraft_doc::LibrarySymbol {
@@ -11536,7 +11567,8 @@ mod tests {
         project.validate()?;
         let map = drill_map_plot(&project)?;
         assert!(map.contains("G04 LEGEND T1,"));
-        assert!(map.contains("G04 LEGEND T2,"));        Ok(())
+        assert!(map.contains("G04 LEGEND T2,"));
+        Ok(())
     }
 
     #[test]
@@ -11978,7 +12010,8 @@ mod tests {
         let files = gerber_files(&project)?;
         assert!(files["pcb-F.Mask.gbr"].contains("%TF.FileFunction,Soldermask,Top*%"));
         assert!(files["pcb-F.Paste.gbr"].contains("%TF.FileFunction,Paste,Top*%"));
-        assert!(files["pcb-F.Paste.gbr"].contains("D03*"));        Ok(())
+        assert!(files["pcb-F.Paste.gbr"].contains("D03*"));
+        Ok(())
     }
 
     #[test]
@@ -12001,7 +12034,9 @@ mod tests {
             kind: "copper".into(),
             thickness: 0.035,
         });
-        project.meta.insert("contact".into(), "fab@example.test".into());
+        project
+            .meta
+            .insert("contact".into(), "fab@example.test".into());
         project.validate()?;
         let files = gerber_files(&project)?;
         let readme = &files["README-fabrication.txt"];

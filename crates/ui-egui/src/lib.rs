@@ -3585,6 +3585,7 @@ impl App {
                         let r = PinRef {
                             component: comp.id,
                             pin: pin.number.clone(),
+                            unit: None,
                         };
                         if pin.net == Some(net.id) {
                             members.push((label, r));
@@ -7694,6 +7695,7 @@ mod tests {
                 Tool::Wire(Some(PinRef {
                     component: 1,
                     pin: "1".into(),
+                    unit: None,
                 })),
                 "second pin",
             ),

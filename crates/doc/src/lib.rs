@@ -2225,6 +2225,7 @@ pub fn component_template(
                 electrical_type: passive(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             })
             .collect(),
     })
@@ -4122,10 +4123,12 @@ mod drill_tests {
             from: PinRef {
                 component: 1,
                 pin: "5".into(),
+                unit: None,
             },
             to: PinRef {
                 component: 1,
                 pin: "1".into(),
+                unit: None,
             },
         };
         project.wires.push(wire.clone());
@@ -4207,7 +4210,11 @@ mod drill_tests {
         )?;
         assert_eq!(c.pins.len(), 4, "one row per distinct physical number");
         assert_eq!(c.pins.iter().filter(|p| p.number == "4").count(), 1);
-        let supply = c.pins.iter().find(|p| p.number == "4").ok_or("missing V+")?;
+        let supply = c
+            .pins
+            .iter()
+            .find(|p| p.number == "4")
+            .ok_or("missing V+")?;
         assert_eq!(supply.appearances.len(), 1);
         assert_eq!(supply.appearances[0].unit, 2);
         Ok(())
@@ -4216,7 +4223,9 @@ mod drill_tests {
     #[test]
     fn library_component_refuses_conflicting_duplicate_pin_numbers() -> Result<(), String> {
         let mut definition = dual_unit_common_supply_definition();
-        definition.pins.push(symbol_pin("4", "WRONG", 2, 1.0, 1.0, 0.0, "passive"));
+        definition
+            .pins
+            .push(symbol_pin("4", "WRONG", 2, 1.0, 1.0, 0.0, "passive"));
         assert!(
             library_component(
                 definition,
@@ -4296,6 +4305,7 @@ mod drill_tests {
             to: PinRef {
                 component: 1,
                 pin: "1".into(),
+                unit: None,
             },
         };
         project.wires.push(wire.clone());
