@@ -116,6 +116,21 @@ fn a_newcomer_opens_and_closes_the_branches_of_the_schematic_tree() -> Result<()
 }
 
 #[test]
+fn a_newcomer_picks_the_parts_row_of_the_schematic_tree() -> Result<(), String> {
+    let (ctx, mut app) = practice(Tab::Schematic);
+    tap_id(&ctx, &mut app, "button:Parts")?;
+    assert!(
+        app.tree.cursor.is_some() || app.tree.selected_key.is_some(),
+        "pressing the Parts row puts the tree cursor on it"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Parts")?,
+        "the Parts row stays in the tree after it is picked"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_filters_the_tree_by_typing() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Schematic);
     type_into(&ctx, &mut app, "textinput:Filter layers and objects", "LED")?;
