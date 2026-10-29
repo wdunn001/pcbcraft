@@ -1,6 +1,5 @@
 //! Host bridge for opening uploads and triggering downloads without std::fs in the UI crate.
-use pcbcraft_doc::Project;
-use pcbcraft_io::{OpenKind, open_document, save_bytes};
+use pcbcraft_io::OpenKind;
 use std::sync::MutexGuard;
 
 /// Browser or desktop hooks for byte-oriented project I/O.
@@ -94,6 +93,8 @@ pub fn replace_session_from_open(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pcbcraft_doc::Project;
+    use pcbcraft_io::{open_document, save_bytes};
     use pcbcraft_mcp::shared;
 
     #[test]

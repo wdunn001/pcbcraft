@@ -1801,6 +1801,7 @@ dependencies = [
  "pcbcraft-geom",
  "pcbcraft-library",
  "png",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1821,6 +1822,7 @@ name = "pcbcraft-mcp"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "pcbcraft-doc",
  "pcbcraft-engine",
  "pcbcraft-io",
  "pcbcraft-library",
@@ -1862,6 +1864,7 @@ name = "pcbcraft-web"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "js-sys",
  "pcbcraft-engine",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",

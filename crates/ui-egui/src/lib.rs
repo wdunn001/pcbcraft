@@ -8972,8 +8972,9 @@ mod tests {
                 end: Some(Point::new(18.0, 8.0)),
             });
             s.project.validate().map_err(|e| e.to_string())?;
+            app.project = s.project.clone();
+            app.revision = s.revision;
         }
-        app.refresh();
         let slot = app
             .project
             .board
