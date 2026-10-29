@@ -1000,6 +1000,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "track.cleanup",
+            "Remove dangling track stubs, merge collinear same-net segments on one layer, and drop zero-length pieces in one undo step",
+            schema(
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &[],
+            ),
+        ),
+        (
             "board.resize",
             "Set rectangular board dimensions, in millimetres",
             schema(
@@ -2883,6 +2891,14 @@ struct NetUnrouteParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct TrackCleanupParams {
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    layer: Option<Layer>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct NetTieParams {
     source: Id,
     target: Id,
@@ -4468,6 +4484,199 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
 }
+
+const TRACK_ENDPOINT_EPS: f64 = 1e-6;
+const TRACK_CLEANUP_MAX_CHANGES: usize = 4096;
+
+fn track_endpoints_near(a: Point, b: Point) -> bool {
+    a.distance(b) <= TRACK_ENDPOINT_EPS
+}
+
+fn track_cleanup_matches(t: &Track, net: Option<Id>, layer: Option<Layer>) -> bool {
+    net.is_none_or(|n| t.net == n) && layer.is_none_or(|l| t.layer == l)
+}
+
+fn pad_touches_track_point(p: &Project, point: Point, net: Id, layer: Layer) -> bool {
+    for footprint in &p.board.footprints {
+        for pad in &footprint.pads {
+            if pad.net != Some(net) {
+                continue;
+            }
+            let on_layer = pad
+                .geometry
+                .as_ref()
+                .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
+                .unwrap_or(layer == Layer::Front);
+            if !on_layer {
+                continue;
+            }
+            let anchor = footprint.pad_position(&pad.number).unwrap_or(pad.offset);
+            if point.distance(anchor) <= pad.bounding_radius() + TRACK_ENDPOINT_EPS {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn via_touches_track_point(p: &Project, point: Point, net: Id) -> bool {
+    p.board.vias.iter().any(|via| {
+        via.net == net && point.distance(via.position) <= via.diameter / 2.0 + TRACK_ENDPOINT_EPS
+    })
+}
+
+fn track_endpoint_touches_tracks(
+    tracks: &[Track],
+    point: Point,
+    net: Id,
+    layer: Layer,
+    skip: Id,
+) -> bool {
+    tracks.iter().any(|track| {
+        track.id != skip
+            && track.net == net
+            && track.layer == layer
+            && (track_endpoints_near(track.start, point) || track_endpoints_near(track.end, point))
+    })
+}
+
+fn track_endpoint_anchored(p: &Project, point: Point, net: Id, layer: Layer, skip: Id) -> bool {
+    track_endpoint_touches_tracks(&p.board.tracks, point, net, layer, skip)
+        || via_touches_track_point(p, point, net)
+        || pad_touches_track_point(p, point, net, layer)
+}
+
+fn track_is_zero_length(track: &Track) -> bool {
+    track.start.distance(track.end) <= TRACK_ENDPOINT_EPS
+}
+
+fn collinear_track_merge_endpoints(a: &Track, b: &Track) -> Option<(Point, Point)> {
+    if a.arc.is_some()
+        || b.arc.is_some()
+        || a.net != b.net
+        || a.layer != b.layer
+        || (a.width - b.width).abs() > TRACK_ENDPOINT_EPS
+    {
+        return None;
+    }
+    let endpoints = [a.start, a.end];
+    let shared = endpoints
+        .iter()
+        .find(|p| track_endpoints_near(**p, b.start) || track_endpoints_near(**p, b.end))?;
+    let far = |track: &Track| -> Option<Point> {
+        if track_endpoints_near(track.start, *shared) {
+            Some(track.end)
+        } else if track_endpoints_near(track.end, *shared) {
+            Some(track.start)
+        } else {
+            None
+        }
+    };
+    let fa = far(a)?;
+    let fb = far(b)?;
+    let ux = fa.x - shared.x;
+    let uy = fa.y - shared.y;
+    let vx = fb.x - shared.x;
+    let vy = fb.y - shared.y;
+    let ul = (ux * ux + uy * uy).sqrt();
+    let vl = (vx * vx + vy * vy).sqrt();
+    if ul <= TRACK_ENDPOINT_EPS || vl <= TRACK_ENDPOINT_EPS {
+        return None;
+    }
+    let cross = (ux / ul) * (vy / vl) - (uy / ul) * (vx / vl);
+    let dot = (ux / ul) * (vx / vl) + (uy / ul) * (vy / vl);
+    if cross.abs() > 1e-9 || dot >= 0.0 {
+        return None;
+    }
+    Some((fa, fb))
+}
+
+fn run_track_cleanup(
+    p: &mut Project,
+    net: Option<Id>,
+    layer: Option<Layer>,
+) -> Result<(usize, usize), Error> {
+    let mut removed = 0usize;
+    let mut merged = 0usize;
+    let bump_removed = |removed: &mut usize| -> Result<(), Error> {
+        *removed = removed.saturating_add(1);
+        if *removed > TRACK_CLEANUP_MAX_CHANGES {
+            return Err(Error::Invalid(
+                "track cleanup would change too many segments at once".into(),
+            ));
+        }
+        Ok(())
+    };
+    let bump_merged = |merged: &mut usize| -> Result<(), Error> {
+        *merged = merged.saturating_add(1);
+        if *merged > TRACK_CLEANUP_MAX_CHANGES {
+            return Err(Error::Invalid(
+                "track cleanup would change too many segments at once".into(),
+            ));
+        }
+        Ok(())
+    };
+    p.board.tracks.retain(|track| {
+        if !track_cleanup_matches(track, net, layer) || !track_is_zero_length(track) {
+            return true;
+        }
+        bump_removed(&mut removed).is_err()
+    });
+    let mut idx = 0usize;
+    while idx < p.board.tracks.len() {
+        let track = p.board.tracks[idx].clone();
+        if !track_cleanup_matches(&track, net, layer) {
+            idx += 1;
+            continue;
+        }
+        let anchored_start =
+            track_endpoint_anchored(p, track.start, track.net, track.layer, track.id);
+        let anchored_end = track_endpoint_anchored(p, track.end, track.net, track.layer, track.id);
+        if anchored_start && anchored_end {
+            idx += 1;
+        } else {
+            bump_removed(&mut removed)?;
+            p.board.tracks.remove(idx);
+        }
+    }
+    loop {
+        let mut merged_pair = false;
+        let len = p.board.tracks.len();
+        'search: for i in 0..len {
+            for j in (i + 1)..len {
+                let (Some(a), Some(b)) = (
+                    p.board.tracks.get(i).cloned(),
+                    p.board.tracks.get(j).cloned(),
+                ) else {
+                    continue;
+                };
+                if !track_cleanup_matches(&a, net, layer) || !track_cleanup_matches(&b, net, layer)
+                {
+                    continue;
+                }
+                let Some((start, end)) = collinear_track_merge_endpoints(&a, &b) else {
+                    continue;
+                };
+                bump_merged(&mut merged)?;
+                p.board.tracks[i].start = start;
+                p.board.tracks[i].end = end;
+                p.board.tracks[i].arc = None;
+                p.board.tracks.remove(j);
+                merged_pair = true;
+                break 'search;
+            }
+        }
+        if !merged_pair {
+            break;
+        }
+    }
+    if removed == 0 && merged == 0 {
+        return Err(Error::Invalid(
+            "the board has no track cleanup to perform".into(),
+        ));
+    }
+    Ok((removed, merged))
+}
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
@@ -5444,6 +5653,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.tracks.retain(|t| t.net != a.net);
             p.board.vias.retain(|v| v.net != a.net);
             Ok(json!({"net":a.net,"tracks":tracks,"vias":vias}))
+        }
+        "track.cleanup" => {
+            let a: TrackCleanupParams = parse(params)?;
+            if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
+                return Err(missing());
+            }
+            let (removed, merged) = run_track_cleanup(p, a.net, a.layer)?;
+            Ok(json!({"removed": removed, "merged": merged}))
         }
         "net.tie" => {
             let a: NetTieParams = parse(params)?;
@@ -19863,6 +20080,135 @@ mod tests {
             assert!(s.execute("footprint.assign_table", params, None).is_err());
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn track_cleanup_reports_two_changes_on_dangle_and_collinear_fixture() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":0.0,"y":0.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":0.0},"end":{"x":20.0,"y":0.0}}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":20.0,"y":0.0},"end":{"x":20.0,"y":3.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.tracks.len(), 3);
+        let report = s.execute("track.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(report["removed"], 1, "the dangling stub goes");
+        assert_eq!(
+            report["merged"], 1,
+            "the collinear pair becomes one segment"
+        );
+        assert_eq!(
+            report["removed"].as_u64().ok_or_else(missing)?
+                + report["merged"].as_u64().ok_or_else(missing)?,
+            2,
+            "two changes in total"
+        );
+        assert_eq!(s.project.board.tracks.len(), 1);
+        let kept = &s.project.board.tracks[0];
+        assert_eq!(kept.net, net);
+        assert_eq!(kept.start, Point::new(0.0, 0.0));
+        assert_eq!(kept.end, Point::new(20.0, 0.0));
+        assert!(s.project.validate().is_ok());
+        s.undo()?;
+        assert_eq!(s.project.board.tracks.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn track_cleanup_leaves_revision_unchanged_when_nothing_to_do() -> Result<(), Error> {
+        let mut s = Session::default();
+        let revision = s.revision;
+        assert!(
+            s.execute("track.cleanup", json!({}), None).is_err(),
+            "an empty board has nothing to clean up"
+        );
+        assert_eq!(s.revision, revision);
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":0.0,"y":0.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":0.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0}}),
+            None,
+        )?;
+        let revision = s.revision;
+        assert!(
+            s.execute("track.cleanup", json!({}), None).is_err(),
+            "a single anchored segment needs no cleanup"
+        );
+        assert_eq!(s.revision, revision);
+        Ok(())
+    }
+    #[test]
+    fn track_cleanup_does_not_merge_different_nets() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net_a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let net_b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, y) in [(net_a, 0.0_f64), (net_b, 5.0_f64)] {
+            s.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":0.0,"y":y},"diameter":0.6,"drill":0.3}),
+                None,
+            )?;
+            s.execute(
+                "via.place",
+                json!({"net":net,"position":{"x":20.0,"y":y},"diameter":0.6,"drill":0.3}),
+                None,
+            )?;
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":10.0,"y":y}}),
+                None,
+            )?;
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":20.0,"y":y}}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.board.tracks.len(), 4);
+        let report = s.execute("track.cleanup", json!({}), None)?["result"].clone();
+        assert_eq!(
+            report["merged"], 2,
+            "each net merges its own collinear pair"
+        );
+        assert_eq!(report["removed"], 0);
+        assert_eq!(s.project.board.tracks.len(), 2);
+        let nets: std::collections::BTreeSet<_> =
+            s.project.board.tracks.iter().map(|t| t.net).collect();
+        assert_eq!(nets.len(), 2);
         assert!(s.project.validate().is_ok());
         Ok(())
     }
