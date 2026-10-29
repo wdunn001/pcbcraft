@@ -426,6 +426,59 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_reads_the_app_in_spanish() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the menu bar says File"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Archivo")?,
+        "no Spanish shows yet"
+    );
+    // The person opens the Settings page and picks Español from the list.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Español")?;
+    assert_eq!(app.preferences.language, "es", "the choice is remembered");
+    assert!(
+        paints_text(&ctx, &mut app, "Archivo")?,
+        "the File menu now reads Archivo at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Edición")?,
+        "the Edit menu reads Edición"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Ayuda")?,
+        "the Help menu reads Ayuda"
+    );
+    // Closing and reopening the app keeps the saved language.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Archivo")?,
+        "the reopened app still reads Spanish"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
