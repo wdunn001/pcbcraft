@@ -1,0 +1,10 @@
+# Functions whose user-visible text already goes through the catalog.
+# `strings check` and the ui-egui guard fail on a string literal inside a
+# button, label, menu or tooltip call in these functions. Format:
+# <file under crates/ui-egui/src> <function name>. Add a line when you
+# convert another function; this list is how the sweep proceeds area by area.
+lib.rs header
+lib.rs file_menu
+lib.rs edit_menu
+lib.rs help_menu
+lib.rs language_menu
