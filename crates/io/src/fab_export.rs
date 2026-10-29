@@ -451,7 +451,7 @@ fn write_excellon(
         ("METRIC,TZ", 3)
     };
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
-    for (n, (key, _)) in by_tool.keys().enumerate() {
+    for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
         out.push_str(&format!(
             "T{}C{:.prec$}\n",

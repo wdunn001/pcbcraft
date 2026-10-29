@@ -5,7 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use std::path::{Component, Path};
+use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Component;
 mod board_mesh;
 mod drawn;
 mod fab_export;
