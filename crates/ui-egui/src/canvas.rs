@@ -173,6 +173,55 @@ impl App {
     fn copper(&self, net: Option<Id>, base: Color32) -> Color32 {
         spotlight(self.highlight_net, net, base, self.accent())
     }
+    fn copper_palette_rgb(layer: Layer) -> [u8; 3] {
+        const PALETTE: [[u8; 3]; 8] = [
+            [245, 141, 121],
+            [186, 196, 118],
+            [118, 196, 168],
+            [116, 167, 236],
+            [196, 141, 216],
+            [141, 186, 216],
+            [216, 186, 118],
+            [168, 141, 118],
+        ];
+        PALETTE[layer.index() as usize % PALETTE.len()]
+    }
+    fn copper_layer_visibility_key(p: &Project, layer: Layer) -> String {
+        let idx = layer.index();
+        let count = p.copper_layer_count();
+        if idx == 0 {
+            return "Top copper".into();
+        }
+        if count <= 2 && idx == 1 {
+            return "Bottom copper".into();
+        }
+        if idx + 1 == count {
+            return "Bottom copper".into();
+        }
+        let copper: Vec<_> = p.copper_layer_records().collect();
+        if let Some(rec) = copper.get(idx as usize) {
+            if rec.name.starts_with("In") && rec.name.ends_with(".Cu") {
+                if let Some(n) = rec.name.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu")) {
+                    return format!("Inner {n}");
+                }
+            }
+            return rec.name.clone();
+        }
+        format!("Inner {}", idx)
+    }
+    fn copper_layer_visible(&self, p: &Project, layer: Layer) -> bool {
+        self.layer_shown(&Self::copper_layer_visibility_key(p, layer))
+    }
+    fn copper_layer_color(&self, layer: Layer, net: Option<Id>, active: bool) -> Color32 {
+        let rgb = Self::copper_palette_rgb(layer);
+        let base = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+        let tinted = self.copper(net, base);
+        if active {
+            tinted
+        } else {
+            tinted.linear_multiply(0.35)
+        }
+    }
 }
 
 impl App {
@@ -1660,21 +1709,24 @@ impl App {
                 }
             }
         }
-        for z in p.board.zones.iter().filter(|_| shown("Copper zones")) {
+        for z in p.board.zones.iter().filter(|z| {
+            shown("Copper zones") && self.copper_layer_visible(p, z.layer)
+        }) {
             let screen: Vec<egui::Pos2> = z
                 .outline
                 .iter()
                 .map(|pt| camera.screen(*pt, rect))
                 .collect();
-            let rgb = if z.layer == Layer::Front {
-                [245, 141, 121]
-            } else {
-                [116, 167, 236]
-            };
+            let rgb = Self::copper_palette_rgb(z.layer);
+            let active_layer = z.layer == self.route_layer;
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
-                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3)
+                let mut c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3);
+                if !active_layer {
+                    c = c.linear_multiply(0.35);
+                }
+                c
             };
             if z.filled || self.selected == Some(z.id) {
                 painter.add(egui::Shape::convex_polygon(
@@ -1701,26 +1753,27 @@ impl App {
                 ));
             }
         }
-        for t in p.board.tracks.iter().filter(|t| {
-            shown(if t.layer == pcbcraft_doc::Layer::Front {
-                "Top copper"
-            } else {
-                "Bottom copper"
-            })
-        }) {
-            painter.line_segment(
-                [camera.screen(t.start, rect), camera.screen(t.end, rect)],
-                Stroke::new(
-                    (t.width as f32 * camera.zoom).max(1.0),
-                    if self.selected == Some(t.id) {
-                        self.accent()
-                    } else if t.layer == Layer::Front {
-                        self.copper(Some(t.net), Color32::from_rgb(245, 141, 121))
-                    } else {
-                        self.copper(Some(t.net), Color32::from_rgb(116, 167, 236))
-                    },
-                ),
-            );
+        let active = self.route_layer;
+        let mut layer_order = p.copper_layers();
+        layer_order.sort_by_key(|layer| u8::from(*layer == active));
+        for layer in layer_order {
+            if !self.copper_layer_visible(p, layer) {
+                continue;
+            }
+            let active_layer = layer == active;
+            for t in p.board.tracks.iter().filter(|t| t.layer == layer) {
+                painter.line_segment(
+                    [camera.screen(t.start, rect), camera.screen(t.end, rect)],
+                    Stroke::new(
+                        (t.width as f32 * camera.zoom).max(1.0),
+                        if self.selected == Some(t.id) {
+                            self.accent()
+                        } else {
+                            self.copper_layer_color(layer, Some(t.net), active_layer)
+                        },
+                    ),
+                );
+            }
         }
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);

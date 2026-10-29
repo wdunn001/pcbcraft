@@ -47,6 +47,38 @@ struct Hole {
     radius: f64,
 }
 
+fn pad_copper_layers(project: &Project, pad: &Pad) -> Vec<Layer> {
+    let stack = project.copper_layers();
+    let Some(g) = pad.geometry.as_ref() else {
+        return vec![Layer::Front];
+    };
+    let plated = g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu");
+    if plated {
+        return stack;
+    }
+    let mut layers = Vec::new();
+    for name in &g.layers {
+        if let Ok(layer) = project.resolve_copper_layer(name) {
+            if !layers.contains(&layer) {
+                layers.push(layer);
+            }
+        }
+    }
+    if layers.is_empty() {
+        vec![Layer::Front]
+    } else {
+        layers
+    }
+}
+
+fn push_copper_on_layers(item: Copper, out: &mut Vec<Copper>, layers: &[Layer]) {
+    for &layer in layers {
+        let mut copy = item.clone();
+        copy.layer = layer;
+        out.push(copy);
+    }
+}
+
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
@@ -60,7 +92,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                 let plated = pad
                     .geometry
                     .as_ref()
-                    .is_some_and(|g| g.pad_type == "thru_hole");
+                    .is_some_and(|g| g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu"));
                 let hole = pad.geometry.as_ref().and_then(|g| {
                     g.drill.as_ref().map(|d| {
                         let radius = d.size.x.min(d.size.y) / 2.0;
@@ -112,12 +144,8 @@ fn copper(project: &Project) -> Vec<Copper> {
                     hole,
                     cutouts: vec![],
                 };
-                if plated {
-                    let mut back = item.clone();
-                    back.layer = Layer::Back;
-                    result.push(back);
-                }
-                result.push(item);
+                let layers = pad_copper_layers(project, pad);
+                push_copper_on_layers(item, &mut result, &layers);
             }
         }
     }
@@ -179,6 +207,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             }
         }
     }
+    let copper_layers = project.copper_layers();
     for v in &project.board.vias {
         let hole = (v.drill > 0.0).then(|| Hole {
             start: v.position,
@@ -198,14 +227,15 @@ fn copper(project: &Project) -> Vec<Copper> {
             layer: Layer::Front,
             pad: true,
             clearance: None,
-            bridge: Some((v.id, "via".into())),
+            bridge: if v.drill > 0.0 {
+                Some((v.id, "via".into()))
+            } else {
+                None
+            },
             hole,
             cutouts: vec![],
         };
-        let mut back = item.clone();
-        back.layer = Layer::Back;
-        result.push(back);
-        result.push(item);
+        push_copper_on_layers(item, &mut result, &copper_layers);
     }
     for h in &project.board.holes {
         // An unplated drill is a keep-out circle on every layer: copper may
@@ -227,10 +257,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             hole: None,
             cutouts: vec![],
         };
-        let mut back = item.clone();
-        back.layer = Layer::Back;
-        result.push(back);
-        result.push(item);
+        push_copper_on_layers(item, &mut result, &copper_layers);
     }
     for z in &project.board.zones {
         if !z.filled {
@@ -1076,7 +1103,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        FabRules, Footprint, LayerRecord, Net, NoConnectFlag, Pad, PinRef, Track, Via,
+        component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
@@ -1868,6 +1896,141 @@ mod tests {
                 .iter()
                 .any(|f| f.code == "annular_ring" && f.objects.contains(&fp_id)),
             "the same ring fails the plated-hole limit"
+        );
+        Ok(())
+    }
+
+    fn four_layer_stack(p: &mut Project) -> Result<(), String> {
+        p.board.layer_records = vec![
+            LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            },
+            LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+            },
+            LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+            },
+            LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            },
+        ];
+        p.validate()
+    }
+
+    #[test]
+    fn through_via_joins_top_inner_and_bottom_copper() -> Result<(), String> {
+        let mut p = fixture();
+        four_layer_stack(&mut p)?;
+        for f in &mut p.board.footprints {
+            for pad in &mut f.pads {
+                pad.geometry = Some(FootprintPad {
+                    number: pad.number.clone(),
+                    pad_type: "thru_hole".into(),
+                    shape: "circle".into(),
+                    size: Point::new(1.0, 1.0),
+                    position: Point::default(),
+                    rotation: 0.0,
+                    layers: vec!["*.Cu".into()],
+                    drill: Some(Drill {
+                        size: Point::new(0.4, 0.4),
+                        offset: Point::default(),
+                    }),
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                });
+            }
+        }
+        let inner = Layer::from_index(1)?;
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(15.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.vias.push(Via {
+            id: 21,
+            net: 1,
+            position: Point::new(15.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        p.board.tracks.push(Track {
+            id: 22,
+            net: 1,
+            start: Point::new(15.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: inner,
+            arc: None,
+        });
+        assert!(airwires(&p).is_empty(), "via bridges top and inner copper");
+        p.board.vias.clear();
+        assert_eq!(airwires(&p).len(), 1, "without the via the net is open");
+        Ok(())
+    }
+
+    #[test]
+    fn inner_track_clearance_finding_on_same_layer_only() -> Result<(), String> {
+        let mut p = fixture();
+        four_layer_stack(&mut p)?;
+        p.nets.push(Net {
+            id: 4,
+            name: "other".into(),
+            ..Default::default()
+        });
+        let inner_a = Layer::from_index(1)?;
+        let inner_b = Layer::from_index(2)?;
+        p.board.clearance = 0.2;
+        p.board.tracks.push(Track {
+            id: 30,
+            net: 1,
+            start: Point::new(19.0, 10.0),
+            end: Point::new(21.0, 10.0),
+            width: 0.25,
+            layer: inner_a,
+            arc: None,
+        });
+        p.board.tracks.push(Track {
+            id: 31,
+            net: 4,
+            start: Point::new(20.0, 9.7),
+            end: Point::new(20.0, 10.3),
+            width: 0.25,
+            layer: inner_a,
+            arc: None,
+        });
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "clearance" && f.objects.contains(&30)),
+            "inner tracks on the same layer can violate clearance"
+        );
+        if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == 31) {
+            t.layer = inner_b;
+        }
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "clearance" && f.objects.contains(&30)),
+            "moving one track to another inner layer removes that clearance pair"
         );
         Ok(())
     }
