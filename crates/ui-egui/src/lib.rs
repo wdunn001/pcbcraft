@@ -5775,13 +5775,10 @@ impl App {
         for key in ["erc", "drc"] {
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 for f in findings {
-                    let code = f.get("code").and_then(Value::as_str).unwrap_or("finding");
-                    // Built-in checks follow the designer's chosen loudness;
-                    // a check of their own reports at the volume it was set.
-                    let loud = match code.strip_prefix("custom_") {
-                        Some(_) => f.get("severity").and_then(Value::as_str) == Some("error"),
-                        None => self.project.rule_severity(code, "warning") == "error",
-                    };
+                    // Every finding carries the loudness its check resolved to,
+                    // so the footer agrees with the review list instead of
+                    // guessing a default per code.
+                    let loud = f.get("severity").and_then(Value::as_str) == Some("error");
                     if loud {
                         fix += 1;
                     } else {
@@ -10219,6 +10216,70 @@ mod tests {
                 pcbcraft_doc::ArtShape::Text { text, .. } if text == "HELLO LASER"
             )),
             "the printed words should be exactly what was typed"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        // The sample board has no vias, so the story places one in the middle
+        // of the board and then draws a cut line straight across it.
+        app.tool_call(
+            "via.place",
+            json!({"net":4,"position":{"x":20.0,"y":30.0},"diameter":0.8,"drill":0.4}),
+        );
+        assert_eq!(
+            app.project.board.vias.len(),
+            1,
+            "the via should be placed: {}",
+            app.message
+        );
+        app.tool_call(
+            "board.layer_add",
+            json!({"name":"Card Outline","kind":"cut"}),
+        );
+        let layer = app
+            .project
+            .board
+            .user_layers
+            .iter()
+            .find(|l| l.name == "Card Outline")
+            .map(|l| l.id)
+            .ok_or("the cut layer should be added")?;
+        app.tool_call(
+            "board.layer_line_add",
+            json!({"layer":layer,"x1":18.0,"y1":30.0,"x2":22.0,"y2":30.0}),
+        );
+        app.refresh();
+        let conflict = app
+            .checks
+            .get("drc")
+            .and_then(Value::as_array)
+            .is_some_and(|rows| {
+                rows.iter()
+                    .any(|r| r.get("code").and_then(Value::as_str) == Some("cut_hits_via"))
+            });
+        assert!(
+            conflict,
+            "the cut across the via is reported: {}",
+            app.message
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Cut hits via")?,
+            "the review names the conflict in plain words: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 to fix")?,
+            "a cut through a via lands in the footer count: {}",
+            app.message
         );
         Ok(())
     }

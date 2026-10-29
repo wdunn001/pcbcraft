@@ -364,6 +364,10 @@ fn find_or_create_class<'a>(
         max_width: None,
         target_length: None,
         length_tolerance: None,
+        via_diameter: None,
+        via_drill: None,
+        pair_width: None,
+        pair_gap: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
     });
