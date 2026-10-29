@@ -1,4 +1,18 @@
 //! Shared fabrication layer geometry for raster export, Gerber, stencil, and UV artwork.
+//!
+//! Collects all geometry for a single fabrication layer into a `FabLayer` value
+//! that can be rasterised or plotted. Used by the Gerber, stencil, silk, and
+//! mask exporters to avoid duplicating geometry collection logic.
+//!
+//! # Rules
+//! - Geometry is collected in board coordinates (millimetres).
+//! - Pads are included only for footprints placed on the board.
+//! - Vias are included on the layers they connect through.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via
+//! - crates/geom/src/lib.rs Point
+//! - crates/library/src/lib.rs Graphic
 use pcbcraft_doc::{
     ArtShape, BoardText, CopperZone, Fiducial, Footprint, Id, Layer, Project, Track, Via,
 };

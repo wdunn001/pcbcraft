@@ -1,4 +1,22 @@
 //! Fabrication Gerber bundle: X2 attributes, split drills, mask, paste, readme.
+//!
+//! Generates the complete set of Gerber and Excellon files needed to manufacture
+//! a PCB. Each copper layer becomes a separate Gerber file; the drill file is
+//! split by tool diameter. Pick-and-place data is written as a CSV for the
+//! assembly house. A readme.txt explains the file layout to the fabricator.
+//!
+//! # Rules
+//! - File names follow the IPC-356 naming convention.
+//! - All coordinates are in millimetres with 4 decimal places.
+//! - X2 extended attributes are written for designators and layer names.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs Board, Layer, Project, Via, ViaCovering
+//! - crates/geom/src/lib.rs Point
+//! - crates/library/src/lib.rs FootprintRules
+//! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
+//! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
+//! - crates/io/src/lib.rs PickPlaceWriter
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;

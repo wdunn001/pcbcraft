@@ -1,6 +1,21 @@
 //! Per-layer machine plots for the drawn layers: cut and perforation layers
 //! as mill paths, silk and mask layers as print layers, and one DXF of every
 //! layer. Everything here works in board millimetres.
+//!
+//! Generates DXF files for each drawn layer (cut, perforation, silk, mask)
+//! that can be sent directly to a CNC machine or printer. Each layer is
+//! exported as a separate DXF file with appropriate layer names and
+//! line weights.
+//!
+//! # Rules
+//! - Coordinates are in board millimetres.
+//! - Line weights are set to reasonable defaults for each layer type.
+//! - Output is DXF R12 format for maximum compatibility.
+//!
+//! # Dependencies
+//! - crates/io/src/lib.rs DxfWriter
+//! - crates/doc/src/lib.rs ArtKind, ArtLayer, ArtPath, Id, Project
+//! - crates/geom/src/lib.rs Point
 
 use super::DxfWriter;
 use pcbcraft_doc::{ArtKind, ArtLayer, ArtPath, Id, Project};
