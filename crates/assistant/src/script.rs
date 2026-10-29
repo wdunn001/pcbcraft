@@ -76,6 +76,38 @@ impl ChatBackend for ScriptBackend {
     fn shutdown(&mut self, _: bool) {}
 }
 
+/// An `HttpFn` that counts its calls and answers with a fixed reply, so a test can prove that
+/// nothing was sent.
+#[derive(Clone)]
+pub struct CountingHttp {
+    count: Arc<std::sync::atomic::AtomicUsize>,
+    reply: Result<(u16, Vec<u8>), String>,
+}
+
+impl CountingHttp {
+    /// A sender that answers every request with `reply`.
+    pub fn new(reply: Result<(u16, Vec<u8>), String>) -> Self {
+        Self {
+            count: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            reply,
+        }
+    }
+
+    /// How many requests were sent so far.
+    pub fn calls(&self) -> usize {
+        self.count.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The sender to hand to the host.
+    pub fn http(&self) -> crate::backend::HttpFn {
+        let me = self.clone();
+        Arc::new(move |_| {
+            me.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            me.reply.clone()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
