@@ -1,12 +1,20 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
+mod footprint_check;
+mod footprint_generate;
+mod footprint_pad_outline;
 mod paths;
 mod reader;
 mod sexpr;
+pub mod sources;
+mod symbol_check;
 mod validation;
+pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
+pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -40,6 +48,149 @@ pub struct SymbolPin {
     pub electrical_type: String,
     pub unit: u32,
     pub body_style: u32,
+    /// File token after the electrical type: line, inverted, clock, and the
+    /// other standard shape keywords. Not the unit alternate-body index.
+    #[serde(default = "default_pin_graphical_style")]
+    pub graphical_style: String,
+    /// When false the pin may stay in the library but is omitted from schematic views.
+    #[serde(default = "default_pin_visible")]
+    pub visible: bool,
+}
+fn default_pin_graphical_style() -> String {
+    "line".into()
+}
+fn default_pin_visible() -> bool {
+    true
+}
+/// Standard symbol pin shape tokens from the interchange format.
+pub const PIN_GRAPHICAL_STYLES: &[&str] = &[
+    "line",
+    "inverted",
+    "clock",
+    "inverted_clock",
+    "input_low",
+    "clock_low",
+    "output_low",
+    "edge_clock_high",
+    "non_logic",
+];
+impl SymbolPin {
+    pub fn graphical_style_supported(style: &str) -> bool {
+        PIN_GRAPHICAL_STYLES.contains(&style)
+    }
+    /// Inner end of the pin stem in y-down millimetres (connection is `position`).
+    pub fn stem_end(&self) -> Point {
+        let angle = self.angle.to_radians();
+        self.position.offset(Point::new(
+            self.length * angle.cos(),
+            -self.length * angle.sin(),
+        ))
+    }
+    fn inward(&self) -> Point {
+        let angle = self.angle.to_radians();
+        Point::new(angle.cos(), -angle.sin())
+    }
+    fn perpendicular(&self) -> Point {
+        let angle = self.angle.to_radians();
+        Point::new(angle.sin(), angle.cos())
+    }
+    fn mul(v: Point, scale: f64) -> Point {
+        Point::new(v.x * scale, v.y * scale)
+    }
+    const DECO_RADIUS: f64 = 0.635;
+    pub fn circle_points(center: Point, radius: f64) -> Vec<Point> {
+        (0..16)
+            .map(|i| {
+                let t = f64::from(i) * std::f64::consts::TAU / 16.0;
+                center.offset(Point::new(radius * t.cos(), radius * t.sin()))
+            })
+            .collect()
+    }
+    fn bubble(&self) -> (Point, f64) {
+        let inward = self.inward();
+        (
+            self.position.offset(Self::mul(inward, Self::DECO_RADIUS)),
+            Self::DECO_RADIUS,
+        )
+    }
+    fn clock_wedge(&self, depth: f64) -> Vec<Point> {
+        let inward = self.inward();
+        let perp = self.perpendicular();
+        let half = Self::DECO_RADIUS;
+        let base_a = self.position.offset(Self::mul(perp, -half));
+        let base_b = self.position.offset(Self::mul(perp, half));
+        let tip = self.position.offset(Self::mul(inward, depth));
+        vec![base_a, base_b, tip]
+    }
+    fn active_low_tick(&self) -> Vec<Point> {
+        let perp = self.perpendicular();
+        let half = Self::DECO_RADIUS * 0.9;
+        let at = self
+            .position
+            .offset(Self::mul(self.inward(), Self::DECO_RADIUS * 1.6));
+        vec![
+            at.offset(Self::mul(perp, -half)),
+            at.offset(Self::mul(perp, half)),
+        ]
+    }
+    fn non_logic_diamond(&self) -> Vec<Point> {
+        let inward = self.inward();
+        let perp = self.perpendicular();
+        let r = Self::DECO_RADIUS * 0.75;
+        vec![
+            self.position.offset(Self::mul(inward, r)),
+            self.position.offset(Self::mul(perp, r)),
+            self.position.offset(Self::mul(inward, -r)),
+            self.position.offset(Self::mul(perp, -r)),
+        ]
+    }
+    /// Filled outline circles for bubble-style decorations at the connection.
+    pub fn decoration_bubbles(&self) -> Vec<(Point, f64)> {
+        self.decoration_bubbles_draw(true)
+    }
+    pub fn decoration_bubbles_draw(&self, require_visible: bool) -> Vec<(Point, f64)> {
+        if require_visible && !self.visible {
+            return Vec::new();
+        }
+        let bubble = |pin: &SymbolPin| pin.bubble();
+        match self.graphical_style.as_str() {
+            "inverted" | "output_low" => vec![bubble(self)],
+            "inverted_clock" | "clock_low" => vec![bubble(self)],
+            "input_low" => vec![bubble(self)],
+            _ => Vec::new(),
+        }
+    }
+    /// Closed or open polylines for non-circle pin decorations in y-down mm.
+    pub fn decoration_paths(&self) -> Vec<Vec<Point>> {
+        self.decoration_paths_draw(true)
+    }
+    pub fn decoration_paths_draw(&self, require_visible: bool) -> Vec<Vec<Point>> {
+        if (require_visible && !self.visible) || self.graphical_style == "line" {
+            return Vec::new();
+        }
+        let mut paths = Vec::new();
+        let push_wedge = |paths: &mut Vec<Vec<Point>>, pin: &SymbolPin, depth: f64| {
+            paths.push(pin.clock_wedge(depth));
+        };
+        match self.graphical_style.as_str() {
+            "inverted" | "output_low" => {}
+            "clock" => push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.4),
+            "inverted_clock" => {
+                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.4);
+            }
+            "input_low" => {
+                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.2);
+                paths.push(self.active_low_tick());
+            }
+            "clock_low" => {
+                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.2);
+            }
+            "edge_clock_high" => push_wedge(&mut paths, self, Self::DECO_RADIUS * 0.85),
+            "non_logic" => paths.push(self.non_logic_diamond()),
+            _ => {}
+        }
+        paths
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -233,4 +384,32 @@ impl FootprintPad {
 pub struct Drill {
     pub size: Point,
     pub offset: Point,
+}
+
+#[cfg(test)]
+mod pin_graphical_tests {
+    use super::*;
+    #[test]
+    fn inverted_clock_decoration_includes_connection_bubble() {
+        let pin = SymbolPin {
+            number: "1".into(),
+            name: "CLK".into(),
+            position: Point::new(0.0, 0.0),
+            angle: 0.0,
+            length: 2.54,
+            electrical_type: "input".into(),
+            unit: 1,
+            body_style: 1,
+            graphical_style: "inverted_clock".into(),
+            visible: true,
+        };
+        let bubbles = pin.decoration_bubbles();
+        assert_eq!(bubbles.len(), 1);
+        let (center, radius) = bubbles[0];
+        assert!(
+            (pin.position.distance(center) - radius).abs() < 0.05,
+            "connection sits on the bubble outline"
+        );
+        assert!(!pin.decoration_paths().is_empty());
+    }
 }

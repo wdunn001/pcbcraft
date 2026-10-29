@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "rs485"
+name = "RS-485 differential"
+category = "interface"
+summary = "RS-485 differential rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "rs485_default"
