@@ -44,10 +44,25 @@ pub(crate) fn paints_text(ctx: &egui::Context, app: &mut App, needle: &str) -> R
 }
 
 pub(crate) fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-    for _ in 0..14 {
+    scrolled_to_at(ctx, app, needle, 150.0)
+}
+
+pub(crate) fn scrolled_to_at(
+    ctx: &egui::Context,
+    app: &mut App,
+    needle: &str,
+    x: f32,
+) -> Result<bool, String> {
+    // One fixed pointer can land on a text field, which swallows the
+    // wheel; step down the same column so the scroll always finds a gap.
+    let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
+    for step in 0..80 {
+        let (lane_x, lane_y) = lanes[step % lanes.len()];
+        // Small point-sized steps: a line-sized jump can sail a short
+        // button clean past the viewport between two polls.
         let wheel = egui::Event::MouseWheel {
-            unit: egui::MouseWheelUnit::Line,
-            delta: egui::vec2(0.0, -4.0),
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -60.0),
             phase: egui::TouchPhase::Move,
             modifiers: egui::Modifiers::NONE,
         };
@@ -67,7 +82,7 @@ pub(crate) fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> R
         frame(
             ctx,
             app,
-            vec![egui::Event::PointerMoved(egui::pos2(150.0, 500.0)), wheel],
+            vec![egui::Event::PointerMoved(egui::pos2(lane_x, lane_y)), wheel],
             egui::Modifiers::NONE,
         );
     }
@@ -85,16 +100,25 @@ pub(crate) fn self_names(app: &App) -> Vec<String> {
 
 /// Find the button whose label reads exactly `label`, scrolling the page
 /// down and then up if needed, and click it like a person would.
-pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
+pub(crate) pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
     // Two quiet passes first: hit-testing always trails the painter by a
     // frame, and a scroll area only grows its scrollbar on the second
     // pass, which shifts every row a hair.
-    frame(ctx, app, vec![], egui::Modifiers::NONE);
-    frame(ctx, app, vec![], egui::Modifiers::NONE);
-    for attempt in 0..16 {
-        let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-        // Later shapes sit on top of earlier ones, so the last visible
-        // copy of a label is the one a real click would land on.
+    frame(ctx, app, vec![]);
+    frame(ctx, app, vec![]);
+    // Where to park the pointer when a label sits off screen: the middle
+    // page low and high, the settings column, and the left dock. A spot
+    // that nothing moves under (a text field swallowing the wheel, or
+    // the canvas zooming instead) is given up on after two still frames.
+    let lanes = [
+        egui::pos2(720.0, 750.0),
+        egui::pos2(720.0, 400.0),
+        egui::pos2(300.0, 500.0),
+        egui::pos2(150.0, 500.0),
+    ];
+    // Later shapes sit on top of earlier ones, so the last visible
+    // copy of a label is the one a real click would land on.
+    let find = |output: &egui::FullOutput| -> Option<egui::Pos2> {
         let mut found = None;
         for shape in &output.shapes {
             if let egui::Shape::Text(text) = &shape.shape
@@ -106,47 +130,70 @@ pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(),
                 }
             }
         }
-        if let Some(pos) = found {
-            for pressed in [true, false] {
-                frame(
-                    ctx,
-                    app,
-                    vec![
-                        egui::Event::PointerMoved(pos),
-                        egui::Event::PointerButton {
-                            pos,
-                            button: egui::PointerButton::Primary,
-                            pressed,
-                            modifiers: egui::Modifiers::NONE,
-                        },
-                    ],
-                    egui::Modifiers::NONE,
-                );
-            }
-            return Ok(());
-        }
-        let direction = if attempt < 10 { -120.0 } else { 120.0 };
-        frame(
-            ctx,
-            app,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(720.0, 750.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Line,
+        found
+    };
+    // A fingerprint of where the words sit: if it repeats, the wheel
+    // is being swallowed here and there is no point turning it more.
+    let witness = |output: &egui::FullOutput| -> Vec<(i32, i32)> {
+        let mut marks: Vec<(i32, i32)> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => {
+                    Some((text.pos.x.round() as i32, text.pos.y.round() as i32))
+                }
+                _ => None,
+            })
+            .collect();
+        marks.sort_unstable();
+        marks.truncate(40);
+        marks
+    };
+    for lane in lanes {
+        for direction in [-60.0, 90.0] {
+            let mut stills = 0;
+            while stills < 2 {
+                let output = frame(ctx, app, vec![]);
+                if let Some(pos) = find(&output) {
+                    for pressed in [true, false] {
+                        frame(
+                            ctx,
+                            app,
+                            vec![
+                                egui::Event::PointerMoved(pos),
+                                egui::Event::PointerButton {
+                                    pos,
+                                    button: egui::PointerButton::Primary,
+                                    pressed,
+                                    modifiers: egui::Modifiers::NONE,
+                                },
+                            ],
+                        );
+                    }
+                    return Ok(());
+                }
+                let before = witness(&output);
+                let wheel = egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
                     delta: egui::vec2(0.0, direction),
                     phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-        // A scrolled frame needs one more pass before its hit-testing
-        // matches what the painter just drew, so land the settle frame.
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
+                };
+                let after = frame(ctx, app, vec![egui::Event::PointerMoved(lane), wheel]);
+                if witness(&after) == before {
+                    stills += 1;
+                } else {
+                    stills = 0;
+                }
+                // A scrolled frame needs one more pass before its
+                // hit-testing matches what the painter just drew.
+                frame(ctx, app, vec![]);
+            }
+        }
     }
     Err(format!("{label} never appeared on screen"))
 }
 }
 
 #[cfg(test)]
-pub(crate) use test_support_inner::{frame, paints_text, scrolled_to, self_names, tap};
+pub(crate) use test_support_inner::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};

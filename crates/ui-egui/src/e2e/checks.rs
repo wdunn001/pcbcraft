@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, self_names, tap};
+use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
 use serde_json::json;
 
     #[test]
@@ -331,22 +331,6 @@ use serde_json::json;
         );
         tap(&ctx, &mut app, "Checks")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..4 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
         assert!(
             paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
             "the review shows the check under the name it was given: {}",
@@ -357,27 +341,8 @@ use serde_json::json;
             "a breach of a must-fix check lands in the footer count: {}",
             app.message
         );
-        tap(&ctx, &mut app, "Schematic")?;
-        for _ in 0..24 {
-            if paints_text(&ctx, &mut app, "Remove this check")? {
-                break;
-            }
-            let dir = 4.0;
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 430.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, dir),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        tap(&ctx, &mut app, "Rules")?;
+        scrolled_to_at(&ctx, &mut app, "Remove this check", 300.0)?;
         tap(&ctx, &mut app, "Remove this check")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.refresh();

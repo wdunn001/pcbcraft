@@ -841,7 +841,7 @@ pub(crate) mod tests {
         app.library.editor.draft = Some(Draft::Symbol(definition.clone()));
         app.library.editor.notice = Some("Original source and data license retained".into());
         let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let output = frame(&ctx, &mut app, vec![]);
         assert_eq!(output.viewport_output.len(), 1);
         let pos = output
             .shapes
@@ -871,7 +871,6 @@ pub(crate) mod tests {
                         modifiers: egui::Modifiers::NONE,
                     },
                 ],
-                egui::Modifiers::NONE,
             );
         }
         let session = shared.lock().map_err(|_| "session unavailable")?;

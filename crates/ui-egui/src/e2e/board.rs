@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, self_names, tap};
+use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
 use serde_json::json;
 
     #[test]
@@ -322,8 +322,9 @@ use serde_json::json;
         let before = app.project.board.texts.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "BOARD LABELS")?,
+            scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
             "the board panel should offer printed words: {}",
             app.message
         );
@@ -332,6 +333,7 @@ use serde_json::json;
         app.label_y = 2.0;
         app.label_size = 1.2;
         app.label_front = false;
+        scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
         tap(&ctx, &mut app, "Add label")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         app.refresh();
@@ -414,8 +416,8 @@ use serde_json::json;
             );
         }
         assert!(
-            paints_text(&ctx, &mut app, "BOARD AREAS")?,
-            "the rules dock should offer stricter corners: {}",
+            scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
+            "the rules page should offer stricter corners: {}",
             app.message
         );
         app.area_x = 1.0;
@@ -469,6 +471,7 @@ use serde_json::json;
         app.tool_call("sample_design", json!({}));
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
             paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
             "the board geometry section should offer a hole: {}",

@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, self_names, tap};
+use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
 use serde_json::json;
 
     #[test]
@@ -124,5 +124,41 @@ use serde_json::json;
             "the other mark comes off the board: {}",
             app.message
         );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_opens_rules_and_settings_from_the_top() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap(&ctx, &mut app, "Rules")?;
+        assert!(
+            paints_text(&ctx, &mut app, "Design rules travel with the design")?,
+            "the Rules tab explains what rules are for: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "New class")?,
+            "the Rules tab offers a way to add a rule set"
+        );
+        tap(&ctx, &mut app, "Settings")?;
+        assert!(
+            paints_text(&ctx, &mut app, "APPEARANCE")?,
+            "the Settings tab opens with the look of the app"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "BOARD GEOMETRY")?,
+            "the board settings that used to crowd the aside now live on the Settings tab"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "Nothing selected")?,
+            "the aside no longer holds the project settings"
+        );
+        tap(&ctx, &mut app, "Dark")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(app.preferences.dark, "the theme switch on the tab works");
         Ok(())
     }

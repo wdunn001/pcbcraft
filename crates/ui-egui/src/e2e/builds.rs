@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, self_names, tap};
+use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
 use serde_json::json;
 
     #[test]

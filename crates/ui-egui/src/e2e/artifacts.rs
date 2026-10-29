@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, self_names, tap};
+use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
 use serde_json::json;
 
     #[test]
@@ -29,6 +29,8 @@ use serde_json::json;
                 egui::Modifiers::NONE,
             );
         }
+        tap(&ctx, &mut app, "Settings")?;
+        scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
         tap(&ctx, &mut app, "Printable drawing (PDF)")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
@@ -61,8 +63,9 @@ use serde_json::json;
         let before = app.project.board.zones.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "Pour copper")?,
+            scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
             "the board geometry section should offer a copper pour: {}",
             app.message
         );
@@ -166,24 +169,9 @@ use serde_json::json;
         app.make_dir = folder.to_string_lossy().into_owned();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..6 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "Drill map (CSV)")?,
+            scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
             "the make files should include a drill map: {}",
             app.message
         );
@@ -227,8 +215,9 @@ use serde_json::json;
                 egui::Modifiers::NONE,
             );
         }
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "BOARD DRAWINGS")?,
+            scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
             "the factory folder section should also offer a 3D look: {}",
             app.message
         );
@@ -279,8 +268,9 @@ use serde_json::json;
                 egui::Modifiers::NONE,
             );
         }
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
-            paints_text(&ctx, &mut app, "PANEL PLAN")?,
+            scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
             "the factory folder section should also plan panels: {}",
             app.message
         );

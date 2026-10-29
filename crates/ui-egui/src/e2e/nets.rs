@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, self_names, tap};
+use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
 use serde_json::json;
 
     #[test]
@@ -348,8 +348,8 @@ use serde_json::json;
             );
         }
         assert!(
-            paints_text(&ctx, &mut app, "DIFFERENTIAL PAIRS")?,
-            "the rules dock should offer team lines: {}",
+            scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 300.0)?,
+            "the rules page should offer team lines: {}",
             app.message
         );
         app.dp_gap = 0.3;
