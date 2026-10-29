@@ -28,6 +28,9 @@ mod raster;
 mod step_read;
 mod uv_print;
 mod vrml_read;
+/// Bitmap trace constants, options, and functions for converting images to polygon traces.
+/// # Dependencies
+/// - crates/io/src/bitmap_trace.rs
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
@@ -36,6 +39,9 @@ mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod snapmaker;
+/// 3D board mesh types and functions for generating mesh representations of PCBs.
+/// # Dependencies
+/// - crates/io/src/board_mesh.rs
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -52,18 +58,34 @@ pub use cam_drill::{
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use diff::{DesignChange, DesignDiff, project_diff};
+/// Functions for generating layer plots from drawn graphics.
+/// # Dependencies
+/// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
+/// Gerber file generation for copper and silk layers.
+/// # Dependencies
+/// - crates/io/src/gerber.rs
 pub use gerber::{gerber_copper, gerber_silk};
+/// Gerber job file generation and zipping.
+/// # Dependencies
+/// - crates/io/src/gerber_job.rs
 pub use gerber_job::{gerber_job, gerber_zip};
+/// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
+/// Laser marking job types, profiles, and export functions.
+/// # Dependencies
+/// - crates/io/src/laser.rs
 pub use laser::{
     LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
     laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
     laser_job_validate_work_area, laser_job_work_area_mm,
 };
+/// Layer shape types and functions for extracting shapes from project layers.
+/// # Dependencies
+/// - crates/io/src/layers.rs
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
@@ -78,17 +100,32 @@ pub use model_load::{
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
+/// Package file constants, types, and functions for creating package archives.
+/// # Dependencies
+/// - crates/io/src/package.rs
 pub use package::{
     MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
     package_zip,
 };
+/// Panel fabrication file and placement text generation.
+/// # Dependencies
+/// - crates/io/src/panel_export.rs
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
+/// Re-export of the Layer enum from pcbcraft_doc for use by callers.
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 pub use pcbcraft_doc::Layer;
+/// Plot file reading types and functions for parsing Gerber and Excellon files.
+/// # Dependencies
+/// - crates/io/src/plot_read.rs
 pub use plot_read::{
     MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
     PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
     load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer,
 };
+/// Rasterization types and functions for converting vector shapes to raster images.
+/// # Dependencies
+/// - crates/io/src/raster.rs
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
@@ -97,13 +134,22 @@ pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
 };
+/// UV printing types, profiles, and job file generation functions.
+/// # Dependencies
+/// - crates/io/src/uv_print.rs
 pub use uv_print::{
     UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
     eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
 };
 
+/// Maximum size in bytes for project files, 8 MiB.
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Load a project from a JSON file at the given path.
+/// # Rules
+/// - Validates the loaded project structure
+/// # Do not
+/// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
     let text = read_text(path)?;
     let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
@@ -111,6 +157,9 @@ pub fn load(path: &Path) -> Result<Project, String> {
     project.validate()?;
     Ok(project)
 }
+/// Read a text file at the given path, enforcing the 8 MiB size limit.
+/// # Do not
+/// - Call with paths to binary files
 pub fn read_text(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut text = String::new();
@@ -122,6 +171,7 @@ pub fn read_text(path: &Path) -> Result<String, String> {
     }
     Ok(text)
 }
+/// Read a binary file at the given path, enforcing the 8 MiB size limit.
 pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut bytes = Vec::new();
@@ -133,6 +183,10 @@ pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
     }
     Ok(bytes)
 }
+/// Write bytes to a file atomically using a temporary file and rename.
+/// # Rules
+/// - Uses sync_all before rename to ensure durability
+/// - Creates temp file in the same directory as the target
 #[cfg(not(target_arch = "wasm32"))]
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = path
@@ -145,10 +199,18 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     temporary.persist(path).map_err(|e| e.to_string())?;
     Ok(())
 }
+/// Write bytes to a file atomically. On wasm32, returns an error because
+/// host filesystem writes are not available.
+/// # Rules
+/// - On wasm32, always returns an error with a helpful message
 #[cfg(target_arch = "wasm32")]
 pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
     Err("host filesystem writes are unavailable in the browser; download support is planned".into())
 }
+/// Save a project to a JSON file at the given path.
+/// # Rules
+/// - Validates the project before saving
+/// - Uses atomic write to prevent corruption
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
     let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
@@ -1769,6 +1831,8 @@ fn f64s(v: f64) -> String {
     if r == 0.0 { "0".into() } else { format!("{r}") }
 }
 
+/// Export the board as a KiCad PCB file, with nets, pads, tracks, vias,
+/// silkscreen, solder mask, paste, and courtyard geometry.
 pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
@@ -2984,6 +3048,8 @@ pub fn read_fp_assignments(text: &str) -> Result<Vec<(String, String)>, String> 
     Ok(rows)
 }
 
+/// Export the board as a simple ASCII netlist: component pin connections
+/// grouped by reference, with net names resolved.
 pub fn netlist_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PINS: usize = 50_000;
@@ -3366,7 +3432,9 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
-/// separated, nets sorted by name and pins sorted by reference and number.
+/// Export the board as a HyperLynx-style simulation netlist CSV, with pins
+/// separated by commas, nets sorted by name and pins sorted by reference and
+/// number.
 pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PINS: usize = 50_000;
@@ -3406,9 +3474,6 @@ pub fn hyperlynx_csv(p: &Project) -> Result<String, String> {
     }
     Ok(out)
 }
-/// Pick-and-place placement file: one row per placed footprint in the classic
-/// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
-/// reference. Side comes from the pad layers; height is unknown to this tool.
 /// In-circuit test netlist in IPC-D-356A style fixed columns: five-digit net
 /// number, twelve-column component reference, ten-column pin name, a 000000
 /// operation code and eight-digit X and Y coordinates in micrometres, sorted
@@ -3472,6 +3537,9 @@ pub fn ipc356_netlist(p: &Project) -> Result<String, String> {
     Ok(out)
 }
 
+/// Pick-and-place placement file: one row per placed footprint in the classic
+/// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
+/// reference. Side comes from the pad layers; height is unknown to this tool.
 pub fn placement_text(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_PLACED: usize = 5_000;
@@ -4287,6 +4355,13 @@ impl DxfWriter {
     }
 }
 
+/// Board as an R12 DXF drawing: edge outline, cutouts, front and back copper
+/// tracks, vias, pads and silkscreen. Arcs are written as DXF arc entities;
+/// pads and vias become circles or polylines. Layer names follow the
+/// convention Edge, F_Cu, B_Cu, F_Pads, B_Pads, Via, Drill, F_Silk.
+/// # Rules
+/// - Coordinates are in the project's native units (typically mm).
+/// - The entity count is capped at 50,000; exceeding it returns an error.
 pub fn dxf_board(p: &Project) -> Result<String, String> {
     p.validate()?;
 
@@ -4711,6 +4786,12 @@ pub fn dxf_entities(text: &str) -> Result<Vec<DxfEntity>, String> {
     Ok(out)
 }
 
+/// Board or schematic as an SVG vector image. The `view` argument must be
+/// "pcb" or "schematic". Copper tracks, pads, vias, silkscreen and component
+/// bodies are drawn with appropriate colors and stroke widths.
+/// # Rules
+/// - The viewBox is computed from the content bounds plus 16 units of margin.
+/// - Coordinates are in the project's native units (typically mm).
 pub fn svg(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
     if view != "pcb" && view != "schematic" {
