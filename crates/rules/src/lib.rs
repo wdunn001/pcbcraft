@@ -9,6 +9,8 @@ use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
+mod courtyard;
+mod silk;
 mod stub;
 
 #[derive(Clone, Debug, Serialize)]
@@ -1830,6 +1832,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     result.extend(panel_findings(project));
     result.extend(via_findings(project));
     result.extend(fab_findings(project, board));
+    result.extend(courtyard::courtyard_findings(project));
+    result.extend(silk::silk_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
