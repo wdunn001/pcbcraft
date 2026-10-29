@@ -2182,11 +2182,11 @@ mod tests {
             "a DXF header first"
         );
         assert!(
-            text.contains("8\nF_Cu\n0\nLINE\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
+            text.contains("0\nLINE\n8\nF_Cu\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
             "the routed track should be a line entity"
         );
         assert!(
-            text.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
+            text.contains("0\nLWPOLYLINE\n8\nEdge\n90\n4\n70\n1\n"),
             "the board outline should be a closed polyline"
         );
         assert_eq!(

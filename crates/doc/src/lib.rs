@@ -900,13 +900,45 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
+/// Every export kind a saved output job may name, in the order the UI lists
+/// them. This is the one list; validation, the engine schema and the job
+/// runner all read it.
+pub const OUTPUT_KINDS: [&str; 25] = [
+    "gerbers",
+    "netlist",
+    "bom",
+    "placement",
+    "dxf",
+    "cmp",
+    "idf",
+    "vrml",
+    "step",
+    "pdf",
+    "svg",
+    "ipc2581",
+    "dsn",
+    "ipc356",
+    "gencad",
+    "hyperlynx",
+    "plot",
+    "report",
+    "ps",
+    "odb",
+    "hpgl",
+    "stackup",
+    "drill_chart",
+    "stats",
+    "layer_plots",
+];
+/// How many export kinds one output job may hold. It is larger than the kind
+/// list so a single job can still ask for every file a board needs.
+pub const MAX_OUTPUT_KINDS: usize = 32;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OutputJob {
     pub name: String,
-    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf,
-    /// cmp, idf, vrml, step, pdf, svg.
+    /// Export kinds, each one of [`OUTPUT_KINDS`].
     pub kinds: Vec<String>,
 }
 impl OutputJob {
@@ -914,36 +946,11 @@ impl OutputJob {
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && !self.kinds.is_empty()
-            && self.kinds.len() <= 24
-            && self.kinds.iter().all(|k| {
-                matches!(
-                    k.as_str(),
-                    "gerbers"
-                        | "netlist"
-                        | "bom"
-                        | "placement"
-                        | "dxf"
-                        | "cmp"
-                        | "idf"
-                        | "vrml"
-                        | "step"
-                        | "pdf"
-                        | "svg"
-                        | "ipc2581"
-                        | "dsn"
-                        | "ipc356"
-                        | "gencad"
-                        | "hyperlynx"
-                        | "plot"
-                        | "report"
-                        | "ps"
-                        | "odb"
-                        | "hpgl"
-                        | "stackup"
-                        | "drill_chart"
-                        | "stats"
-                )
-            })
+            && self.kinds.len() <= MAX_OUTPUT_KINDS
+            && self
+                .kinds
+                .iter()
+                .all(|k| OUTPUT_KINDS.contains(&k.as_str()))
     }
 }
 /// An unplated through hole: a drill that passes through the board without
@@ -1090,24 +1097,65 @@ pub enum ArtShape {
     },
 }
 impl ArtShape {
-    /// A point that represents the figure for navigation and region tests:
-    /// the start of a line, the centre of a rectangle or circle, the first
-    /// corner of an outline and the anchor of pen text.
-    pub fn anchor(&self) -> Point {
+    /// The true circle this figure draws, when it is one, so a format with
+    /// arcs or circle entities can keep it round instead of sampling it.
+    pub fn circle(&self) -> Option<(Point, f64)> {
         match self {
-            Self::Line { start, .. } => *start,
+            Self::Circle { center, radius } => Some((*center, *radius)),
+            _ => None,
+        }
+    }
+
+    /// The straight-line paths this figure draws, in board millimetres, using
+    /// the same conventions as the canvas: a rectangle turns its corners by
+    /// its own rotation about its centre, a polygon is always closed, and a
+    /// circle is sampled into a ring. Text returns no path because drawing
+    /// glyphs needs a stroke font; callers report text as skipped instead.
+    pub fn paths(&self) -> Vec<ArtPath> {
+        match self {
+            Self::Line { start, end } => vec![ArtPath {
+                points: vec![*start, *end],
+                closed: false,
+            }],
             Self::Rect {
                 x,
                 y,
                 width,
                 height,
-                ..
-            } => Point::new(x + width / 2.0, y + height / 2.0),
-            Self::Circle { center, .. } => *center,
-            Self::Poly { points } => points.first().copied().unwrap_or_default(),
-            Self::Text { at, .. } => *at,
+                rotate,
+            } => {
+                let center = Point::new(x + width / 2.0, y + height / 2.0);
+                let points = [
+                    Point::new(*x, *y),
+                    Point::new(x + width, *y),
+                    Point::new(x + width, y + height),
+                    Point::new(*x, y + height),
+                ]
+                .into_iter()
+                .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
+                .collect();
+                vec![ArtPath {
+                    points,
+                    closed: true,
+                }]
+            }
+            Self::Circle { center, radius } => vec![ArtPath {
+                points: art_circle_points(*center, *radius),
+                closed: true,
+            }],
+            Self::Poly { points } => {
+                if points.len() < 2 {
+                    return vec![];
+                }
+                vec![ArtPath {
+                    points: points.clone(),
+                    closed: true,
+                }]
+            }
+            Self::Text { .. } => vec![],
         }
     }
+
     fn valid(&self) -> bool {
         match self {
             Self::Line { start, end } => start.valid() && end.valid(),
@@ -1146,6 +1194,83 @@ impl ArtShape {
             }
         }
     }
+    /// A point that represents the figure for navigation and region tests:
+    /// the start of a line, the centre of a rectangle or circle, the first
+    /// corner of an outline and the anchor of pen text.
+    pub fn anchor(&self) -> Point {
+        match self {
+            Self::Line { start, .. } => *start,
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                ..
+            } => Point::new(x + width / 2.0, y + height / 2.0),
+            Self::Circle { center, .. } => *center,
+            Self::Poly { points } => points.first().copied().unwrap_or_default(),
+            Self::Text { at, .. } => *at,
+        }
+    }
+}
+/// One polyline of a drawn figure, in board millimetres. Plotters, macros
+/// and the screen all read figures through this so they agree on corners,
+/// closure and circle sampling.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtPath {
+    /// The points to travel through, in order.
+    pub points: Vec<Point>,
+    /// True when the path returns to its first point.
+    pub closed: bool,
+}
+impl ArtPath {
+    /// Every point along this path, walking each segment at a physical step
+    /// and placing the first mark at the start. Closed paths include the
+    /// closing segment. Used to turn a perforation line into real holes.
+    pub fn dots(&self, pitch: f64) -> Vec<Point> {
+        const SAMPLES: usize = 100_000;
+        let mut out = Vec::new();
+        if !(pitch.is_finite() && pitch > 0.0) {
+            return out;
+        }
+        let Some(first) = self.points.first().copied() else {
+            return out;
+        };
+        out.push(first);
+        let mut ring = self.points.clone();
+        if self.closed {
+            ring.push(first);
+        }
+        let mut next = pitch;
+        let mut travelled = 0.0;
+        for pair in ring.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let len = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+            if !len.is_finite() || len <= 0.0 {
+                continue;
+            }
+            while travelled + len >= next {
+                let t = (next - travelled) / len;
+                out.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                if out.len() >= SAMPLES {
+                    return out;
+                }
+                next += pitch;
+            }
+            travelled += len;
+        }
+        out
+    }
+}
+/// Sample a circle into a ring of points, without repeating the first point.
+fn art_circle_points(center: Point, radius: f64) -> Vec<Point> {
+    const SEGMENTS: usize = 64;
+    (0..SEGMENTS)
+        .map(|i| {
+            let a = std::f64::consts::TAU * i as f64 / SEGMENTS as f64;
+            Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+        })
+        .collect()
 }
 /// A layer the designer draws: card outlines to cut, perforations to snap
 /// along, custom silk screens, masks or reference art. Copper stays where it
@@ -1162,6 +1287,15 @@ pub struct ArtLayer {
     /// snaps along, or a light print guide.
     #[serde(default)]
     pub dotted: bool,
+    /// Centre-to-centre distance between the dots of a dotted layer, in
+    /// millimetres. Machines need a physical pitch; the screen dashes are a
+    /// preview of this.
+    #[serde(default = "art_dot_pitch")]
+    pub dot_pitch: f64,
+    /// Diameter of each dot of a dotted layer, in millimetres. A laser marks
+    /// it, a mill drills it.
+    #[serde(default = "art_dot_size")]
+    pub dot_size: f64,
     /// False hides the layer everywhere on screen.
     #[serde(default = "art_visible")]
     pub visible: bool,
@@ -1175,10 +1309,20 @@ impl ArtLayer {
             && self.name.len() <= 64
             && self.shapes.len() <= 512
             && self.shapes.iter().all(ArtShape::valid)
+            && self.dot_pitch.is_finite()
+            && (0.1..=20.0).contains(&self.dot_pitch)
+            && self.dot_size.is_finite()
+            && (0.05..=10.0).contains(&self.dot_size)
     }
 }
 fn art_visible() -> bool {
     true
+}
+fn art_dot_pitch() -> f64 {
+    1.0
+}
+fn art_dot_size() -> f64 {
+    0.5
 }
 fn art_text_size() -> f64 {
     1.0
@@ -2015,7 +2159,7 @@ impl Project {
             if n.target_length
                 .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
                 || n.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
             {
                 return Err("invalid net length target or tolerance".into());
@@ -2047,7 +2191,7 @@ impl Project {
                 || c.target_length
                     .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
                 || c.length_tolerance
-                    .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
             {
                 return Err("invalid net class".into());
@@ -2403,7 +2547,7 @@ impl Project {
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
             }
-            if (g.shape == "text") != !g.text.is_empty() {
+            if (g.shape == "text") == g.text.is_empty() {
                 return Err("only text graphics may carry text".into());
             }
             if g.shape == "line" && g.points[0] == g.points[1] {
@@ -2747,6 +2891,10 @@ pub fn library_component(
         library_footprint: None,
     })
 }
+/// Maximum pads considered by placement support checks; matches
+/// `FootprintDefinition::validate` in `pcbcraft-library`.
+pub const MAX_SUPPORTED_FOOTPRINT_PADS: usize = 20_000;
+
 pub fn validate_footprint_support(
     definition: &pcbcraft_library::FootprintDefinition,
 ) -> Result<(), String> {
@@ -2802,8 +2950,10 @@ pub fn validate_footprint_support(
             return Err("placement supports unique numbered front SMD or plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads with a drill strictly inside the pad; unnumbered mechanical holes and back SMD placement are planned".into());
         }
     }
-    if definition.pads.is_empty() || definition.pads.len() > 64 {
-        return Err("imported footprint must have 1–64 pads".into());
+    if definition.pads.is_empty() || definition.pads.len() > MAX_SUPPORTED_FOOTPRINT_PADS {
+        return Err(format!(
+            "imported footprint must have 1 to {MAX_SUPPORTED_FOOTPRINT_PADS} pads"
+        ));
     }
     Ok(())
 }
@@ -2955,6 +3105,43 @@ mod drill_tests {
         }
         Ok(())
     }
+    fn front_smd_circle_pad(number: &str, x: f64, y: f64) -> pcbcraft_library::FootprintPad {
+        pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::new(0.5, 0.5),
+            layers: vec!["F.Cu".into(), "F.Mask".into(), "F.Paste".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    #[test]
+    fn hundred_pad_grid_passes_footprint_support_validation() -> Result<(), String> {
+        let pads: Vec<_> = (0..100)
+            .map(|i| front_smd_circle_pad(&((i + 1).to_string()), (i % 10) as f64, (i / 10) as f64))
+            .collect();
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "GRID100".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads,
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
     #[test]
     fn copper_graphics_cannot_bypass_pad_connectivity_checks() -> Result<(), String> {
         let mut definition = dip()?;
@@ -3278,5 +3465,83 @@ mod drill_tests {
         assert_eq!(one.len(), 5);
         assert!((pcbcraft_geom::polygon_area(&one).abs() - (2.0 - 0.02)).abs() < 1e-12);
         assert!(pcbcraft_geom::polygon_is_simple(&one));
+    }
+}
+
+#[cfg(test)]
+mod art_tests {
+    use super::*;
+
+    #[test]
+    fn art_shape_paths_match_the_canvas_rotation_sign() -> Result<(), String> {
+        let shape = ArtShape::Rect {
+            x: 10.0,
+            y: 10.0,
+            width: 20.0,
+            height: 10.0,
+            rotate: 90.0,
+        };
+        let paths = shape.paths();
+        assert_eq!(paths.len(), 1, "a rectangle is one closed path");
+        let path = paths.first().ok_or("no path")?;
+        assert!(path.closed, "a rectangle closes");
+        assert_eq!(path.points.len(), 4, "four corners");
+        // Corners turn by +90 degrees about the centre (20, 15), the same
+        // turn the canvas applies: (10,10) -> (25,5), (30,10) -> (25,25),
+        // (30,20) -> (15,25), (10,20) -> (15,5).
+        for (got, want) in path.points.iter().zip([
+            Point::new(25.0, 5.0),
+            Point::new(25.0, 25.0),
+            Point::new(15.0, 25.0),
+            Point::new(15.0, 5.0),
+        ]) {
+            assert!(
+                (got.x - want.x).abs() < 1e-9 && (got.y - want.y).abs() < 1e-9,
+                "corner {got:?} should be {want:?}"
+            );
+        }
+        let circle = ArtShape::Circle {
+            center: Point::new(5.0, 5.0),
+            radius: 2.0,
+        };
+        assert_eq!(circle.circle(), Some((Point::new(5.0, 5.0), 2.0)));
+        let ring = circle.paths();
+        assert_eq!(ring.len(), 1);
+        assert!(
+            ring.first()
+                .is_some_and(|p| p.closed && p.points.len() == 64),
+            "a circle samples into a closed ring"
+        );
+        assert!(
+            ArtShape::Text {
+                at: Point::new(1.0, 1.0),
+                text: "A".into(),
+                size: 1.0,
+                rotate: 0.0,
+            }
+            .paths()
+            .is_empty(),
+            "text needs a stroke font, so it draws no straight path"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn art_path_dots_follow_the_physical_pitch() -> Result<(), String> {
+        let line = ArtShape::Line {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 10.0),
+        };
+        let path = line.paths().pop().ok_or("a line draws one path")?;
+        let dots = path.dots(1.0);
+        assert_eq!(
+            dots.len(),
+            11,
+            "a mark every millimetre, both ends included"
+        );
+        assert!((dots[0].y - 0.0).abs() < 1e-9);
+        assert!((dots[10].y - 10.0).abs() < 1e-9);
+        assert_eq!(path.dots(0.0).len(), 0, "a pitch must be positive");
+        Ok(())
     }
 }

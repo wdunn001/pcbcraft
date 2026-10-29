@@ -1818,6 +1818,8 @@ mod tests {
             name: "Card Outline".into(),
             kind,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![shape],
         });
@@ -1928,6 +1930,8 @@ mod tests {
                 name: "Snap Line".into(),
                 kind: ArtKind::Perforation,
                 dotted: true,
+                dot_pitch: 1.0,
+                dot_size: 0.5,
                 visible: true,
                 shapes: vec![shape],
             });
@@ -1997,6 +2001,8 @@ mod tests {
             name: "Logo Mask".into(),
             kind: ArtKind::Mask,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![ArtShape::Rect {
                 x: 19.0,
@@ -2027,6 +2033,8 @@ mod tests {
             name: "Logo Mask".into(),
             kind: ArtKind::Mask,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![ArtShape::Rect {
                 x: 19.0,
@@ -2046,6 +2054,8 @@ mod tests {
             name: "Logo Mask".into(),
             kind: ArtKind::Mask,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![ArtShape::Line {
                 start: Point::new(18.0, 20.0),

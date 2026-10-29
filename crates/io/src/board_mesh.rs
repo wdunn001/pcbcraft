@@ -2158,6 +2158,8 @@ mod tests {
             name: "Marks".into(),
             kind: ArtKind::Silk,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![
                 ArtShape::Line {
