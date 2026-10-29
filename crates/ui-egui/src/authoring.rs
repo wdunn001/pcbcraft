@@ -826,21 +826,7 @@ impl App {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1440.0, 940.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-        output
-    }
+    use crate::test_support::{frame, tap};
     #[test]
     fn editor_button_commits_one_undoable_edit_and_retains_original_nodes() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -899,101 +885,6 @@ pub(crate) mod tests {
         app.tool_call("redo", json!({}));
         assert_eq!(app.project.library.symbols.len(), 1);
         Ok(())
-    }
-    /// Find the button whose label reads exactly `label`, scrolling the page
-    /// down and then up if needed, and click it like a person would.
-    pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
-        // Two quiet passes first: hit-testing always trails the painter by a
-        // frame, and a scroll area only grows its scrollbar on the second
-        // pass, which shifts every row a hair.
-        frame(ctx, app, vec![]);
-        frame(ctx, app, vec![]);
-        // Where to park the pointer when a label sits off screen: the middle
-        // page low and high, the settings column, and the left dock. A spot
-        // that nothing moves under (a text field swallowing the wheel, or
-        // the canvas zooming instead) is given up on after two still frames.
-        let lanes = [
-            egui::pos2(720.0, 750.0),
-            egui::pos2(720.0, 400.0),
-            egui::pos2(300.0, 500.0),
-            egui::pos2(150.0, 500.0),
-        ];
-        // Later shapes sit on top of earlier ones, so the last visible
-        // copy of a label is the one a real click would land on.
-        let find = |output: &egui::FullOutput| -> Option<egui::Pos2> {
-            let mut found = None;
-            for shape in &output.shapes {
-                if let egui::Shape::Text(text) = &shape.shape
-                    && text.galley.text() == label
-                {
-                    let center = text.pos + text.galley.size() / 2.0;
-                    if shape.clip_rect.contains(center) {
-                        found = Some(center);
-                    }
-                }
-            }
-            found
-        };
-        // A fingerprint of where the words sit: if it repeats, the wheel
-        // is being swallowed here and there is no point turning it more.
-        let witness = |output: &egui::FullOutput| -> Vec<(i32, i32)> {
-            let mut marks: Vec<(i32, i32)> = output
-                .shapes
-                .iter()
-                .filter_map(|shape| match &shape.shape {
-                    egui::Shape::Text(text) => {
-                        Some((text.pos.x.round() as i32, text.pos.y.round() as i32))
-                    }
-                    _ => None,
-                })
-                .collect();
-            marks.sort_unstable();
-            marks.truncate(40);
-            marks
-        };
-        for lane in lanes {
-            for direction in [-60.0, 90.0] {
-                let mut stills = 0;
-                while stills < 2 {
-                    let output = frame(ctx, app, vec![]);
-                    if let Some(pos) = find(&output) {
-                        for pressed in [true, false] {
-                            frame(
-                                ctx,
-                                app,
-                                vec![
-                                    egui::Event::PointerMoved(pos),
-                                    egui::Event::PointerButton {
-                                        pos,
-                                        button: egui::PointerButton::Primary,
-                                        pressed,
-                                        modifiers: egui::Modifiers::NONE,
-                                    },
-                                ],
-                            );
-                        }
-                        return Ok(());
-                    }
-                    let before = witness(&output);
-                    let wheel = egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Point,
-                        delta: egui::vec2(0.0, direction),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    };
-                    let after = frame(ctx, app, vec![egui::Event::PointerMoved(lane), wheel]);
-                    if witness(&after) == before {
-                        stills += 1;
-                    } else {
-                        stills = 0;
-                    }
-                    // A scrolled frame needs one more pass before its
-                    // hit-testing matches what the painter just drew.
-                    frame(ctx, app, vec![]);
-                }
-            }
-        }
-        Err(format!("{label} never appeared on screen"))
     }
     fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
         app.library

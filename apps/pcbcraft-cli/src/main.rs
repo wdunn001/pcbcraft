@@ -98,8 +98,32 @@ fn run() -> Result<(), String> {
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             println!("{}", json!({"path":path,"view":view}));
         }
+        "diff" => {
+            let path_a = args.get(1).ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let path_b = args
+                .get(2)
+                .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let format = option(&args, "--format").unwrap_or("text");
+            let left = pcbcraft_io::load(Path::new(path_a))?;
+            let right = pcbcraft_io::load(Path::new(path_b))?;
+            let diff = pcbcraft_io::project_diff(&left, &right);
+            match format {
+                "json" => println!("{}", diff.to_json()),
+                "text" => {
+                    if diff.is_empty() {
+                        println!("designs match");
+                    } else {
+                        println!("{}", diff.to_text());
+                    }
+                }
+                other => return Err(format!("unknown diff format: {other}")),
+            }
+            if !diff.is_empty() {
+                std::process::exit(1);
+            }
+        }
         "help" | "--help" | "-h" => println!(
-            "PCBCraft — Rust EDA, MCP-first\n\ncommands | inspect | checks | sample | run | export | snapshot | tool | mcp\n\nCommon: --sample or --project FILE\nTool: pcbcraft-cli tool NAME --args JSON [--save FILE]\nMCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991]\nDesktop: pcbcraft --sample --control 127.0.0.1:7991\nSee README.md and docs/mcp.md for schemas and examples."
+            "PCBCraft — Rust EDA, MCP-first\n\ncommands | inspect | checks | sample | run | export | snapshot | diff | tool | mcp\n\nCommon: --sample or --project FILE\nDiff: pcbcraft-cli diff FILE_A FILE_B [--format text|json] (exit 1 when designs differ)\nTool: pcbcraft-cli tool NAME --args JSON [--save FILE]\nMCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991]\nDesktop: pcbcraft --sample --control 127.0.0.1:7991\nSee README.md and docs/mcp.md for schemas and examples."
         ),
         _ => return Err(format!("unknown action: {action}")),
     }

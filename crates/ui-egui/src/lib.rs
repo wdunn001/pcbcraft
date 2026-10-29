@@ -1,11 +1,14 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
 mod canvas;
+mod keymap;
 mod library;
+mod plot_viewer;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use std::collections::HashMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -36,66 +39,6 @@ const FIELD_HELP_CUTOUT: &str =
 
 fn field_help(ui: &mut egui::Ui, text: &str, muted: egui::Color32) {
     ui.label(egui::RichText::new(text).small().color(muted).weak());
-}
-
-/// The complete input reference: every key binding the app installs, plus
-/// the canvas mouse gestures, with where each one applies. The overlay and
-/// the tests read this one table, so the list can never claim a key the
-/// handler does not install.
-fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
-    vec![
-        ("Ctrl+Z", "Undo the last action", "anywhere"),
-        ("Ctrl+Shift+Z", "Redo an undone action", "anywhere"),
-        ("Ctrl+Y", "Redo an undone action", "anywhere"),
-        ("Ctrl+S", "Save the design to its file", "anywhere"),
-        ("Ctrl+K", "Open the command palette", "anywhere"),
-        (
-            "Up/Down",
-            "Move the highlight through the command list",
-            "command palette",
-        ),
-        (
-            "Enter",
-            "Load the highlighted command, then run it from the parameters box",
-            "command palette",
-        ),
-        ("?", "Show or hide this shortcut list", "anywhere"),
-        ("A", "Open the symbol palette", "schematic tab"),
-        (
-            "W",
-            "Wire tool: click two pins to connect them",
-            "schematic tab",
-        ),
-        (
-            "X",
-            "Route tool: click two pads to start a track",
-            "pcb tab",
-        ),
-        (
-            "M",
-            "Move tool: drop the selection at the cursor",
-            "anywhere",
-        ),
-        (
-            "R",
-            "Rotate the hovered or selected object by 90 degrees",
-            "anywhere",
-        ),
-        (
-            "E",
-            "Load the hovered or selected object into the inspector",
-            "anywhere",
-        ),
-        ("Home", "Zoom the view so the whole design fits", "anywhere"),
-        ("Delete", "Delete the selected object", "anywhere"),
-        (
-            "Esc",
-            "Return to the select tool and close open palettes",
-            "anywhere",
-        ),
-        ("Middle-drag", "Pan the view", "canvas"),
-        ("Scroll", "Zoom the view", "canvas"),
-    ]
 }
 
 /// The stackup roles the engine accepts, paired with the words a newcomer reads.
@@ -252,6 +195,7 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::DrawLayer => {
             format!("LMB: place the shape on the active layer{common}")
         }
+        Tool::Via => format!("LMB: place a via at the cursor{common}"),
     }
 }
 
@@ -427,6 +371,7 @@ enum Tab {
     Rules,
     Checks,
     Settings,
+    PlotFiles,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -448,6 +393,12 @@ impl PadLabels {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CompareKind {
+    Added,
+    Changed,
+}
 #[derive(Clone, Serialize, Deserialize)]
 struct Preferences {
     dark: bool,
@@ -456,6 +407,53 @@ struct Preferences {
     pad_labels: PadLabels,
     #[serde(default)]
     hidden_layers: Vec<String>,
+    #[serde(default = "default_keymap_profile")]
+    active_keymap_profile: String,
+    #[serde(default = "default_keymap_profiles")]
+    keymap_profiles: HashMap<String, keymap::Keymap>,
+}
+fn default_keymap_profile() -> String {
+    "Default".into()
+}
+fn default_keymap_profiles() -> HashMap<String, keymap::Keymap> {
+    let mut map = HashMap::new();
+    map.insert("Default".into(), keymap::Keymap::default_bindings());
+    map
+}
+impl Preferences {
+    fn active_keymap(&self) -> &keymap::Keymap {
+        self.keymap_profiles
+            .get(&self.active_keymap_profile)
+            .or_else(|| self.keymap_profiles.get("Default"))
+            .expect("keymap profiles always include Default after normalize")
+    }
+    fn active_keymap_mut(&mut self) -> &mut keymap::Keymap {
+        let name = if self.keymap_profiles.contains_key(&self.active_keymap_profile) {
+            self.active_keymap_profile.clone()
+        } else {
+            self.active_keymap_profile = "Default".into();
+            "Default".into()
+        };
+        self.keymap_profiles
+            .entry(name)
+            .or_insert_with(keymap::Keymap::default_bindings)
+    }
+    fn normalize_keymaps(&mut self) {
+        if self.keymap_profiles.is_empty() {
+            self.keymap_profiles
+                .insert("Default".into(), keymap::Keymap::default_bindings());
+        }
+        if !self.keymap_profiles.contains_key("Default") {
+            self.keymap_profiles
+                .insert("Default".into(), keymap::Keymap::default_bindings());
+        }
+        if !self.keymap_profiles.contains_key(&self.active_keymap_profile) {
+            self.active_keymap_profile = "Default".into();
+        }
+        for map in self.keymap_profiles.values_mut() {
+            map.sanitize();
+        }
+    }
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -465,6 +463,8 @@ impl Default for Preferences {
             accent: [91, 224, 188],
             pad_labels: PadLabels::Number,
             hidden_layers: Vec::new(),
+            active_keymap_profile: default_keymap_profile(),
+            keymap_profiles: default_keymap_profiles(),
         }
     }
 }
@@ -519,6 +519,7 @@ enum Tool {
     NoConnect,
     Fiducial,
     DrawLayer,
+    Via,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -645,6 +646,7 @@ pub struct App {
     needs_fit: bool,
     schematic: Camera,
     pcb: Camera,
+    plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
@@ -662,12 +664,26 @@ pub struct App {
     command_open: bool,
     command_query: String,
     shortcuts_open: bool,
+    shortcuts_settings_open: bool,
+    binding_capture: Option<keymap::KeyAction>,
+    profile_name_draft: String,
+    profile_import_text: String,
+    keymap_notice: String,
+    connected_cycle: usize,
+    last_repeat: Option<(String, Value)>,
+    needs_zoom_selection: bool,
+    tree_search_focus: bool,
     command_focus: bool,
     command_index: usize,
     command_scroll: bool,
     capture: Option<String>,
     frames: u32,
     library: library::Browser,
+    pub(crate) compare_open: bool,
+    pub(crate) compare_baseline_path: String,
+    compare_report_open: bool,
+    pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
+    pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
 }
 impl App {
     /// One library part offered as a small card: its name to pick, and a
@@ -863,10 +879,11 @@ impl App {
     }
     fn create(
         session: SharedSession,
-        preferences: Preferences,
+        mut preferences: Preferences,
         capture: Option<String>,
         tab: Option<&str>,
     ) -> Self {
+        preferences.normalize_keymaps();
         let project = session
             .lock()
             .map(|s| s.project.clone())
@@ -885,6 +902,7 @@ impl App {
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("plots") => Tab::PlotFiles,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -985,6 +1003,7 @@ impl App {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
@@ -1002,12 +1021,26 @@ impl App {
             command_open: false,
             command_query: String::new(),
             shortcuts_open: false,
+            shortcuts_settings_open: false,
+            binding_capture: None,
+            profile_name_draft: String::new(),
+            profile_import_text: String::new(),
+            keymap_notice: String::new(),
+            connected_cycle: 0,
+            last_repeat: None,
+            needs_zoom_selection: false,
+            tree_search_focus: false,
             command_focus: false,
             command_index: 0,
             command_scroll: false,
             capture,
             frames: 0,
             library,
+            compare_open: false,
+            compare_baseline_path: String::new(),
+            compare_report_open: false,
+            compare_diff: None,
+            compare_tint: std::collections::BTreeMap::new(),
         }
     }
     fn refresh(&mut self) {
@@ -1077,6 +1110,9 @@ impl App {
             });
         match result {
             Ok(v) => {
+                if command != "object.delete" {
+                    self.last_repeat = Some((command.to_string(), params.clone()));
+                }
                 self.message = format!("{command} · committed");
                 if let Some(skipped) = v
                     .pointer("/result/unassigned_components")
@@ -1748,7 +1784,7 @@ impl App {
     }
     fn layers_tab(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.add(
+            let search = ui.add(
                 egui::TextEdit::singleline(&mut self.tree_query)
                     .hint_text("Search the whole board")
                     .desired_width(150.0),
@@ -1756,6 +1792,10 @@ impl App {
             .on_hover_text(
                 "Type a part reference, a net name or a layer name; the tree keeps only matching rows.",
             );
+            if self.tree_search_focus {
+                search.request_focus();
+                self.tree_search_focus = false;
+            }
             if !self.tree_query.is_empty()
                 && ui
                     .small_button("Clear")
@@ -2459,69 +2499,244 @@ impl App {
             }
         }
     }
-    fn shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.egui_wants_keyboard_input() || ctx.current_pass_index() > 0 {
-            return;
+    fn net_for_selection(&self, id: Id) -> Option<Id> {
+        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
+            return Some(track.net);
         }
-        ctx.input(|i| {
-            if i.modifiers.command {
-                if i.key_pressed(egui::Key::F) {
-                    self.needs_fit = true;
-                }
-                if i.key_pressed(egui::Key::Z) {
-                    self.tool_call(if i.modifiers.shift { "redo" } else { "undo" }, json!({}));
-                }
-                if i.key_pressed(egui::Key::Y) {
-                    self.tool_call("redo", json!({}));
-                }
-                if i.key_pressed(egui::Key::S) {
-                    self.tool_call("save", json!({"path":self.path}));
-                }
-                if i.key_pressed(egui::Key::K) {
-                    self.command_open = !self.command_open;
-                    self.command_focus = self.command_open;
-                    self.command_index = 0;
-                }
-                return;
+        if let Some(via) = self.project.board.vias.iter().find(|v| v.id == id) {
+            return Some(via.net);
+        }
+        if let Some(fp) = self.project.footprint(id) {
+            return fp.pads.iter().find_map(|p| p.net);
+        }
+        None
+    }
+
+    fn dispatch_shortcut(&mut self, action: keymap::KeyAction) {
+        use keymap::KeyAction;
+        match action {
+            KeyAction::Undo => {
+                self.tool_call("undo", json!({}));
             }
-            if i.key_pressed(egui::Key::A) && self.tab == Tab::Schematic {
+            KeyAction::Redo => {
+                self.tool_call("redo", json!({}));
+            }
+            KeyAction::Save => {
+                self.tool_call("save", json!({"path": self.path}));
+            }
+            KeyAction::CommandPalette => {
+                self.command_open = !self.command_open;
+                self.command_focus = self.command_open;
+                self.command_index = 0;
+            }
+            KeyAction::ToggleShortcutsHelp => {
+                self.shortcuts_open = !self.shortcuts_open;
+            }
+            KeyAction::SymbolPalette => {
                 self.palette = true;
             }
-            if i.key_pressed(egui::Key::W) && self.tab == Tab::Schematic {
+            KeyAction::WireTool => {
                 self.tool = Tool::Wire(None);
             }
-            if i.key_pressed(egui::Key::X) && self.tab == Tab::Pcb {
+            KeyAction::RouteTool => {
                 self.tool = Tool::Route(None);
             }
-            if i.key_pressed(egui::Key::M) {
+            KeyAction::MoveTool => {
                 self.select_hover();
                 self.tool = Tool::Move;
             }
-            if i.key_pressed(egui::Key::R) {
+            KeyAction::Rotate => {
                 self.select_hover();
                 self.rotate();
             }
-            if i.key_pressed(egui::Key::E) {
+            KeyAction::OpenInspector => {
                 self.select_hover();
                 self.load_properties();
             }
-            if i.key_pressed(egui::Key::Home) {
+            KeyAction::ZoomFitDesign => {
                 self.needs_fit = true;
             }
-            if i.key_pressed(egui::Key::Escape) {
+            KeyAction::ZoomToSelection => {
+                self.needs_zoom_selection = true;
+            }
+            KeyAction::DeleteSelection => {
+                if let Some(id) = self.selected {
+                    self.run("object.delete", json!({"id": id}));
+                    self.select(None);
+                }
+            }
+            KeyAction::ReturnToSelect => {
                 self.tool = Tool::Select;
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
+                self.binding_capture = None;
             }
-            if i.key_pressed(egui::Key::Slash) {
-                self.shortcuts_open = !self.shortcuts_open;
+            KeyAction::ViaTool => {
+                self.tool = Tool::Via;
             }
-            if i.key_pressed(egui::Key::Delete)
-                && let Some(id) = self.selected
-            {
-                self.run("object.delete", json!({"id":id}));
-                self.select(None);
+            KeyAction::FlipHorizontal | KeyAction::MirrorVertical => {
+                self.select_hover();
+                let Some(id) = self.selected else {
+                    return;
+                };
+                let axis = if matches!(action, KeyAction::FlipHorizontal) {
+                    "horizontal"
+                } else {
+                    "vertical"
+                };
+                if self.project.footprint(id).is_some() {
+                    self.run("footprint.mirror", json!({"id": id, "axis": axis}));
+                } else if self.project.component(id).is_some() {
+                    self.run("component.mirror", json!({"id": id, "axis": axis}));
+                }
+            }
+            KeyAction::SelectConnected => {
+                let Some(sel) = self.selected else {
+                    return;
+                };
+                let Some(net) = self.net_for_selection(sel) else {
+                    return;
+                };
+                let mut ids: Vec<Id> = self
+                    .project
+                    .board
+                    .tracks
+                    .iter()
+                    .filter(|t| t.net == net)
+                    .map(|t| t.id)
+                    .collect();
+                for via in &self.project.board.vias {
+                    if via.net == net {
+                        ids.push(via.id);
+                    }
+                }
+                ids.sort_unstable();
+                ids.dedup();
+                if ids.is_empty() {
+                    return;
+                }
+                if ids.len() == 1 {
+                    self.highlight_net = Some(net);
+                    self.select(Some(ids[0]));
+                    return;
+                }
+                let at = ids
+                    .iter()
+                    .position(|id| *id == sel)
+                    .unwrap_or(0);
+                let next = ids[(at + 1) % ids.len()];
+                self.connected_cycle = at + 1;
+                self.select(Some(next));
+            }
+            KeyAction::ToggleNetHighlight => {
+                let Some(sel) = self.selected else {
+                    return;
+                };
+                let Some(net) = self.net_for_selection(sel) else {
+                    return;
+                };
+                self.highlight_net = if self.highlight_net == Some(net) {
+                    None
+                } else {
+                    Some(net)
+                };
+            }
+            KeyAction::LayerNext => {
+                self.route_layer = match self.route_layer {
+                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
+                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
+                    other => other,
+                };
+            }
+            KeyAction::LayerPrev => {
+                self.route_layer = match self.route_layer {
+                    pcbcraft_doc::Layer::Front => pcbcraft_doc::Layer::Back,
+                    pcbcraft_doc::Layer::Back => pcbcraft_doc::Layer::Front,
+                    other => other,
+                };
+            }
+            KeyAction::RepeatLastCommand => {
+                if let Some((command, params)) = self.last_repeat.clone() {
+                    self.run(&command, params);
+                }
+            }
+            KeyAction::FindInTree => {
+                self.left_tab = 1;
+                self.tree_search_focus = true;
+            }
+            KeyAction::PaletteLineUp | KeyAction::PaletteLineDown | KeyAction::PaletteRun => {}
+        }
+    }
+
+    fn shortcuts(&mut self, ctx: &egui::Context) {
+        if ctx.current_pass_index() > 0 {
+            return;
+        }
+        if let Some(capture) = self.binding_capture {
+            ctx.input(|i| {
+                if i.key_pressed(egui::Key::Escape) {
+                    self.binding_capture = None;
+                    self.keymap_notice = "Rebind cancelled.".into();
+                    return;
+                }
+                for event in &i.events {
+                    let egui::Event::Key {
+                        key,
+                        pressed: true,
+                        repeat: false,
+                        ..
+                    } = event
+                    else {
+                        continue;
+                    };
+                    if *key == egui::Key::Escape {
+                        continue;
+                    }
+                    let chord = keymap::chord_from_input(*key, i.modifiers);
+                    let mut map = self.preferences.active_keymap_mut().clone();
+                    match map.set_binding(capture, chord) {
+                        Ok(()) => {
+                            *self.preferences.active_keymap_mut() = map;
+                            self.keymap_notice =
+                                format!("{} is now {}", keymap::action_label(capture), keymap::format_chord(chord));
+                            self.binding_capture = None;
+                        }
+                        Err(err) => self.keymap_notice = err,
+                    }
+                    return;
+                }
+            });
+            return;
+        }
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        let map = self.preferences.active_keymap().clone();
+        let tab = self.tab;
+        let command_open = self.command_open;
+        ctx.input(|i| {
+            for event in &i.events {
+                let egui::Event::Key {
+                    key,
+                    pressed: true,
+                    repeat: false,
+                    ..
+                } = event
+                else {
+                    continue;
+                };
+                let chord = keymap::chord_from_input(*key, i.modifiers);
+                if let Some(action) = map.resolve(chord, tab, command_open) {
+                    if !matches!(
+                        action,
+                        keymap::KeyAction::PaletteLineUp
+                            | keymap::KeyAction::PaletteLineDown
+                            | keymap::KeyAction::PaletteRun
+                    ) {
+                        self.dispatch_shortcut(action);
+                    }
+                }
             }
         });
     }
@@ -2599,6 +2814,7 @@ impl App {
                     (Tab::Rules, "Rules"),
                     (Tab::Checks, "Checks"),
                     (Tab::Settings, "Settings"),
+                    (Tab::PlotFiles, "Plot files"),
                 ] {
                     let (_, rect) = ui.allocate_space(Vec2::new(132.0, 30.0));
                     let selected = self.tab == tab;
@@ -2630,6 +2846,11 @@ impl App {
                         });
                     if response.clicked() {
                         self.change_tab(tab);
+                    }
+                    if tab == Tab::PlotFiles {
+                        response.on_hover_text(
+                            "Open and inspect copper, outline, and drill files before ordering.",
+                        );
                     }
                 }
                 ui.add_enabled(false, egui::Button::new("3D Board"))
@@ -2812,6 +3033,157 @@ impl App {
             self.home_open = false;
         }
     }
+    fn compare_kind_color(&self, kind: CompareKind) -> Color32 {
+        match kind {
+            CompareKind::Added => Color32::from_rgb(72, 187, 120),
+            CompareKind::Changed => Color32::from_rgb(255, 183, 77),
+        }
+    }
+
+    fn refresh_compare_tints(&mut self) {
+        self.compare_tint.clear();
+        let Some(diff) = self.compare_diff.clone() else {
+            return;
+        };
+        for change in &diff.changes {
+            let kind = match change.kind.as_str() {
+                "added" => CompareKind::Added,
+                "changed" => CompareKind::Changed,
+                _ => continue,
+            };
+            self.compare_tint.insert(change.object, kind);
+            if let Some(fp) = self
+                .project
+                .board
+                .footprints
+                .iter()
+                .find(|f| f.id == change.object)
+            {
+                self.compare_tint.insert(fp.component, CompareKind::Changed);
+            }
+            if self
+                .project
+                .components
+                .iter()
+                .any(|c| c.id == change.object)
+                && kind == CompareKind::Changed
+            {
+                if let Some(fp) = self
+                    .project
+                    .board
+                    .footprints
+                    .iter()
+                    .find(|f| f.component == change.object)
+                {
+                    self.compare_tint.insert(fp.id, CompareKind::Changed);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn run_design_compare(&mut self) -> Result<(), String> {
+        let path = self.compare_baseline_path.trim();
+        if path.is_empty() {
+            return Err("pick a baseline design file to compare against".into());
+        }
+        let baseline = pcbcraft_io::load(std::path::Path::new(path))?;
+        let diff = pcbcraft_io::project_diff(&baseline, &self.project);
+        let count = diff.changes.len();
+        self.compare_diff = Some(diff);
+        self.refresh_compare_tints();
+        self.message = if count == 0 {
+            "Compare: the open design matches the baseline.".into()
+        } else {
+            format!(
+                "Compare: {count} change{} from the baseline.",
+                if count == 1 { "" } else { "s" }
+            )
+        };
+        Ok(())
+    }
+
+    fn compare_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.compare_open;
+        egui::Window::new("Compare design")
+            .open(&mut open)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.label(
+                    "Compare the open design against an older saved file. Changed parts highlight on the schematic and board.",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Baseline file");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.compare_baseline_path)
+                            .hint_text("path to the older design file")
+                            .desired_width(260.0),
+                    )
+                    .on_hover_text(
+                        "The saved design you want to diff against; your open design is the newer side.",
+                    );
+                });
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("Run compare")
+                        .on_hover_text(
+                            "Load the baseline file and highlight what changed in the open design.",
+                        )
+                        .clicked()
+                        && let Err(err) = self.run_design_compare()
+                    {
+                        self.message = err;
+                    }
+                    if ui
+                        .button("Show text report")
+                        .on_hover_text(
+                            "Open a scrollable list of every change, for copying into a review note.",
+                        )
+                        .clicked()
+                    {
+                        self.compare_report_open = true;
+                    }
+                    if ui
+                        .button("Stop comparing")
+                        .on_hover_text("Clear highlights and return to normal editing.")
+                        .clicked()
+                    {
+                        self.compare_diff = None;
+                        self.compare_tint.clear();
+                        self.compare_open = false;
+                        self.compare_report_open = false;
+                        self.message = "Compare ended.".into();
+                    }
+                });
+                ui.separator();
+                ui.label(
+                    "Legend: green tint means added, amber tint means changed. Removed items appear in the text report only.",
+                );
+                if let Some(diff) = &self.compare_diff {
+                    ui.label(format!(
+                        "{} change record(s) in the report.",
+                        diff.changes.len()
+                    ));
+                }
+            });
+        self.compare_open = open;
+        if self.compare_report_open {
+            let mut report_open = self.compare_report_open;
+            egui::Window::new("Compare report")
+                .open(&mut report_open)
+                .default_width(420.0)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        if let Some(diff) = &self.compare_diff {
+                            ui.monospace(diff.to_text());
+                        } else {
+                            ui.label("Run compare first to build a report.");
+                        }
+                    });
+                });
+            self.compare_report_open = report_open;
+        }
+    }
+
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("File", |ui| {
             if ui
@@ -2837,6 +3209,15 @@ impl App {
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
+            }
+            if ui
+                .button("Compare with another design…")
+                .on_hover_text(
+                    "Diff the open design against an older saved file; highlights show on the canvas.",
+                )
+                .clicked()
+            {
+                self.compare_open = true;
             }
             ui.separator();
             if ui
@@ -2929,6 +3310,15 @@ impl App {
                 .clicked()
             {
                 self.change_tab(Tab::Settings);
+                self.shortcuts_settings_open = false;
+            }
+            if ui
+                .button("Shortcuts…")
+                .on_hover_text("Rebind keys, save shortcut profiles, and import or export them.")
+                .clicked()
+            {
+                self.change_tab(Tab::Settings);
+                self.shortcuts_settings_open = true;
             }
             if ui
                 .button(if self.preferences.dark {
@@ -3696,6 +4086,201 @@ impl App {
             .inner
     }
 
+    fn shortcuts_settings_panel(&mut self, ui: &mut egui::Ui) {
+        ui.label(
+            egui::RichText::new("KEYBOARD SHORTCUTS")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        if !self.shortcuts_settings_open {
+            if ui
+                .button("Edit shortcuts…")
+                .on_hover_text("Open the shortcut list to rebind keys and manage profiles.")
+                .clicked()
+            {
+                self.shortcuts_settings_open = true;
+            }
+            return;
+        }
+        ui.label(
+            egui::RichText::new(
+                "Pick a profile, change any binding, and save or export it. Conflicts are blocked until you clear the other action.",
+            )
+            .small()
+            .color(self.muted()),
+        );
+        if !self.keymap_notice.is_empty() {
+            ui.label(
+                egui::RichText::new(&self.keymap_notice)
+                    .small()
+                    .color(self.accent()),
+            );
+        }
+        ui.horizontal(|ui| {
+            ui.label("Profile");
+            egui::ComboBox::from_id_salt("keymap-profile")
+                .selected_text(&self.preferences.active_keymap_profile)
+                .show_ui(ui, |ui| {
+                    for name in self.preferences.keymap_profiles.keys() {
+                        if ui
+                            .selectable_label(
+                                self.preferences.active_keymap_profile == *name,
+                                name,
+                            )
+                            .on_hover_text("Switch to this saved shortcut set.")
+                            .clicked()
+                        {
+                            self.preferences.active_keymap_profile = name.clone();
+                        }
+                    }
+                });
+        });
+        ui.horizontal(|ui| {
+            ui.label("Save as");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.profile_name_draft)
+                    .hint_text("Profile name")
+                    .desired_width(160.0),
+            )
+            .on_hover_text("Name for a new profile copied from the current bindings.");
+            if ui
+                .button("Save profile")
+                .on_hover_text("Store the current bindings under the name you typed.")
+                .clicked()
+            {
+                let name = self.profile_name_draft.trim();
+                if name.is_empty() {
+                    self.keymap_notice = "Type a profile name first.".into();
+                } else if name == "Default" {
+                    self.keymap_notice = "Use Reset to default for the Default profile.".into();
+                } else {
+                    let map = self.preferences.active_keymap().clone();
+                    self.preferences
+                        .keymap_profiles
+                        .insert(name.to_string(), map);
+                    self.preferences.active_keymap_profile = name.to_string();
+                    self.keymap_notice = format!("Saved profile {name}.");
+                    self.profile_name_draft.clear();
+                }
+            }
+            if ui
+                .button("Delete profile")
+                .on_hover_text("Remove the active profile except Default.")
+                .clicked()
+            {
+                if self.preferences.active_keymap_profile == "Default" {
+                    self.keymap_notice = "The Default profile cannot be deleted.".into();
+                } else {
+                    let name = self.preferences.active_keymap_profile.clone();
+                    self.preferences.keymap_profiles.remove(&name);
+                    self.preferences.active_keymap_profile = "Default".into();
+                    self.keymap_notice = format!("Deleted profile {name}.");
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .button("Reset to default")
+                .on_hover_text("Restore factory chords for the active profile.")
+                .clicked()
+            {
+                self.preferences.active_keymap_mut().reset_to_default();
+                self.keymap_notice = "Bindings reset to factory defaults.".into();
+            }
+            if ui
+                .button("Export profile…")
+                .on_hover_text("Copy the active profile JSON into the import box for saving to a file.")
+                .clicked()
+            {
+                let file = keymap::KeymapProfileFile::from_keymap(
+                    self.preferences.active_keymap_profile.clone(),
+                    self.preferences.active_keymap(),
+                );
+                match serde_json::to_string_pretty(&file) {
+                    Ok(text) => {
+                        self.profile_import_text = text;
+                        self.keymap_notice = "Profile JSON copied to the import box.".into();
+                    }
+                    Err(e) => self.keymap_notice = e.to_string(),
+                }
+            }
+        });
+        ui.label("Import profile JSON");
+        ui.add(
+            egui::TextEdit::multiline(&mut self.profile_import_text)
+                .desired_rows(4)
+                .desired_width(f32::INFINITY),
+        )
+        .on_hover_text("Paste a profile file; invalid versions are rejected without changing stored prefs.");
+        if ui
+            .button("Import profile")
+            .on_hover_text("Load bindings from the JSON above into a named profile.")
+            .clicked()
+        {
+            match serde_json::from_str::<keymap::KeymapProfileFile>(&self.profile_import_text) {
+                Ok(file) => {
+                    let name = file.name.clone();
+                    match file.into_keymap() {
+                        Ok(map) => {
+                            self.preferences.keymap_profiles.insert(name.clone(), map);
+                            self.preferences.active_keymap_profile = name.clone();
+                            self.keymap_notice = format!("Imported profile {name}.");
+                        }
+                        Err(e) => self.keymap_notice = e,
+                    }
+                }
+                Err(e) => self.keymap_notice = e.to_string(),
+            }
+        }
+        egui::ScrollArea::vertical()
+            .max_height(280.0)
+            .show(ui, |ui| {
+                egui::Grid::new("shortcut-settings-grid")
+                    .num_columns(3)
+                    .spacing([12.0, 6.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new("Action").strong());
+                        ui.label(egui::RichText::new("Keys").strong());
+                        ui.label(egui::RichText::new("Change").strong());
+                        ui.end_row();
+                        for action in keymap::rebindable_actions() {
+                            let label = keymap::action_label(action);
+                            ui.label(label).on_hover_text(keymap::action_tooltip(action));
+                            let chord = self
+                                .preferences
+                                .active_keymap()
+                                .chord_for(action)
+                                .map(keymap::format_chord)
+                                .unwrap_or_else(|| "Unassigned".into());
+                            ui.label(egui::RichText::new(chord).monospace());
+                            let waiting = self.binding_capture == Some(action);
+                            let change = ui
+                                .button(if waiting {
+                                    "Press keys…"
+                                } else {
+                                    "Change"
+                                })
+                                .on_hover_text("Click then press the new key chord. Esc cancels.");
+                            if change.clicked() {
+                                self.binding_capture = Some(action);
+                                self.keymap_notice =
+                                    format!("Press a new chord for {label}; Esc cancels.");
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+        if ui
+            .button("Done")
+            .on_hover_text("Close the shortcut editor and return to the rest of Settings.")
+            .clicked()
+        {
+            self.shortcuts_settings_open = false;
+            self.binding_capture = None;
+        }
+    }
+
     /// Everything that used to crowd the right-hand aside: how the app looks
     /// and every setting for the project as a whole.
     fn settings_tab(&mut self, ui: &mut egui::Ui) {
@@ -3721,6 +4306,8 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.add_space(16.0);
+        self.shortcuts_settings_panel(ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("BOARD GEOMETRY")
@@ -5791,6 +6378,7 @@ impl App {
             Tool::NoConnect => "No connection".to_owned(),
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
+            Tool::Via => "Place via".to_owned(),
         };
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -5987,7 +6575,8 @@ impl App {
                         .num_columns(3)
                         .spacing([16.0, 4.0])
                         .show(ui, |ui| {
-                            for (keys, action, context) in shortcut_rows() {
+                            for (keys, action, context) in self.preferences.active_keymap().rows_for_help()
+                            {
                                 ui.label(egui::RichText::new(keys).monospace().strong());
                                 ui.label(action);
                                 ui.label(egui::RichText::new(context).small().color(muted));
@@ -6344,6 +6933,9 @@ impl App {
         self.shortcuts(&ctx);
         self.header(ui);
         self.footer(ui);
+        if self.compare_open {
+            self.compare_window(&ctx);
+        }
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -6370,6 +6962,27 @@ impl App {
                     Tab::Settings => {
                         egui::ScrollArea::vertical()
                             .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                    }
+                    Tab::PlotFiles => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| {
+                                Self::margined(ui, |ui| {
+                                    let theme = plot_viewer::Theme {
+                                        surface: self.surface(),
+                                        muted: self.muted(),
+                                        ink: self.ink(),
+                                        accent: self.accent(),
+                                    };
+                                    plot_viewer::ui(
+                                        &mut self.plot_viewer,
+                                        ui,
+                                        theme,
+                                        &mut self.message,
+                                        self.make_dir.trim(),
+                                    );
+                                });
+                            })
+                            .inner
                     }
                 });
         }
@@ -6398,6 +7011,7 @@ fn pcbcraft_io_limit() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, tap};
 
     #[test]
     fn selected_board_objects_describe_themselves_in_the_properties_panel() -> Result<(), String> {
@@ -6536,7 +7150,7 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
-        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
+        tap(&ctx, &mut app, "Add folder")?;
         let mut added = false;
         for _ in 0..80 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -6596,7 +7210,7 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
-        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
+        tap(&ctx, &mut app, "Remove source")?;
         let mut removed = false;
         for _ in 0..80 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -6636,13 +7250,13 @@ mod tests {
             "the old bottom file strip is gone; file jobs live in the File menu"
         );
         app.tool_call("sample_design", json!({}));
-        authoring::tests::tap(&ctx, &mut app, "File")?;
+        tap(&ctx, &mut app, "File")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !paints_text(&ctx, &mut app, "Load LED example")?,
             "the example lives on the start screen, not in the menu"
         );
-        authoring::tests::tap(&ctx, &mut app, "Save")?;
+        tap(&ctx, &mut app, "Save")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.message.starts_with("save"),
@@ -6653,18 +7267,18 @@ mod tests {
             std::fs::metadata(&file).is_ok_and(|m| m.len() > 0),
             "the design lands in the file the menu names"
         );
-        authoring::tests::tap(&ctx, &mut app, "File")?;
+        tap(&ctx, &mut app, "File")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New")?;
+        tap(&ctx, &mut app, "New")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.project.components.is_empty(),
             "New empties the design: {} parts left",
             app.project.components.len()
         );
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
+        tap(&ctx, &mut app, "Edit")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Undo")?;
+        tap(&ctx, &mut app, "Undo")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.message.starts_with("undo"),
@@ -6677,72 +7291,6 @@ mod tests {
         );
         let _ = std::fs::remove_file(&file);
         Ok(())
-    }
-    /// True when the named words appear anywhere on screen this frame or the
-    /// next two, so tests can assert what a person actually sees.
-    fn paints_text(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        for _ in 0..3 {
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            if output.shapes.iter().any(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape {
-                    return text.galley.text().contains(needle);
-                }
-                false
-            }) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Scroll the left dock until `needle` appears, then turn the wheel a
-    /// little further so the rows just below it are on screen too.
-    fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        scrolled_to_at(ctx, app, needle, 150.0)
-    }
-
-    /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
-    /// left dock, 300 the middle page (Rules, Settings, Checks).
-    fn scrolled_to_at(
-        ctx: &egui::Context,
-        app: &mut App,
-        needle: &str,
-        x: f32,
-    ) -> Result<bool, String> {
-        // One fixed pointer can land on a text field, which swallows the
-        // wheel; step down the same column so the scroll always finds a gap.
-        let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
-        for step in 0..80 {
-            let (lane_x, lane_y) = lanes[step % lanes.len()];
-            // Small point-sized steps: a line-sized jump can sail a short
-            // button clean past the viewport between two polls.
-            let wheel = egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::vec2(0.0, -60.0),
-                phase: egui::TouchPhase::Move,
-                modifiers: egui::Modifiers::NONE,
-            };
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            let clickable = output.shapes.iter().any(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape
-                    && text.galley.text().contains(needle)
-                {
-                    let center = text.pos + text.galley.size() / 2.0;
-                    return shape.clip_rect.contains(center);
-                }
-                false
-            });
-            if clickable {
-                return Ok(true);
-            }
-            frame(
-                ctx,
-                app,
-                vec![egui::Event::PointerMoved(egui::pos2(lane_x, lane_y)), wheel],
-                egui::Modifiers::NONE,
-            );
-        }
-        Ok(false)
     }
 
     #[test]
@@ -6759,7 +7307,7 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
             scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
             "the board's edge lives in its own plain-language section"
@@ -6781,7 +7329,7 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
-        authoring::tests::tap(&ctx, &mut app, "Import as board edge")?;
+        tap(&ctx, &mut app, "Import as board edge")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let corners = app.project.board.outline.as_ref().map_or(0, |o| o.len());
         assert!(
@@ -6792,7 +7340,7 @@ mod tests {
             paints_text(&ctx, &mut app, "Back to a plain rectangle")?,
             "the shape explains itself and offers a way back"
         );
-        authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
+        tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.project.board.outline.is_none_or(|o| o.len() < 3),
@@ -6829,12 +7377,12 @@ mod tests {
         let ctx = egui::Context::default();
         let before = wire_count(&mut app, &ctx)?;
         assert!(before > 0, "the worked example is wired up");
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "Wires")?,
             "the layers page lists wires as its own row"
         );
-        authoring::tests::tap(&ctx, &mut app, "Wires")?;
+        tap(&ctx, &mut app, "Wires")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
@@ -6852,57 +7400,6 @@ mod tests {
         assert_eq!(
             now, revision,
             "hiding a layer is only a view change; the design itself is untouched"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add part")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Search parts by name")?,
-            "the part search opens with a box that says what to type"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
-        for letter in "resistor".chars() {
-            frame(
-                &ctx,
-                &mut app,
-                vec![egui::Event::Text(letter.into())],
-                egui::Modifiers::NONE,
-            );
-        }
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.part_search, "resistor",
-            "typing in the search box arrives letter by letter"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Resistor")?,
-            "the matching part stays in the list"
-        );
-        assert!(
-            !paints_text(&ctx, &mut app, "Capacitor")?,
-            "parts that do not match the search disappear from the list"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Resistor")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            matches!(&app.tool, Tool::Place(kind) if kind == "resistor"),
-            "picking the part arms the schematic to place it, got {:?}",
-            app.tool
-        );
-        assert_eq!(
-            app.tab,
-            Tab::Schematic,
-            "the sheet comes forward to receive it"
         );
         Ok(())
     }
@@ -6935,7 +7432,7 @@ mod tests {
             paints_text(&ctx, &mut app, "Rotate")?,
             "a selected part grows a Rotate handle beside it"
         );
-        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
+        tap(&ctx, &mut app, "Rotate")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let after = app
             .project
@@ -6958,12 +7455,12 @@ mod tests {
         let before = app.project.nets.len();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "New net")?,
             "the layers tree offers a way to add a connection"
         );
-        authoring::tests::tap(&ctx, &mut app, "New net")?;
+        tap(&ctx, &mut app, "New net")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
             app.project.nets.len(),
@@ -6972,7 +7469,7 @@ mod tests {
         );
         let added = app.project.nets.len() - 1;
         let fresh = app.project.nets[added].name.clone();
-        authoring::tests::tap(&ctx, &mut app, &fresh)?;
+        tap(&ctx, &mut app, &fresh)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
             app.highlight_net,
@@ -6982,7 +7479,7 @@ mod tests {
         let fresh_id = app.project.nets[added].id;
         app.net_draft = Some((fresh_id, "Flashlight".into()));
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Use name")?;
+        tap(&ctx, &mut app, "Use name")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             app.project
@@ -6990,72 +7487,6 @@ mod tests {
                 .iter()
                 .any(|n| n.id == fresh_id && n.name == "Flashlight"),
             "the rename sticks: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call(
-            "component.add",
-            json!({"kind":"resistor","reference":"R1","value":"330","position":{"x":40.0,"y":14.0}}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "New net")?,
-            "the layers tree offers a way to add a connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New net")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
-        assert!(
-            paints_text(&ctx, &mut app, "No pins on this connection yet.")?,
-            "a fresh connection says so plainly: {}",
-            app.message
-        );
-        assert!(
-            scrolled_to(&ctx, &mut app, "choose a spare pin")?,
-            "the new connection offers a pin picker: {}",
-            app.message
-        );
-        let net_id = app.project.nets[0].id;
-        let on_net = |app: &App| -> usize {
-            app.project
-                .components
-                .iter()
-                .flat_map(|c| c.pins.iter())
-                .filter(|p| p.net == Some(net_id))
-                .count()
-        };
-        assert_eq!(on_net(&app), 0, "the resistor starts unconnected");
-        authoring::tests::tap(&ctx, &mut app, "choose a spare pin")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1 pin 1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Connect")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            on_net(&app),
-            1,
-            "the chosen pin joins the connection: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "R1 pin 1")?,
-            "the pin is listed on the connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            on_net(&app),
-            0,
-            "one click takes the pin back off: {}",
             app.message
         );
         Ok(())
@@ -7089,12 +7520,12 @@ mod tests {
                 egui::Modifiers::NONE,
             );
         }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
             scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
             "the settings page should offer the factory files"
         );
-        authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
+        tap(&ctx, &mut app, "Copper & drill files")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let listed = |directory: &std::path::Path| -> Result<Vec<String>, String> {
             std::fs::read_dir(directory)
@@ -7109,13 +7540,13 @@ mod tests {
             "copper and drill files should land in the folder: {}",
             app.message
         );
-        authoring::tests::tap(&ctx, &mut app, "Parts list (CSV)")?;
+        tap(&ctx, &mut app, "Parts list (CSV)")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Net list")?;
+        tap(&ctx, &mut app, "Net list")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Pick and place file")?;
+        tap(&ctx, &mut app, "Pick and place file")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Design report")?;
+        tap(&ctx, &mut app, "Design report")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let names = listed(&directory)?;
         assert!(
@@ -7130,163 +7561,6 @@ mod tests {
             "writing files leaves the design itself untouched"
         );
         let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let routed = app.project.board.tracks.len();
-        assert!(
-            routed > 0,
-            "routing a pad to pad should draw copper: {}",
-            app.message
-        );
-        let vcc = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.name == "VCC")
-            .map(|n| n.id)
-            .ok_or("the sample should have a VCC connection")?;
-        app.highlight_net = Some(vcc);
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Clear wiring on VCC")?,
-            "the lit connection gets its own clear item"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Clear wiring on VCC")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.tracks.len() < routed,
-            "the connection's copper lifts: {}",
-            app.message
-        );
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let routed = app.project.board.tracks.len();
-        assert!(
-            routed > 0,
-            "the copper should be back for the whole-board clear"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Clear all wiring")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.tracks.len(),
-            0,
-            "the board starts over clean: {}",
-            app.message
-        );
-        assert_eq!(app.project.nets.len(), 3, "the connections themselves stay");
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_adds_a_rule_set_and_tunes_its_numbers() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No rule sets yet")?,
-            "a design without rule sets says so"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New class")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.net_classes.len(),
-            1,
-            "one click adds one rule set: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Gap 0.200 mm")?,
-            "the new rule set shows its starting numbers"
-        );
-        let id = app.project.net_classes[0].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.rule_draft = Some((id, 0.5, 0.6));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let class = &app.project.net_classes[0];
-        assert!(
-            (class.clearance - 0.5).abs() < 1e-9 && (class.width - 0.6).abs() < 1e-9,
-            "the tuned numbers stick: {} {} · {}",
-            class.clearance,
-            class.width,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes.is_empty(),
-            "the rule set is removed: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_puts_a_connection_under_a_rule_set_and_lets_it_go() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New class")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let vcc = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.name == "VCC")
-            .map(|n| n.id)
-            .ok_or("the sample should have a VCC connection")?;
-        authoring::tests::tap(&ctx, &mut app, "choose a connection to put here")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "VCC")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Assign")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes[0].nets.contains(&vcc),
-            "the connection joins the rule set: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 nets")?,
-            "the row counts its connections"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes[0].nets.is_empty(),
-            "the connection is released to the defaults: {}",
-            app.message
-        );
         Ok(())
     }
 
@@ -7306,7 +7580,7 @@ mod tests {
             paints_text(&ctx, &mut app, "Worked example")?,
             "the start screen offers something to explore"
         );
-        authoring::tests::tap(&ctx, &mut app, "Worked example")?;
+        tap(&ctx, &mut app, "Worked example")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !app.home_open,
@@ -7349,7 +7623,7 @@ mod tests {
             "a design you saved is listed for one-click return"
         );
         let want = app.path.clone();
-        authoring::tests::tap(&ctx, &mut app, &want)?;
+        tap(&ctx, &mut app, &want)?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             !app.home_open,
@@ -7652,35 +7926,16 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_list_documents_every_binding_the_app_installs() {
-        let rows = shortcut_rows();
-        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| *keys).collect();
-        for wanted in ["Ctrl+Z", "Ctrl+K", "?", "W", "X", "Delete", "Esc"] {
+    fn shortcut_help_matches_keymap_defaults() {
+        let map = keymap::Keymap::default_bindings();
+        let help = map.rows_for_help();
+        let default = Preferences::default().active_keymap().rows_for_help();
+        assert_eq!(help, default, "help overlay must match the Default profile");
+        let keys: Vec<&str> = help.iter().map(|(keys, _, _)| keys.as_str()).collect();
+        for wanted in ["Ctrl+Z", "Ctrl+K", "?", "Ctrl+F", "W", "X", "Delete", "Esc"] {
             assert!(
-                keys.contains(&wanted),
+                keys.iter().any(|k| *k == wanted),
                 "the shortcut list must mention {wanted}"
-            );
-        }
-        let mut seen: Vec<&str> = keys.clone();
-        seen.sort_unstable();
-        let unique = {
-            let mut v = seen.clone();
-            v.dedup();
-            v
-        };
-        assert_eq!(seen.len(), unique.len(), "no key is listed twice");
-        for (keys, action, context) in &rows {
-            assert!(!keys.is_empty() && !action.is_empty());
-            assert!(
-                [
-                    "anywhere",
-                    "schematic tab",
-                    "pcb tab",
-                    "canvas",
-                    "command palette",
-                ]
-                .contains(context),
-                "{keys} claims an unknown context {context}"
             );
         }
     }
@@ -7704,6 +7959,7 @@ mod tests {
             (Tool::Hole, "mounting hole"),
             (Tool::NoConnect, "unused"),
             (Tool::Fiducial, "assembly"),
+            (Tool::Via, "via"),
         ];
         for (tool, verb) in cases {
             let hint = tool_hint(&tool);
@@ -7714,1877 +7970,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Builds")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No extra builds")?,
-            "a plain design says so: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "New build")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants.len(),
-            1,
-            "one click adds one build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the sample should have an R1")?;
-        assert!(
-            app.project.variants[0].dnp.contains(&r1),
-            "the build leaves R1 off: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 left off")?,
-            "the row counts what it skips"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Save note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants[0].note.as_deref(),
-            Some("no blue LED"),
-            "the reminder is kept: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "no blue LED")?,
-            "the reminder shows on the row"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants[0].dnp.is_empty(),
-            "the part is back on the build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants.is_empty(),
-            "the build is gone: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "HASL")?,
-            "the board shows the finish it ships with"
-        );
-        authoring::tests::tap(&ctx, &mut app, "HASL")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "ENIG")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.finish, "ENIG",
-            "the finish is recorded: {}",
-            app.message
-        );
-        app.notes_thick = 1.2;
-        app.notes_er = 4.2;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Set thickness")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Set substrate")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            (app.project.board.thickness - 1.2).abs() < 1e-9
-                && (app.project.board.er - 4.2).abs() < 1e-9,
-            "thickness and substrate are recorded: {} {} · {}",
-            app.project.board.thickness,
-            app.project.board.er,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Plated board edge")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .board
-                .machining
-                .as_ref()
-                .and_then(|m| m.edge_plating)
-                == Some(true),
-            "the edge plating note is kept: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
-            "a plain board says what it is: {}",
-            app.message
-        );
-        app.stack_name = "Core".into();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.layer_records.len(),
-            1,
-            "one layer is recorded: {}",
-            app.message
-        );
-        app.stack_name = "L2".into();
-        app.stack_kind = "copper".into();
-        app.stack_thickness = 0.035;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.layer_records.len(),
-            2,
-            "the stackup grows layer by layer: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "add up to 1.235 mm")?,
-            "the sheet totals the board: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.stack_edit = Some(("L2".into(), "copper".into(), 0.05));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let l2 = app
-            .project
-            .board
-            .layer_records
-            .iter()
-            .find(|r| r.name == "L2")
-            .ok_or("L2 should still be in the stackup")?;
-        assert!(
-            (l2.thickness - 0.05).abs() < 1e-9 && l2.kind == "copper",
-            "the tuned layer keeps its new numbers: {} {} · {}",
-            l2.kind,
-            l2.thickness,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Back to a plain two-layer board")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.layer_records.is_empty(),
-            "the stackup notes are forgotten: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                )
-            })
-            .ok_or("routing should have left a wire on the board")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "clicking the middle of a wire picks it up: {}",
-            app.message
-        );
-        app.track_width = 0.6;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Wire width")?,
-            "the picked wire's width is editable in the inspector: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Set width")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .tracks
-                .iter()
-                .any(|t| t.id == id && (t.width - 0.6).abs() < 1e-9),
-            "the wire is now half a millimetre across: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        app.refresh();
-        let teardrops = |app: &App| -> usize {
-            app.project
-                .board
-                .zones
-                .iter()
-                .filter(|zone| zone.kind.as_deref() == Some("teardrop"))
-                .count()
-        };
-        assert_eq!(
-            teardrops(&app),
-            0,
-            "a fresh route has no teardrops yet: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            teardrops(&app) > 0,
-            "one click grows teardrop copper at every joint: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove teardrops")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            teardrops(&app),
-            0,
-            "removing teardrops leaves the plain wires exactly as they were: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_learns_where_a_wire_s_size_comes_from() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (track, net, width) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| (t.id, t.net, t.width))
-            .ok_or("the practice board should have copper to inspect")?;
-        app.tool_call(
-            "netclass.add",
-            json!({"name": "Power", "clearance": 0.2, "width": width, "nets": [net]}),
-        );
-        app.select(Some(track));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let usual = format!("{width:.3} mm · the usual width for Power");
-        assert!(
-            paints_text(&ctx, &mut app, &usual)?,
-            "the properties panel should say the width came from the net class ({usual}): {}",
-            app.message
-        );
-        app.tool_call(
-            "track.set_width",
-            json!({"id": track, "width": width + 0.1}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let own = format!(
-            "{:.3} mm · chosen for this wire, not the usual {:.3} mm for Power",
-            width + 0.1,
-            width
-        );
-        assert!(
-            paints_text(&ctx, &mut app, &own)?,
-            "after widening one wire the panel should say it is no longer the class default ({own}): {}",
-            app.message
-        );
-        let equal = "0.200 mm · the board's usual gap, Power asks no more".to_string();
-        assert!(
-            paints_text(&ctx, &mut app, &equal)?,
-            "a class that asks no more than the board should say the gap is the board's ({equal}): {}",
-            app.message
-        );
-        let class_id = app
-            .project
-            .net_classes
-            .iter()
-            .find(|c| c.name == "Power")
-            .map(|c| c.id)
-            .ok_or("the class should still exist")?;
-        app.tool_call(
-            "netclass.clearance",
-            json!({"class": class_id, "clearance": 0.35}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let usual_gap = "0.350 mm · the usual gap for Power".to_string();
-        assert!(
-            paints_text(&ctx, &mut app, &usual_gap)?,
-            "a stricter class should own the gap note ({usual_gap}): {}",
-            app.message
-        );
-        let (other_id, other_name) = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.id != net)
-            .map(|n| (n.id, n.name.clone()))
-            .ok_or("the practice board should have another net")?;
-        app.tool_call(
-            "board.set_pair_rule",
-            json!({"net_a": net, "net_b": other_id, "clearance": 0.5}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let special = format!("0.500 mm away from {other_name}");
-        assert!(
-            paints_text(&ctx, &mut app, &special)?,
-            "a rule between two named nets should be listed beside the wire ({special}): {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let mut best: Option<(String, usize)> = None;
-        for key in ["erc", "drc"] {
-            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-                let mut counts: Vec<(String, usize)> = Vec::new();
-                for finding in findings {
-                    let code = finding
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("finding")
-                        .to_owned();
-                    if let Some(row) = counts.iter_mut().find(|(c, _)| *c == code) {
-                        row.1 += 1;
-                    } else {
-                        counts.push((code, 1));
-                    }
-                }
-                if let Some(top) = counts.iter().max_by_key(|(_, n)| *n)
-                    && best.as_ref().is_none_or(|(_, n)| top.1 > *n)
-                {
-                    best = Some(top.clone());
-                }
-            }
-        }
-        let (code, count) = best.ok_or("the practice board should have findings")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        let words = code.replace('_', " ");
-        let mut chars = words.chars();
-        let human = match chars.next() {
-            Some(first) => first
-                .to_uppercase()
-                .next()
-                .into_iter()
-                .chain(chars)
-                .collect::<String>(),
-            None => words,
-        };
-        let title = format!("{human} · {count} places");
-        let mut shown = false;
-        for _ in 0..10 {
-            if paints_text(&ctx, &mut app, &title)? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the checks list should group every place one check fired under one heading ({title}): {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Whether the wiring makes electrical sense")?,
-            "each checks group should say in plain words what it looks at: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Tool: Pick")?,
-            "the status strip should say what a click does: {}",
-            app.message
-        );
-        let pct = (app.schematic.zoom / 15.0 * 100.0).round() as i32;
-        let zoom_label = format!("{pct}%");
-        assert!(
-            paints_text(&ctx, &mut app, &zoom_label)?,
-            "the status strip should show the zoom level ({zoom_label}): {}",
-            app.message
-        );
-        let mut mind = 0usize;
-        for key in ["erc", "drc"] {
-            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-                for finding in findings {
-                    let code = finding
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("finding");
-                    if app.project.rule_severity(code, "warning") != "error" {
-                        mind += 1;
-                    }
-                }
-            }
-        }
-        assert!(
-            mind > 0,
-            "the practice board should leave something to mind"
-        );
-        let mind_label = format!("{mind} to mind");
-        assert!(
-            paints_text(&ctx, &mut app, &mind_label)?,
-            "the status strip should count the warnings ({mind_label}): {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &mind_label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.tab,
-            Tab::Checks,
-            "tapping the warning count should open the checks list: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        let mut shown = false;
-        for _ in 0..8 {
-            if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the layers dock should offer ready-made board shapes: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Four layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names: Vec<String> = self_names(&app);
-        assert_eq!(
-            names.len(),
-            7,
-            "the four-layer shape should record seven layers: {names:?}"
-        );
-        assert!(
-            names.iter().any(|n| n == "Inner 1"),
-            "the four-layer shape should add inner copper planes: {names:?}"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Two layers · 1.6 mm")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names = self_names(&app);
-        assert_eq!(
-            names.len(),
-            3,
-            "the starter shape should replace the four-layer stack with three layers: {names:?}"
-        );
-        Ok(())
-    }
-
-    fn self_names(app: &App) -> Vec<String> {
-        app.project
-            .board
-            .layer_records
-            .iter()
-            .map(|r| r.name.clone())
-            .collect()
-    }
-
-    #[test]
-    fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, label) = app
-            .project
-            .board
-            .tracks
-            .iter()
-            .rev()
-            .find(|t| t.layer == pcbcraft_doc::Layer::Front)
-            .map(|t| {
-                (
-                    t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        app.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
-                    ),
-                )
-            })
-            .ok_or("routing should leave a wire on the top layer")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        let mut shown = false;
-        for _ in 0..14 {
-            if paints_text(&ctx, &mut app, "BOARD ANATOMY")? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the layers dock should list every piece of the board: {}",
-            app.message
-        );
-        let mut seen = false;
-        for _ in 0..12 {
-            if paints_text(&ctx, &mut app, "Top copper wires")? {
-                seen = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            seen,
-            "the anatomy list should show the top copper wires layer: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-        let mut row = false;
-        for _ in 0..18 {
-            if paints_text(&ctx, &mut app, &label)? {
-                row = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            row,
-            "the top copper layer should show the drawn wire {label}: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "picking the wire in the tree selects it on the drawing: {}",
-            app.message
-        );
-        assert_eq!(
-            app.tab,
-            Tab::Pcb,
-            "the drawing jumps to the board so the pick is visible"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.texts.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
-            "the board panel should offer printed words: {}",
-            app.message
-        );
-        app.label_text = "Widget One".into();
-        app.label_x = 3.0;
-        app.label_y = 2.0;
-        app.label_size = 1.2;
-        app.label_front = false;
-        scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Add label")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.texts.len(),
-            before + 1,
-            "one line of words lands on the board: {}",
-            app.message
-        );
-        let label = app
-            .project
-            .board
-            .texts
-            .last()
-            .ok_or("the label should be on the board")?;
-        assert!(
-            label.text == "Widget One"
-                && label.layer == pcbcraft_doc::Layer::Back
-                && (label.position.x - 3.0).abs() < 1e-9
-                && (label.size - 1.2).abs() < 1e-9,
-            "the label carries the words, side, spot and letter height that were set"
-        );
-        for _ in 0..3 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "Widget One · Bottom")?,
-            "the printed words are listed so they can be wiped: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Erase")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.texts.len(),
-            before,
-            "erasing wipes exactly that line of words: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.rule_areas.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..22 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
-            "the rules page should offer stricter corners: {}",
-            app.message
-        );
-        app.area_x = 1.0;
-        app.area_y = 1.0;
-        app.area_w = 4.0;
-        app.area_h = 4.0;
-        app.area_gap = 0.5;
-        app.area_limited = true;
-        app.area_height = 3.0;
-        authoring::tests::tap(&ctx, &mut app, "Add area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.rule_areas.len(),
-            before + 1,
-            "one stricter corner is marked on the board: {}",
-            app.message
-        );
-        let area = app
-            .project
-            .board
-            .rule_areas
-            .last()
-            .ok_or("the area should be on the board")?;
-        assert!(
-            (area.clearance - 0.5).abs() < 1e-9 && area.max_height == Some(3.0),
-            "the area carries the gap and height limit that were typed"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Stricter areas on the board")?,
-            "the area is listed so it can be erased: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Erase area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.rule_areas.len(),
-            before,
-            "erasing hands the corner back to the normal rules: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..18 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 300.0)?,
-            "the rules page should offer team lines: {}",
-            app.message
-        );
-        app.dp_gap = 0.3;
-        authoring::tests::tap(&ctx, &mut app, "Declare pair")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .diff_pairs
-                .iter()
-                .any(|d| d.name == "USB" && (d.gap - 0.3).abs() < 1e-9 && d.net_p != d.net_n),
-            "one click declares the pair with the typed gap: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Pairs you have declared")?,
-            "the pair is listed so it can be taken away: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.diff_pairs.is_empty(),
-            "removing stops the checks watching the pair: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        assert!(
-            app.project.nets.len() >= 2,
-            "the practice design has more than one connection"
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..14 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "PAIR CLEARANCES")?,
-            "the rules dock should offer pair spacing: {}",
-            app.message
-        );
-        app.pair_clearance = 0.9;
-        authoring::tests::tap(&ctx, &mut app, "Set spacing")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .pair_rules
-                .iter()
-                .any(|r| r.clearance > 0.89 && r.a != r.b),
-            "one click sets a spacing rule between two different connections: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "away from")?,
-            "the rule is listed in plain words: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Clear")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.pair_rules.is_empty(),
-            "clearing hands the pair back to the normal rules: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..2 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "HOW STRICT TO BE")?,
-            "the rules dock should also say how loud each check is: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.rule_disabled("missing_footprint"),
-            "the bottom check is silenced by one click: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Auto")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            !app.project.rule_severity.contains_key("missing_footprint"),
-            "Auto hands the choice back to the built-in default: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let total = |app: &App| -> usize {
-            ["erc", "drc"]
-                .iter()
-                .map(|k| {
-                    app.checks
-                        .get(*k)
-                        .and_then(Value::as_array)
-                        .map_or(0, |v| v.len())
-                })
-                .sum()
-        };
-        let before = total(&app);
-        assert!(
-            before > 0,
-            "the practice board has findings to quiet: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Quiet this area")?,
-            "every finding offers to quiet its corner of the board: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Quiet this area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let code = app
-            .project
-            .rule_regions
-            .keys()
-            .next()
-            .cloned()
-            .ok_or("one click should draw a quiet zone")?;
-        assert!(
-            total(&app) < before,
-            "the finding inside that zone stops nagging: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Quiet zones")?,
-            "the quiet zones are listed so they can be cleared: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &format!("Clear {code} zones"))?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .rule_regions
-                .get(&code)
-                .is_none_or(|v| v.is_empty()),
-            "clearing hands the whole board back to the check: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "component.add",
-            json!({"kind":"resistor","position":{"x":20.0,"y":20.0},"reference":"R9"}),
-        );
-        let r9 = |app: &App| -> usize {
-            app.checks
-                .get("erc")
-                .and_then(Value::as_array)
-                .map(|rows| {
-                    rows.iter()
-                        .filter(|r| {
-                            r.get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .contains("R9")
-                        })
-                        .count()
-                })
-                .unwrap_or(0)
-        };
-        let total = |app: &App| -> usize {
-            ["erc", "drc"]
-                .iter()
-                .map(|k| {
-                    app.checks
-                        .get(*k)
-                        .and_then(Value::as_array)
-                        .map_or(0, |v| v.len())
-                })
-                .sum()
-        };
-        assert!(
-            r9(&app) == 2 && total(&app) > 2,
-            "the stray part adds two findings to a board that already has some copper to flag: {}",
-            app.message
-        );
-        let before = total(&app);
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Hide this")?,
-            "every finding offers to be hidden: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Hide this")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            total(&app) < before,
-            "hiding one finding takes it out of the list: {}",
-            app.message
-        );
-        let code = app
-            .project
-            .rule_exclusions
-            .keys()
-            .next()
-            .cloned()
-            .ok_or("a hidden finding should be remembered by its check")?;
-        let label = format!("Bring back {code}");
-        assert!(
-            paints_text(&ctx, &mut app, &label)?,
-            "the app keeps a way back for everything hidden: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            total(&app),
-            before,
-            "bringing it back shows every hidden finding again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
-            "the board geometry section should offer a hole: {}",
-            app.message
-        );
-        let before = app.project.board.cutouts.len();
-        app.cut_x = 25.0;
-        app.cut_y = 20.0;
-        app.cut_r = 1.5;
-        authoring::tests::tap(&ctx, &mut app, "Add hole")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.cutouts.len(),
-            before + 1,
-            "one more hole is cut into the board: {}",
-            app.message
-        );
-        let hole = app
-            .project
-            .board
-            .cutouts
-            .iter()
-            .find(|h| (h.center.x - 25.0).abs() < 1e-9 && (h.center.y - 20.0).abs() < 1e-9)
-            .ok_or("the hole should sit exactly where it was placed")?;
-        assert!(
-            (hole.radius - 1.5).abs() < 1e-9,
-            "the hole should be exactly the size that was typed"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "hole.slot",
-            json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
-        );
-        let slot = app
-            .project
-            .board
-            .holes
-            .iter()
-            .find(|h| h.is_slot())
-            .map(|h| h.id)
-            .ok_or("the slot should be on the board")?;
-        app.change_tab(Tab::Pcb);
-        app.refresh();
-        let ctx = egui::Context::default();
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
-            "the hole list is the place a slot is read: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
-            "a slot reads as its width and its overall length: {}",
-            app.message
-        );
-        // The canvas paints the slot without complaint; the drawing is the
-        // only place a capsule outline shows up.
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.select(Some(slot));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.holes.iter().any(|h| h.id == slot),
-            "looking at the slot leaves it on the board"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let resistor = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference.starts_with('R'))
-            .map(|c| c.id)
-            .ok_or("the practice design should carry a resistor")?;
-        app.select(Some(resistor));
-        app.refresh();
-        let refs: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Duplicate")?,
-            "a chosen part offers to be copied: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let after: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        assert_eq!(
-            after.len(),
-            refs.len() + 1,
-            "one more part sits on the board: {refs:?} -> {after:?}"
-        );
-        assert_eq!(
-            after.iter().filter(|r| r.starts_with('R')).count(),
-            refs.iter().filter(|r| r.starts_with('R')).count() + 1,
-            "the copy got its own new reference: {after:?}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.select(Some(10));
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Lock in place")?,
-            "a chosen footprint offers to be frozen: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Lock in place")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let frozen = |app: &App| {
-            app.project
-                .board
-                .footprints
-                .iter()
-                .find(|f| f.id == 10)
-                .and_then(|f| f.locked)
-                == Some(true)
-        };
-        assert!(frozen(&app), "one click freezes the part: {}", app.message);
-        assert!(
-            !app.tool_call(
-                "footprint.move",
-                json!({"id":10,"position":{"x":20.0,"y":20.0}})
-            ),
-            "a frozen part refuses to be shoved: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Unlock")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            !frozen(&app),
-            "unlocking lets the part move freely again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.select(Some(10));
-        app.refresh();
-        let before = app
-            .project
-            .board
-            .footprints
-            .iter()
-            .find(|f| f.id == 10)
-            .map(|f| f.position.x)
-            .ok_or("the practice board should carry J1's footprint")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Dock left")?,
-            "a chosen footprint offers to sit flush to an edge: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Dock left")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let after = app
-            .project
-            .board
-            .footprints
-            .iter()
-            .find(|f| f.id == 10)
-            .map(|f| f.position.x)
-            .ok_or("the practice board should still carry J1's footprint")?;
-        assert!(
-            after < before && after > 0.0,
-            "the part slid in to kiss the left edge: {before} -> {after}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, net, middle) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    t.net,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                )
-            })
-            .ok_or("routing should leave a connection to thicken")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "one leg is picked up: {}",
-            app.message
-        );
-        app.track_width = 0.6;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Thicken whole connection")?,
-            "the inspector offers to widen the entire run, not just the picked leg: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Thicken whole connection")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let legs: Vec<f64> = app
-            .project
-            .board
-            .tracks
-            .iter()
-            .filter(|t| t.net == net)
-            .map(|t| t.width)
-            .collect();
-        assert!(
-            legs.len() > 1 && legs.iter().all(|w| (w - 0.6).abs() < 1e-9),
-            "every stretch of the connection is now half a millimetre across: {:?}",
-            legs
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle, before) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                    app.project.board.tracks.len(),
-                )
-            })
-            .ok_or("routing should leave a wire to cut")?;
-        app.select(Some(id));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Cut in half")?,
-            "a chosen wire offers to be cut in half: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Cut in half")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.tracks.len(),
-            before + 1,
-            "one wire becomes two: {}",
-            app.message
-        );
-        let on_mid = |p: Point| (p.x - middle.x).abs() < 1e-6 && (p.y - middle.y).abs() < 1e-6;
-        assert!(
-            app.project
-                .board
-                .tracks
-                .iter()
-                .any(|t| on_mid(t.start) || on_mid(t.end)),
-            "the two halves meet exactly at the middle of the original wire"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle, before) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                    app.project.board.tracks.len(),
-                )
-            })
-            .ok_or("routing should leave a corner to smooth")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "the first leg of the route is picked up: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Cut corner")?,
-            "a wire that meets another offers a corner cut: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Cut corner")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.tracks.len() > before,
-            "the cut adds a diagonal so the run turns gently: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let folder = std::env::temp_dir().join(format!("pcbcraftdraw-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        app.make_dir = folder.to_string_lossy().into_owned();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..6 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.pdf").is_file(),
-            "one click leaves a printable drawing on disk: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Web drawing (SVG)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.svg").is_file(),
-            "the web drawing lands next to the printable one: {}",
-            app.message
-        );
-        assert!(
-            app.message.contains("Web drawing saved"),
-            "the app says where the drawing went: {}",
-            app.message
-        );
-        let _ = std::fs::remove_dir_all(&folder);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.zones.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
-            "the board geometry section should offer a copper pour: {}",
-            app.message
-        );
-        app.pour_x = 2.0;
-        app.pour_y = 2.0;
-        app.pour_w = 6.0;
-        app.pour_h = 4.0;
-        authoring::tests::tap(&ctx, &mut app, "Pour copper")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.zones.len(),
-            before + 1,
-            "one rectangle of copper is poured: {}",
-            app.message
-        );
-        let zone = app
-            .project
-            .board
-            .zones
-            .last()
-            .ok_or("the pour should be on the board")?;
-        assert_eq!(
-            zone.net, app.pour_net,
-            "the pour went to the connection picked in the box"
-        );
-        assert!(
-            zone.outline
-                .iter()
-                .all(|p| p.x >= 2.0 && p.x <= 8.0 && p.y >= 2.0 && p.y <= 6.0)
-                && zone.outline.iter().any(|p| (p.x - 8.0).abs() < 1e-9),
-            "the copper covers exactly the rectangle that was typed"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let net = app
-            .project
-            .nets
-            .first()
-            .map(|n| n.id)
-            .ok_or("the practice design should have a net")?;
-        app.tool_call(
-            "zone.place",
-            json!({"net": net, "layer":"F.Cu","outline":[
-                {"x":2.0,"y":2.0},{"x":8.0,"y":2.0},{"x":8.0,"y":6.0},{"x":2.0,"y":6.0},{"x":2.0,"y":2.0}
-            ]}),
-        );
-        let zone_id = app
-            .project
-            .board
-            .zones
-            .last()
-            .map(|z| z.id)
-            .ok_or("the poured area should be on the board")?;
-        let vias_before = app.project.board.vias.len();
-        app.select(Some(zone_id));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Fill with vias")?,
-            "a chosen copper area offers to be stitched: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Fill with vias")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let stitched = app.project.board.vias.len() - vias_before;
-        assert!(
-            stitched >= 4,
-            "a grid of connecting holes lands inside the area: {}",
-            app.message
-        );
-        assert!(
-            app.project
-                .board
-                .vias
-                .iter()
-                .rev()
-                .take(stitched)
-                .all(|v| v.net == net),
-            "every new hole belongs to the area's connection"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let folder = std::env::temp_dir().join(format!("pcbcraft-drill-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        app.make_dir = folder.to_string_lossy().into_owned();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
-            "the make files should include a drill map: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Drill map (CSV)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let map = folder.join("board-drill-tools.csv");
-        let text = std::fs::read_to_string(&map)
-            .map_err(|e| format!("the drill map should land in the make folder: {e}"))?;
-        assert!(
-            !text.is_empty(),
-            "the drill map counts the holes on the board"
-        );
-        let _ = std::fs::remove_dir_all(&folder);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let folder = std::env::temp_dir().join(format!("pcbcraft3d-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&folder);
-        app.make_dir = folder.to_string_lossy().into_owned();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..6 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
-            "the factory folder section should also offer a 3D look: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "3D model (Step)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.step").is_file(),
-            "one click leaves a Step model on disk: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "3D viewer file")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            folder.join("board.wrl").is_file(),
-            "the viewer file lands next to the model: {}",
-            app.message
-        );
-        assert!(
-            app.message.contains("3D viewer file saved"),
-            "the app says where the file went: {}",
-            app.message
-        );
-        let _ = std::fs::remove_dir_all(&folder);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..8 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
-            "the factory folder section should also plan panels: {}",
-            app.message
-        );
-        let width = app.project.board.width;
-        authoring::tests::tap(&ctx, &mut app, "Preview panel")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "4 copies")?,
-            "a two by two preview counts four boards: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "panel")?,
-            "the panel's finished size is spelled out: {}",
-            app.message
-        );
-        app.refresh();
-        assert_eq!(
-            app.project.board.width, width,
-            "planning a panel never touches the design"
-        );
-        Ok(())
-    }
 
     #[test]
     fn the_nets_tab_reports_the_copper_each_net_carries() -> Result<(), String> {
@@ -9598,7 +7983,7 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        tap(&ctx, &mut app, "Layers")?;
         assert!(
             scrolled_to(&ctx, &mut app, "of 3 nets routed")?,
             "the dock totals the routing at a glance: {}",
@@ -9612,307 +7997,6 @@ mod tests {
         assert!(
             paints_text(&ctx, &mut app, "mm")?,
             "routed lengths are spelled out in millimetres: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "component.add",
-            json!({"kind":"resistor","reference":"R7","value":"1 k","position":{"x":50.0,"y":40.0}}),
-        );
-        app.run(
-            "component.add",
-            json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Preview")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "R7  →  R3")?,
-            "the plan spells out a new number before anything changes: {}",
-            app.message
-        );
-        let untouched = app.project.components.iter().any(|c| c.reference == "R9");
-        assert!(untouched, "a preview never touches the design");
-        authoring::tests::tap(&ctx, &mut app, "Renumber")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let mut references: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        references.sort();
-        assert_eq!(
-            references,
-            ["D1", "J1", "R1", "R2", "R3"],
-            "the numbers follow placement order: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tab = Tab::Pcb;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.canvas_click(Point::new(-27.0, -17.0), 1.0);
-        assert_eq!(
-            app.project.board.fiducials.len(),
-            1,
-            "one click lays one mark: {}",
-            app.message
-        );
-        app.canvas_click(Point::new(27.0, 17.0), 1.0);
-        assert_eq!(
-            app.project.board.fiducials.len(),
-            2,
-            "the tool stays ready for the next corner: {}",
-            app.message
-        );
-        assert!(
-            app.project
-                .board
-                .fiducials
-                .iter()
-                .all(|fid| (fid.diameter - 1.0).abs() < 1e-9),
-            "both marks are the usual 1 mm disc: {}",
-            app.message
-        );
-        app.tool = Tool::Select;
-        app.tab = Tab::Schematic;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
-            "the marks are listed with their size and side"
-        );
-        let last = app.project.board.fiducials[1].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.fiducial_edit = Some((last, 1.2, false));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.fiducials.iter().any(|fid| {
-                fid.id == last
-                    && (fid.diameter - 1.2).abs() < 1e-9
-                    && fid.layer == pcbcraft_doc::Layer::Back
-            }),
-            "the mark is resized and moved to the bottom: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.fiducials.len(),
-            1,
-            "the other mark comes off the board: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "component.add",
-            json!({"kind":"resistor","reference":"R9","value":"1 k","position":{"x":20.0,"y":40.0}}),
-        );
-        app.refresh();
-        app.tab = Tab::Schematic;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "No connect")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let spare = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R9")
-            .and_then(|c| c.pin_position("1"))
-            .ok_or("the spare resistor should have a pin 1")?;
-        let before = app.project.no_connects.len();
-        app.canvas_click(spare, 1.0);
-        assert_eq!(
-            app.project.no_connects.len(),
-            before + 1,
-            "clicking the pin marks it unused: {}",
-            app.message
-        );
-        assert!(
-            app.project.no_connects.iter().any(|f| {
-                f.pin.component
-                    == app
-                        .project
-                        .components
-                        .iter()
-                        .find(|c| c.reference == "R9")
-                        .map(|c| c.id)
-                        .unwrap_or_default()
-                    && f.pin.pin == "1"
-            }),
-            "the mark lands on the pin that was clicked: {}",
-            app.message
-        );
-        app.canvas_click(spare, 1.0);
-        assert_eq!(
-            app.project.no_connects.len(),
-            before,
-            "clicking the mark again clears it: {}",
-            app.message
-        );
-        app.canvas_click(spare, 1.0);
-        assert_eq!(
-            app.project.no_connects.len(),
-            before + 1,
-            "the tool stays ready for the next unused pin: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tab = Tab::Pcb;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.canvas_click(Point::new(-25.0, -17.0), 1.0);
-        assert_eq!(
-            app.project.board.holes.len(),
-            1,
-            "one click drills one hole: {}",
-            app.message
-        );
-        app.canvas_click(Point::new(25.0, -17.0), 1.0);
-        assert_eq!(
-            app.project.board.holes.len(),
-            2,
-            "the tool stays ready for the next corner: {}",
-            app.message
-        );
-        assert!(
-            app.project
-                .board
-                .holes
-                .iter()
-                .all(|h| (h.diameter - 3.2).abs() < 1e-9),
-            "both holes use the drill size on show: {}",
-            app.message
-        );
-        app.tool = Tool::Select;
-        app.tab = Tab::Schematic;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "3.20 mm")?,
-            "the holes are listed with their drill size"
-        );
-        let id = app.project.board.holes[0].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.hole_edit = Some((id, 3.0));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .board
-                .holes
-                .iter()
-                .any(|h| h.id == id && (h.diameter - 3.0).abs() < 1e-9),
-            "the hole is resized: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.holes.len(),
-            1,
-            "the other hole is drilled back out: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Builds")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New build")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "choose a part to swap")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.swap_name = "0603".into();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Swap package")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the sample should have an R1")?;
-        assert_eq!(
-            app.project.variants[0]
-                .footprints
-                .iter()
-                .find(|o| o.component == r1)
-                .map(|o| o.footprint.as_str()),
-            Some("0603"),
-            "the build swaps R1 into 0603: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 swapped")?,
-            "the row counts the swap"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "R1 fits 0603")?,
-            "the swap is spelled out in plain words"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants[0].footprints.is_empty(),
-            "the part goes back to its own package: {}",
             app.message
         );
         Ok(())
@@ -10305,89 +8389,6 @@ mod tests {
     }
 
     #[test]
-    fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.change_tab(Tab::Pcb);
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            paints_text(&ctx, &mut app, "This board")?,
-            "the tree starts at the board itself: {}",
-            app.message
-        );
-        let net = app.project.nets[0].name.clone();
-        app.tree_query = net.clone();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, &net)?,
-            "a search keeps the matching connection in the tree: {}",
-            app.message
-        );
-        app.tree_query.clear();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Top copper wires")?,
-            "the copper layers are rows of the tree: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Fade others")?,
-            "a copper layer offers a way to fade the rest: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Fade others")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.focus_layer.as_deref(),
-            Some("copper:front"),
-            "fading starts from the top copper layer: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "FOCUSED ON Top copper")?,
-            "the drawing says what is focused: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Stop fading")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.focus_layer, None,
-            "one more tap brings everything back: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    fn frame(
-        ctx: &egui::Context,
-        app: &mut App,
-        mut events: Vec<egui::Event>,
-        modifiers: egui::Modifiers,
-    ) -> egui::FullOutput {
-        events.insert(0, egui::Event::ModifiersChanged(modifiers));
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1440.0, 940.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        // This input test has no GPU renderer; intentionally discard texture uploads.
-        output.textures_delta.clear();
-        output
-    }
-    #[test]
     fn a_beginners_first_session_places_two_parts_and_walks_every_tab() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared.clone(), Preferences::default(), None, None);
@@ -10684,152 +8685,9 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn a_newcomer_writes_their_own_check() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..1 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "CHECKS YOU WRITE")?,
-            "the rules dock invites a check of your own: {}",
-            app.message
-        );
-        app.custom_name = "keep it small".into();
-        app.custom_measure = 2;
-        app.custom_limit = 2.0;
-        app.custom_loud = true;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add this check")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .custom_checks
-                .iter()
-                .any(|c| c.name == "keep it small"),
-            "the check is written into the design: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
-            "the review shows the check under the name it was given: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 to fix")?,
-            "a breach of a must-fix check lands in the footer count: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        scrolled_to_at(&ctx, &mut app, "Remove this check", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.custom_checks.is_empty(),
-            "one click takes the check away again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the practice board should have a resistor")?;
-        app.tool_call(
-            "component.field",
-            json!({"id": r1, "key": "Description", "value": "blinky red"}),
-        );
-        app.tool_call(
-            "library.symbol.upsert",
-            json!({"definition": {
-                "name": "SetR",
-                "reference": "R",
-                "value": "10k",
-                "description": "thin film",
-                "keywords": "resistor trim",
-                "footprint": "",
-                "set": "Power bits",
-                "pins": [{"number": "1", "name": "", "position": {"x": -5.0, "y": 0.0},
-                    "angle": 0.0, "length": 2.5, "electrical_type": "passive",
-                    "unit": 1, "body_style": 0}],
-                "graphics": [],
-                "extends": null,
-                "raw_source": "",
-                "unsupported": []
-            }}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "    blinky red · built in")?,
-            "a part row says what the part is and where it came from: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Add part")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Power bits (1 part)")?,
-            "library parts are grouped under their set name: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "thin film · search words: resistor · trim")?,
-            "each library part is a card that says what it is: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "SetR")?,
-            "the part itself is offered under its set: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            !paints_text(&ctx, &mut app, "SetR")?,
-            "unticking the set hides every part inside it: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "SetR")?,
-            "ticking it again brings the group back: {}",
-            app.message
-        );
-        Ok(())
-    }
 }
+
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+mod e2e;
