@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "i2c"
+name = "I2C bus"
+category = "bus"
+summary = "Open-drain bus nets share one net class."
+
+[[net_class]]
+name = "I2C"
+clearance = 0.15
+width = 0.15
+nets = ["SDA", "SCL"]
+
+[[value_source]]
+field = "net_class.clearance"
+source = "i2c_open_drain_default"

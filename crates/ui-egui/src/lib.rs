@@ -1593,10 +1593,23 @@ impl App {
                         *held = diameter;
                     }
                 } else {
-                    ui.label(format!(
-                        "{:.2} mm at {:.1}, {:.1}",
-                        hole.diameter, hole.position.x, hole.position.y
-                    ));
+                    if hole.is_slot() {
+                        ui.label(format!(
+                            "{:.2} mm slot {:.2} mm long at {:.1}, {:.1}",
+                            hole.diameter,
+                            hole.length(),
+                            hole.position.x,
+                            hole.position.y
+                        ))
+                        .on_hover_text(
+                            "A routed slot: its width, its overall length end to end, and where it starts.",
+                        );
+                    } else {
+                        ui.label(format!(
+                            "{:.2} mm at {:.1}, {:.1}",
+                            hole.diameter, hole.position.x, hole.position.y
+                        ));
+                    }
                     if ui
                         .small_button("Tune")
                         .on_hover_text("Change this hole's drill size.")
@@ -5748,13 +5761,10 @@ impl App {
         for key in ["erc", "drc"] {
             if let Some(findings) = checks.get(key).and_then(Value::as_array) {
                 for f in findings {
-                    let code = f.get("code").and_then(Value::as_str).unwrap_or("finding");
-                    // Built-in checks follow the designer's chosen loudness;
-                    // a check of their own reports at the volume it was set.
-                    let loud = match code.strip_prefix("custom_") {
-                        Some(_) => f.get("severity").and_then(Value::as_str) == Some("error"),
-                        None => self.project.rule_severity(code, "warning") == "error",
-                    };
+                    // Every finding carries the loudness its check resolved to,
+                    // so the footer agrees with the review list instead of
+                    // guessing a default per code.
+                    let loud = f.get("severity").and_then(Value::as_str) == Some("error");
                     if loud {
                         fix += 1;
                     } else {
@@ -8943,6 +8953,50 @@ mod tests {
     }
 
     #[test]
+    fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "hole.slot",
+            json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
+        );
+        let slot = app
+            .project
+            .board
+            .holes
+            .iter()
+            .find(|h| h.is_slot())
+            .map(|h| h.id)
+            .ok_or("the slot should be on the board")?;
+        app.change_tab(Tab::Pcb);
+        app.refresh();
+        let ctx = egui::Context::default();
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        assert!(
+            scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
+            "the hole list is the place a slot is read: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
+            "a slot reads as its width and its overall length: {}",
+            app.message
+        );
+        // The canvas paints the slot without complaint; the drawing is the
+        // only place a capsule outline shows up.
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.select(Some(slot));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.holes.iter().any(|h| h.id == slot),
+            "looking at the slot leaves it on the board"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);
@@ -10147,6 +10201,70 @@ mod tests {
                 pcbcraft_doc::ArtShape::Text { text, .. } if text == "HELLO LASER"
             )),
             "the printed words should be exactly what was typed"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        // The sample board has no vias, so the story places one in the middle
+        // of the board and then draws a cut line straight across it.
+        app.tool_call(
+            "via.place",
+            json!({"net":4,"position":{"x":20.0,"y":30.0},"diameter":0.8,"drill":0.4}),
+        );
+        assert_eq!(
+            app.project.board.vias.len(),
+            1,
+            "the via should be placed: {}",
+            app.message
+        );
+        app.tool_call(
+            "board.layer_add",
+            json!({"name":"Card Outline","kind":"cut"}),
+        );
+        let layer = app
+            .project
+            .board
+            .user_layers
+            .iter()
+            .find(|l| l.name == "Card Outline")
+            .map(|l| l.id)
+            .ok_or("the cut layer should be added")?;
+        app.tool_call(
+            "board.layer_line_add",
+            json!({"layer":layer,"x1":18.0,"y1":30.0,"x2":22.0,"y2":30.0}),
+        );
+        app.refresh();
+        let conflict = app
+            .checks
+            .get("drc")
+            .and_then(Value::as_array)
+            .is_some_and(|rows| {
+                rows.iter()
+                    .any(|r| r.get("code").and_then(Value::as_str) == Some("cut_hits_via"))
+            });
+        assert!(
+            conflict,
+            "the cut across the via is reported: {}",
+            app.message
+        );
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "Cut hits via")?,
+            "the review names the conflict in plain words: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1 to fix")?,
+            "a cut through a via lands in the footer count: {}",
+            app.message
         );
         Ok(())
     }

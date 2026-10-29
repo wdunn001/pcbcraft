@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "power-3v3"
+name = "3.3 V rail"
+category = "interface"
+summary = "3.3 V rail rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "power-3v3_default"
