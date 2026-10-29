@@ -5643,6 +5643,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 max_width: None,
                 target_length: None,
                 length_tolerance: None,
+                max_length: None,
                 nets: a.nets,
             });
             Ok(json!({"id": id}))

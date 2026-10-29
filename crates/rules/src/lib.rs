@@ -851,11 +851,15 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for group in &project.length_groups {
         if group.same_layer {
             for net in &group.nets {
-                let mut layers: BTreeSet<Layer> = BTreeSet::new();
-                for track in board.tracks.iter().filter(|t| t.net == *net) {
-                    layers.insert(track.layer);
-                }
-                if layers.len() <= 1 {
+                let front = board
+                    .tracks
+                    .iter()
+                    .any(|t| t.net == *net && t.layer == Layer::Front);
+                let back = board
+                    .tracks
+                    .iter()
+                    .any(|t| t.net == *net && t.layer == Layer::Back);
+                if !(front && back) {
                     continue;
                 }
                 result.push(Finding {
