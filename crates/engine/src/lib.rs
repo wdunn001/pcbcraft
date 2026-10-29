@@ -1,5 +1,6 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod part;
 pub mod library;
 pub mod profiles;
 pub mod recents;
@@ -1810,6 +1811,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(part::commands())
         .collect()
 }
 
@@ -4485,6 +4487,9 @@ fn validate_pair_coupling(
 }
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = part::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -18325,6 +18330,24 @@ mod tests {
             commands().iter().any(|c| c.id == "library.footprint.check"),
             "MCP clients must see library.footprint.check"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn part_commands_are_registered_and_reject_bad_payloads() -> Result<(), Error> {
+        for id in ["part.add", "part.verify", "part.attach"] {
+            assert!(
+                commands().iter().any(|c| c.id == id),
+                "MCP clients must see {id}"
+            );
+        }
+        let mut s = Session::default();
+        let rev = s.revision;
+        assert!(
+            s.execute("part.add", json!({"part": {"mpn": "only"}}), None).is_err(),
+            "incomplete part payload is refused"
+        );
+        assert_eq!(s.revision, rev);
         Ok(())
     }
 

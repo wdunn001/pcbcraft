@@ -7,10 +7,12 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod board_mesh;
+mod datasheet_cache;
 mod drawn;
 mod gerber;
 mod library_render;
 mod panel_export;
+mod part_model;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -19,6 +21,8 @@ pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
 use library_render::*;
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
+pub use datasheet_cache::{fetch_datasheet_cache, DatasheetCacheResult};
+pub use part_model::gltf_bounds;
 pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;

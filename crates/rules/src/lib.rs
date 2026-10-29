@@ -531,6 +531,26 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     result
 }
 
+/// Design-intent requirements from part records; filled in when decoupling rules land.
+pub fn part_requirements(_project: &Project) -> Vec<Finding> {
+    Vec::new()
+}
+
+/// Resolve a pin kind from the linked part record when the component carries one.
+pub fn pin_kind_for_pin(
+    project: &Project,
+    component_id: Id,
+    pin_number: &str,
+) -> Option<pcbcraft_library::PinKind> {
+    let component = project.components.iter().find(|c| c.id == component_id)?;
+    let part_id = component.part?;
+    let part = project.library.parts.iter().find(|p| p.id == part_id)?;
+    part.pins
+        .iter()
+        .find(|p| p.number == pin_number)
+        .map(|p| p.kind)
+}
+
 pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for c in &project.components {
