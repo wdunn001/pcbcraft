@@ -6,6 +6,10 @@ pub use panel::{
 };
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+mod component_kinds;
+pub use component_kinds::{
+    allowed_kinds, coerce_kind, is_valid_kind, kind_matches_alias, validate_kind, KINDS,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
