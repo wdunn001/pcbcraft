@@ -121,7 +121,11 @@ pub fn call_tool(session: &SharedSession, name: &str, args: &Value) -> Value {
 }
 
 /// Produce the files a write-style MCP tool would create, without touching the host filesystem.
-pub fn write_tool_files(session: &SharedSession, name: &str, args: &Value) -> Result<Vec<(String, Vec<u8>)>, String> {
+pub fn write_tool_files(
+    session: &SharedSession,
+    name: &str,
+    args: &Value,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
     if !args.is_object() {
         return Err("arguments must be an object".into());
     }
@@ -142,7 +146,10 @@ pub fn write_tool_files(session: &SharedSession, name: &str, args: &Value) -> Re
     tool_files::write_tool_files(&s.project, name, args)
 }
 
-fn write_files_to_directory(directory: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<String>, String> {
+fn write_files_to_directory(
+    directory: &str,
+    files: &[(String, Vec<u8>)],
+) -> Result<Vec<String>, String> {
     let mut written = Vec::new();
     for (name, bytes) in files {
         pcbcraft_io::atomic_write(&Path::new(directory).join(name), bytes)?;

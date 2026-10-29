@@ -149,8 +149,7 @@ pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
 
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
-    save_bytes(project)
-        .and_then(|bytes| atomic_write(path, &bytes))
+    save_bytes(project).and_then(|bytes| atomic_write(path, &bytes))
 }
 
 /// Serialize a validated project to pretty JSON bytes for download or in-memory storage.
@@ -191,8 +190,7 @@ pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, Stri
     match ext {
         "kicad_mod" => {
             let text = std::str::from_utf8(bytes).map_err(|_| "footprint file must be UTF-8")?;
-            let footprint =
-                pcbcraft_library::read_footprint(text).map_err(|e| e.to_string())?;
+            let footprint = pcbcraft_library::read_footprint(text).map_err(|e| e.to_string())?;
             footprint.validate().map_err(|e| e.to_string())?;
             return Ok(OpenKind::Footprint(footprint));
         }

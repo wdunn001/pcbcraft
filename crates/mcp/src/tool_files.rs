@@ -3,7 +3,11 @@ use pcbcraft_doc::Project;
 use serde_json::{Value, json};
 use std::path::Path;
 
-pub fn write_tool_files(project: &Project, name: &str, args: &Value) -> Result<Vec<(String, Vec<u8>)>, String> {
+pub fn write_tool_files(
+    project: &Project,
+    name: &str,
+    args: &Value,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
     match name {
         "library.save" => {
             project.library.validate()?;
@@ -105,10 +109,7 @@ pub fn write_tool_files(project: &Project, name: &str, args: &Value) -> Result<V
         "ps.write" => {
             let view = view_arg(args);
             let text = pcbcraft_io::postscript(project, view)?;
-            Ok(vec![(
-                format!("pcb-{view}.ps"),
-                text.into_bytes(),
-            )])
+            Ok(vec![(format!("pcb-{view}.ps"), text.into_bytes())])
         }
         "stats.write" => {
             let text = pcbcraft_io::stats_text(project)?;
@@ -125,10 +126,7 @@ pub fn write_tool_files(project: &Project, name: &str, args: &Value) -> Result<V
         "hpgl.write" => {
             let view = view_arg(args);
             let text = pcbcraft_io::hpgl_plot(project, view)?;
-            Ok(vec![(
-                format!("pcb-{view}.hpgl"),
-                text.into_bytes(),
-            )])
+            Ok(vec![(format!("pcb-{view}.hpgl"), text.into_bytes())])
         }
         "odb.write" => {
             let bytes = pcbcraft_io::odb_package(project)?;

@@ -1,6 +1,6 @@
 //! Host bridge for opening uploads and triggering downloads without std::fs in the UI crate.
 use pcbcraft_doc::Project;
-use pcbcraft_io::{open_document, save_bytes, OpenKind};
+use pcbcraft_io::{OpenKind, open_document, save_bytes};
 use std::sync::MutexGuard;
 
 /// Browser or desktop hooks for byte-oriented project I/O.
@@ -61,8 +61,7 @@ impl ProjectHost for MemHost {
         }
     }
     fn save_download(&mut self, filename: &str, bytes: &[u8]) -> Result<(), String> {
-        self.downloads
-            .push((filename.to_string(), bytes.to_vec()));
+        self.downloads.push((filename.to_string(), bytes.to_vec()));
         Ok(())
     }
 }
@@ -106,9 +105,7 @@ mod tests {
         host.open_queue
             .push(("roundtrip.pcbcraft".into(), seed_bytes));
 
-        let (hint, bytes) = host
-            .pick_open()
-            .ok_or("expected a queued open file")?;
+        let (hint, bytes) = host.pick_open().ok_or("expected a queued open file")?;
         let kind = open_document(&bytes, &hint)?;
         replace_session_from_open(&session, kind)?;
 
@@ -125,10 +122,7 @@ mod tests {
         };
         host.save_download("roundtrip.pcbcraft", &saved)?;
 
-        let (_, reopened_bytes) = host
-            .downloads
-            .last()
-            .ok_or("download was not recorded")?;
+        let (_, reopened_bytes) = host.downloads.last().ok_or("download was not recorded")?;
         let reopened = open_document(reopened_bytes, "roundtrip.pcbcraft")?;
         match reopened {
             OpenKind::Project(project) => {

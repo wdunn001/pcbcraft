@@ -2,9 +2,9 @@
 use pcbcraft_ui_egui::library::ProjectHost;
 use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
-use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::closure::Closure;
 use web_sys::{Blob, BlobPropertyBag, HtmlAnchorElement, HtmlInputElement, Url};
 
 const OPEN_ACCEPT: &str = ".pcbcraft,.zip,.pcbcraft-lib,.kicad_sym,.kicad_mod";
@@ -96,8 +96,8 @@ impl ProjectHost for WasmHost {
         bag.type_("application/octet-stream");
         let blob = Blob::new_with_u8_array_sequence_and_options(&parts, &bag)
             .map_err(|_| "could not build download blob")?;
-        let url = Url::create_object_url_with_blob(&blob)
-            .map_err(|_| "could not create object URL")?;
+        let url =
+            Url::create_object_url_with_blob(&blob).map_err(|_| "could not create object URL")?;
         let anchor = document
             .create_element("a")
             .map_err(|_| "could not create download anchor")?
