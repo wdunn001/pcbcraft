@@ -1905,6 +1905,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcbcraft-text"
+version = "0.1.0"
+
+[[package]]
 name = "pcbcraft-ui-egui"
 version = "0.1.0"
 dependencies = [
@@ -1920,6 +1924,7 @@ dependencies = [
  "pcbcraft-library",
  "pcbcraft-mcp",
  "pcbcraft-rules",
+ "pcbcraft-text",
  "serde",
  "serde_json",
 ]
@@ -3538,6 +3543,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-text",
  "serde_json",
 ]
 
