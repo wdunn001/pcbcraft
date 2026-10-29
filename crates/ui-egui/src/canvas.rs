@@ -1750,10 +1750,11 @@ impl App {
                                     "to_n":{"footprint":id,"pad":mate_to},
                                     "layer":self.route_layer,
                                     "mode":mode,
+                                    "width":self.track_width,
                                 }),
                             );
                         } else {
-                            self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer,"mode":mode}));
+                            self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer,"mode":mode,"width":self.track_width}));
                         }
                         self.tool = Tool::Select;
                     } else {
