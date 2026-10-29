@@ -5,6 +5,10 @@ use pcbcraft_library::{
     Drill, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
+/// Most pads the editor lists one by one; a 40 by 40 BGA fits.
+/// Placing a footprint still stops at 64 pads until the placement limit is lifted.
+const PAD_LIST_LIMIT: usize = 1600;
+
 #[derive(Clone)]
 pub(super) enum Draft {
     Symbol(SymbolDefinition),
@@ -37,6 +41,7 @@ pub(super) struct Editor {
     pub draft: Option<Draft>,
     pub path: String,
     pub notice: Option<String>,
+    pub wizard: super::footprint_wizard::Wizard,
     pub tool: LibraryTool,
     pub camera: Camera,
     pub needs_fit: bool,
@@ -54,6 +59,7 @@ impl Default for Editor {
             draft: None,
             path: "parts.pcbcraft-lib".into(),
             notice: None,
+            wizard: Default::default(),
             tool: LibraryTool::Select,
             camera: Camera {
                 center: Point::default(),
@@ -1103,6 +1109,16 @@ impl App {
                 self.library.editor.notice = None;
                 self.library.editor.needs_fit = true;
             }
+            if ui
+                .button("Generate footprint")
+                .on_hover_text(
+                    "Build a footprint from a package family and the numbers in its datasheet.",
+                )
+                .clicked()
+            {
+                self.library.editor.wizard.open = true;
+                self.library.editor.mode = 2;
+            }
         });
         ui.separator();
         match self.library.editor.mode {
@@ -1233,6 +1249,7 @@ impl App {
         }
     }
     fn library_editor(&mut self, ui: &mut egui::Ui) {
+        self.footprint_wizard(ui);
         let Some(mut draft) = self.library.editor.draft.take() else {
             ui.heading("Library editor");
             ui.label(
@@ -1442,7 +1459,7 @@ impl App {
                     .button("Add pad")
                     .on_hover_text("Add a new pad to this footprint.")
                     .clicked()
-                    && def.pads.len() < 64
+                    && def.pads.len() < PAD_LIST_LIMIT
                 {
                     let mut n = 1;
                     while def.pads.iter().any(|p| p.number == n.to_string()) {
@@ -1451,7 +1468,7 @@ impl App {
                     def.pads.push(new_pad(&n.to_string(), 0.0));
                 }
                 let mut remove = None;
-                for (i, pad) in def.pads.iter_mut().enumerate().take(64) {
+                for (i, pad) in def.pads.iter_mut().enumerate().take(PAD_LIST_LIMIT) {
                     ui.push_id(("pad", i), |ui| {
                         ui.collapsing(format!("Pad {} · {}", pad.number, pad.pad_type), |ui| {
                             text(ui, "Number", &mut pad.number);
@@ -1609,7 +1626,13 @@ pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::e2e::support::frame;
+    pub(crate) fn frame(
+        ctx: &egui::Context,
+        app: &mut App,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        crate::e2e::support::frame(ctx, app, events, egui::Modifiers::NONE)
+    }
     #[test]
     fn editor_button_commits_one_undoable_edit_and_retains_original_nodes() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -1626,7 +1649,7 @@ pub(crate) mod tests {
         app.library.editor.draft = Some(Draft::Symbol(definition.clone()));
         app.library.editor.notice = Some("Original source and data license retained".into());
         let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let output = frame(&ctx, &mut app, vec![]);
         assert_eq!(output.viewport_output.len(), 1);
         let pos = output
             .shapes
@@ -1656,7 +1679,6 @@ pub(crate) mod tests {
                         modifiers: egui::Modifiers::NONE,
                     },
                 ],
-                egui::Modifiers::NONE,
             );
         }
         let session = shared.lock().map_err(|_| "session unavailable")?;
@@ -1670,12 +1692,18 @@ pub(crate) mod tests {
         assert_eq!(app.project.library.symbols.len(), 1);
         Ok(())
     }
-
     /// Find the button whose label reads exactly `label`, scrolling the page
     /// down and then up if needed, and click it like a person would.
     pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        // Two quiet passes first: hit-testing always trails the painter by a
+        // frame, and a scroll area only grows its scrollbar on the second
+        // pass, which shifts every row a hair.
+        frame(ctx, app, vec![]);
+        frame(ctx, app, vec![]);
+        // Where to park the pointer when a label sits off screen: the middle
+        // page low and high, the settings column, and the left dock. A spot
+        // that nothing moves under (a text field swallowing the wheel, or
+        // the canvas zooming instead) is given up on after two still frames.
         let lanes = [
             egui::pos2(720.0, 750.0),
             egui::pos2(720.0, 400.0),
@@ -1683,6 +1711,8 @@ pub(crate) mod tests {
             egui::pos2(150.0, 500.0),
             egui::pos2(1180.0, 400.0),
         ];
+        // Later shapes sit on top of earlier ones, so the last visible
+        // copy of a label is the one a real click would land on.
         let find = |output: &egui::FullOutput| -> Option<egui::Pos2> {
             let mut found = None;
             for shape in &output.shapes {
@@ -1697,6 +1727,8 @@ pub(crate) mod tests {
             }
             found
         };
+        // A fingerprint of where the words sit: if it repeats, the wheel
+        // is being swallowed here and there is no point turning it more.
         let witness = |output: &egui::FullOutput| -> Vec<(i32, i32)> {
             let mut marks: Vec<(i32, i32)> = output
                 .shapes
@@ -1716,7 +1748,7 @@ pub(crate) mod tests {
             for direction in [-60.0, 90.0] {
                 let mut stills = 0;
                 while stills < 2 {
-                    let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
+                    let output = frame(ctx, app, vec![]);
                     if let Some(pos) = find(&output) {
                         for pressed in [true, false] {
                             frame(
@@ -1731,7 +1763,6 @@ pub(crate) mod tests {
                                         modifiers: egui::Modifiers::NONE,
                                     },
                                 ],
-                                egui::Modifiers::NONE,
                             );
                         }
                         return Ok(());
@@ -1743,18 +1774,15 @@ pub(crate) mod tests {
                         phase: egui::TouchPhase::Move,
                         modifiers: egui::Modifiers::NONE,
                     };
-                    let after = frame(
-                        ctx,
-                        app,
-                        vec![egui::Event::PointerMoved(lane), wheel],
-                        egui::Modifiers::NONE,
-                    );
+                    let after = frame(ctx, app, vec![egui::Event::PointerMoved(lane), wheel]);
                     if witness(&after) == before {
                         stills += 1;
                     } else {
                         stills = 0;
                     }
-                    frame(ctx, app, vec![], egui::Modifiers::NONE);
+                    // A scrolled frame needs one more pass before its
+                    // hit-testing matches what the painter just drew.
+                    frame(ctx, app, vec![]);
                 }
             }
         }
@@ -1763,8 +1791,8 @@ pub(crate) mod tests {
 
     /// Click a tool-strip icon registered under `id` on the last painted frame.
     pub(crate) fn tap_icon(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
-        frame(ctx, app, vec![], egui::Modifiers::NONE);
+        frame(ctx, app, vec![]);
+        frame(ctx, app, vec![]);
         let pos = app
             .icon_rects
             .get(id)
@@ -1783,7 +1811,6 @@ pub(crate) mod tests {
                         modifiers: egui::Modifiers::NONE,
                     },
                 ],
-                egui::Modifiers::NONE,
             );
         }
         Ok(())

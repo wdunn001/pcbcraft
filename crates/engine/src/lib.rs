@@ -20605,6 +20605,42 @@ mod tests {
     }
 
     #[test]
+    fn footprint_generate_same_name_replaces_the_first() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (pins, size) in [(48, 7.0), (32, 5.0)] {
+            s.execute(
+                "library.footprint.generate",
+                json!({"family": "qfn", "name": "QFN_X", "pitch": 0.5,
+                       "pin_count": pins, "body_x": size, "body_y": size}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_refuses_a_30_mm_pitch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.revision;
+        let err = s
+            .execute(
+                "library.footprint.generate",
+                json!({"family": "qfn", "name": "Q", "pitch": 30.0, "pin_count": 32,
+                       "body_x": 5.0, "body_y": 5.0}),
+                None,
+            )
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains("pitch must be between 0.1 and 25.4"), "{err}");
+        assert_eq!(s.revision, before);
+        assert_eq!(s.project.library.footprints.len(), 0);
+        Ok(())
+    }
+
+    #[test]
     fn footprint_generate_rejects_unknown_family() -> Result<(), Error> {
         let mut s = Session::default();
         let before = s.revision;

@@ -1,9 +1,11 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod a11y;
 mod authoring;
 mod board3d;
 mod canvas;
 mod datums;
 mod editing;
+mod footprint_wizard;
 mod impedance_panel;
 mod keymap;
 mod library;
@@ -441,6 +443,9 @@ struct Preferences {
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
+    /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
+    #[serde(default = "default_ui_scale")]
+    ui_scale: f32,
 }
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
@@ -452,6 +457,9 @@ fn default_keymap_profiles() -> HashMap<String, keymap::Keymap> {
     let mut map = HashMap::new();
     map.insert("Default".into(), keymap::Keymap::default_bindings());
     map
+}
+fn default_ui_scale() -> f32 {
+    a11y::DEFAULT_UI_SCALE
 }
 fn default_aside_split() -> f32 {
     0.45
@@ -520,6 +528,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             library_dock_open: true,
             language: default_language(),
+            ui_scale: a11y::DEFAULT_UI_SCALE,
         }
     }
 }
@@ -2921,6 +2930,7 @@ impl App {
                         )
                         .sense(egui::Sense::click()),
                     );
+                    a11y::name_control(&brand, "PCBCraft start screen", None);
                     if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
                     }
@@ -4465,6 +4475,21 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.label("Interface size");
+        ui.horizontal(|ui| {
+            for (label, scale) in a11y::UI_SCALE_STEPS {
+                let on = (self.preferences.ui_scale - scale).abs() < 0.01;
+                if ui
+                    .selectable_label(on, label)
+                    .on_hover_text(format!(
+                        "Make text and controls {label} of normal size. Ctrl and plus or minus also work."
+                    ))
+                    .clicked()
+                {
+                    self.preferences.ui_scale = scale;
+                }
+            }
+        });
         ui.horizontal(|ui| {
             ui.label("Route on");
             ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
@@ -7464,6 +7489,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
@@ -7529,6 +7555,7 @@ impl App {
                     }
                 });
         }
+        a11y::paint_focus_ring(&ctx, self.accent());
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
