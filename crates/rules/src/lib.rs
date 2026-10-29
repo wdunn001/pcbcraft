@@ -1,5 +1,8 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
+mod companion;
+
 use pcbcraft_doc::{Board, Id, Layer, Project};
+pub use companion::{companion_findings, companion_findings_for_rules};
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -476,6 +479,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             });
         }
     }
+    result.extend(companion::companion_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

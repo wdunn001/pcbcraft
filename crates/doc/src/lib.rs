@@ -1428,6 +1428,9 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Companion-part intent rules, from profiles or edited on the project.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion_rules: Vec<CompanionRule>,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -1547,6 +1550,7 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            companion_rules: vec![],
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -1586,6 +1590,129 @@ pub struct Template {
     pub label: &'static str,
     pub prefix: &'static str,
     pub value: &'static str,
+}
+/// Component kinds allowed on schematic parts without an embedded library symbol.
+/// Starter templates are a subset; companion and profile rules may reference the rest.
+pub const SCHEMATIC_KINDS: &[&str] = &[
+    "resistor",
+    "capacitor",
+    "led",
+    "connector",
+    "connector_power",
+    "mcu",
+    "ic",
+    "ldo",
+    "buck",
+    "relay",
+    "fuse",
+    "diode",
+    "tvs",
+    "esd",
+    "inductor",
+    "mosfet",
+    "antenna",
+    "crystal",
+    "transceiver",
+];
+pub fn schematic_kind_valid(kind: &str) -> bool {
+    TEMPLATES.iter().any(|t| t.kind == kind) || SCHEMATIC_KINDS.contains(&kind)
+}
+/// Bounded parse of a component value string for companion rule validation.
+pub fn parse_companion_value(value: &str) -> Option<f64> {
+    let mut s = value.trim().to_ascii_lowercase();
+    if s.is_empty() {
+        return None;
+    }
+    s = s
+        .replace('ω', "")
+        .replace("ohms", "")
+        .replace("ohm", "")
+        .replace(' ', "");
+    let (num, scale) = if let Some(stripped) = s.strip_suffix("pf") {
+        (stripped, 1e-12)
+    } else if let Some(stripped) = s.strip_suffix("nf") {
+        (stripped, 1e-9)
+    } else if let Some(stripped) = s.strip_suffix("uf") {
+        (stripped, 1e-6)
+    } else if let Some(stripped) = s.strip_suffix("mf") {
+        (stripped, 1e-3)
+    } else if let Some(stripped) = s.strip_suffix('m') {
+        (stripped, 1e6)
+    } else if let Some(stripped) = s.strip_suffix('k') {
+        (stripped, 1e3)
+    } else {
+        (s.as_str(), 1.0)
+    };
+    let v: f64 = num.parse().ok()?;
+    if !v.is_finite() || v <= 0.0 {
+        return None;
+    }
+    Some(v * scale)
+}
+/// One companion-part rule persisted on the project or copied from a profile row.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CompanionRule {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub net_patterns: Vec<String>,
+    pub required_kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_min: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_max: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sink_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exactly: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    /// Finding code to emit; defaults to `missing_companion` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finding_code: Option<String>,
+}
+impl CompanionRule {
+    fn valid(&self) -> bool {
+        !self.id.trim().is_empty()
+            && self.id.len() <= 64
+            && !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && !self.required_kind.trim().is_empty()
+            && self.required_kind.len() <= 32
+            && self.net_patterns.len() <= 16
+            && self.net_patterns.iter().all(|p| !p.is_empty() && p.len() <= 64)
+            && self
+                .value_min
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .value_max
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .before_kind
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .anchor_kind
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self
+                .sink_kind
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+            && self.role.as_ref().is_none_or(|s| s.len() <= 32)
+            && self
+                .finding_code
+                .as_ref()
+                .is_none_or(|s| !s.is_empty() && s.len() <= 32)
+    }
 }
 pub const TEMPLATES: &[Template] = &[
     Template {
@@ -2203,6 +2330,20 @@ impl Project {
                 return Err("a check code excludes at most 256 objects".into());
             }
         }
+        if self.companion_rules.len() > 64 {
+            return Err("a project carries at most 64 companion rules".into());
+        }
+        let mut companion_ids = BTreeSet::new();
+        for rule in &self.companion_rules {
+            if !rule.valid() || !companion_ids.insert(&rule.id) {
+                return Err("companion rules need unique ids and bounded fields".into());
+            }
+            if let (Some(min), Some(max)) = (&rule.value_min, &rule.value_max) {
+                if parse_companion_value(min).is_none() || parse_companion_value(max).is_none() {
+                    return Err("companion rule value range must parse".into());
+                }
+            }
+        }
         if self.rule_regions.len() > 64 {
             return Err("region exclusions cover at most 64 check codes".into());
         }
@@ -2240,7 +2381,7 @@ impl Project {
                 || c.reference.is_empty()
                 || c.reference.len() > 64
                 || c.value.len() > 256
-                || (c.library_symbol.is_none() && !TEMPLATES.iter().any(|t| t.kind == c.kind))
+                || (c.library_symbol.is_none() && !schematic_kind_valid(&c.kind))
             {
                 return Err("invalid component".into());
             }
