@@ -1,0 +1,1498 @@
+# English base catalog. One `key = value` per line, # starts a comment.
+# Keys are stable ids: lowercase letters, digits, dots, dashes, underscores.
+# Plurals: write `base.one`, `base.other` and any other category the language
+# needs (zero, two, few, many) as `key = text with {count}`. Write the number
+# into the message (`{count} errors found`), not a separate noun. `other` is
+# mandatory and is the fallback; add exactly the categories your language uses.
+# Values may hold {name} placeholders. A control's tooltip uses the same key
+# with a `.tip` suffix. Translators copy this file and change only the values.
+language.name = English
+# ltr or rtl: the way this language runs. Default ltr.
+language.direction = ltr
+
+app.name = PCBCraft
+app.brand.tip = Back to the start screen, where you open or begin a design.
+app.home = Home
+app.home.tip = Open the start screen.
+app.version = PCBCraft {version}
+app.version.tip = The version of PCBCraft you are running.
+app.report_bug = Report a bug
+app.report_bug.tip = Open a prefilled bug report with your version filled in.
+
+menu.file = File
+menu.file.tip = Start, open, save, export and share this design.
+menu.file.new = New
+menu.file.new.tip = Start a fresh empty design.
+menu.file.open = Open
+menu.file.open.tip = Choose a design to open; your recent designs are listed on the screen that appears.
+menu.file.save = Save
+menu.file.save.tip = Write the design to its file on disk. Ctrl+S does the same.
+menu.file.export = Export
+menu.file.export.tip = Write the board out so other design tools can open it.
+menu.file.copy_picture = Copy picture
+menu.file.copy_picture.tip = Copy a PNG snapshot of the current view so it can be pasted into a document.
+
+menu.edit = Edit
+menu.edit.tip = Step back and forward, copy and paste, sync the board, and start the wiring over on one connection or the whole board.
+menu.edit.undo = Undo
+menu.edit.undo.tip = Step back one action; every edit here is one undoable step. Ctrl+Z does the same.
+menu.edit.undo.none = Nothing to undo yet: make an edit first.
+menu.edit.copy = Copy  Ctrl+C
+menu.edit.copy.tip = Copy the selected objects as text; paste them here or in another window.
+menu.edit.paste = Paste  Ctrl+V
+menu.edit.paste.tip = Paste the last copy a little to the side, with new reference numbers.
+menu.edit.cleanup = Clean up tracks
+menu.edit.cleanup.tip = Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.
+menu.edit.redo = Redo
+menu.edit.redo.tip = Step forward to the action you undid. Ctrl+Shift+Z or Ctrl+Y does the same.
+menu.edit.redo.none = Nothing to redo: undo an action first.
+menu.edit.sync = Update board from schematic
+menu.edit.sync.tip = Copy every symbol, wire and net onto the board, then show the board.
+menu.edit.clear_net = Clear wiring on {name}
+menu.edit.clear_net.tip = Lift every piece of copper drawn for the lit connection. The connection itself stays.
+menu.edit.clear_all = Clear all wiring
+menu.edit.clear_all.tip = Start the copper over on the whole board. Parts, connections and copper zones stay.
+
+menu.settings = Settings
+menu.settings.tip = Theme, grid, language and library folders.
+menu.settings.appearance = Appearance & settings…
+menu.settings.appearance.tip = Open the settings page: theme, accent colour and everything for the project.
+menu.settings.theme_light = Switch to the light theme
+menu.settings.theme_dark = Switch to the dark theme
+menu.settings.theme.tip = Change between the dark and light look.
+menu.settings.grid_hide = Hide the grid
+menu.settings.grid_show = Show the grid
+menu.settings.grid.tip = Show or hide the placement grid in the work area.
+menu.settings.route_on = Route on
+menu.settings.route_on.tip = Choose which copper layer new tracks are drawn on.
+menu.settings.route_top = Top
+menu.settings.route_bottom = Bottom
+menu.settings.pad_labels = Pad labels
+menu.settings.pad_labels.tip = Pick what sits at each pad centre on the board: its number, its net, or nothing.
+menu.settings.pad_labels.number.tip = Draw each pad's own number on the board.
+menu.settings.pad_labels.net.tip = Draw the net name on each pad, useful when debugging.
+menu.settings.pad_labels.off.tip = Hide the pad labels for a clean picture.
+menu.settings.library_sources = Library sources…
+menu.settings.library_sources.tip = Manage the folders that feed the component list.
+menu.settings.language = Language
+menu.settings.language.tip = Choose the language of menus and messages. The change applies at once.
+menu.settings.language.system = System default
+menu.settings.language.system.tip = Follow the language of this computer.
+menu.settings.language.pick.tip = Show the app in this language.
+
+menu.help = Help
+menu.help.tip = Shortcuts, the command search and bug reports.
+menu.help.shortcuts = Shortcuts
+menu.help.shortcuts.tip = Show every keyboard shortcut and mouse gesture in one list.
+menu.help.commands = Commands
+menu.help.commands.tip = Search every command by name and run it, with its parameters explained.
+
+pad_labels.number = Pads: number
+pad_labels.net = Pads: net
+pad_labels.off = Pads: off
+
+# lib.rs layers_tab
+board.layers_tab.search_the_whole_board = Search the whole board
+board.layers_tab.search_the_whole_board.tip = Type a part reference, a net name or a layer name; the tree keeps only matching rows.
+board.layers_tab.clear = Clear
+board.layers_tab.clear.tip = Show every row again.
+board.layers_tab.show_in_the_tree = SHOW IN THE TREE
+board.layers_tab.show_wires = Show wires
+board.layers_tab.copper_wires_on_each_face = Copper wires on each face of the board.
+board.layers_tab.show_vias = Show vias
+board.layers_tab.plated_holes_that_carry_a = Plated holes that carry a connection between the two faces.
+board.layers_tab.show_pours = Show pours
+board.layers_tab.solid_copper_poured_over_an = Solid copper poured over an area.
+board.layers_tab.show_holes = Show holes
+board.layers_tab.drilled_holes_and_cut_outs = Drilled holes and cut-outs.
+board.layers_tab.show_words = Show words
+board.layers_tab.silk_text_printed_on_the = Silk text printed on the board.
+board.layers_tab.show_parts = Show parts
+board.layers_tab.every_part_on_the_board = Every part on the board, with its pads.
+board.layers_tab.show_rule_areas = Show rule areas
+board.layers_tab.stricter_areas_and_watched_pairs = Stricter areas and watched pairs.
+board.layers_tab.show_machine_layers = Show machine layers
+board.layers_tab.your_own_layers_for_a = Your own layers for a laser, mill or printer.
+board.layers_tab.show_connections = Show connections
+board.layers_tab.every_net_by_name_add = Every net by name: add, rename or spotlight one.
+board.layers_tab.show_notes = Show notes
+board.layers_tab.free_form_notes_stored_with = Free-form notes stored with the project.
+board.layers_tab.tip_untick_to_fold_this.tip = {tip} Untick to fold this group away; unticking changes the tree, never the design.
+board.layers_tab.this_board = This board
+board.layers_tab.grid = Grid
+board.layers_tab.symbols = Symbols
+board.layers_tab.wires = Wires
+board.layers_tab.net_labels = Net labels
+board.layers_tab.graphics = Graphics
+board.layers_tab.top_copper = Top copper
+board.layers_tab.bottom_copper = Bottom copper
+board.layers_tab.pads = Pads
+board.layers_tab.vias = Vias
+board.layers_tab.copper_zones = Copper zones
+board.layers_tab.cutouts = Cutouts
+board.layers_tab.package_artwork = Package artwork
+board.layers_tab.switch_to_the_schematic_or = Switch to the schematic or the board to show or hide parts of the drawing.
+board.layers_tab.what_the_drawing_shows = WHAT THE DRAWING SHOWS
+board.layers_tab.show_or_hide_name_on.tip = Show or hide {name} on the drawing. Hiding changes only the view, never the design.
+board.layers_tab.the_board_itself_shape_size.tip = The board itself: shape, size, surface finish, holes and what the drawing shows.
+
+# lib.rs board_anatomy_section
+board.board_anatomy_section.board_anatomy = BOARD ANATOMY
+board.board_anatomy_section.every_piece_on_the_board = Every piece on the board, sorted into its layer. Open a layer to see its pieces; pick one to select it on the drawing.
+board.board_anatomy_section.wire_width_mm_v1_at = Wire · {width} mm · {v1} · at {round}, {round2}
+board.board_anatomy_section.via_at_round_round2_drill = Via at {round}, {round2} · {drill} mm hole · {v3} · {v4}
+board.board_anatomy_section.copper_zone_v0_v1 = Copper zone · {v0} · {v1}
+board.board_anatomy_section.hole_at_round_round2_v2 = Hole at {round}, {round2} · {v2} mm across
+board.board_anatomy_section.a_part = a part
+board.board_anatomy_section.pad_number_diameter_mm_v2 = Pad {number} · {diameter} mm · {v2}
+board.board_anatomy_section.name_len_pads = {name} · {len} pads
+board.board_anatomy_section.stricter_area_at_round_round2 = Stricter area at {round}, {round2} · gap {clearance} mm{v3}
+board.board_anatomy_section.name_v1_v2_gap_gap = {name} · {v1} + {v2} · gap {gap} mm
+board.board_anatomy_section.top_copper_wires = Top copper wires
+board.board_anatomy_section.copper_wires_drawn_on_the = Copper wires drawn on the top face of the board. Pick one to select it on the drawing.
+board.board_anatomy_section.nothing_drawn_here_yet = Nothing drawn here yet.
+board.board_anatomy_section.bottom_copper_wires = Bottom copper wires
+board.board_anatomy_section.copper_wires_drawn_on_the2 = Copper wires drawn on the bottom face of the board. Pick one to select it on the drawing.
+board.board_anatomy_section.via_holes = Via holes
+board.board_anatomy_section.small_plated_holes_that_carry = Small plated holes that carry a connection between the two copper faces. Pick one to select it on the drawing.
+board.board_anatomy_section.no_vias_yet = No vias yet.
+board.board_anatomy_section.poured_copper = Poured copper
+board.board_anatomy_section.solid_copper_poured_over_an = Solid copper poured over an area, usually ground or power. Pick one to select it on the drawing.
+board.board_anatomy_section.no_copper_zones_yet = No copper zones yet.
+board.board_anatomy_section.holes_and_cut_outs = Holes and cut-outs
+board.board_anatomy_section.holes_drilled_through_the_board = Holes drilled through the board, such as mounting holes. Pick one to select it on the drawing.
+board.board_anatomy_section.no_holes_yet = No holes yet.
+board.board_anatomy_section.words_on_the_board = Words on the board
+board.board_anatomy_section.silk_text_printed_on_the = Silk text printed on the board, such as names and labels. Pick one to select it on the drawing.
+board.board_anatomy_section.no_words_printed_yet = No words printed yet.
+board.board_anatomy_section.stricter_areas = Stricter areas
+board.board_anatomy_section.patches_of_the_board_where = Patches of the board where the rules are stricter than everywhere else.
+board.board_anatomy_section.the_whole_board_follows_one = The whole board follows one set of rules.
+board.board_anatomy_section.watched_pairs = Watched pairs
+board.board_anatomy_section.pairs_of_nets_that_must = Pairs of nets that must run side by side with a fixed gap between them.
+board.board_anatomy_section.no_pairs_are_being_watched = No pairs are being watched.
+board.board_anatomy_section.stop_fading = Stop fading
+board.board_anatomy_section.fade_others = Fade others
+board.board_anatomy_section.everything_not_on_this_layer.tip = Everything not on this layer turns translucent on the drawing; click again to bring it back.
+board.board_anatomy_section.select_this_on_the_drawing.tip = Select this on the drawing.
+board.board_anatomy_section.parts_and_pads = Parts and pads
+board.board_anatomy_section.no_parts_on_the_board = No parts on the board yet.
+board.board_anatomy_section.pick_up_this_part = Pick up this part
+board.board_anatomy_section.pick_up_this_part.tip = Select this part so its properties open on the right.
+board.board_anatomy_section.every_part_on_the_board.tip = Every part on the board. Open one to see its pads.
+board.board_anatomy_section.machine_layers_you_draw = Machine layers you draw
+board.board_anatomy_section.no_machine_layers_yet_add = No machine layers yet. Add one for your laser cutter, mill or printer, then draw on it with Draw shape.
+board.board_anatomy_section.tick_to_show_this_layer.tip = Tick to show this layer on the drawing. Hiding changes only the view, never the design.
+board.board_anatomy_section.kind_layer_len_shapes = {kind} layer · {len} shapes
+board.board_anatomy_section.name_shapes = {name} shapes
+board.board_anatomy_section.nothing_drawn_on_this_layer = Nothing drawn on this layer yet.
+board.board_anatomy_section.new_layer = New layer
+board.board_anatomy_section.new_layer.tip = Add a layer for a laser, mill or printer to follow; give it a real name any time.
+board.board_anatomy_section.art_v0 = Art {v0}
+board.board_anatomy_section.layers_you_draw_yourself_cut.tip = Layers you draw yourself: cut lines, dotted perforations and printed marks for your own machines.
+board.board_anatomy_section.connections = Connections
+board.board_anatomy_section.every_wire_connection_by_name.tip = Every wire connection by name: add one, rename one, or light one up on the drawing.
+board.board_anatomy_section.project_notes = Project notes
+board.board_anatomy_section.no_notes_are_stored_with = No notes are stored with this project yet.
+board.board_anatomy_section.free_form_notes_kept_inside.tip = Free-form notes kept inside the design file: title, revision, or anything a maker should know.
+
+# lib.rs stackup_section
+board.stackup_section.board_stackup = BOARD STACKUP
+board.stackup_section.the_physical_board_copper_core = The physical board: copper, core and covering layers, recorded for the factory.
+board.stackup_section.start_from_a_shape = START FROM A SHAPE
+board.stackup_section.two_layers_1_6_mm = Two layers · 1.6 mm
+board.stackup_section.the_usual_starter_board_copper = The usual starter board: copper on each side of a plain 1.6 mm core. Choose this unless the shop told you otherwise.
+board.stackup_section.two_layers_thin_1_0 = Two layers · thin 1.0 mm
+board.stackup_section.a_slimmer_board_for_tight = A slimmer board for tight cases. Same two copper sides, thinner core.
+board.stackup_section.four_layers = Four layers
+board.stackup_section.two_extra_inner_copper_layers = Two extra inner copper layers for a solid ground plane and cleaner signals. Worth it once a board has more than a handful of parts.
+board.stackup_section.help_choosing_it_replaces_whatever.tip = {help} Choosing it replaces whatever stackup is recorded now.
+board.stackup_section.nothing_recorded_yet_this_board = Nothing recorded yet: this board leaves the shop as two copper layers, 1.6 mm.
+board.stackup_section.v0_thickness_mm = {v0} · {thickness} mm
+board.stackup_section.v0_thickness_mm.tip = What this layer is and how thick it is, as recorded.
+board.stackup_section.tune = Tune
+board.stackup_section.tune.tip = Change this layer's role or thickness.
+board.stackup_section.what_this_layer_does_in.tip = What this layer does in the board.
+board.stackup_section.pick_what_this_layer_is.tip = Pick what this layer is made of and does.
+# lib.rs holes_section
+board.holes_section.mounting_holes = MOUNTING HOLES
+board.holes_section.no_drilled_holes_yet_press = No drilled holes yet. Press Mounting hole at the top of the board, then click where a screw goes.
+board.holes_section.text = ·
+# lib.rs fiducials_section
+board.fiducials_section.assembly_marks = ASSEMBLY MARKS
+board.fiducials_section.no_assembly_marks_yet_press = No assembly marks yet. Press Assembly mark at the top of the board, then click a clear corner the build camera can find.
+board.fiducials_section.text = ·
+# lib.rs footer
+board.footer.pick = Pick
+board.footer.place_kind = Place {kind}
+board.footer.draw_wire = Draw wire
+board.footer.route = Route
+board.footer.move = Move
+board.footer.cut_hole = Cut hole
+board.footer.drill_hole = Drill hole
+board.footer.no_connection = No connection
+board.footer.fiducial_mark = Fiducial mark
+board.footer.draw_on_a_layer = Draw on a layer
+board.footer.measure = Measure
+board.footer.rev_revision = rev {revision}
+board.footer.rev_revision.tip = Every edit raises this number; undo and redo step it back and forth.
+board.footer.the_last_measurement_press_esc.tip = The last measurement. Press Esc to clear it.
+board.footer.x_y_mm = {x}, {y} mm
+board.footer.x_y_mm.tip = Where the mouse points on the board, in millimetres.
+board.footer.zoom_pct = {zoom_pct}%
+board.footer.zoom_pct.tip = How close the drawing is zoomed in. Scroll to change it.
+board.footer.tool_tool_words = Tool: {tool_words}
+board.footer.tool_tool_words.tip = What a click on the drawing does right now. Click here to go back to picking things, or press Esc.
+board.footer.fix_to_fix = {fix} to fix
+board.footer.fix_to_fix.tip = Mistakes the checks say you must fix. Click to see the list.
+board.footer.mind_to_mind = {mind} to mind
+board.footer.mind_to_mind.tip = Warnings worth a look, but not blockers. Click to see the list.
+board.footer.search = SEARCH
+board.footer.filter_command_names_and_descriptions = filter command names and descriptions
+board.footer.parameters = PARAMETERS
+board.footer.parameters_as_json_one_line = parameters as JSON, one line per value reads easiest
+board.footer.parameters_as_json_one_line.tip = Edit the parameters here; Enter adds a new line so long lists stay readable, and Ctrl+Enter or Execute runs the command.
+board.footer.execute = Execute
+board.footer.execute.tip = Run the command with the parameters you typed; selecting a command fills a starter parameter set.
+board.footer.len_of_len2_commands_match = {len} of {len2} commands match; click one to load it with a starter parameter set, or step the highlight with Up and Down and press Enter in the search box to load it. In the parameter box, Enter writes a new line and Ctrl+Enter runs the command.
+board.footer.id_description = {id}   {description}
+board.footer.id_description.tip = Load this command with a starter parameter set.
+board.footer.keyboard_shortcuts = Keyboard shortcuts
+
+# lib.rs tool_strip
+board.tool_strip.select = Select
+board.tool_strip.select_objects_on_the_drawing = Select objects on the drawing.
+board.tool_strip.move = Move
+board.tool_strip.move_tool_drop_the_selection = Move tool: drop the selection at the cursor.
+board.tool_strip.wire = Wire
+board.tool_strip.wire_tool_click_two_pins = Wire tool: click two pins to connect them.
+board.tool_strip.no_connect = No connect
+board.tool_strip.mark_a_pin_deliberately_unconnected = Mark a pin deliberately unconnected.
+board.tool_strip.route = Route
+board.tool_strip.route_tool_click_two_pads = Route tool: click two pads to start a track.
+board.tool_strip.line = Line
+board.tool_strip.draw_a_straight_line_on = Draw a straight line on a user layer.
+board.tool_strip.box = Box
+board.tool_strip.draw_a_box_on_a = Draw a box on a user layer.
+board.tool_strip.circle = Circle
+board.tool_strip.draw_a_circle_on_a = Draw a circle on a user layer.
+board.tool_strip.outline = Outline
+board.tool_strip.draw_an_outline_on_a = Draw an outline on a user layer.
+board.tool_strip.text = Text
+board.tool_strip.print_words_on_a_user = Print words on a user layer.
+board.tool_strip.draw_shape = Draw shape
+board.tool_strip.draw_shape.tip = Draw cut lines, perforations or printed marks on your own layer.
+board.tool_strip.cutout = Cutout
+board.tool_strip.mounting_hole = Mounting hole
+board.tool_strip.mounting_hole.tip = Drill an unplated hole for a screw or spacer; then click the board where it goes.
+board.tool_strip.assembly_mark = Assembly mark
+board.tool_strip.assembly_mark.tip = A bare copper disc the pick-and-place camera finds the board by; then click a clear corner.
+
+# lib.rs draw_tool_options
+board.draw_tool_options.draw_on_layer = DRAW ON LAYER
+board.draw_tool_options.no_layer_yet = no layer yet
+board.draw_tool_options.new_figures_land_on_this.tip = New figures land on this layer.
+board.draw_tool_options.new_layer = New layer
+board.draw_tool_options.new_layer.tip = Make a new drawn layer and switch to it; give it a real name in the layers list.
+board.draw_tool_options.art_v0 = Art {v0}
+board.draw_tool_options.line = Line
+board.draw_tool_options.two_clicks_start_and_end = Two clicks: start and end.
+board.draw_tool_options.box = Box
+board.draw_tool_options.two_clicks_on_opposite_corners = Two clicks on opposite corners.
+board.draw_tool_options.circle = Circle
+board.draw_tool_options.centre_then_edge = Centre, then edge.
+board.draw_tool_options.outline = Outline
+board.draw_tool_options.corners_enter_to_close = Corners; Enter to close.
+board.draw_tool_options.words = Words
+board.draw_tool_options.type_below_then_click_once = Type below, then click once.
+board.draw_tool_options.words_to_print = words to print
+board.draw_tool_options.words_to_print.tip = The words a click will print on the active layer.
+board.draw_tool_options.mounting_hole_size = Mounting hole size
+# lib.rs tool_hint
+board.tool_hint.middle_drag_pan_scroll_zoom = · middle-drag: pan · scroll: zoom · Esc: back to select
+board.tool_hint.lmb_select_an_object_drag = LMB: select an object · drag: move the selected object{common}
+board.tool_hint.lmb_place_the_symbol_at = LMB: place the symbol at the cursor{common}
+board.tool_hint.lmb_place_the_symbol_package = LMB: place the symbol package at the cursor{common}
+board.tool_hint.lmb_pick_the_first_pin = LMB: pick the first pin of the new wire{common}
+board.tool_hint.lmb_pick_the_second_pin = LMB: pick the second pin to complete the wire{common}
+board.tool_hint.lmb_pick_the_first_pad = LMB: pick the first pad to start the track{common}
+board.tool_hint.lmb_pick_the_second_pad = LMB: pick the second pad to complete the track{common}
+board.tool_hint.lmb_drop_the_selected_object = LMB: drop the selected object at the cursor{common}
+board.tool_hint.lmb_place_a_circular_cutout = LMB: place a circular cutout at the cursor{common}
+board.tool_hint.lmb_drill_a_mounting_hole = LMB: drill a mounting hole at the cursor{common}
+board.tool_hint.lmb_click_a_pin_to = LMB: click a pin to mark it unused, or again to undo{common}
+board.tool_hint.lmb_place_an_assembly_mark = LMB: place an assembly mark at the cursor{common}
+board.tool_hint.lmb_place_the_shape_on = LMB: place the shape on the active layer{common}
+board.tool_hint.lmb_click_two_points_to = LMB: click two points to read the distance between them{common}
+
+# lib.rs board3d_tab
+
+# lib.rs inspector
+board.inspector.layers = Layers
+board.inspector.resize = Resize
+board.inspector.resize.tip = Drag to split the side panel between the Layers tree and the tabs below it. The tree keeps between a quarter and three quarters.
+board.inspector.properties = Properties
+board.inspector.properties.tip = Details for whatever is selected on the drawing.
+board.inspector.assistant = Assistant
+board.inspector.assistant.tip = How to connect an external agent through MCP.
+board.inspector.connect_an_agent_through_the = Connect an agent through the live MCP bridge described in docs/mcp.md. The desktop session exposes the same typed commands the UI uses.
+board.inspector.details = Details
+board.inspector.unit_selected_unit = Unit {selected_unit}
+board.inspector.unit_unit = Unit {unit}
+board.inspector.unit_unit.tip = Edit or move this half of the part on its own.
+board.inspector.stable_id_id = Stable ID {id}
+board.inspector.value = Value
+board.inspector.apply_value = Apply value
+board.inspector.position_mm = Position · mm
+board.inspector.x = X
+board.inspector.y = Y
+board.inspector.apply_position = Apply position
+board.inspector.apply_position.tip = Move the selected symbol or footprint to the position typed above.
+board.inspector.rotate_90_r = Rotate 90°  R
+board.inspector.duplicate = Duplicate
+board.inspector.duplicate.tip = Places a copy of this part nearby, with its own new reference number. Undo removes the copy.
+board.inspector.datasheet = Datasheet
+board.inspector.view_datasheet = View datasheet
+board.inspector.open_this_part_s_datasheet = Open this part's datasheet in your browser.
+board.inspector.this_part_has_no_web = This part has no web address in its Datasheet field yet.
+board.inspector.dock_to_board_edge = Dock to board edge
+board.inspector.for_an_edge_connector_the = For an edge connector: the part slides until its copper just touches that edge, and keeps facing the way it faces.
+board.inspector.dock_edge = Dock {edge}
+board.inspector.dock_edge.tip = Slide this part until its copper sits flush against the {edge} board edge. Undo slides it back.
+board.inspector.unlock = Unlock
+board.inspector.lock_in_place = Lock in place
+board.inspector.let_this_part_move_rotate = Let this part move, rotate and dock again.
+board.inspector.freeze_this_part_so_no = Freeze this part so no accidental click, key or dock can nudge it off where you placed it.
+board.inspector.footprint_name = Footprint: {name}
+board.inspector.footprint_unassigned = Footprint: unassigned
+board.inspector.footprint_starter_package = Footprint: starter package
+board.inspector.assign_footprint_in_libraries = Assign footprint in Libraries →
+board.inspector.assign_footprint_in_libraries.tip = Jump to the library panel to bind a footprint package to this component.
+board.inspector.pin_net = Pin / net
+board.inspector.number_v1 = {number} · {v1}
+board.inspector.selected_object = Selected object
+board.inspector.wire_width = Wire width
+# canvas.rs canvas
+board.canvas.place_symbol_click_to_commit = PLACE SYMBOL · CLICK TO COMMIT
+board.canvas.place_symbol_package_click_to = PLACE SYMBOL PACKAGE · CLICK TO COMMIT
+board.canvas.wire_pick_first_pin = WIRE · PICK FIRST PIN
+board.canvas.wire_pick_second_pin = WIRE · PICK SECOND PIN
+board.canvas.route_pick_first_pad = ROUTE · PICK FIRST PAD
+board.canvas.route_pick_second_pad = ROUTE · PICK SECOND PAD
+board.canvas.move_click_to_place_selection = MOVE · CLICK TO PLACE SELECTION
+board.canvas.cutout_click_to_place = CUTOUT · CLICK TO PLACE
+board.canvas.mounting_hole_click_to_drill = MOUNTING HOLE · CLICK TO DRILL
+board.canvas.no_connect_click_a_pin = NO CONNECT · CLICK A PIN TO MARK IT UNUSED
+board.canvas.assembly_mark_click_a_clear = ASSEMBLY MARK · CLICK A CLEAR CORNER
+board.canvas.draw_shape_pick_the_layer = DRAW SHAPE · PICK THE LAYER IN THE PANEL
+board.canvas.measure_click_two_points = MEASURE · CLICK TWO POINTS
+board.canvas.focused_on_label_tap_the = FOCUSED ON {label} · tap the row again to show everything
+board.canvas.release_to_place_name_where = RELEASE TO PLACE {name} WHERE THE POINTER IS
+board.canvas.fit_zoom_the_view_so = Fit: zoom the view so the whole design fits.
+board.canvas.select = SELECT
+board.canvas.text = +
+board.canvas.text.tip = Zoom in on the drawing.
+board.canvas.text2 = −
+board.canvas.text2.tip = Zoom out on the drawing.
+board.canvas.move_drop_the_selected_object = Move: drop the selected object where you click next.
+
+# canvas.rs paint_board
+board.paint_board.width_height_mm_top_bottom = {width} × {height} mm    Top / Bottom    clearance {clearance} mm
+
+# canvas.rs canvas_click
+board.canvas_click.wire_picked_change_its_width = Wire picked: change its width or straighten it in the inspector
+board.canvas_click.wire_endpoints_must_be_symbol = Wire endpoints must be symbol pins
+board.canvas_click.pick_a_pad_to_start = Pick a pad to start or finish a route
+board.canvas_click.pick_or_make_a_layer = Pick or make a layer to draw on first
+board.canvas_click.type_the_words_to_print = Type the words to print first
+board.canvas_click.an_outline_holds_up_to = An outline holds up to 64 corners; click the first point to close it
+
+# board3d.rs show
+board.board3d.parts = Parts
+board.board3d.name_note = {name}  {note}
+board.board3d.name_note.tip = Select this part. Its properties open in the inspector.
+board.board3d.no_parts_on_this_board = No parts on this board yet.
+board.board3d.reset_view = Reset view
+board.board3d.reset_view.tip = Fit the whole board in the window again.
+board.board3d.top_view = Top view
+board.board3d.top_view.tip = Look straight down at the board.
+board.board3d.drag_to_turn_the_board = Drag to turn the board. Right-drag or Shift-drag to move it. Scroll to zoom.
+board.board3d.the_3d_view_could_not = The 3D view could not be built: {e}
+board.board3d.3d_board_drag_to_turn.tip = 3D board. Drag to turn it, right-drag or Shift-drag to move it, scroll to zoom, click a part to select it.
+board.board3d.part_bodies_are_default_boxes = Part bodies are default boxes sized from the pads. 3D model files are not loaded yet.
+
+# lib.rs nets_tab
+schematic.nets_tab.new_net = New net
+schematic.nets_tab.new_net.tip = Add a blank connection you can name and draw wires onto.
+schematic.nets_tab.net_v0 = Net {v0}
+schematic.nets_tab.total_mm_of_copper_routed = {total} mm of copper · {routed} of {len} nets routed
+schematic.nets_tab.total_mm_of_copper_routed.tip = Total routed copper on the board, and how many connections still need tracks.
+schematic.nets_tab.spotlight_this_net_its_copper.tip = Spotlight this net: its copper, vias and pads light up on the board while everything else fades. Click again to clear the spotlight.
+schematic.nets_tab.net_name = net name
+schematic.nets_tab.net_name.tip = 1 to 128 characters; every net needs its own name.
+schematic.nets_tab.use_name = Use name
+schematic.nets_tab.use_name.tip = Keep this name for the connection.
+schematic.nets_tab.cancel = Cancel
+schematic.nets_tab.cancel.tip = Leave the name as it was.
+schematic.nets_tab.rename = Rename
+schematic.nets_tab.rename.tip = Type a new name for this connection.
+schematic.nets_tab.hide_pins = Hide pins
+schematic.nets_tab.pins = Pins
+schematic.nets_tab.show_or_hide_the_list.tip = Show or hide the list of pins on this connection.
+schematic.nets_tab.length_mm_vias_vias = {length} mm · {vias} vias
+schematic.nets_tab.length_mm_vias_vias.tip = Copper already routed for this net on the board.
+schematic.nets_tab.not_routed_yet = not routed yet
+schematic.nets_tab.not_routed_yet.tip = This connection has no copper on the board yet; the dashed lines on the sheet show where it needs to go.
+schematic.nets_tab.reference_pin_number = {reference} pin {number}
+schematic.nets_tab.reference_pin_number_name = {reference} pin {number} ({name})
+schematic.nets_tab.no_pins_on_this_connection = No pins on this connection yet.
+schematic.nets_tab.text = ×
+schematic.nets_tab.text.tip = Take this pin off the connection. Nothing moves on the board.
+schematic.nets_tab.choose_a_spare_pin = choose a spare pin
+schematic.nets_tab.a_pin_that_is_not.tip = A pin that is not on any connection yet.
+schematic.nets_tab.pick_a_pin_to_add.tip = Pick a pin to add to this connection.
+schematic.nets_tab.connect = Connect
+schematic.nets_tab.connect.tip = Add the pin chosen above to this connection.
+schematic.nets_tab.every_pin_in_this_design = Every pin in this design is already on a connection.
+schematic.nets_tab.spotlighting_name_on_the_board = Spotlighting {name} on the board.
+
+# lib.rs part_card
+schematic.part_card.pick_this_saved_part_the.tip = Pick this saved part; the next click on the schematic places it.
+schematic.part_card.search_words_tags = search words: {tags}
+schematic.part_card.what_search_words_tags = {what} · search words: {tags}
+
+# lib.rs object_detail_rows
+schematic.object_detail_rows.the_usual_gap_for_name = the usual gap for {name}
+schematic.object_detail_rows.the_board_s_usual_gap = the board's usual gap, {name} asks no more
+schematic.object_detail_rows.the_board_s_usual_gap2 = the board's usual gap
+schematic.object_detail_rows.clearance = Clearance
+schematic.object_detail_rows.value_mm_source = {value} mm · {source}
+schematic.object_detail_rows.clearance_mm_away_from_v1 = {clearance} mm away from {v1}
+schematic.object_detail_rows.special_gaps = Special gaps
+schematic.object_detail_rows.net = Net
+schematic.object_detail_rows.v0_follows_the_wiring = {v0} · follows the wiring
+schematic.object_detail_rows.layer = Layer
+schematic.object_detail_rows.width_mm_the_usual_width = {width} mm · the usual width for {name}
+schematic.object_detail_rows.width_mm_chosen_for_this = {width} mm · chosen for this wire, not the usual {width2} mm for {name}
+schematic.object_detail_rows.width_mm_chosen_for_this2 = {width} mm · chosen for this wire
+schematic.object_detail_rows.width = Width
+schematic.object_detail_rows.from = From
+schematic.object_detail_rows.x_y_mm = {x}, {y} mm
+schematic.object_detail_rows.to = To
+schematic.object_detail_rows.shape = Shape
+schematic.object_detail_rows.curved_through_a_midpoint = curved through a midpoint
+schematic.object_detail_rows.copper = Copper
+schematic.object_detail_rows.diameter_mm = {diameter} mm
+schematic.object_detail_rows.drill = Drill
+schematic.object_detail_rows.drill_mm = {drill} mm
+schematic.object_detail_rows.protection = Protection
+schematic.object_detail_rows.position = Position
+schematic.object_detail_rows.outline_only = outline only
+schematic.object_detail_rows.outline = Outline
+schematic.object_detail_rows.len_vertices = {len} vertices
+schematic.object_detail_rows.cutouts = Cutouts
+schematic.object_detail_rows.kind = Kind
+schematic.object_detail_rows.points = Points
+schematic.object_detail_rows.text = Text
+schematic.object_detail_rows.size = Size
+schematic.object_detail_rows.size_mm = {size} mm
+schematic.object_detail_rows.angle = Angle
+schematic.object_detail_rows.rotation_degrees = {rotation} degrees
+schematic.object_detail_rows.stroke = Stroke
+schematic.object_detail_rows.width_mm = {width} mm
+schematic.object_detail_rows.group = Group
+schematic.object_detail_rows.len_graphics_move_as_one = {len} graphics move as one
+
+# lib.rs type_note
+schematic.type_note.one_of_list = one of {list}
+schematic.type_note.or = or
+schematic.type_note.number = number
+schematic.type_note.text = text
+schematic.type_note.list = list
+schematic.type_note.object = object
+schematic.type_note.value = value
+schematic.type_note.number_lo_to_hi = number {lo} to {hi}
+schematic.type_note.number_from_lo = number from {lo}
+schematic.type_note.number_up_to_hi = number up to {hi}
+schematic.type_note.true_or_false = true or false
+
+# canvas.rs paint_schematic
+schematic.paint_schematic.start_your_circuit = Start your circuit
+schematic.paint_schematic.press_a_to_add_a = Press A to add a symbol, or open the start screen for a worked example
+
+# library.rs request
+library.request.installed_library_browsing_is_available = Installed library browsing is available in the desktop build.
+
+# library.rs search
+
+# library.rs poll
+library.poll.added_v0_v1_symbol_libraries = Added {v0} · {v1} symbol libraries · {v2} footprint libraries now in the unified list
+library.poll.removed_v0_from_the_library = Removed {v0} from the library sources; installed folders stay untouched
+
+# library.rs collection_browser
+library.collection_browser.component_libraries = Component libraries
+library.collection_browser.one_library_for_every_collection = One library for every collection below · add any folder as a source · definitions used by a project are embedded on placement.
+library.collection_browser.symbols = Symbols
+library.collection_browser.symbols.tip = List the schematic symbols in the chosen library.
+library.collection_browser.footprints = Footprints
+library.collection_browser.footprints.tip = List the board footprints in the chosen library.
+library.collection_browser.refresh_folders = Refresh folders
+library.collection_browser.refresh_folders.tip = Rescan the library folders for symbol and footprint collections.
+library.collection_browser.sources = Sources
+library.collection_browser.all = All
+library.collection_browser.all.tip = Show collections from every library source together.
+library.collection_browser.show_only_the_collections_that.tip = Show only the collections that come from {name}.
+library.collection_browser.choose_library = Choose library
+library.collection_browser.browse_this_collection.tip = Show the parts in this collection. Pick another one to switch to it.
+library.collection_browser.library_path = Library path
+library.collection_browser.the_collection_the_search_box.tip = The collection the search box below reads; pick any library from the list above or type a path.
+library.collection_browser.folder_to_add_as_a = Folder to add as a library source
+library.collection_browser.folder_to_add_as_a.tip = Any folder holding symbol files or footprint collections, from any distributor or your own shelf; it joins the list above without moving your files. Press Enter to add it.
+library.collection_browser.add_folder = Add folder
+library.collection_browser.add_folder.tip = Register the folder named to the left as a library source; its collections appear in the list above on the next scan.
+library.collection_browser.remove_source = Remove source
+library.collection_browser.remove_source.tip = Stop listing the added source that contains the selected library; installed folders are never removed.
+library.collection_browser.search_names_descriptions_keywords = Search names, descriptions, keywords
+library.collection_browser.search = Search
+library.collection_browser.search.tip = Find symbols and footprints by name across the loaded collections.
+library.collection_browser.reading_library = Reading library…
+library.collection_browser.some_library_folders_exceeded_the = Some library folders exceeded the scan limit; use a specific library path.
+library.collection_browser.total_matches_in_scanned_entries = {total} matches in scanned entries · showing up to 100
+library.collection_browser.directory_scan_reached_its_limit = Directory scan reached its limit; more entries may exist.
+library.collection_browser.filter_shown_results = Filter shown results
+library.collection_browser.narrow_the_list_below_as.tip = Narrow the list below as you type; matches names and descriptions, ignoring case. Double-click to clear.
+library.collection_browser.clear_filter = Clear filter
+library.collection_browser.clear_filter.tip = Show every listed result again.
+library.collection_browser.len_of_len2_listed_entries = {len} of {len2} listed entries match the filter
+library.collection_browser.original_nodes_exceed_inline_editing = Original nodes exceed inline editing limits; the source file is preserved.
+library.collection_browser.edit_a_copy = Edit a copy →
+library.collection_browser.len_pads_len2_graphics = {len} pads · {len2} graphics
+library.collection_browser.pad_numbers_must_match_every = Pad numbers must match every pin of the selected symbol.
+library.collection_browser.assign_to_reference = Assign to {reference}
+library.collection_browser.select_a_schematic_component_before = Select a schematic component before assigning its footprint.
+library.collection_browser.len_pins_v1_units = {len} pins · {v1} units
+library.collection_browser.suggested_footprint_footprint = Suggested footprint: {footprint}
+library.collection_browser.place_in_schematic = Place in schematic →
+library.collection_browser.inspection_available_unsupported_pin_graphic = Inspection available; unsupported pin/graphic styles or repeated common pin numbers cannot be placed yet.
+library.collection_browser.choose_an_entry_to_preview = Choose an entry to preview its real geometry.
+library.collection_browser.library_data_license_cc_by = Library data license: CC-BY-SA 4.0 + design exception
+library.collection_browser.placement_single_multi_unit_symbols = Placement: single/multi-unit symbols, matching front SMD or plated through-hole packages. Use Edit a copy to customize a definition.
+
+# library.rs library_preview
+library.library_preview.preview_unit = Preview unit
+library.library_preview.draw_this_half_of_the.tip = Draw this half of the part in the preview.
+
+# authoring.rs library_editor
+library.library_editor.library_editor = Library editor
+library.library_editor.create_a_symbol_or_footprint = Create a symbol or footprint, or edit a copy from the installed/project library.
+library.library_editor.dimensions_are_millimetres_angles_are = Dimensions are millimetres; angles are counterclockwise degrees. Save commits one undoable edit.
+library.library_editor.symbol_editor = Symbol editor
+library.library_editor.name = Name
+library.library_editor.reference_prefix = Reference prefix
+library.library_editor.default_value = Default value
+library.library_editor.description = Description
+library.library_editor.suggested_footprint = Suggested footprint
+library.library_editor.set = Set
+library.library_editor.set.tip = Optional group name, like Power bits. Parts that share a set are grouped together when you add parts, and the group can be hidden.
+library.library_editor.preserved_unsupported_features_v0 = Preserved unsupported features: {v0}
+library.library_editor.save_symbol_to_project_library = Save symbol to project library
+library.library_editor.save_symbol_to_project_library.tip = Store this symbol in the current project library.
+library.library_editor.pins = Pins
+library.library_editor.duplicate_preview_unit = Duplicate preview unit
+library.library_editor.duplicate_preview_unit.tip = Copy the unit being edited to grow a multi-unit package.
+library.library_editor.add_pin = Add pin
+library.library_editor.add_pin.tip = Add a new pin to this symbol.
+library.library_editor.pin_number_unit_unit = Pin {number} · unit {unit}
+library.library_editor.unit = Unit
+library.library_editor.delete_pin = Delete pin
+library.library_editor.delete_pin.tip = Take this pin out of the symbol you are drawing. Add pin puts a new one back.
+library.library_editor.drawing = Drawing
+library.library_editor.graphic_v0_unit_unit = Graphic {v0} · unit {unit}
+library.library_editor.unit_0_shared = Unit (0 shared)
+library.library_editor.delete_graphic = Delete graphic
+library.library_editor.delete_graphic.tip = Take this drawn line or shape out of the footprint. It only changes the footprint you are editing.
+library.library_editor.footprint_editor = Footprint editor
+library.library_editor.save_footprint_to_project_library = Save footprint to project library
+library.library_editor.save_footprint_to_project_library.tip = Store this footprint in the current project library.
+library.library_editor.pads = Pads
+library.library_editor.add_pad = Add pad
+library.library_editor.add_pad.tip = Add a new pad to this footprint.
+library.library_editor.pad_number_pad_type = Pad {number} · {pad_type}
+library.library_editor.front_smd = Front SMD
+library.library_editor.front_smd.tip = Soldered to the board surface; no drill hole.
+library.library_editor.plated_through_hole = Plated through-hole
+library.library_editor.plated_through_hole.tip = Drilled and plated so legs can pass through.
+library.library_editor.unplated_hole = Unplated hole
+library.library_editor.unplated_hole.tip = A bare drilled hole for a locating peg or screw. It has no copper and no net.
+library.library_editor.copper_outline_of_the_pad.tip = Copper outline of the pad; the mask follows it.
+library.library_editor.corner_ratio = Corner ratio
+library.library_editor.layers_v0 = Layers: {v0}
+library.library_editor.delete_pad = Delete pad
+library.library_editor.delete_pad.tip = Take this pad out of the footprint you are drawing. Add pad puts a new one back.
+library.library_editor.graphic_v0 = Graphic {v0}
+
+# authoring.rs project_library
+library.project_library.this_project_s_definitions = This project's definitions
+library.project_library.saved_here_live_with_the = Saved here, live with the design; everything above is shared collections. Placed components retain their embedded copies.
+library.project_library.collection_file = Collection file
+library.project_library.save_library = Save library
+library.project_library.save_library.tip = Write the authored collections to a reusable library file.
+library.project_library.load_library = Load library
+library.project_library.load_library.tip = Bring a saved library file into the editor.
+library.project_library.symbols = Symbols
+library.project_library.len_physical_pins = {len} physical pins
+library.project_library.edit = Edit
+library.project_library.edit.tip = Edit this definition in the panel below.
+library.project_library.place = Place
+library.project_library.remove = Remove
+library.project_library.remove.tip = Remove this definition from the project library.
+library.project_library.footprints = Footprints
+library.project_library.len_pads = {len} pads
+library.project_library.assign_to_selection = Assign to selection
+
+# authoring.rs library_workspaces
+library.library_workspaces.library = Library
+library.library_workspaces.library.tip = Browse the installed and project libraries.
+library.library_workspaces.editor = Editor
+library.library_workspaces.editor.tip = Draw or edit a symbol or a footprint.
+library.library_workspaces.new_symbol = New symbol
+library.library_workspaces.new_symbol.tip = Start a fresh empty symbol definition.
+library.library_workspaces.new_footprint = New footprint
+library.library_workspaces.new_footprint.tip = Start a fresh empty footprint definition.
+library.library_workspaces.generate_footprint = Generate footprint
+library.library_workspaces.generate_footprint.tip = Build a footprint from a package family and the numbers in its datasheet.
+
+# authoring.rs graphic
+library.graphic.start = Start
+library.graphic.end = End
+library.graphic.stroke = Stroke
+library.graphic.layer = Layer
+library.graphic.fill = Fill
+library.graphic.center = Center
+library.graphic.radius = Radius
+library.graphic.through = Through
+library.graphic.vertex_v0 = Vertex {v0}
+library.graphic.remaining_vertices_are_preserved = Remaining vertices are preserved.
+library.graphic.add_vertex = Add vertex
+library.graphic.add_vertex.tip = Append another corner to the outline.
+library.graphic.remove_last_vertex = Remove last vertex
+library.graphic.remove_last_vertex.tip = Drop the last corner of the outline.
+library.graphic.position = Position
+library.graphic.text = Text
+library.graphic.text_size = Text size
+library.graphic.angle = Angle
+
+# authoring.rs add_graphic
+library.add_graphic.add_drawing = Add drawing:
+library.add_graphic.line = Line
+library.add_graphic.line.tip = Add a straight line segment to this definition.
+library.add_graphic.rectangle = Rectangle
+library.add_graphic.rectangle.tip = Add a rectangle outline to this definition.
+library.add_graphic.circle = Circle
+library.add_graphic.circle.tip = Add a circle to this definition.
+library.add_graphic.arc = Arc
+library.add_graphic.arc.tip = Add an arc segment to this definition.
+library.add_graphic.polyline = Polyline
+library.add_graphic.polyline.tip = Add an open multi-segment outline to this definition.
+library.add_graphic.text = Text
+library.add_graphic.text.tip = Add a text label to this definition.
+library.add_graphic.label = Label
+
+# lib.rs browser
+library.browser.lib = Lib
+library.browser.lib.tip = Show or hide the component library.
+library.browser.mistakes_the_checks_say_you = Mistakes the checks say you must fix.
+library.browser.warnings_worth_a_look_but = Warnings worth a look, but not blockers.
+library.browser.notes_from_the_checks_that = Notes from the checks that need no action.
+library.browser.count = {count}
+library.browser.count.tip = {count} {name} from the checks. {help} Click to open the Checks tab.
+library.browser.library = Library
+library.browser.hide = Hide
+library.browser.hide.tip = Close the library dock to give the canvas more room. Open it again with the Lib toggle in the top bar.
+library.browser.add_part = Add part
+library.browser.add_part.tip = Search for a part to place on the schematic.
+library.browser.add_a_part = Add a part
+library.browser.search_parts_by_name = Search parts by name
+library.browser.search_parts_by_name.tip = Type any part name; the list below narrows as you type.
+library.browser.browse_component_libraries = Browse component libraries →
+library.browser.browse_component_libraries.tip = Open library sources in Settings to browse symbol and footprint collections.
+library.browser.nothing_here_matches_trim_yet = Nothing here matches "{trim}" yet.
+library.browser.common_parts = Common parts
+library.browser.pick_this_part_the_next.tip = Pick this part; the next click on the schematic places it.
+library.browser.from_this_project_s_library = From this project's library
+library.browser.set_len_part_v1 = {set} ({len} part{v1})
+library.browser.set_len_part_v1.tip = Parts grouped under this name. Untick to hide the whole group while you add parts.
+library.browser.components = COMPONENTS
+library.browser.reference_value = {reference}   {value}
+library.browser.reference_value.tip = Select this component and show its properties.
+library.browser.description = Description
+library.browser.built_in = built in
+library.browser.from_name = from {name}
+library.browser.renumber_parts = RENUMBER PARTS
+library.browser.all_letters = all letters
+library.browser.all_letters.tip = Number every kind of part again, one run of numbers per letter.
+library.browser.only_renumber_the_parts_that.tip = Only renumber the parts that start with this letter.
+library.browser.renumber_one_kind_of_part.tip = Renumber one kind of part, or every part at once.
+library.browser.preview = Preview
+library.browser.preview.tip = Show the new numbers, in placement order, before anything changes.
+library.browser.from_to = {from}  →  {to}
+library.browser.renumber = Renumber
+library.browser.renumber.tip = Write these numbers now; Undo puts the old ones back.
+library.browser.cancel = Cancel
+library.browser.cancel.tip = Drop this plan; nothing changes.
+
+# lib.rs library
+library.library.original_starter_symbols = Original starter symbols
+library.library.prefix_value_2_pins = {prefix} · {value} · 2 pins
+library.library.place_in_schematic = Place in schematic >
+
+# lib.rs files_tab
+library.files_tab.project_files = Project files
+library.files_tab.design_file_trim = Design file: {trim}
+library.files_tab.library_sources = Library sources
+library.files_tab.library_sources.tip = Manage the folders that feed the component list.
+library.files_tab.builds = Builds
+
+# library_quality.rs quality_badge
+library.quality_badge.errors_to_fix = {errors} to fix
+library.quality_badge.this_footprint_has_mistakes_that = This footprint has mistakes that can make a bad board. Open the Checks tab for what to change.
+library.quality_badge.warnings_to_review = {warnings} to review
+library.quality_badge.this_footprint_is_usable_but = This footprint is usable but breaks a common good habit. Open the Checks tab for the details.
+library.quality_badge.clean = Clean
+library.quality_badge.the_library_checks_found_nothing = The library checks found nothing wrong with this footprint.
+
+# library_quality.rs library_checks_section
+library.library_checks_section.library = Library
+library.library_checks_section.whether_the_footprints_in_this = Whether the footprints in this project's library follow good drawing habits: pad numbers, silkscreen, courtyard and the like.
+library.library_checks_section.no_findings_in_the_implemented = No findings in the implemented checks
+library.library_checks_section.a_mistake_in_a_library = A mistake in a library footprint. Fix it before parts using this footprint go on a board.
+library.library_checks_section.worth_a_look_but_it = Worth a look, but it does not stop a board being built.
+library.library_checks_section.footprint_message = {footprint}: {message}
+library.library_checks_section.footprint_message.tip = Open this footprint in the library editor.
+library.library_checks_section.fix_hint = Fix: {hint}
+
+# library_quality.rs refresh_footprint_quality
+
+# extra authoring.rs library_editor
+library.library_editor.number = Number
+library.library_editor.connection = Connection
+library.library_editor.angle = Angle
+library.library_editor.length = Length
+library.library_editor.position = Position
+library.library_editor.copper_size = Copper size
+library.library_editor.drill_size_oval_if_unequal = Drill size (oval if unequal)
+library.library_editor.drill_offset = Drill offset
+
+# lib.rs rules_tab
+rules.rules_tab.design_rules_travel_with_the = Design rules travel with the design and steer the checks and any new wiring.
+rules.rules_tab.new_class = New class
+rules.rules_tab.new_class.tip = Add a rule set with a starting gap and wire width; rename and tune it from its row.
+rules.rules_tab.class_v0 = Class {v0}
+rules.rules_tab.len_nets = {len} nets
+rules.rules_tab.len_nets.tip = Connections that follow this rule set. Put them there with the box below.
+rules.rules_tab.tune = Tune
+rules.rules_tab.tune.tip = Change this rule set's gap and wire width.
+rules.rules_tab.remove = Remove
+rules.rules_tab.remove.tip = Delete this rule set; its connections fall back to the default rules.
+rules.rules_tab.gap = Gap
+# lib.rs param_help
+
+# lib.rs checks_view
+checks.checks_view.design_checks = Design checks
+checks.checks_view.select_a_finding_to_inspect = Select a finding to inspect its affected object in the editor.
+checks.checks_view.electrical = Electrical
+checks.checks_view.whether_the_wiring_makes_electrical = Whether the wiring makes electrical sense: pins with no connection, parts missing footprints, and power pins left floating.
+checks.checks_view.board = Board
+checks.checks_view.whether_the_copper_can_actually = Whether the copper can actually be made: gaps too small, wires not joined, and widths the factory cannot etch.
+checks.checks_view.no_findings_in_the_implemented = No findings in the implemented checks
+checks.checks_view.a_check_you_wrote = A check you wrote.
+checks.checks_view.the_board_is_checked_against = The board is checked against this rule after every edit.
+checks.checks_view.whose_who_the_list_below.tip = {whose}{who}The list below shows every place it fired; click one to jump to it.
+checks.checks_view.select_this_on_the_drawing.tip = Select this on the drawing.
+checks.checks_view.hide_this = Hide this
+checks.checks_view.hide_this.tip = You have looked at this and it is fine: hide just this finding. Everything you hide can be brought back below.
+checks.checks_view.quiet_this_area = Quiet this area
+checks.checks_view.quiet_this_area.tip = This corner of the board is the way you want it: ask the check to leave anything inside a box drawn around these items alone. You can clear the box below.
+checks.checks_view.things_you_asked_not_to = Things you asked not to be told about
+checks.checks_view.code_count_hidden = {code} · {count} hidden
+checks.checks_view.bring_back_code = Bring back {code}
+checks.checks_view.bring_back_code.tip = Show every hidden finding from this check again; each one can be hidden afresh.
+checks.checks_view.quiet_zones_checks_that_leave = Quiet zones: checks that leave these corners alone
+checks.checks_view.code_count_zone_s = {code} · {count} zone(s)
+checks.checks_view.clear_code_zones = Clear {code} zones
+checks.checks_view.clear_code_zones.tip = Remove every quiet box for this check, so it reports the whole board again.
+
+# lib.rs custom_heading
+checks.custom_heading.your_check_name = Your check: {name}
+
+# lib.rs custom_measure_line
+checks.custom_measure_line.what_limit_mm = {what} {limit} mm
+checks.custom_measure_line.wires_thinner_than = wires thinner than
+checks.custom_measure_line.wires_longer_than = wires longer than
+checks.custom_measure_line.more_than_n_parts = more than {n} parts
+checks.custom_measure_line.more_than_n_vias = more than {n} vias
+checks.custom_measure_line.more_than_n_wires_on = more than {n} wires on one net
+
+# lib.rs settings_tab
+settings.settings_tab.settings = Settings
+settings.settings_tab.how_the_app_looks_and = How the app looks, and everything that applies to the whole project.
+settings.settings_tab.appearance = APPEARANCE
+settings.settings_tab.dark = Dark
+settings.settings_tab.dark.tip = Dark canvas and panels, the usual working look.
+settings.settings_tab.light = Light
+settings.settings_tab.light.tip = Light canvas and panels, easier on printed previews.
+settings.settings_tab.show_grid = Show grid
+settings.settings_tab.interface_size = Interface size
+settings.settings_tab.make_text_and_controls_label.tip = Make text and controls {label} of normal size. Ctrl and plus or minus also work.
+settings.settings_tab.route_on = Route on
+settings.settings_tab.top = Top
+settings.settings_tab.top.tip = New tracks are drawn on the top copper layer.
+settings.settings_tab.bottom = Bottom
+settings.settings_tab.bottom.tip = New tracks are drawn on the bottom copper layer.
+settings.settings_tab.pad_labels = Pad labels
+settings.settings_tab.choose_what_is_drawn_at.tip = Choose what is drawn at each pad centre on the board.
+settings.settings_tab.accent_color = Accent color
+settings.settings_tab.reduce_motion = Reduce motion
+settings.settings_tab.reduce_motion.tip = Turn off fades and gliding zoom. The wheel zooms in one step. Dragging is unchanged.
+settings.settings_tab.appearance_is_saved_automatically = Appearance is saved automatically.
+settings.settings_tab.routing = ROUTING
+settings.settings_tab.chamfer_corners = Chamfer corners
+settings.settings_tab.chamfer_corners.tip = On by default: routed corners are cut at 45 degrees, because right angles hurt signal quality and add emissions. Turn it off to allow right-angle corners.
+settings.settings_tab.board_geometry = BOARD GEOMETRY
+settings.settings_tab.w = W
+settings.settings_tab.h = H
+settings.settings_tab.apply_board_dimensions = Apply board dimensions
+settings.settings_tab.cut_out_hole = CUT-OUT HOLE
+settings.settings_tab.a_round_hole_anywhere_inside = A round hole anywhere inside the board, for a sensor, a cable or a screw bigger than a drill bit.
+settings.settings_tab.x = X
+settings.settings_tab.y = Y
+settings.settings_tab.radius = Radius
+settings.settings_tab.add_hole = Add hole
+settings.settings_tab.add_hole.tip = Cuts this round hole into the board. The checks keep copper and other holes clear of it, and undo takes the hole out again.
+settings.settings_tab.copper_pour = COPPER POUR
+settings.settings_tab.a_solid_rectangle_of_copper = A solid rectangle of copper that joins every wire and pad inside it to one connection.
+settings.settings_tab.copper_for_v0 = Copper for: {v0}
+settings.settings_tab.pour_copper = Pour copper
+settings.settings_tab.pour_copper.tip = Pours this rectangle of copper onto the board. It joins every wire and pad it touches to the chosen connection, and undo pours it away again.
+settings.settings_tab.board_labels = BOARD LABELS
+settings.settings_tab.words_printed_on_the_board = Words printed on the board: a version tag, a name, a warning.
+settings.settings_tab.what_to_print = what to print
+settings.settings_tab.what_to_print.tip = The words to print on the board.
+settings.settings_tab.at = At
+# lib.rs shortcuts
+
+# lib.rs dock_frame
+
+# lib.rs workbench_tabs
+docks.workbench_tabs.files = Files
+docks.workbench_tabs.schematic = Schematic
+docks.workbench_tabs.layout = Layout
+docks.workbench_tabs.3d_view = 3D View
+docks.workbench_tabs.libraries = Libraries
+docks.workbench_tabs.rules = Rules
+docks.workbench_tabs.checks = Checks
+docks.workbench_tabs.plot_files = Plot files
+docks.workbench_tabs.settings = Settings
+docks.workbench_tabs.switch_to_the_label_view = Switch to the {label} view. Right-click to close it.
+docks.workbench_tabs.switch_to_the_label_view2 = Switch to the {label} view.
+docks.workbench_tabs.close = Close
+docks.workbench_tabs.close.tip = Hide this view; the + menu brings it back.
+docks.workbench_tabs.text = +
+docks.workbench_tabs.every_view_is_open = Every view is open
+docks.workbench_tabs.open_this_view_again.tip = Open this view again.
+docks.workbench_tabs.open_a_view_you_closed.tip = Open a view you closed.
+
+# lib.rs builds_tab
+docks.builds_tab.one_design_several_builds_each = One design, several builds: each extra build lists parts it leaves off the board.
+docks.builds_tab.new_build = New build
+docks.builds_tab.new_build.tip = Start an extra version of this board; say which parts to leave off from its row.
+docks.builds_tab.build_v0 = Build {v0}
+docks.builds_tab.len_left_off = {len} left off
+docks.builds_tab.len_left_off.tip = Parts this build skips; the bill of materials leaves them out too.
+docks.builds_tab.len_swapped = {len} swapped
+docks.builds_tab.len_swapped.tip = Parts this build fits in a different package.
+docks.builds_tab.note = Note
+docks.builds_tab.note.tip = Write a short reminder of what makes this build different.
+docks.builds_tab.remove = Remove
+docks.builds_tab.remove.tip = Delete this extra build; the design itself does not change.
+docks.builds_tab.what_this_build_changes = what this build changes
+docks.builds_tab.what_this_build_changes.tip = A sentence or two, saved with the design.
+docks.builds_tab.save_note = Save note
+docks.builds_tab.save_note.tip = Keep this reminder on the build.
+docks.builds_tab.cancel = Cancel
+docks.builds_tab.cancel.tip = Leave the build's reminder as it was.
+docks.builds_tab.text = ·
+docks.builds_tab.text2 = ×
+docks.builds_tab.text2.tip = Put this part back on for this build.
+docks.builds_tab.choose_a_part_to_leave = choose a part to leave off
+docks.builds_tab.a_part_this_build_still.tip = A part this build still populates.
+docks.builds_tab.pick_a_part_then_leave.tip = Pick a part, then Leave off: this build skips it and its parts list leaves it out.
+docks.builds_tab.leave_off = Leave off
+docks.builds_tab.leave_off.tip = This build skips the chosen part; nothing is deleted.
+docks.builds_tab.every_part_in_this_design = Every part in this design is left off.
+docks.builds_tab.reference_fits_footprint = {reference} fits {footprint}
+docks.builds_tab.text22.tip = Fit this part in its original package again.
+docks.builds_tab.choose_a_part_to_swap = choose a part to swap
+docks.builds_tab.a_part_in_this_design.tip = A part in this design.
+docks.builds_tab.pick_a_part_name_its.tip = Pick a part, name its other package, then Swap package.
+docks.builds_tab.package_name = package name
+docks.builds_tab.package_name.tip = The package this build uses instead, for example a smaller size.
+docks.builds_tab.swap_package = Swap package
+docks.builds_tab.swap_package.tip = This build fits the chosen part in that package; the design keeps its own.
+docks.builds_tab.no_extra_builds_this_board = No extra builds; this board is built exactly as designed.
+
+# lib.rs start_home
+dialogs.start_home.welcome_to_pcbcraft = Welcome to PCBCraft
+dialogs.start_home.draw_a_circuit_place_the = Draw a circuit, place the parts, and finish with a board ready to order.
+dialogs.start_home.new_design = New design
+dialogs.start_home.begin_with_a_blank_page = Begin with a blank page.
+dialogs.start_home.begin_with_a_blank_page.tip = Start a fresh empty design.
+dialogs.start_home.worked_example = Worked example
+dialogs.start_home.a_small_battery_resistor_and = A small battery, resistor and LED to explore.
+dialogs.start_home.a_small_battery_resistor_and.tip = Start from a small worked example: a battery, resistor and LED.
+dialogs.start_home.open_a_design_file = Open a design file…
+dialogs.start_home.type_a_path_or_pick = Type a path, or pick one from the list below.
+dialogs.start_home.type_a_path_or_pick.tip = Load a saved design file from the path beside this button.
+dialogs.start_home.design_file_path = design file path
+dialogs.start_home.design_file_path.tip = The file that Open on this page, and in the File menu, uses.
+dialogs.start_home.open = Open
+dialogs.start_home.open.tip = Load the design file named in the box beside this button.
+dialogs.start_home.open_one_you_worked_on = Open one you worked on recently
+dialogs.start_home.open_this_design_again_where.tip = Open this design again where you left off.
+dialogs.start_home.press_escape_or_click_pcbcraft = Press Escape, or click PCBCraft in the corner, to return here any time.
+
+# lib.rs execute_palette_params
+
+# lib.rs params_template
+
+# lib.rs run
+dialogs.run.session_unavailable = Session unavailable
+dialogs.run.command_committed = {command} · committed
+dialogs.run.len_library_symbols_need_a = {len} library symbols need a footprint assignment in Libraries
+
+# lib.rs run_and_keep
+dialogs.run_and_keep.session_unavailable = Session unavailable
+dialogs.run_and_keep.command_reported = {command} · reported
+
+# lib.rs tool_call
+dialogs.tool_call.name_complete = {name} · complete
+dialogs.tool_call.operation_failed = operation failed
+
+# editing.rs shift_click
+status.shift_click.a_selection_holds_at_most = A selection holds at most {MAX_SELECTED} objects
+
+# editing.rs move_selection
+status.move_selection.moved_moved_objects_together = Moved {moved} objects together
+
+# editing.rs delete_selection
+status.delete_selection.deleted_len_objects = Deleted {len} objects
+
+# editing.rs duplicate_selection
+status.duplicate_selection.select_a_part_to_duplicate = Select a part to duplicate
+status.duplicate_selection.duplicated_count_parts = Duplicated {count} parts
+
+# editing.rs copy_selection
+status.copy_selection.select_something_first_then_copy = Select something first, then copy
+status.copy_selection.copied_len_objects = Copied {len} objects
+
+# editing.rs paste_last_copy_at
+status.paste_last_copy_at.nothing_copied_yet = Nothing copied yet
+
+# editing.rs paste_text_at
+status.paste_text_at.that_text_is_not_copied = That text is not copied objects, so nothing was pasted
+status.paste_text_at.pasted_count_objects_drag_them = Pasted {count} objects; drag them where they belong
+
+# editing.rs paste_last_copy
+status.paste_last_copy.nothing_copied_yet = Nothing copied yet
+
+# editing.rs measure_click
+status.measure_click.measure_click_the_second_point = Measure: click the second point
+
+# editing.rs cleanup_tracks
+status.cleanup_tracks.track_cleanup_found_nothing_to = Track cleanup found nothing to tidy
+status.cleanup_tracks.track_cleanup_removed_removed_pieces = Track cleanup removed {removed} pieces and merged {merged} segments
+
+# lib.rs write_make_files
+status.write_make_files.that_folder_could_not_be = that folder could not be created
+
+# lib.rs write_uv_print_files
+status.write_uv_print_files.that_folder_could_not_be = that folder could not be created
+status.write_uv_print_files.label_saved_in_directory = {label} saved in {directory}
+
+# lib.rs write_job_file
+status.write_job_file.that_folder_could_not_be = that folder could not be created
+status.write_job_file.label_saved_in_directory = {label} saved in {directory}
+
+# lib.rs capture
+status.capture.capture_failed_e = capture failed: {e}
+
+# lib.rs copy_plot_to_clipboard
+status.copy_plot_to_clipboard.plot_copied_to_the_clipboard = plot copied to the clipboard
+status.copy_plot_to_clipboard.copy_failed_no_plot_to = copy failed: no plot to copy
+
+unit.mm15.tip = Set how tall the printed letters are, so the text stays readable. Between 0.3 and 20 millimetres.
+settings.settings_tab.side = Side
+settings.settings_tab.add_label = Add label
+settings.settings_tab.add_label.tip = Prints these words on the board at the chosen spot. Undo erases it again.
+settings.settings_tab.words_on_the_board = Words on the board
+settings.settings_tab.text_v0 = {text} · {v0}
+settings.settings_tab.erase = Erase
+settings.settings_tab.erase.tip = Wipe this word off the board.
+settings.settings_tab.board_edge = BOARD EDGE
+settings.settings_tab.a_free_shape_with_corners = A free shape with {corners} corners.
+settings.settings_tab.back_to_a_plain_rectangle = Back to a plain rectangle
+settings.settings_tab.back_to_a_plain_rectangle.tip = Trade the drawn board edge for the simple rectangle sized by W and H above.
+settings.settings_tab.drawing_file_path_svg = drawing file path (.svg)
+settings.settings_tab.drawing_file_path_svg.tip = A vector drawing whose edge can become the board outline, or whose shapes can be laid onto the board as artwork.
+settings.settings_tab.import_drawing = Import drawing
+settings.settings_tab.import_drawing.tip = Lay the shapes from the drawing file onto the board as editable artwork.
+settings.settings_tab.import_as_board_edge = Import as board edge
+settings.settings_tab.import_as_board_edge.tip = Trace the closed shape in the drawing file into the board outline.
+settings.settings_tab.cutout_radius = Cutout radius
+settings.settings_tab.checks = CHECKS
+settings.settings_tab.erc_electrical_drc_board = {erc} electrical · {drc} board >
+settings.settings_tab.erc_electrical_drc_board.tip = Open the checks tab for the full list of findings.
+settings.settings_tab.initial_checks_full_erc_drc = Initial checks; full ERC/DRC is in development.
+settings.settings_tab.make_files = MAKE FILES
+settings.settings_tab.plain_files_for_the_board = Plain files for the board factory, written beside your design unless you name another folder.
+settings.settings_tab.folder_for_the_files_blank = folder for the files (blank means "outputs" beside the design)
+settings.settings_tab.folder_for_the_files_blank.tip = Where the make files land. Leave blank to use a folder named outputs next to the design file.
+settings.settings_tab.copper_drill_files = Copper & drill files
+settings.settings_tab.copper_drill_files.tip = The Gerber copper layers, board outline and drill file a board house asks for.
+settings.settings_tab.parts_list_csv = Parts list (CSV)
+settings.settings_tab.parts_list_csv.tip = A spreadsheet of every part: one row per unique part with all its references.
+settings.settings_tab.net_list = Net list
+settings.settings_tab.net_list.tip = A plain text list of every connection and the pins on it.
+settings.settings_tab.pick_and_place_file = Pick and place file
+settings.settings_tab.pick_and_place_file.tip = Where every part sits, which way it faces and which side it goes on, for the assembly machine.
+settings.settings_tab.design_report = Design report
+settings.settings_tab.design_report.tip = A readable summary of the whole design: board, every part and every connection.
+settings.settings_tab.drill_map_csv = Drill map (CSV)
+settings.settings_tab.drill_map_csv.tip = Every hole on the board counted and grouped by size, so you can sanity-check the drill sizes before the board goes away.
+settings.settings_tab.drill_map = Drill map
+settings.settings_tab.board_drawings = BOARD DRAWINGS
+settings.settings_tab.flat_drawings_and_3d_models = Flat drawings and 3D models, for your records, your fab or a web page.
+settings.settings_tab.3d_model_step = 3D model (Step)
+settings.settings_tab.3d_model_step.tip = The standard 3D file for mechanical programs and free viewers. It lands in the make folder.
+settings.settings_tab.3d_model = 3D model
+settings.settings_tab.3d_viewer_file = 3D viewer file
+settings.settings_tab.3d_viewer_file.tip = A lighter 3D file that simple viewers open quickly. It lands in the make folder.
+settings.settings_tab.printable_drawing_pdf = Printable drawing (PDF)
+settings.settings_tab.printable_drawing_pdf.tip = A one-page drawing of the finished board you can print or email. It lands in the make folder.
+settings.settings_tab.printable_drawing = Printable drawing
+settings.settings_tab.web_drawing_svg = Web drawing (SVG)
+settings.settings_tab.web_drawing_svg.tip = A crisp picture of the board that any web browser can show, at any size. It lands in the make folder.
+settings.settings_tab.web_drawing = Web drawing
+settings.settings_tab.print_art_top_silkscreen = Print art, top silkscreen
+settings.settings_tab.writes_the_top_silkscreen_as = Writes the top silkscreen as true-size artwork for a UV printer: a transparent colour picture, a white-ink picture and a drawing, all in the make folder. Text outlines are not included yet.
+settings.settings_tab.print_art_bottom_silkscreen = Print art, bottom silkscreen
+settings.settings_tab.writes_the_bottom_silkscreen_as = Writes the bottom silkscreen as true-size artwork for a UV printer, not mirrored, because the printer looks at the real board. It lands in the make folder.
+settings.settings_tab.panel_plan = PANEL PLAN
+settings.settings_tab.see_how_your_board_would = See how your board would sit repeated on a bigger manufacturing panel.
+settings.settings_tab.across = across
+settings.settings_tab.across.tip = Set how many copies of the board sit side by side on the panel. From 1 to 32.
+settings.settings_tab.down = down
+settings.settings_tab.down.tip = Set how many copies of the board sit top to bottom on the panel. From 1 to 32.
+settings.settings_tab.mm_gap = mm gap
+settings.settings_tab.mm_gap.tip = Empty space between neighbouring copies, room for cutting them apart later.
+settings.settings_tab.mm_rail = mm rail
+settings.settings_tab.mm_rail.tip = Solid border left around the edge of the panel, where the factory grips it.
+settings.settings_tab.preview_panel = Preview panel
+settings.settings_tab.preview_panel.tip = Work out the panel size and where every copy lands, using the board's own measurements. The design itself is left alone.
+settings.settings_tab.copies_copies_panel_width_height = {copies} copies · panel {width} × {height} mm
+settings.settings_tab.copies_copies_panel_width_height.tip = The finished panel: its overall size and how many boards fit on it.
+settings.settings_tab.writing_these_files_changes_nothing = Writing these files changes nothing in the design.
+
+unit.mm10.tip = Smallest allowed clear space between this group's copper and everything else.
+rules.rules_tab.wire_width = Wire width
+unit.mm11.tip = Width new tracks on these connections start with.
+rules.rules_tab.apply = Apply
+rules.rules_tab.apply.tip = Keep these numbers for this rule set.
+rules.rules_tab.cancel = Cancel
+rules.rules_tab.cancel.tip = Leave this rule set as it was.
+rules.rules_tab.gap_clearance_mm_wire_width = Gap {clearance} mm · wire {width} mm
+rules.rules_tab.choose_a_connection_to_put = choose a connection to put here
+rules.rules_tab.a_connection_that_follows_no.tip = A connection that follows no rule set yet.
+rules.rules_tab.pick_a_connection_then_assign.tip = Pick a connection, then Assign: its wiring follows this rule set.
+rules.rules_tab.assign = Assign
+rules.rules_tab.assign.tip = Put the chosen connection under this rule set.
+rules.rules_tab.every_connection_already_follows_a = Every connection already follows a rule set.
+rules.rules_tab.text = ·
+rules.rules_tab.text2 = ×
+rules.rules_tab.text2.tip = Let this connection follow the default rules again.
+rules.rules_tab.no_rule_sets_yet_the = No rule sets yet; the default rules apply to every connection.
+rules.rules_tab.teardrops = TEARDROPS
+rules.rules_tab.stem_shaped_copper_where_wires = Stem-shaped copper where wires meet pads and vias, so the joints survive etching and soldering.
+rules.rules_tab.mm_deep = mm deep
+rules.rules_tab.mm_deep.tip = How far each teardrop runs along the wire from the joint. Bigger stems are sturdier but eat board space.
+rules.rules_tab.harden_junctions = Harden junctions
+rules.rules_tab.harden_junctions.tip = Grow a teardrop at every pad and via junction in one go. Undo brings the plain wires back.
+rules.rules_tab.remove_teardrops = Remove teardrops
+rules.rules_tab.remove_teardrops.tip = Take the teardrop copper away again, leaving the ordinary wires exactly as they were.
+rules.rules_tab.checks_you_write = CHECKS YOU WRITE
+rules.rules_tab.rules_only_you_know_about = Rules only you know about: pick one plain measurement, set one limit, and it runs with the other checks after every edit. It travels inside the design, so anyone who opens it is covered too.
+rules.rules_tab.name_v1_v2 = {name} · {v1} · {v2}
+rules.rules_tab.name_v1_v2.tip = A check you wrote. It is saved with the design and re-run after every edit.
+rules.rules_tab.remove_this_check = Remove this check
+rules.rules_tab.remove_this_check.tip = Stop running this check. Nothing about the design itself changes.
+rules.rules_tab.what_this_check_means_in = What this check means, in your words
+rules.rules_tab.the_name_this_check_reports.tip = The name this check reports under, e.g. "keep power wires meaty".
+rules.rules_tab.the_one_thing_this_check.tip = The one thing this check measures. Every check stays a plain sentence, never a puzzle.
+rules.rules_tab.the_limit_millimetres_for_wire.tip = The limit: millimetres for wire measures, a plain number of things otherwise.
+rules.rules_tab.must_fix = must fix
+rules.rules_tab.must_fix.tip = Treat a breach as a real problem, counted under "to fix".
+rules.rules_tab.a_nudge = a nudge
+rules.rules_tab.a_nudge.tip = Mention a breach, but do not call the board a failure.
+rules.rules_tab.add_this_check = Add this check
+rules.rules_tab.add_this_check.tip = Start running this rule after every edit. It lives inside the design; Undo takes it away again.
+rules.rules_tab.how_strict_to_be = HOW STRICT TO BE
+rules.rules_tab.choose_what_each_automatic_check = Choose what each automatic check does when it spots something: stop you, warn you, or stay quiet.
+rules.rules_tab.treat_this_as_a_real = Treat this as a real problem to fix before the board goes away.
+rules.rules_tab.mention_it_but_do_not = Mention it, but do not call the board a failure.
+rules.rules_tab.stop_reporting_this_check_at = Stop reporting this check at all.
+rules.rules_tab.auto = Auto
+rules.rules_tab.auto.tip = Go back to what this check does out of the box.
+rules.rules_tab.pair_clearances = PAIR CLEARANCES
+rules.rules_tab.extra_room_between_two_connections = Extra room between two connections that must keep their distance, like a noisy one next to a sensitive one.
+rules.rules_tab.net_wanted = net {wanted}
+rules.rules_tab.pick_the_first_net_of.tip = Pick the first net of the pair.
+rules.rules_tab.away_from = away from
+rules.rules_tab.pick_the_second_net_of.tip = Pick the second net of the pair.
+rules.rules_tab.keep_apart_by = Keep apart by
+unit.mm12.tip = The least distance the two connections' copper may sit from each other.
+rules.rules_tab.set_spacing = Set spacing
+rules.rules_tab.set_spacing.tip = Tell the checks these two connections must stay this far apart everywhere on the board. Undo takes the rule away.
+rules.rules_tab.spacing_rules_you_have_set = Spacing rules you have set between connections
+rules.rules_tab.v0_away_from_v1_clearance = {v0} away from {v1} · {clearance} mm
+rules.rules_tab.clear = Clear
+rules.rules_tab.clear.tip = Let these two connections fall back to the normal spacing rules.
+rules.rules_tab.differential_pairs = DIFFERENTIAL PAIRS
+rules.rules_tab.two_connections_that_should_run = Two connections that should run side by side as a team, like the data lines of a socket.
+rules.rules_tab.name = Name
+rules.rules_tab.usb = USB
+rules.rules_tab.usb.tip = A name you will recognise, like USB or HDMI.
+rules.rules_tab.pick_the_net_that_carries.tip = Pick the net that carries the positive side.
+rules.rules_tab.text3 = +
+rules.rules_tab.pick_the_net_that_carries2.tip = Pick the net that carries the negative side.
+rules.rules_tab.run_together_with_a_gap = Run together with a gap of
+unit.mm13.tip = How closely the two sides should hug each other; copper nearer than this gets reported.
+rules.rules_tab.declare_pair = Declare pair
+rules.rules_tab.declare_pair.tip = Tell the checks these two connections are a team: they watch the gap between them. Reusing the name updates the same pair, and undo takes it away.
+rules.rules_tab.pairs_you_have_declared = Pairs you have declared
+rules.rules_tab.name_v0_v1_gap_gap = {name} · {v0} + {v1} · gap {gap} mm
+rules.rules_tab.remove2.tip = Stop watching this pair; the lines stay as they are.
+rules.rules_tab.board_areas = BOARD AREAS
+rules.rules_tab.a_corner_of_the_board = A corner of the board that plays by stricter rules: wider gaps, and optionally a height limit for what fits under a cover.
+rules.rules_tab.corner = Corner
+rules.rules_tab.size = Size
+rules.rules_tab.copper_stays_apart_by_at = Copper stays apart by at least
+unit.mm14.tip = The minimum separation demanded between copper pieces inside this area.
+rules.rules_tab.parts_here_stand_no_taller = Parts here stand no taller than
+rules.rules_tab.parts_here_stand_no_taller.tip = For boards that must fit under a cover: anything placed here taller than the limit is reported.
+rules.rules_tab.add_area = Add area
+rules.rules_tab.add_area.tip = Marks this rectangle on the board with its own stricter rules. The checks watch it from now on, and undo erases the mark.
+rules.rules_tab.area_at_round_round2 = area at {round}, {round2}
+rules.rules_tab.stricter_areas_on_the_board = Stricter areas on the board
+rules.rules_tab.name_gap_clearance_mm_v0 = {name} · gap {clearance} mm{v0}
+rules.rules_tab.erase_area = Erase area
+rules.rules_tab.erase_area.tip = This corner goes back to the board's normal rules; the copper stays as it is.
+
+unit.mm7.tip = How wide this stretch of copper is. Thicker wires carry more current.
+board.inspector.set_width = Set width
+board.inspector.thicken_whole_connection = Thicken whole connection
+board.inspector.thicken_whole_connection.tip = Make every stretch of this connection the width above, in one step, for a run that has to carry real current.
+board.inspector.straighten = Straighten
+board.inspector.pull_this_curved_wire_into = Pull this curved wire into a straight line. Undo brings the curve back.
+board.inspector.this_wire_is_already_straight = This wire is already straight; there is nothing to pull.
+unit.mm8.tip = How far back from the sharp corner the diagonal cut starts.
+board.inspector.cut_corner = Cut corner
+board.inspector.trade_the_sharp_angle_where = Trade the sharp angle where two wires meet for a diagonal, so the etch comes out cleaner. Undo brings the corner back.
+board.inspector.this_wire_does_not_meet = This wire does not meet another wire of the same connection end to end, so there is no corner to cut.
+board.inspector.cut_in_half = Cut in half
+board.inspector.cut_in_half.tip = Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.
+board.inspector.ground_stitching = Ground stitching
+unit.mm9.tip = How far apart the little connecting holes sit. Smaller numbers pack more in.
+board.inspector.fill_with_vias = Fill with vias
+board.inspector.fill_with_vias.tip = Drops a grid of small plated holes across this copper so it stays at one potential from every corner. Undo sweeps them up.
+board.inspector.delete_del = Delete  Del
+board.inspector.nothing_selected = Nothing selected
+board.inspector.select_an_item_on_the = Select an item on the drawing to inspect and edit it. Everything for the whole project lives in the Settings tab up top.
+
+unit.mm5.tip = Drill size for new holes; an M3 spacer usually wants 3.2 mm.
+board.draw_tool_options.assembly_mark_size = Assembly mark size
+unit.mm6.tip = Disc size for new marks; 1 mm is the usual size.
+
+unit.mm4.tip = Set the width of this fiducial's bare copper disc, in millimetres. From 0.2 to 10 millimetres.
+board.fiducials_section.top = Top
+board.fiducials_section.top.tip = Put the mark on the top side of the board.
+board.fiducials_section.bottom = Bottom
+board.fiducials_section.bottom.tip = Put the mark on the bottom side of the board.
+board.fiducials_section.apply = Apply
+board.fiducials_section.apply.tip = Resize this mark and move it to the chosen side.
+board.fiducials_section.cancel = Cancel
+board.fiducials_section.cancel.tip = Leave this mark as it is.
+board.fiducials_section.diameter_mm_on_v1_at = {diameter} mm on {v1} at {x}, {y}
+board.fiducials_section.tune = Tune
+board.fiducials_section.tune.tip = Change this mark's size or side.
+board.fiducials_section.text2 = ×
+board.fiducials_section.text2.tip = Take this mark off the board.
+
+unit.mm3.tip = Set the drilled width of this hole, in millimetres. From 0.05 to 25 millimetres.
+board.holes_section.apply = Apply
+board.holes_section.apply.tip = Resize this hole to that drill size.
+board.holes_section.cancel = Cancel
+board.holes_section.cancel.tip = Leave this hole the size it is.
+board.holes_section.diameter_mm_slot_length_mm = {diameter} mm slot {length} mm long at {x}, {y}
+board.holes_section.diameter_mm_slot_length_mm.tip = A routed slot: its width, its overall length end to end, and where it starts.
+board.holes_section.diameter_mm_at_x_y = {diameter} mm at {x}, {y}
+board.holes_section.tune = Tune
+board.holes_section.tune.tip = Change this hole's drill size.
+board.holes_section.text2 = ×
+board.holes_section.text2.tip = Take this hole out of the board.
+
+unit.mm.tip = Set how thick this layer is in the board stack. From 0 to 100 millimetres.
+board.stackup_section.apply = Apply
+board.stackup_section.apply.tip = Keep these changes for this layer.
+board.stackup_section.cancel = Cancel
+board.stackup_section.cancel.tip = Leave this layer as it was.
+board.stackup_section.recorded_layers_add_up_to = Recorded layers add up to {total} mm.
+board.stackup_section.layer_name = layer name
+board.stackup_section.layer_name.tip = Name this layer, for example Core, Prepreg or L2.
+board.stackup_section.add_layer = Add layer
+board.stackup_section.add_layer.tip = Record this layer in the board stackup; the factory sheets list it.
+board.stackup_section.back_to_a_plain_two = Back to a plain two-layer board
+board.stackup_section.back_to_a_plain_two.tip = Forget every recorded layer; the board itself and its wiring stay as they are.
+board.stackup_section.finish = Finish
+board.stackup_section.a_common_coating_for_exposed.tip = A common coating for exposed copper.
+board.stackup_section.the_coating_on_exposed_copper.tip = The coating on exposed copper; it goes on the factory notes and reports.
+board.stackup_section.thickness = Thickness
+unit.mm2.tip = Set the finished board thickness; the factory uses it to pick drill bits. From 0.2 to 100 millimetres.
+board.stackup_section.set_thickness = Set thickness
+board.stackup_section.set_thickness.tip = Record this board thickness.
+board.stackup_section.substrate = Substrate
+board.stackup_section.how_the_material_between_layers.tip = How the material between layers slows signals; it tunes impedance estimates.
+board.stackup_section.set_substrate = Set substrate
+board.stackup_section.set_substrate.tip = Record this substrate number.
+board.stackup_section.plated_board_edge = Plated board edge
+board.stackup_section.plated_board_edge.tip = Copper plating around the board's rim, for shielding and soldering to a frame.
+
+# empty-state guidance
+empty.symbols = No symbols yet. Press A to open the symbol palette, or run component.add to add one.
+empty.nets = No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.
+empty.board = No packages on the board yet. Run board.sync to place a package for every symbol.
+empty.checks = Checks run automatically on every edit; findings are listed here as soon as one appears.
+
+library.browser.item_origin = {item} · {origin}
+
+# inspector field help
+field_help.value = Free text: a name or value, like R1 or 10k. It updates the symbol or package immediately when Apply is pressed.
+field_help.position = Absolute millimetres from the design origin; Apply moves just this symbol or package.
+field_help.board = Board outline size in millimetres; both values must be larger than zero.
+field_help.cutout = Radius of the circle the cutout tool places; the whole circle must stay inside the board.
+rules.param_help.required = required
+
+# check names by code (a code with no line here shows its code in words)
+check.annular_ring = Annular ring
+check.art_off_board = Art off board
+check.aspect_ratio = Aspect ratio
+check.board_edge = Board edge
+check.clearance = Clearance
+check.copper_short = Copper short
+check.copper_to_edge = Copper to edge
+check.cut_hits_via = Cut hits via
+check.cutout_clearance = Cutout clearance
+check.diffpair_gap = Diffpair gap
+check.diffpair_skew = Diffpair skew
+check.keepout = Keepout
+check.length_group_skew = Length group skew
+check.mask_covers_pad = Mask covers pad
+check.min_drill = Min drill
+check.min_space = Min space
+check.min_track = Min track
+check.missing_footprint = Missing footprint
+check.pad_clearance_bound = Pad clearance bound
+check.panel_component_near_score = Panel component near score
+check.panel_copper_near_score = Panel copper near score
+check.panel_missing_fiducials = Panel missing fiducials
+check.panel_tab_too_narrow = Panel tab too narrow
+check.panel_too_large_for_assembler = Panel too large for assembler
+check.pour_fill = Pour fill
+check.silk_text_height = Silk text height
+check.single_pin_net = Single pin net
+check.stacked_microvia = Stacked microvia
+check.thermal_starved = Thermal starved
+check.track_length = Track length
+check.track_width = Track width
+check.unassigned_pin = Unassigned pin
+check.unrouted = Unrouted
+check.via_aspect_ratio = Via aspect ratio
+check.via_span_not_allowed = Via span not allowed
+check.zone_island = Zone island
+check.zone_unconnected = Zone unconnected
+checks.measure.track_width_below = A wire thinner than
+checks.measure.track_length_above = A wire longer than
+checks.measure.part_count_above = More parts than
+checks.measure.via_count_above = More vias than
+checks.measure.net_track_count_above = More wires on one net than
+
+# keyboard shortcut list
+shortcut.undo_the_last_action = Undo the last action
+shortcut.context.anywhere = anywhere
+shortcut.redo_an_undone_action = Redo an undone action
+shortcut.save_the_design_to_its = Save the design to its file
+shortcut.open_the_command_palette = Open the command palette
+shortcut.move_the_highlight_through_the = Move the highlight through the command list
+shortcut.context.command_palette = command palette
+shortcut.keys.up_down = Up/Down
+shortcut.load_the_highlighted_command_then = Load the highlighted command, then run it from the parameters box
+shortcut.show_or_hide_this_shortcut = Show or hide this shortcut list
+shortcut.copy_the_selected_objects_as = Copy the selected objects as text
+shortcut.context.canvas = canvas
+shortcut.paste_the_copied_objects_ready = Paste the copied objects, ready to move
+shortcut.select_every_object_the_pick = Select every object the pick chips allow
+shortcut.add_an_object_to_the = Add an object to the selection or take it out
+shortcut.keys.shift_click = Shift+click
+shortcut.draw_a_box_and_select = Draw a box and select what it touches
+shortcut.keys.drag_on_empty_canvas = Drag on empty canvas
+shortcut.measure_tool_click_two_points = Measure tool: click two points to read the distance
+shortcut.open_the_symbol_palette = Open the symbol palette
+shortcut.context.schematic_tab = schematic tab
+shortcut.wire_tool_click_two_pins = Wire tool: click two pins to connect them
+shortcut.route_tool_click_two_pads = Route tool: click two pads to start a track
+shortcut.context.pcb_tab = pcb tab
+shortcut.move_tool_drop_the_selection = Move tool: drop the selection at the cursor
+shortcut.rotate_the_hovered_or_selected = Rotate the hovered or selected object by 90 degrees
+shortcut.load_the_hovered_or_selected = Load the hovered or selected object into the inspector
+shortcut.zoom_the_view_so_the = Zoom the view so the whole design fits
+shortcut.delete_every_selected_object = Delete every selected object
+shortcut.return_to_the_select_tool = Return to the select tool and close open palettes
+shortcut.pan_the_view = Pan the view
+shortcut.keys.middle_drag = Middle-drag
+shortcut.zoom_the_view = Zoom the view
+shortcut.keys.scroll = Scroll
+
+command.unmapped.tip = This control runs an engine command.
+
+# engine refusals the language files may translate; the engine text is the fallback
+error.nothing_to_undo = nothing to undo
+error.nothing_to_redo = nothing to redo
+error.that_folder_is_not_one_of_the_added_library_sources = that folder is not one of the added library sources
+error.that_folder_is_already_one_of_the_library_sources = that folder is already one of the library sources
+error.provide_the_full_path_to_a_library_folder = provide the full path to a library folder
+error.pair_rule_needs_two_different_nets = pair rule needs two different nets
+error.net_class_limit_reached_64 = net class limit reached (64)
+error.library_sources_are_limited_to_64_folders = library sources are limited to 64 folders
+error.object_id_space_exhausted = object ID space exhausted
+
+unit.mm = mm
+unit.mil = mil
+unit.inch = in
+cmp.count.one = {count} part
+cmp.count.other = {count} parts
+
+# Assistant pane and its Settings section.
+assistant.tab = Assistant
+assistant.tab.tip = Ask a model to change the design. Every change waits for your answer.
+assistant.new_chat = New chat
+assistant.new_chat.tip = Forget this conversation and start a fresh one.
+assistant.clear = Clear
+assistant.clear.tip = Forget this conversation; the design is untouched.
+assistant.send = Send
+assistant.send.tip = Send this message (Ctrl+Enter). While the model works it is queued.
+assistant.stop = Stop
+assistant.stop.tip = Stop the model. Questions waiting for you are declined.
+assistant.allow = Allow
+assistant.allow.tip = Run this change now. You can undo it.
+assistant.always_allow = Always allow
+assistant.always_allow.tip = Run this kind of change without asking again in this session.
+assistant.deny = Deny
+assistant.deny.tip = Do not run this change. The model is told so.
+assistant.undo = Undo
+assistant.undo.tip = Take back the last change the model made.
+assistant.input_hint = Ask for a change, for example: add a 10k resistor
+assistant.input.tip = Type what you want changed. Ctrl+Enter sends.
+assistant.no_model_title = No model is connected
+assistant.no_model_body = Nothing leaves this computer until you connect one. Open Settings, then Assistant, and enter the address and the model name.
+assistant.state_off = Not connected
+assistant.state_starting = Starting
+assistant.state_ready = Ready
+assistant.state_working = Working
+assistant.state_waiting = Waiting for you
+assistant.state.tip = What the assistant is doing right now.
+assistant.queued.tip = Waiting for the model to finish its current answer.
+assistant.denied_note = The user declined this change.
+assistant.new_design_note = A different design was opened. Earlier changes belong to the old one.
+assistant.no_http_body = The assistant needs the desktop app. This version cannot send requests to a model.
+assistant.settings_heading = Assistant settings
+assistant.show = Show assistant
+assistant.show.tip = Hide every assistant control and start nothing.
+assistant.connections = Connections
+assistant.no_connections = No connection yet. Nothing is sent anywhere until you add one.
+assistant.add_connection = Add connection
+assistant.add_connection.tip = Add the address of a model server.
+assistant.test = Test
+assistant.test.tip = Ask the server which models it offers.
+assistant.make_default = Use
+assistant.make_default.tip = Use this connection for the chat.
+assistant.in_use = In use
+assistant.in_use.tip = The chat uses this connection.
+assistant.remove = Remove
+assistant.remove.tip = Forget this connection and delete its stored key.
+assistant.key_stored = key stored
+assistant.no_key = no key
+assistant.permissions = What it may do without asking
+assistant.mode_ask.tip = Every change waits for your answer.
+assistant.mode_edits.tip = Changes to the design run at once and can be undone. Files and sessions still ask.
+assistant.mode_all.tip = Everything runs without asking, including saving and opening files.
+assistant.mode_all_warning = Allow everything lets the model save over files and replace the design. Use it with care.
+assistant.same_as_default = Same as above
+assistant.mode_override.tip = Use a different permission for this connection.
+assistant.limit = Changes per message
+assistant.limit.tip = After this many changes the model is told to stop and report.
+assistant.reset_always = Forget Always allow
+assistant.reset_always.tip = Ask again for every kind of change you allowed for good.
+assistant.dialog_title = Add connection
+assistant.preset = Start from
+assistant.preset.tip = Fill in the address of a common kind of server.
+assistant.name = Name
+assistant.name.tip = How this connection is listed.
+assistant.url = Address
+assistant.url.tip = The address of the model server, for example http://localhost:11434/v1.
+assistant.model = Model
+assistant.model.tip = The model name to ask for. Test fills the list when the server offers one.
+assistant.key = Key
+assistant.key.tip = Kept in the system keychain, never in the design or the settings file.
+assistant.key_refused = A key is only sent over https, or to this computer, so the key field is hidden for this address.
+assistant.key_needs_desktop = Keys need the desktop app.
+assistant.add = Add
+assistant.add.tip = Save this connection.
+assistant.cancel = Cancel
+assistant.cancel.tip = Close without saving.
+assistant.testing = Testing
+assistant.switch.tip = Choose which connection the chat uses.
+assistant.takes_pictures = Model takes pictures
+assistant.takes_pictures.tip = Turn on only if this model can read images. Attach view then sends one.
+assistant.attach = Attach view
+assistant.attach.tip = Send a picture of the current view with this message.
+assistant.show_sent = Show what was sent
+assistant.show_sent.tip = The design notes that went to the model with your last message.
+assistant.tab.waiting = Assistant ({count})
+assistant.models.one = Connected. 1 model.
+assistant.models.other = Connected. {count} models.
+assistant.transcript.saved = Conversation saved ({count} items)
+assistant.export.done = Conversation saved to {path}
+assistant.export = Export
+assistant.export.tip = Save the conversation as a text file beside the design.
+assistant.forget_question = Forget this conversation?
+assistant.forget = Forget
+assistant.forget.tip = Delete this conversation. The design is untouched.
+assistant.keep = Keep
+assistant.keep.tip = Keep the conversation.
+assistant.open_settings = Open Settings
+assistant.open_settings.tip = Go to Settings, where you add a model connection.
+assistant.state_stopped = Stopped
+assistant.retry = Retry
+assistant.retry.tip = Send the same message again.
+assistant.disabled.tip = Connect a model first. Nothing can be sent until then.
+assistant.switched_off_body = The assistant is switched off in Settings.
+assistant.settings_heading.tip = Show or hide the assistant settings: connections, permissions and limits.
