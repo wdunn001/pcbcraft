@@ -1,7 +1,10 @@
 //! API backend tests with a fake HTTP function: nothing here touches the network.
 
 use crate::api::*;
-use crate::backend::{ChatBackend, Event, HttpFn, HttpRequest, PromptPart, StartContext};
+use crate::backend::{
+    ChatBackend, Event, HttpFn, HttpRequest, PromptPart, StartContext, ToolStatus,
+};
+use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
 use std::sync::mpsc::channel;
@@ -107,12 +110,17 @@ fn openai_text(t: &str) -> Value {
     json!({"choices": [{"message": {"role": "assistant", "content": t}}]})
 }
 
-fn first_tool_name() -> Result<String, String> {
+fn first_mcp_name() -> Result<String, String> {
     let list = pcbcraft_mcp::tool_list();
     list["tools"][0]["name"]
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| "no tools".to_string())
+}
+
+/// The first tool's name as a model sees and uses it.
+fn first_tool_name() -> Result<String, String> {
+    first_mcp_name().map(|n| to_wire(&n))
 }
 
 fn openai_call_of(name: &str, n: usize) -> Value {
@@ -125,6 +133,7 @@ fn openai_call_of(name: &str, n: usize) -> Value {
 fn an_openai_reply_with_two_tool_calls_runs_both_through_the_tools_channel_and_sends_their_results_back()
 -> Result<(), String> {
     let name = first_tool_name()?;
+    let mcp = first_mcp_name()?;
     let n2 = name.clone();
     let (http, log) = fake(move |n| {
         (
@@ -140,7 +149,7 @@ fn an_openai_reply_with_two_tool_calls_runs_both_through_the_tools_channel_and_s
     let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
     say(&mut b, "look");
     run_until(&mut b, ended)?;
-    assert_eq!(*lock(&names), vec![name.clone(), name]);
+    assert_eq!(*lock(&names), vec![mcp.clone(), mcp]);
     let sent = posts(&log);
     assert_eq!(sent.len(), 2);
     let tool_msgs = sent[1]["messages"]
@@ -322,7 +331,10 @@ fn the_tool_list_maps_every_registry_command_to_a_function_tool_with_its_schema(
     assert_eq!(anth.len(), open.len());
     for (i, t) in open.iter().enumerate() {
         assert_eq!(t["type"], "function");
-        assert_eq!(t["function"]["name"], source[i]["name"]);
+        assert_eq!(
+            t["function"]["name"].as_str(),
+            source[i]["name"].as_str().map(to_wire).as_deref()
+        );
         assert_eq!(t["function"]["parameters"], source[i]["inputSchema"]);
         assert_eq!(anth[i]["input_schema"], source[i]["inputSchema"]);
     }
@@ -385,4 +397,152 @@ fn a_302_reply_is_an_error_and_no_second_request_follows() -> Result<(), String>
     );
     assert_eq!(posts(&log).len(), 1);
     Ok(())
+}
+
+fn every_name_in(body: &Value, protocol: Protocol) -> Vec<String> {
+    let tools = body["tools"].as_array().cloned().unwrap_or_default();
+    tools
+        .iter()
+        .filter_map(|t| match protocol {
+            Protocol::OpenAi => t["function"]["name"].as_str(),
+            Protocol::Anthropic => t["name"].as_str(),
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_hosted_legal(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+#[test]
+fn every_outgoing_tool_name_matches_the_hosted_name_pattern() -> Result<(), String> {
+    for protocol in [Protocol::OpenAi, Protocol::Anthropic] {
+        let (http, log) = fake(move |_| match protocol {
+            Protocol::OpenAi => (200, openai_text("hi")),
+            Protocol::Anthropic => (200, json!({"content": [{"type": "text", "text": "hi"}]})),
+        });
+        let (ctx, _) = host("ok");
+        let mut b = ApiBackend::start(cfg(protocol), ctx, http)?;
+        say(&mut b, "hello");
+        run_until(&mut b, ended)?;
+        let sent = posts(&log);
+        let names = every_name_in(sent.first().ok_or("no request")?, protocol);
+        assert!(!names.is_empty());
+        assert!(
+            names.iter().any(|n| n.contains("__")),
+            "no dotted tool seen"
+        );
+        if let Some(bad) = names.iter().find(|n| !is_hosted_legal(n)) {
+            return Err(format!("{protocol:?} sent the illegal name {bad}"));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn two_different_mcp_tool_names_never_share_a_wire_name() -> Result<(), String> {
+    ToolNames::from_list(&pcbcraft_mcp::tool_list())?;
+    let clash = json!({"tools": [{"name": "a.b"}, {"name": "a__b"}]});
+    let err = ToolNames::from_list(&clash)
+        .err()
+        .ok_or("no collision found")?;
+    assert!(err.contains("a.b") && err.contains("a__b"));
+    Ok(())
+}
+
+#[test]
+fn a_reply_that_calls_the_wire_name_runs_the_dotted_tool() -> Result<(), String> {
+    for protocol in [Protocol::OpenAi, Protocol::Anthropic] {
+        let wire = to_wire("library.search");
+        assert_ne!(wire, "library.search");
+        let (http, _) = fake(move |n| match (n, protocol) {
+            (1, Protocol::OpenAi) => (200, openai_call_of(&wire, 1)),
+            (1, Protocol::Anthropic) => (
+                200,
+                json!({"content": [{"type": "tool_use", "id": "a", "name": wire, "input": {}}]}),
+            ),
+            (_, Protocol::OpenAi) => (200, openai_text("done")),
+            (_, Protocol::Anthropic) => {
+                (200, json!({"content": [{"type": "text", "text": "done"}]}))
+            }
+        });
+        let (ctx, names) = host("ok");
+        let mut b = ApiBackend::start(cfg(protocol), ctx, http)?;
+        say(&mut b, "find");
+        let events = run_until(&mut b, ended)?;
+        assert_eq!(*lock(&names), vec!["library.search".to_string()]);
+        let titled = events
+            .iter()
+            .any(|e| matches!(e, Event::Tool { title: Some(t), .. } if t == "library.search"));
+        assert!(titled, "the UI should show the MCP name");
+    }
+    Ok(())
+}
+
+#[test]
+fn the_assistant_message_in_history_keeps_the_wire_name() -> Result<(), String> {
+    let wire = to_wire("library.search");
+    let used = wire.clone();
+    let (http, log) = fake(move |n| {
+        if n == 1 {
+            (200, openai_call_of(&used, 1))
+        } else {
+            (200, openai_text("done"))
+        }
+    });
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "find");
+    run_until(&mut b, ended)?;
+    let sent = posts(&log);
+    let second = sent.get(1).ok_or("no second request")?;
+    let carried = second["messages"]
+        .as_array()
+        .ok_or("no messages")?
+        .iter()
+        .find(|m| m["role"] == "assistant")
+        .and_then(|m| m["tool_calls"][0]["function"]["name"].as_str());
+    assert_eq!(carried, Some(wire.as_str()));
+    Ok(())
+}
+
+#[test]
+fn a_model_that_invents_a_name_gets_unknown_tool() -> Result<(), String> {
+    let (http, _) = fake(|n| {
+        if n == 1 {
+            (200, openai_call_of("library__does_not_exist", 1))
+        } else {
+            (200, openai_text("done"))
+        }
+    });
+    let (ctx, names) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "go");
+    let events = run_until(&mut b, ended)?;
+    assert!(lock(&names).is_empty());
+    let failed = events.iter().any(|e| {
+        matches!(e, Event::Tool { status: Some(ToolStatus::Failed), output: Some(o), .. }
+            if o.starts_with("unknown tool"))
+    });
+    assert!(failed);
+    Ok(())
+}
+
+#[test]
+fn to_wire_keeps_legal_names_and_clips_long_ones_the_same_way_each_time() {
+    assert_eq!(to_wire("batch"), "batch");
+    assert_eq!(to_wire("a-b_c9"), "a-b_c9");
+    assert_eq!(to_wire("library.save"), "library__save");
+    assert_eq!(to_wire("a b"), "a_b");
+    let long = format!("{}.tail", "x".repeat(80));
+    let once = to_wire(&long);
+    assert_eq!(once.len(), 64);
+    assert_eq!(once, to_wire(&long));
+    assert!(is_hosted_legal(&once));
+    let other = format!("{}.tail2", "x".repeat(80));
+    assert_ne!(once, to_wire(&other));
 }
