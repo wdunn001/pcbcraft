@@ -8,10 +8,11 @@ fn flashes_per_aperture(text: &str) -> BTreeMap<u32, usize> {
     let mut current = 0u32;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix('D') {
-            if rest.ends_with('*') && !rest.contains('X') {
-                if let Ok(code) = rest.trim_end_matches('*').parse::<u32>() {
-                    current = code;
-                }
+            if rest.ends_with('*')
+                && !rest.contains('X')
+                && let Ok(code) = rest.trim_end_matches('*').parse::<u32>()
+            {
+                current = code;
             }
             if rest.contains("D03*") {
                 let code_text = rest.split('X').next().unwrap_or("");
@@ -30,13 +31,13 @@ fn flashes_per_aperture(text: &str) -> BTreeMap<u32, usize> {
 fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result<(), String> {
     let mut project = Project::default();
     project.nets.push(pcbcraft_doc::Net {
-        id: 1,
+        id: 801,
         name: "NET1".into(),
         ..Default::default()
     });
     project.board.tracks.push(pcbcraft_doc::Track {
-        id: 2,
-        net: 1,
+        id: 802,
+        net: 801,
         start: Point::new(10.0, 10.0),
         end: Point::new(20.0, 10.0),
         width: 0.25,
@@ -44,8 +45,8 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         arc: None,
     });
     project.board.vias.push(pcbcraft_doc::Via {
-        id: 3,
-        net: 1,
+        id: 803,
+        net: 801,
         position: Point::new(20.0, 10.0),
         diameter: 0.6,
         drill: 0.3,

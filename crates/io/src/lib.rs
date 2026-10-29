@@ -2417,15 +2417,25 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     }
     let extras = fab_export::gerber_files(p)?;
     for key in [
+        "pcb-F.Cu.gbr",
+        "pcb-B.Cu.gbr",
         "pcb-F.Mask.gbr",
         "pcb-B.Mask.gbr",
         "pcb-F.Paste.gbr",
         "pcb-B.Paste.gbr",
+        "pcb-Edge.gbr",
+        "pcb-DrillMap.gbr",
+        "pcb-Plated.drl",
+        "pcb-NPTH.drl",
+        "pcb-Rout.drl",
         "README-fabrication.txt",
     ] {
         if let Some(text) = extras.get(key) {
             files.insert(key.to_string(), text.clone());
         }
+    }
+    if !files.contains_key("pcb-NPTH.drl") {
+        files.insert("pcb-NPTH.drl".into(), npth_drill);
     }
     Ok(files)
 }
@@ -6163,6 +6173,11 @@ pub fn export_library_definitions(
         }
         "footprint" => {
             let mut files = Vec::new();
+            if names.len() == 1 {
+                if path.extension().and_then(|e| e.to_str()) != Some("kicad_mod") {
+                    return Err("path must end in .kicad_mod".into());
+                }
+            }
             if names.len() == 1 && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod") {
                 let name = &names[0];
                 let item = library
@@ -11706,19 +11721,19 @@ mod tests {
     fn gerber_files_plated_and_unplated_drill_files_list_only_their_tools() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
-            id: 1,
+            id: 901,
             name: "GND".into(),
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            id: 1,
-            net: 1,
+            id: 902,
+            net: 901,
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
-            id: 2,
+            id: 903,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
             end: None,
@@ -11736,19 +11751,19 @@ mod tests {
     fn drill_map_plot_carries_one_legend_row_per_tool() -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
-            id: 1,
+            id: 911,
             name: "GND".into(),
             ..Default::default()
         });
         project.board.vias.push(pcbcraft_doc::Via {
-            id: 1,
-            net: 1,
+            id: 912,
+            net: 911,
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
-            id: 2,
+            id: 913,
             position: Point::new(15.0, 5.0),
             diameter: 3.0,
             end: None,
