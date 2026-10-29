@@ -10,6 +10,7 @@ use crate::backend::{
     ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
 };
 use crate::prompt::SYSTEM_NOTE;
+use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -95,9 +96,10 @@ impl ApiBackend {
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
         let tool_list = pcbcraft_mcp::tool_list();
-        let (tools, tool_names) = match cfg.protocol {
-            Protocol::OpenAi => (openai_tools(&tool_list), tool_names(&tool_list)),
-            Protocol::Anthropic => (anthropic_tools(&tool_list), tool_names(&tool_list)),
+        let tool_names = ToolNames::from_list(&tool_list)?;
+        let tools = match cfg.protocol {
+            Protocol::OpenAi => openai_tools(&tool_list),
+            Protocol::Anthropic => anthropic_tools(&tool_list),
         };
         let spawned = std::thread::Builder::new()
             .name("assistant-api".into())
@@ -168,7 +170,7 @@ struct Worker {
     http: HttpFn,
     tool_sink: Option<Sender<ToolRequest>>,
     tools: Vec<Value>,
-    tool_names: Vec<String>,
+    tool_names: ToolNames,
     history: Vec<Value>,
     events: Sender<Event>,
     cancel: Arc<AtomicBool>,
@@ -278,12 +280,15 @@ impl Worker {
             }
             let mut results = Vec::new();
             for c in reply.calls.iter().take(32) {
+                // The model uses the wire name; the host, the permission prompts and the UI use the MCP name.
+                let mcp = self.tool_names.mcp_name(&c.name).map(str::to_string);
+                let shown_name = mcp.as_deref().unwrap_or(&c.name);
                 let args = c.arguments.clone().unwrap_or_else(|_| json!({}));
                 self.requests_made += 1;
                 let tool_id = format!("{}-{}", c.id, self.requests_made);
                 self.emit(Event::Tool {
                     id: tool_id.clone(),
-                    title: Some(tool_title(&c.name, &args)),
+                    title: Some(tool_title(shown_name, &args)),
                     kind: Some(String::new()),
                     status: Some(ToolStatus::InProgress),
                     output: None,
@@ -292,13 +297,13 @@ impl Worker {
                     ("cancelled by the user".to_string(), true)
                 } else if let Err(e) = &c.arguments {
                     (format!("Not run: {e}"), true)
-                } else if !self.tool_names.iter().any(|t| t == &c.name) {
-                    (format!("unknown tool `{}`", c.name), true)
-                } else {
-                    match self.call_tool(&c.name, args) {
+                } else if let Some(mcp) = &mcp {
+                    match self.call_tool(mcp, args) {
                         Ok(r) => tool_text(&r),
                         Err(e) => (e, true),
                     }
+                } else {
+                    (format!("unknown tool `{}`", c.name), true)
                 };
                 let shown: String = text.chars().take(2000).collect();
                 self.emit(Event::Tool {
@@ -706,7 +711,7 @@ fn anthropic_reply(body: &Value) -> Reply {
     }
 }
 
-fn tool_entries(list: &Value) -> impl Iterator<Item = (&str, &Value)> {
+pub(crate) fn tool_entries(list: &Value) -> impl Iterator<Item = (&str, &Value)> {
     list.get("tools")
         .and_then(Value::as_array)
         .into_iter()
@@ -724,12 +729,13 @@ fn schema_of(t: &Value) -> Value {
         .unwrap_or(json!({"type": "object", "properties": {}}))
 }
 
-/// The tool list (MCP `tools/list` shape) as OpenAI function tools.
+/// The tool list (MCP `tools/list` shape) as OpenAI function tools. Names go out through
+/// [`to_wire`] (see `crates/assistant/src/tool_names.rs`).
 pub fn openai_tools(list: &Value) -> Vec<Value> {
     tool_entries(list)
         .map(|(name, t)| {
             json!({"type": "function", "function": {
-                "name": name,
+                "name": to_wire(name),
                 "description": t.get("description").and_then(Value::as_str).unwrap_or(""),
                 "parameters": schema_of(t),
             }})
@@ -737,21 +743,17 @@ pub fn openai_tools(list: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// The tool list as Anthropic tools.
+/// The tool list as Anthropic tools, names through [`to_wire`].
 pub fn anthropic_tools(list: &Value) -> Vec<Value> {
     tool_entries(list)
         .map(|(name, t)| {
             json!({
-                "name": name,
+                "name": to_wire(name),
                 "description": t.get("description").and_then(Value::as_str).unwrap_or(""),
                 "input_schema": schema_of(t),
             })
         })
         .collect()
-}
-
-fn tool_names(list: &Value) -> Vec<String> {
-    tool_entries(list).map(|(n, _)| n.to_string()).collect()
 }
 
 /// `{base}/v1/{path}`, whether the base ends in `/v1` or not.
