@@ -12,4 +12,6 @@ mod layout;
 mod library;
 mod nets;
 mod rules;
+mod settings;
 mod shell;
+mod via_covering;

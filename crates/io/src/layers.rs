@@ -653,6 +653,7 @@ mod tests {
             filled: true,
             kind: None,
             preserved: pcbcraft_doc::PreservedSource::default(),
+            pour: None,
         });
         project.board.vias.push(Via {
             id: 4,
@@ -661,6 +662,7 @@ mod tests {
             diameter: 0.6,
             drill: 0.3,
             preserved: pcbcraft_doc::PreservedSource::default(),
+            covering: None,
         });
         let pad = pcbcraft_doc::Pad {
             number: "1".into(),

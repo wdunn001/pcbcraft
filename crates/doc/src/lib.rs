@@ -57,6 +57,9 @@ impl PreservedSource {
 
 pub const MAX_PRESERVED_PROJECT_BYTES: usize = 8 * 1024 * 1024;
 
+pub mod fill;
+pub use fill::{KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, zone_fill, zone_fills};
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
     pub number: String,
@@ -355,6 +358,36 @@ impl DiffPair {
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
     }
 }
+/// Which kinds of copper a keepout keeps out. Every kind is forbidden unless
+/// its flag is turned off, so a plain keepout excludes all copper.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Keepout {
+    /// Tracks may not enter the area.
+    #[serde(default = "forbidden")]
+    pub tracks: bool,
+    /// Vias may not enter the area.
+    #[serde(default = "forbidden")]
+    pub vias: bool,
+    /// Pads may not enter the area.
+    #[serde(default = "forbidden")]
+    pub pads: bool,
+    /// Poured zones and other copper regions may not enter the area.
+    #[serde(default = "forbidden")]
+    pub zones: bool,
+}
+fn forbidden() -> bool {
+    true
+}
+impl Default for Keepout {
+    fn default() -> Self {
+        Self {
+            tracks: true,
+            vias: true,
+            pads: true,
+            zones: true,
+        }
+    }
+}
 /// A length-match group: several nets whose routed lengths must stay within
 /// one tolerance of each other, such as the data lines of a parallel bus.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -385,6 +418,12 @@ impl LengthGroup {
 /// layer and net when those filters are set, must clear by at least the
 /// area's gap. The area raises the required clearance; it never lowers the
 /// net-pair requirement.
+///
+/// With [`RuleArea::keepout`] set the area instead forbids copper: nothing of
+/// a kind the keepout names may come within `clearance` of the rectangle. The
+/// layer filter narrows a keepout to one copper side, and the net filter lets
+/// that one net through, which is how a ground pour is allowed under a part
+/// while every trace stays out.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct RuleArea {
     pub id: Id,
@@ -401,6 +440,10 @@ pub struct RuleArea {
     pub layer: Option<Layer>,
     /// Minimum copper separation demanded inside the area, in millimetres.
     pub clearance: f64,
+    /// When set, the area is a keepout: copper of the kinds it names may not
+    /// come within `clearance` of the rectangle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keepout: Option<Keepout>,
     /// When set, components inside the area may not stand taller than this,
     /// in millimetres: a height restriction for boards that must fit under a
     /// cover or past another board.
@@ -416,6 +459,25 @@ fn profile_tag_valid(tag: &Option<String>) -> bool {
     tag.as_ref().is_none_or(|s| !s.is_empty() && s.len() <= 64)
 }
 impl RuleArea {
+    /// True when this area keeps copper out on `layer` for `net`. A keepout
+    /// with a net filter lets that one net through; a keepout with a layer
+    /// filter only bites on that side of the board.
+    pub fn keepout_applies(&self, layer: Layer, net: Id) -> bool {
+        self.keepout.is_some()
+            && self.net.is_none_or(|n| n != net)
+            && self.layer.is_none_or(|l| l == layer)
+    }
+    /// The rectangle grown outward by the keepout clearance, which is the
+    /// copper-free margin a keepout demands.
+    pub fn keepout_rect(&self) -> RuleRegion {
+        let margin = self.clearance.max(0.0);
+        RuleRegion {
+            x: self.region.x - margin,
+            y: self.region.y - margin,
+            width: self.region.width + margin * 2.0,
+            height: self.region.height + margin * 2.0,
+        }
+    }
     fn valid(&self) -> bool {
         self.id != 0
             && self.clearance.is_finite()
@@ -1032,6 +1094,83 @@ pub struct Via {
     pub drill: f64,
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
+    /// How this via is protected from the board face, or `None` to follow the
+    /// board default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering: Option<ViaCovering>,
+}
+/// How a via hole is protected, named after the seven types of the via
+/// protection standard (IPC-4761). The types that close the hole under the
+/// solder mask lose their mask opening on fabrication plots.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ViaCovering {
+    /// No protection: the mask opens around the hole.
+    #[default]
+    Open,
+    /// Type I: mask tents the hole.
+    Tented,
+    /// Type II: mask tents and covers the hole.
+    TentedCovered,
+    /// Type III: the hole is plugged.
+    Plugged,
+    /// Type IV: the hole is plugged and covered.
+    PluggedCovered,
+    /// Type V: the hole is filled.
+    Filled,
+    /// Type VI: the hole is filled and covered.
+    FilledCovered,
+    /// Type VII: the hole is filled and capped with copper.
+    FilledCapped,
+}
+impl ViaCovering {
+    /// Every covering, in the order the standard lists them.
+    pub const ALL: [ViaCovering; 8] = [
+        ViaCovering::Open,
+        ViaCovering::Tented,
+        ViaCovering::TentedCovered,
+        ViaCovering::Plugged,
+        ViaCovering::PluggedCovered,
+        ViaCovering::Filled,
+        ViaCovering::FilledCovered,
+        ViaCovering::FilledCapped,
+    ];
+    /// Short text for fabrication notes, for example `tented` or `filled and capped`.
+    pub fn label(self) -> &'static str {
+        match self {
+            ViaCovering::Open => "open",
+            ViaCovering::Tented => "tented",
+            ViaCovering::TentedCovered => "tented and covered",
+            ViaCovering::Plugged => "plugged",
+            ViaCovering::PluggedCovered => "plugged and covered",
+            ViaCovering::Filled => "filled",
+            ViaCovering::FilledCovered => "filled and covered",
+            ViaCovering::FilledCapped => "filled and capped",
+        }
+    }
+    /// Command token, for example `tented_covered`.
+    pub fn token(self) -> &'static str {
+        match self {
+            ViaCovering::Open => "open",
+            ViaCovering::Tented => "tented",
+            ViaCovering::TentedCovered => "tented_covered",
+            ViaCovering::Plugged => "plugged",
+            ViaCovering::PluggedCovered => "plugged_covered",
+            ViaCovering::Filled => "filled",
+            ViaCovering::FilledCovered => "filled_covered",
+            ViaCovering::FilledCapped => "filled_capped",
+        }
+    }
+    /// Whether the solder mask keeps an opening around the hole.
+    pub fn keeps_mask_opening(self) -> bool {
+        self == ViaCovering::Open
+    }
+}
+impl Via {
+    /// The covering that applies to this via: its own, else the board default.
+    pub fn effective_covering(&self, board: &Board) -> ViaCovering {
+        self.covering.unwrap_or(board.via_covering_default)
+    }
 }
 /// A solid copper region on one layer, bounded by a closed polygon and
 /// belonging to a net. Same-net copper that falls inside the outline conducts
@@ -1060,6 +1199,127 @@ pub struct CopperZone {
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
+    /// How the poured copper meets same-net copper inside the outline. Absent
+    /// means the defaults: solid to vias, four spokes to plated pads, islands
+    /// removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pour: Option<ZonePour>,
+}
+/// How a poured zone meets one kind of same-net copper that sits inside its
+/// outline.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoneConnect {
+    /// Copper joins the zone directly, with no gap around it.
+    #[default]
+    Solid,
+    /// Copper keeps a gap all round and joins through narrow spokes, so a
+    /// soldering iron can heat the joint without draining the whole pour.
+    Relief,
+    /// Copper keeps a gap all round and does not join the zone at all.
+    None,
+}
+impl ZoneConnect {
+    /// Whether copper of this kind joins the pour through thermal spokes.
+    pub fn relief(self) -> bool {
+        matches!(self, Self::Relief)
+    }
+}
+/// What a pour does with copper that touches nothing of its own net: a
+/// detached piece that a fab etch bath can lift off the board.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoneIslands {
+    /// Keep every detached piece and report it.
+    Keep,
+    /// Drop every detached piece from the fill.
+    #[default]
+    Remove,
+    /// Keep detached pieces at least this many square millimetres, so a large
+    /// deliberate shield stays and crumbs go.
+    RemoveBelow(f64),
+}
+/// Per-zone pour settings: how the fill meets same-net copper, how narrow a
+/// neck may survive, and what happens to detached copper.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ZonePour {
+    /// How plated through-hole pads inside the zone join the pour.
+    #[serde(default)]
+    pub pad_connect: ZoneConnect,
+    /// How vias inside the zone join the pour.
+    #[serde(default)]
+    pub via_connect: ZoneConnect,
+    /// Gap between pad copper and the pour, in millimetres, when a pad joins
+    /// through spokes or not at all.
+    #[serde(default = "pour_gap")]
+    pub relief_gap: f64,
+    /// Width of each thermal spoke, in millimetres.
+    #[serde(default = "pour_spoke")]
+    pub spoke_width: f64,
+    /// Spokes per pad: two or four, aligned to the pad rotation.
+    #[serde(default = "pour_spokes")]
+    pub spokes: u8,
+    /// Narrowest copper the pour keeps, in millimetres: narrower necks are
+    /// removed before the fill ships. Absent means the narrowest track already
+    /// on the board, so a pour is never thinner than allowed copper.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_width: Option<f64>,
+    /// What happens to copper that touches nothing of its own net.
+    #[serde(default)]
+    pub islands: ZoneIslands,
+}
+fn pour_gap() -> f64 {
+    0.25
+}
+fn pour_spoke() -> f64 {
+    0.3
+}
+fn pour_spokes() -> u8 {
+    4
+}
+impl Default for ZonePour {
+    fn default() -> Self {
+        Self {
+            pad_connect: ZoneConnect::Relief,
+            via_connect: ZoneConnect::Solid,
+            relief_gap: pour_gap(),
+            spoke_width: pour_spoke(),
+            spokes: pour_spokes(),
+            min_width: None,
+            islands: ZoneIslands::Remove,
+        }
+    }
+}
+impl ZonePour {
+    /// True when every setting is finite and inside the bounds a pour accepts.
+    pub fn valid(&self) -> bool {
+        self.relief_gap.is_finite()
+            && (0.05..=2.0).contains(&self.relief_gap)
+            && self.spoke_width.is_finite()
+            && (0.05..=5.0).contains(&self.spoke_width)
+            && matches!(self.spokes, 2 | 4)
+            && self
+                .min_width
+                .is_none_or(|w| w.is_finite() && (0.05..=5.0).contains(&w))
+            && match self.islands {
+                ZoneIslands::Keep | ZoneIslands::Remove => true,
+                ZoneIslands::RemoveBelow(area) => {
+                    area.is_finite() && (0.0..=10_000.0).contains(&area)
+                }
+            }
+    }
+}
+impl CopperZone {
+    /// The pour settings in force: the zone's own, or the defaults when it
+    /// carries none.
+    pub fn pour_settings(&self) -> ZonePour {
+        self.pour.unwrap_or_default()
+    }
+    /// True when this zone is generated copper, such as a teardrop, rather
+    /// than an area the designer drew.
+    pub fn is_generated(&self) -> bool {
+        self.kind.as_deref() == Some("teardrop")
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Cutout {
@@ -1627,6 +1887,9 @@ impl MachiningNotes {
                 .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
     }
 }
+fn is_open_covering(c: &ViaCovering) -> bool {
+    *c == ViaCovering::Open
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
@@ -1645,6 +1908,9 @@ pub struct Board {
     /// Origin that drill file coordinates are measured from, in millimetres.
     #[serde(default = "board_origin")]
     pub drill_origin: Point,
+    /// Covering applied to every via that has no covering of its own.
+    #[serde(default, skip_serializing_if = "is_open_covering")]
+    pub via_covering_default: ViaCovering,
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
@@ -2189,6 +2455,7 @@ impl Default for Project {
                 finish: board_finish(),
                 er: board_er(),
                 drill_origin: board_origin(),
+                via_covering_default: ViaCovering::Open,
                 layer_records: vec![],
                 machining: None,
                 pair_rules: vec![],
@@ -3672,6 +3939,11 @@ impl Project {
             {
                 return Err("invalid via geometry or net".into());
             }
+            if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
+                return Err(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                );
+            }
         }
         for z in &b.zones {
             if !nets.contains(&z.net) {
@@ -3685,6 +3957,14 @@ impl Project {
                 && (kind.is_empty() || kind.len() > 32)
             {
                 return Err("zone kind must be 1 to 32 characters".into());
+            }
+            if let Some(pour) = &z.pour
+                && !pour.valid()
+            {
+                return Err(
+                    "zone pour settings need a 0.05 to 2 mm relief gap, a 0.05 to 5 mm spoke, two or four spokes and a bounded minimum width"
+                        .into(),
+                );
             }
         }
         for c in &b.cutouts {
@@ -4808,6 +5088,64 @@ mod art_tests {
         );
         p.board.holes[0].end = Some(Point::new(70.0, 5.0));
         assert!(p.validate().is_err(), "a slot spans at most 50 mm");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod via_covering_tests {
+    use super::*;
+
+    fn with_via(drill: f64, covering: Option<ViaCovering>) -> Project {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.vias.push(Via {
+            id: 2,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.6,
+            drill,
+            covering,
+        });
+        p
+    }
+
+    #[test]
+    fn covering_round_trips_and_old_files_default_to_open() -> Result<(), String> {
+        let mut p = with_via(0.3, Some(ViaCovering::TentedCovered));
+        p.board.via_covering_default = ViaCovering::Plugged;
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        assert!(text.contains("\"tented_covered\"") && text.contains("\"plugged\""));
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.board.via_covering_default, ViaCovering::Plugged);
+        assert_eq!(
+            back.board.vias[0].covering,
+            Some(ViaCovering::TentedCovered)
+        );
+        let plain = serde_json::to_string(&with_via(0.3, None)).map_err(|e| e.to_string())?;
+        assert!(!plain.contains("covering"), "open boards write no covering");
+        let old: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert_eq!(old.board.via_covering_default, ViaCovering::Open);
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_covering_is_refused_on_load_and_drillless_cover_is_invalid() -> Result<(), String> {
+        let text = serde_json::to_string(&with_via(0.3, Some(ViaCovering::Tented)))
+            .map_err(|e| e.to_string())?;
+        let bad = text.replace("\"tented\"", "\"glued\"");
+        assert!(serde_json::from_str::<Project>(&bad).is_err());
+        assert!(
+            with_via(0.0, Some(ViaCovering::Plugged))
+                .validate()
+                .is_err()
+        );
+        with_via(0.0, Some(ViaCovering::Open)).validate()?;
+        with_via(0.3, Some(ViaCovering::FilledCapped)).validate()?;
         Ok(())
     }
 }
