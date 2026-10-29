@@ -333,3 +333,46 @@ fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> 
     let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }
+
+#[test]
+fn a_newcomer_makes_print_art_for_the_silkscreen() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let folder = std::env::temp_dir().join(format!("pcbcraftuv-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    app.make_dir = folder.to_string_lossy().into_owned();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Print art, top silkscreen", 700.0)?,
+        "the make files list offers print art for the top silkscreen: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Print art, top silkscreen")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        folder.join("top-colour.png").is_file(),
+        "one click leaves the colour picture on disk: {}",
+        app.message
+    );
+    assert!(
+        folder.join("top-white.png").is_file(),
+        "the white-ink picture lands beside it: {}",
+        app.message
+    );
+    assert!(
+        folder.join("top.svg").is_file(),
+        "the drawing lands beside it: {}",
+        app.message
+    );
+    assert!(
+        app.message.contains("saved in"),
+        "the app says where the print art went: {}",
+        app.message
+    );
+    let _ = std::fs::remove_dir_all(&folder);
+    Ok(())
+}
