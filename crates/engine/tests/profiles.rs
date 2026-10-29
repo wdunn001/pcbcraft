@@ -193,7 +193,7 @@ fn manifest_source_slugs_exist() {
 
 #[test]
 fn profile_list_includes_component_kinds() -> Result<(), Error> {
-    let s = Session::default();
+    let mut s = Session::default();
     let out = s.execute("rules.profile_list", json!({}), None)?;
     let ids: Vec<&str> = out["result"]["profiles"]
         .as_array()

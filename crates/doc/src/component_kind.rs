@@ -83,14 +83,8 @@ pub fn parse_component_kind(raw: &str) -> Result<String, String> {
 
 fn infer_for_component(c: &Component) -> Option<String> {
     let symbol = c.library_symbol.as_ref().map(|s| &s.definition)?;
-    let footprint = c
-        .library_footprint
-        .as_ref()
-        .map(|f| &f.definition);
-    Some(pcbcraft_library::infer_component_kind(
-        symbol,
-        footprint,
-    ))
+    let footprint = c.library_footprint.as_ref().map(|f| &f.definition);
+    Some(pcbcraft_library::infer_component_kind(symbol, footprint))
 }
 
 fn coerce_legacy_kind(kind: &str, inferred: Option<&str>) -> String {
