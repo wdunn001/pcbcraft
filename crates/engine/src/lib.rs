@@ -570,6 +570,20 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "wire.place",
+            "Commit a multi-vertex schematic wire in one step: assign endpoint pins to a resolved net, optionally tee into an existing wire and place a junction label",
+            schema(
+                json!({
+                    "points":{"type":"array","items":point_schema(),"minItems":2,"maxItems":256},
+                    "pins":{"type":"array","items":pin_schema(),"maxItems":2},
+                    "net":id_schema(),
+                    "tee":{"type":"object","properties":{"wire":id_schema(),"at":point_schema()},"required":["wire","at"],"additionalProperties":false},
+                    "junction":{"type":"boolean"}
+                }),
+                &["points"],
+            ),
+        ),
+        (
             "wire.split",
             "Split a drawn wire into two at a point on one of its segments",
             schema(json!({"id":id_schema(),"at":point_schema()}), &["id", "at"]),
@@ -2007,7 +2021,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with multi-vertex schematic wires committed in one step through wire.place so endpoint pins join a resolved net, ambiguous pin nets are refused with candidate names, and a tee can split an existing wire and drop a junction label, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks, and drawn cut, perforation and mask layers checked against vias, pads, exposed pad openings and the board edge; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"default orthogonal one-bend route with no obstacle checks; optional octilinear mode walks 45-degree copper around other nets' pads, tracks and cutouts, and octilinear_shove also pushes other nets' tracks within fixed iteration limits; single layer, no vias, no interactive spring-back","3d":"a read-only board_mesh query returns the board slab with cutouts and holes, thin copper, mask and silk layers and parametric default component bodies as deterministic triangle lists; there is no 3D viewer tab yet and footprint 3D model files are never loaded, so bodies are package defaults"}})
     }
     /// The 3D mesh of the current board, without changing the design. `layers`
     /// limits the parts built (board, copper, mask, silk, bodies); `geometry`
@@ -2728,6 +2742,25 @@ struct WireParams {
 struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePlaceTeeParams {
+    wire: Id,
+    at: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WirePlaceParams {
+    points: Vec<Point>,
+    #[serde(default)]
+    pins: Vec<PinRef>,
+    #[serde(default)]
+    net: Option<Id>,
+    #[serde(default)]
+    tee: Option<WirePlaceTeeParams>,
+    #[serde(default)]
+    junction: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5027,6 +5060,203 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
+const WIRE_ENDPOINT_SNAP: f64 = 0.01;
+
+fn validate_drawn_wire_points(points: &[Point]) -> Result<(), Error> {
+    if points.len() < 2 || points.len() > 256 {
+        return Err(Error::Invalid("wire needs 2–256 vertices".into()));
+    }
+    if !points.iter().all(|p| p.valid()) {
+        return Err(Error::Invalid("wire vertex is out of range".into()));
+    }
+    if points.windows(2).any(|w| w[0] == w[1]) {
+        return Err(Error::Invalid("wire repeats a vertex".into()));
+    }
+    Ok(())
+}
+
+fn split_drawn_wire_at(p: &mut Project, next: &mut Id, id: Id, at: Point) -> Result<Id, Error> {
+    if !at.valid() {
+        return Err(Error::Invalid("split point is out of range".into()));
+    }
+    let index = p
+        .drawn_wires
+        .iter()
+        .position(|w| w.id == id)
+        .ok_or_else(missing)?;
+    let wire = &p.drawn_wires[index];
+    let segment = (0..wire.points.len() - 1)
+        .find(|i| {
+            let (from, to) = (wire.points[*i], wire.points[*i + 1]);
+            at.distance(from) >= WIRE_ENDPOINT_SNAP
+                && at.distance(to) >= WIRE_ENDPOINT_SNAP
+                && pcbcraft_geom::point_segment(at, from, to) <= 1e-4
+        })
+        .ok_or_else(|| {
+            Error::Invalid(
+                "split point must lie on a wire segment, clear of its vertices".into(),
+            )
+        })?;
+    let tail_id = allocate(next)?;
+    let net = wire.net;
+    let mut head = wire.points[..=segment].to_vec();
+    head.push(at);
+    let mut tail = vec![at];
+    tail.extend_from_slice(&wire.points[segment + 1..]);
+    p.drawn_wires[index].points = head;
+    p.drawn_wires.push(DrawnWire {
+        id: tail_id,
+        net,
+        points: tail,
+    });
+    Ok(tail_id)
+}
+
+fn merge_net_into(p: &mut Project, source: Id, target: Id) -> Result<(), Error> {
+    if source == target {
+        return Err(Error::Invalid("a net cannot be merged into itself".into()));
+    }
+    if !p.nets.iter().any(|n| n.id == source) || !p.nets.iter().any(|n| n.id == target) {
+        return Err(missing());
+    }
+    for c in p.components.iter_mut() {
+        for pin in c.pins.iter_mut() {
+            if pin.net == Some(source) {
+                pin.net = Some(target);
+            }
+        }
+    }
+    for w in p.drawn_wires.iter_mut() {
+        if w.net == Some(source) {
+            w.net = Some(target);
+        }
+    }
+    for w in p.wires.iter_mut() {
+        if w.net == source {
+            w.net = target;
+        }
+    }
+    for l in p.labels.iter_mut() {
+        if l.net == source {
+            l.net = target;
+        }
+    }
+    for t in p.board.tracks.iter_mut() {
+        if t.net == source {
+            t.net = target;
+        }
+    }
+    for v in p.board.vias.iter_mut() {
+        if v.net == source {
+            v.net = target;
+        }
+    }
+    for z in p.board.zones.iter_mut() {
+        if z.net == source {
+            z.net = target;
+        }
+    }
+    for class in p.net_classes.iter_mut() {
+        if class.nets.contains(&source) {
+            class.nets.retain(|n| *n != source && *n != target);
+            class.nets.push(target);
+            class.nets.sort_unstable();
+            class.nets.dedup();
+        }
+    }
+    for rule in p.board.pair_rules.iter_mut() {
+        if rule.a == source {
+            rule.a = target;
+        }
+        if rule.b == source {
+            rule.b = target;
+        }
+    }
+    p.board.pair_rules.retain(|r| r.a != r.b);
+    p.nets.retain(|n| n.id != source);
+    Ok(())
+}
+
+fn net_label_for_conflict(p: &Project, id: Id) -> Value {
+    p.nets
+        .iter()
+        .find(|n| n.id == id)
+        .map(|n| json!({"id": n.id, "name": n.name}))
+        .unwrap_or_else(|| json!({"id": id, "name": ""}))
+}
+
+fn wire_place_net_conflict(p: &Project, nets: &BTreeSet<Id>) -> Error {
+    let candidates: Vec<Value> = nets.iter().map(|id| net_label_for_conflict(p, *id)).collect();
+    let body = json!({"code": "net_conflict", "candidates": candidates});
+    let message = match serde_json::to_string(&body) {
+        Ok(text) => text,
+        Err(err) => err.to_string(),
+    };
+    Error::Invalid(message)
+}
+
+fn pin_on_wire_endpoint(p: &Project, pin: &PinRef, point: Point) -> Result<(), Error> {
+    let position = p.pin_position(pin).ok_or_else(missing)?;
+    if position.distance(point) > WIRE_ENDPOINT_SNAP {
+        return Err(Error::Invalid(
+            "pin must lie on the first or last wire vertex".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn allocate_auto_net(p: &mut Project, next: &mut Id) -> Result<Id, Error> {
+    let id = allocate(next)?;
+    let mut index = p.nets.len() + 1;
+    while p.nets.iter().any(|n| n.name == format!("N${index}")) {
+        index += 1;
+    }
+    p.nets.push(Net {
+        id,
+        name: format!("N${index}"),
+        ..Default::default()
+    });
+    Ok(id)
+}
+
+fn resolve_wire_place_net(
+    p: &mut Project,
+    next: &mut Id,
+    explicit: Option<Id>,
+    pins: &[PinRef],
+    tee_net: Option<Id>,
+) -> Result<Option<Id>, Error> {
+    if explicit.is_some_and(|net| !p.nets.iter().any(|n| n.id == net)) {
+        return Err(missing());
+    }
+    let mut assigned = BTreeSet::new();
+    for pin in pins {
+        if let Some(net) = p.pin(pin).ok_or_else(missing)?.net {
+            assigned.insert(net);
+        }
+    }
+    if assigned.len() > 1 && explicit.is_none() {
+        return Err(wire_place_net_conflict(p, &assigned));
+    }
+    let resolved = if let Some(net) = explicit {
+        net
+    } else if assigned.len() == 1 {
+        *assigned.iter().next().ok_or_else(missing)?
+    } else if let Some(net) = tee_net {
+        net
+    } else if !pins.is_empty() {
+        allocate_auto_net(p, next)?
+    } else {
+        return Ok(None);
+    };
+    for source in assigned {
+        if source != resolved {
+            merge_net_into(p, source, resolved)?;
+        }
+    }
+    Ok(Some(resolved))
+}
+
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
@@ -7682,6 +7912,116 @@ fn run_command(
                 points: a.points,
             });
             Ok(json!({"id":id,"vertices":vertices}))
+        }
+        "wire.place" => {
+            let a: WirePlaceParams = parse(params)?;
+            validate_drawn_wire_points(&a.points)?;
+            if a.pins.len() > 2 {
+                return Err(Error::Invalid("wire accepts at most two endpoint pins".into()));
+            }
+            if a.pins.len() == 1 {
+                let first = a.points.first().ok_or_else(missing)?;
+                let last = a.points.last().ok_or_else(missing)?;
+                let pin = &a.pins[0];
+                let on_first = p
+                    .pin_position(pin)
+                    .is_some_and(|pos| pos.distance(*first) <= WIRE_ENDPOINT_SNAP);
+                let on_last = p
+                    .pin_position(pin)
+                    .is_some_and(|pos| pos.distance(*last) <= WIRE_ENDPOINT_SNAP);
+                if !on_first && !on_last {
+                    return Err(Error::Invalid(
+                        "pin must lie on the first or last wire vertex".into(),
+                    ));
+                }
+            }
+            if a.pins.len() == 2 {
+                pin_on_wire_endpoint(p, &a.pins[0], a.points[0])?;
+                pin_on_wire_endpoint(p, &a.pins[1], *a.points.last().ok_or_else(missing)?)?;
+            }
+            let tee_net = a.tee.as_ref().and_then(|tee| {
+                p.drawn_wires
+                    .iter()
+                    .find(|w| w.id == tee.wire)
+                    .and_then(|w| w.net)
+            });
+            if a.tee.is_some() {
+                let tee = a.tee.as_ref().ok_or_else(missing)?;
+                if !tee.at.valid() {
+                    return Err(Error::Invalid("split point is out of range".into()));
+                }
+                if !a.points.contains(&tee.at) {
+                    return Err(Error::Invalid(
+                        "tee point must be a vertex of the new wire".into(),
+                    ));
+                }
+                p.drawn_wires
+                    .iter()
+                    .any(|w| w.id == tee.wire)
+                    .then_some(())
+                    .ok_or_else(missing)?;
+            }
+            let net = resolve_wire_place_net(p, next, a.net, &a.pins, tee_net)?;
+            if a.pins.is_empty() && net.is_none() && a.tee.is_none() {
+                return Err(Error::Invalid(
+                    "wire needs a net, endpoint pins, or a tee into an existing wire".into(),
+                ));
+            }
+            let mut split_tail = None;
+            if let Some(tee) = &a.tee {
+                split_tail = Some(split_drawn_wire_at(p, next, tee.wire, tee.at)?);
+            }
+            let wire_id = allocate(next)?;
+            let vertices = a.points.len();
+            p.drawn_wires.push(DrawnWire {
+                id: wire_id,
+                net,
+                points: a.points.clone(),
+            });
+            if let Some(net) = net {
+                if !a.pins.is_empty() {
+                    assign(p, net, &a.pins)?;
+                }
+            }
+            let place_junction = a.junction.unwrap_or(a.tee.is_some());
+            let mut junction_id = None;
+            if place_junction {
+                let Some(net) = net else {
+                    return Err(Error::Invalid(
+                        "junction needs a resolved net on the wire".into(),
+                    ));
+                };
+                let at = a
+                    .tee
+                    .as_ref()
+                    .map(|tee| tee.at)
+                    .or_else(|| a.points.last().copied())
+                    .ok_or_else(missing)?;
+                if !p.drawn_wires.iter().any(|w| {
+                    w.net == Some(net) && w.points.contains(&at)
+                }) {
+                    return Err(Error::Invalid(
+                        "junction must sit on a vertex of a drawn wire of its net".into(),
+                    ));
+                }
+                let label = allocate(next)?;
+                p.labels.push(pcbcraft_doc::Label {
+                    id: label,
+                    kind: "junction".into(),
+                    net,
+                    position: at,
+                    rotation: 0.0,
+                    text: String::new(),
+                });
+                junction_id = Some(label);
+            }
+            Ok(json!({
+                "id": wire_id,
+                "net": net,
+                "vertices": vertices,
+                "split": split_tail,
+                "junction": junction_id,
+            }))
         }
         "wire.split" => {
             let a: SplitParams = parse(params)?;
@@ -14357,6 +14697,170 @@ mod tests {
         assert_eq!(s.project.drawn_wires.len(), 1);
         s.undo()?;
         assert_eq!(s.project.drawn_wires.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn wire_place_creates_drawn_wire_and_connects_two_pins_in_one_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        for x in [10.0, 30.0] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let from = PinRef {
+            component: 1,
+            pin: "2".into(),
+        };
+        let to = PinRef {
+            component: 2,
+            pin: "1".into(),
+        };
+        let start = s.pin_position(&from).ok_or_else(missing)?;
+        let end = s.pin_position(&to).ok_or_else(missing)?;
+        let bend = Point::new((start.x + end.x) / 2.0, start.y + 5.0);
+        let revision = s.revision;
+        s.execute(
+            "wire.place",
+            json!({
+                "points": [
+                    {"x": start.x, "y": start.y},
+                    {"x": bend.x, "y": bend.y},
+                    {"x": end.x, "y": end.y}
+                ],
+                "pins": [{"component": from.component, "pin": from.pin}, {"component": to.component, "pin": to.pin}]
+            }),
+            None,
+        )?;
+        assert_eq!(s.revision, revision + 1);
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert_eq!(s.project.drawn_wires[0].points.len(), 3);
+        let net = s.project.drawn_wires[0].net.ok_or_else(missing)?;
+        assert_eq!(s.pin(&from).ok_or_else(missing)?.net, Some(net));
+        assert_eq!(s.pin(&to).ok_or_else(missing)?.net, Some(net));
+        s.undo()?;
+        assert!(s.project.drawn_wires.is_empty());
+        assert_eq!(s.pin(&from).ok_or_else(missing)?.net, None);
+        assert_eq!(s.pin(&to).ok_or_else(missing)?.net, None);
+        assert_eq!(s.project.nets.len(), 0);
+        Ok(())
+    }
+    #[test]
+    fn wire_place_refuses_conflicting_nets_without_explicit_net() -> Result<(), Error> {
+        let mut s = Session::default();
+        for x in [10.0, 30.0] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0}}),
+                None,
+            )?;
+        }
+        let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let b = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "net.connect",
+            json!({"net": a, "pins":[{"component":1,"pin":"2"}]}),
+            None,
+        )?;
+        s.execute(
+            "net.connect",
+            json!({"net": b, "pins":[{"component":2,"pin":"1"}]}),
+            None,
+        )?;
+        let from = PinRef {
+            component: 1,
+            pin: "2".into(),
+        };
+        let to = PinRef {
+            component: 2,
+            pin: "1".into(),
+        };
+        let start = s.pin_position(&from).ok_or_else(missing)?;
+        let end = s.pin_position(&to).ok_or_else(missing)?;
+        let saved = s.inspect();
+        let err = match s.execute(
+            "wire.place",
+            json!({
+                "points": [{"x": start.x, "y": start.y}, {"x": end.x, "y": end.y}],
+                "pins": [{"component": 1, "pin": "2"}, {"component": 2, "pin": "1"}]
+            }),
+            None,
+        ) {
+            Err(error) => error,
+            Ok(_) => {
+                return Err(Error::Invalid(
+                    "conflicting endpoint nets must be refused".into(),
+                ));
+            }
+        };
+        let message = err.to_string();
+        assert!(message.contains("net_conflict"), "{message}");
+        assert!(message.contains("A"));
+        assert!(message.contains("B"));
+        assert_eq!(s.inspect(), saved);
+        Ok(())
+    }
+    #[test]
+    fn wire_place_tee_splits_existing_wire_and_adds_junction() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let existing = s.execute(
+            "wire.draw",
+            json!({"net": net, "points": [{"x":10.0,"y":10.0},{"x":30.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let tee = Point::new(20.0, 10.0);
+        let revision = s.revision;
+        s.execute(
+            "wire.place",
+            json!({
+                "points": [{"x":5.0,"y":10.0},{"x":20.0,"y":10.0}],
+                "tee": {"wire": existing, "at": {"x": tee.x, "y": tee.y}}
+            }),
+            None,
+        )?;
+        assert_eq!(s.revision, revision + 1);
+        assert_eq!(s.project.drawn_wires.len(), 3);
+        assert!(
+            s.project
+                .labels
+                .iter()
+                .any(|l| l.kind == "junction" && l.net == net && l.position == tee)
+        );
+        assert!(
+            s.project
+                .drawn_wires
+                .iter()
+                .all(|w| w.net == Some(net))
+        );
+        s.undo()?;
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert!(s.project.labels.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn wire_place_bus_path_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let wire = s.execute(
+            "wire.draw_bus",
+            json!({"points":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0}],"name":"ADDR*4"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(wire["created"], 4);
+        assert_eq!(s.project.drawn_wires.len(), 1);
+        assert!(s.project.drawn_wires[0].net.is_none());
+        assert_eq!(s.project.labels.len(), 1);
+        s.project.validate()?;
         Ok(())
     }
     #[test]
