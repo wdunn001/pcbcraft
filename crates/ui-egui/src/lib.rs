@@ -5,6 +5,7 @@ mod assistant;
 mod authoring;
 mod board3d;
 mod board_side;
+mod bom_export;
 mod bottom_sheet;
 pub mod brand;
 mod browser;
@@ -13,6 +14,7 @@ mod contrast;
 mod datums;
 mod draw_target;
 mod editing;
+mod file_dialogs;
 pub mod fonts;
 mod footprint_wizard;
 mod hover_affordance;
@@ -665,6 +667,9 @@ struct Preferences {
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
+    /// The last exports and imports with the options they used, newest first.
+    #[serde(default)]
+    recent_files: file_dialogs::Recents,
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
@@ -734,6 +739,7 @@ impl Default for Preferences {
             library_favourites: Vec::new(),
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
+            recent_files: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
@@ -2774,7 +2780,7 @@ impl App {
                 self.select(None);
             }
             if ui
-                .button(t!("menu.file.open"))
+                .button("Open…")
                 .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
@@ -2787,18 +2793,19 @@ impl App {
             {
                 self.tool_call("save", json!({"path":self.path}));
             }
-            ui.separator();
             if ui
-                .button(t!("menu.file.export"))
-                .on_hover_text(t!("menu.file.export.tip"))
+                .button("Save as…")
+                .on_hover_text(
+                    "Save the whole project under a new name or as an archive. To make something from it, such as a bill of materials, use Export.",
+                )
                 .clicked()
             {
-                let path = std::path::Path::new(&self.path)
-                    .with_extension("kicad_pcb")
-                    .to_string_lossy()
-                    .into_owned();
-                self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
             }
+            ui.separator();
+            self.import_submenu(ui);
+            self.export_submenu(ui);
             if ui
                 .button(t!("menu.file.copy_picture"))
                 .on_hover_text(t!("menu.file.copy_picture.tip"))
@@ -5997,6 +6004,7 @@ impl App {
         let about_muted = self.muted();
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
+        self.file_dialog_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))

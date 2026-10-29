@@ -14,6 +14,7 @@ mod builds;
 mod checks;
 mod context_menus;
 mod editing;
+mod export;
 mod images;
 mod layers;
 mod layout;

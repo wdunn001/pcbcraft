@@ -10,6 +10,7 @@ mod bitmap_trace;
 mod board_mesh;
 mod drawn;
 mod fab_export;
+pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
@@ -2690,7 +2691,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
-        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }
         let footprint = match variant

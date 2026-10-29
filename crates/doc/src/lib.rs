@@ -193,7 +193,16 @@ pub struct ComponentField {
     pub key: String,
     pub value: String,
 }
+/// The component property that keeps a part out of the bill of materials.
+/// Set it to `yes` with `component.field`; clear it to put the part back.
+pub const BOM_EXCLUDE_FIELD: &str = "Exclude from BOM";
 impl Component {
+    /// True unless the part carries `BOM_EXCLUDE_FIELD` set to `yes`.
+    pub fn in_bom(&self) -> bool {
+        !self
+            .field(BOM_EXCLUDE_FIELD)
+            .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
+    }
     /// Value of a named component property, if the component carries it.
     pub fn field(&self, key: &str) -> Option<&str> {
         self.fields

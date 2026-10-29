@@ -156,6 +156,10 @@ pub(crate) enum Action {
     RemoveArtLayer(Id),
     /// Add a machine layer.
     NewArtLayer,
+    /// Open Export on the bill of materials: all parts, or only the selected ones.
+    ExportBom { selection: bool },
+    /// Leave a part off the bill of materials, or put it back.
+    ToggleBomExclude(Id),
 }
 
 /// The read-only inputs of one frame.
@@ -171,6 +175,8 @@ pub(crate) struct Env<'a> {
     pub target: Target,
     /// Bumps on every document change; part of the row cache key.
     pub revision: u64,
+    /// How many parts are selected, for the Export BOM for selection entry.
+    pub parts_selected: usize,
 }
 
 /// The canvas toggles each tab's layer rows may switch.
@@ -2491,6 +2497,9 @@ enum RowAct {
     MoveUp,
     MoveDown,
     RemoveLayer,
+    ExportBom,
+    ExportBomSelection,
+    ToggleBomExclude,
 }
 
 /// The kind name capture mode uses to open the first menu of this kind.
@@ -2803,7 +2812,51 @@ fn row_menu_entries(
             .into(),
         );
     }
-    let mut menu = Menu::new().group(object).group(edit).group(shown);
+    let mut bom: Vec<Entry<RowAct>> = Vec::new();
+    if r.kind == RowKind::Part
+        && let Some(id) = r.select
+    {
+        let component = env.project.footprint(id).map_or(id, |f| f.component);
+        let excluded = env
+            .project
+            .component(component)
+            .is_some_and(|c| !c.in_bom());
+        bom.push(
+            Item::new(
+                RowAct::ExportBom,
+                "Export BOM…",
+                "A bill of materials is the shopping list for your board: every part, how many, and which part number to buy. Opens Export with all parts.",
+            )
+            .icon(glyph::PROPERTIES)
+            .into(),
+        );
+        if env.parts_selected > 1 {
+            bom.push(
+                Item::new(
+                    RowAct::ExportBomSelection,
+                    "Export BOM for selection…",
+                    "Write a bill of materials for only the parts you have selected.",
+                )
+                .icon(glyph::PROPERTIES)
+                .into(),
+            );
+        }
+        bom.push(
+            Item::new(
+                RowAct::ToggleBomExclude,
+                if excluded { "Include in BOM" } else { "Exclude from BOM" },
+                "Leave this part off the bill of materials, for example a test point or a logo. The bill is the shopping list for your board. Undo brings it back.",
+            )
+            .icon(glyph::PROPERTIES)
+            .checked(excluded)
+            .into(),
+        );
+    }
+    let mut menu = Menu::new()
+        .group(object)
+        .group(edit)
+        .group(bom)
+        .group(shown);
     for item in destructive {
         menu = menu.destructive(item);
     }
@@ -2909,6 +2962,13 @@ fn run_row_act(
         RowAct::Highlight => {
             if let Some(net) = r.net {
                 actions.push(Action::HighlightNet(Some(net)));
+            }
+        }
+        RowAct::ExportBom => actions.push(Action::ExportBom { selection: false }),
+        RowAct::ExportBomSelection => actions.push(Action::ExportBom { selection: true }),
+        RowAct::ToggleBomExclude => {
+            if let Some(id) = r.select {
+                actions.push(Action::ToggleBomExclude(id));
             }
         }
         RowAct::ToggleExpand => toggle(view, &r.key),
@@ -3081,6 +3141,7 @@ impl crate::App {
                 selected: self.selected,
                 target: self.current_target(),
                 revision: self.revision,
+                parts_selected: self.selected_part_components().len(),
             };
             show(ui, &env, &mut self.tree)
         };
@@ -3166,6 +3227,19 @@ impl crate::App {
                         self.pcb.zoom = self.pcb.zoom.max(24.0);
                     }
                     self.select(Some(id));
+                }
+                Action::ExportBom { selection } => {
+                    let parts = if selection {
+                        self.selected_part_components()
+                    } else {
+                        vec![]
+                    };
+                    self.open_dialog(crate::file_dialogs::Mode::Export, Some("bom"), None, parts);
+                }
+                Action::ToggleBomExclude(id) => {
+                    let component = self.project.footprint(id).map_or(id, |f| f.component);
+                    let exclude = !self.part_excluded(id);
+                    self.set_bom_exclusion(&[component], exclude);
                 }
                 Action::FlipSide(id) => {
                     self.run("footprint.flip", serde_json::json!({"id": id}));
@@ -3367,6 +3441,7 @@ mod tests {
             selected: None,
             target: Target::Copper(Layer::Front),
             revision: 1,
+            parts_selected: 0,
         }
     }
 

@@ -2179,7 +2179,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
                 &[],
             ),
         ),
@@ -4416,6 +4416,15 @@ struct BomParams {
     fields: Vec<String>,
     #[serde(default)]
     variant: Option<String>,
+    /// Only these components; empty lists every part.
+    #[serde(default)]
+    ids: Vec<Id>,
+    /// False prints one row per part instead of one row per kind of part.
+    #[serde(default = "bom_group_default")]
+    group: bool,
+}
+fn bom_group_default() -> bool {
+    true
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4958,6 +4967,123 @@ struct FindParams {
 }
 /// Set (or clear, when `value` is `None`) one named property on a component.
 /// Returns whether the property is set afterwards.
+/// The bill of materials as data: rows grouped by value, kind, footprint and
+/// the requested properties, or one row per part when `group` is false.
+///
+/// Why: the `bom.export` command and the app's export dialog (preview, File
+/// menu, part menus, Manufacture) read the same rows, so what is previewed is
+/// what is written.
+///
+/// # Rules
+/// - Reads the project only; never changes it.
+/// - Skips parts that carry `pcbcraft_doc::BOM_EXCLUDE_FIELD` set to `yes`, parts
+///   a named variant leaves unpopulated, and, when `ids` is not empty, every
+///   part not listed.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs (`Component::in_bom`).
+///
+/// # Do not
+/// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
+pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
+    let a: BomParams = parse(params)?;
+    if a.fields.len() > 16 {
+        return Err(Error::Invalid(
+            "a bill of materials lists at most 16 properties".into(),
+        ));
+    }
+    for key in &a.fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err(Error::Invalid(
+                "property names must be 1 to 64 bytes".into(),
+            ));
+        }
+    }
+    // With no explicit request, the columns the project defines are used.
+    let keys: Vec<String> = if a.fields.is_empty() {
+        p.bom_fields.iter().map(|f| f.key.clone()).collect()
+    } else {
+        a.fields.clone()
+    };
+    let variant = match a.variant.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(
+            p.variants
+                .iter()
+                .find(|v| v.name == name)
+                .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
+        ),
+    };
+    if a.ids.len() > 4096 {
+        return Err(Error::Invalid(
+            "a bill of materials names at most 4096 parts".into(),
+        ));
+    }
+    // One row per kind of part, or one row per part when not grouping
+    // (the reference then joins the key).
+    let mut groups: std::collections::BTreeMap<
+        (String, String, String, Vec<String>, String),
+        Vec<String>,
+    > = std::collections::BTreeMap::new();
+    let mut populated = 0usize;
+    for c in &p.components {
+        if !c.in_bom()
+            || (!a.ids.is_empty() && !a.ids.contains(&c.id))
+            || variant.is_some_and(|v| v.dnp.contains(&c.id))
+        {
+            continue;
+        }
+        populated += 1;
+        let footprint =
+            match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
+                Some(swap) => swap.footprint.clone(),
+                None => match &c.library_footprint {
+                    Some(footprint) => {
+                        format!("{}:{}", footprint.library, footprint.definition.name)
+                    }
+                    None => "starter pads".into(),
+                },
+            };
+        let values: Vec<String> = keys
+            .iter()
+            .map(|key| c.field(key).unwrap_or("").to_string())
+            .collect();
+        let apart = if a.group {
+            String::new()
+        } else {
+            c.reference.clone()
+        };
+        groups
+            .entry((c.value.clone(), c.kind.clone(), footprint, values, apart))
+            .or_default()
+            .push(c.reference.clone());
+    }
+    let items: Vec<Value> = groups
+        .into_iter()
+        .map(|((value, kind, footprint, values, _), mut references)| {
+            references.sort();
+            let columns = keys.clone();
+            let mut fields = serde_json::Map::new();
+            for (key, value) in columns.into_iter().zip(values) {
+                fields.insert(key, json!(value));
+            }
+            json!({
+                "quantity": references.len(),
+                "references": references,
+                "value": value,
+                "kind": kind,
+                "footprint": footprint,
+                "fields": Value::Object(fields),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "items": items,
+        "groups": items.len(),
+        "components": populated,
+        "variant": variant.map(|v| v.name.clone()),
+    }))
+}
 fn set_component_field(
     component: &mut Component,
     key: &str,
@@ -15810,90 +15936,7 @@ fn run_command(
             p.variants.remove(index);
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
-        "bom.export" => {
-            let a: BomParams = parse(params)?;
-            if a.fields.len() > 16 {
-                return Err(Error::Invalid(
-                    "a bill of materials lists at most 16 properties".into(),
-                ));
-            }
-            for key in &a.fields {
-                if key.is_empty() || key.len() > 64 {
-                    return Err(Error::Invalid(
-                        "property names must be 1 to 64 bytes".into(),
-                    ));
-                }
-            }
-            // With no explicit request, the columns the project defines are used.
-            let keys: Vec<String> = if a.fields.is_empty() {
-                p.bom_fields.iter().map(|f| f.key.clone()).collect()
-            } else {
-                a.fields.clone()
-            };
-            let variant = match a.variant.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(name) => Some(
-                    p.variants
-                        .iter()
-                        .find(|v| v.name == name)
-                        .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-                ),
-            };
-            let mut groups: std::collections::BTreeMap<
-                (String, String, String, Vec<String>),
-                Vec<String>,
-            > = std::collections::BTreeMap::new();
-            let mut populated = 0usize;
-            for c in &p.components {
-                if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-                    continue;
-                }
-                populated += 1;
-                let footprint =
-                    match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
-                        Some(swap) => swap.footprint.clone(),
-                        None => match &c.library_footprint {
-                            Some(footprint) => {
-                                format!("{}:{}", footprint.library, footprint.definition.name)
-                            }
-                            None => "starter pads".into(),
-                        },
-                    };
-                let values: Vec<String> = keys
-                    .iter()
-                    .map(|key| c.field(key).unwrap_or("").to_string())
-                    .collect();
-                groups
-                    .entry((c.value.clone(), c.kind.clone(), footprint, values))
-                    .or_default()
-                    .push(c.reference.clone());
-            }
-            let items: Vec<Value> = groups
-                .into_iter()
-                .map(|((value, kind, footprint, values), mut references)| {
-                    references.sort();
-                    let columns = keys.clone();
-                    let mut fields = serde_json::Map::new();
-                    for (key, value) in columns.into_iter().zip(values) {
-                        fields.insert(key, json!(value));
-                    }
-                    json!({
-                        "quantity": references.len(),
-                        "references": references,
-                        "value": value,
-                        "kind": kind,
-                        "footprint": footprint,
-                        "fields": Value::Object(fields),
-                    })
-                })
-                .collect();
-            Ok(json!({
-                "items": items,
-                "groups": items.len(),
-                "components": populated,
-                "variant": variant.map(|v| v.name.clone()),
-            }))
-        }
+        "bom.export" => bom_export(p, params),
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -23367,6 +23410,47 @@ mod tests {
             s.execute("variant.create", json!({"name":"v15"}), None)
                 .is_err(),
             "a seventeenth variant is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_bill_of_materials_skips_excluded_parts_and_can_list_parts_apart() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for (n, reference) in ["R1", "R2", "R3"].iter().enumerate() {
+            let id = s
+                .execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":reference,"value":"10k","position":{"x":10.0 * (n as f64 + 1.0),"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            ids.push(id);
+        }
+        let grouped = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(grouped["groups"], 1, "identical parts share a row");
+        assert_eq!(grouped["items"][0]["quantity"], 3);
+        let apart = s.execute("bom.export", json!({"group": false}), None)?["result"].clone();
+        assert_eq!(apart["groups"], 3, "ungrouped lists each part");
+        let some =
+            s.execute("bom.export", json!({"ids": [ids[0], ids[1]]}), None)?["result"].clone();
+        assert_eq!(some["components"], 2, "only the named parts are listed");
+        s.execute(
+            "component.field",
+            json!({"id": ids[2], "key": pcbcraft_doc::BOM_EXCLUDE_FIELD, "value": "yes"}),
+            None,
+        )?;
+        let kept = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(kept["components"], 2, "an excluded part leaves the bill");
+        assert!(
+            pcbcraft_io::bom_csv(&s.project, &[], None).is_ok_and(|csv| !csv.contains("R3")),
+            "the CSV written by output jobs skips it too"
+        );
+        assert!(
+            s.execute("bom.export", json!({"ids": vec![1u64; 4097]}), None)
+                .is_err(),
+            "too many ids are refused"
         );
         Ok(())
     }
