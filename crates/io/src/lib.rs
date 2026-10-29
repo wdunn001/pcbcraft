@@ -8130,6 +8130,7 @@ mod tests {
             name: "PWR".into(),
             target_length: None,
             length_tolerance: None,
+            max_length: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -8284,6 +8285,7 @@ mod tests {
             name: "P&&R".into(),
             target_length: None,
             length_tolerance: None,
+            max_length: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -8558,6 +8560,7 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
+            max_length: None,
             nets: vec![5],
         });
         let component =
@@ -9675,6 +9678,7 @@ mod tests {
             name: "PWR".into(),
             target_length: None,
             length_tolerance: None,
+            max_length: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -10559,6 +10563,7 @@ mod tests {
             name: "probe".into(),
             target_length: None,
             length_tolerance: None,
+            max_length: None,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,

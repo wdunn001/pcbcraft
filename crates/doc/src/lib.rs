@@ -179,6 +179,10 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// Largest total routed length this net may carry, in millimetres, with no
+    /// lower bound. A net ceiling takes priority over its class ceiling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<f64>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -227,6 +231,10 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Largest total routed length member nets may carry, in millimetres, with
+    /// no lower bound. A member net with its own ceiling follows that instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -282,6 +290,44 @@ impl DiffPair {
             && self
                 .length_tolerance
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+    }
+}
+/// A named set of nets whose routed lengths must agree, optionally measured
+/// against one reference net and optionally all on one copper layer.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LengthGroup {
+    pub id: Id,
+    /// Group name, for example "DDR3 byte lane 0".
+    pub name: String,
+    /// Member nets; at least two and no duplicates.
+    pub nets: Vec<Id>,
+    /// When set, every member is compared with this member's routed length
+    /// instead of with the group's own spread.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<Id>,
+    /// How far member lengths may differ, in millimetres.
+    pub tolerance: f64,
+    /// When true, each member must keep all of its routed copper on one layer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub same_layer: bool,
+    /// Optional profile the group came from, kept as provenance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+}
+impl LengthGroup {
+    fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= 64
+            && (2..=256).contains(&self.nets.len())
+            && self.tolerance.is_finite()
+            && (0.0..=1000.0).contains(&self.tolerance)
+            && self
+                .reference
+                .is_none_or(|reference| self.nets.contains(&reference))
+            && self
+                .profile
+                .as_ref()
+                .is_none_or(|p| !p.trim().is_empty() && p.len() <= 64)
     }
 }
 /// A rectangular board area that demands a stricter minimum copper
@@ -1387,6 +1433,9 @@ pub struct Project {
     /// Named net classes carrying clearance and default width rules.
     #[serde(default)]
     pub net_classes: Vec<NetClass>,
+    /// Named length-match groups, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub length_groups: Vec<LengthGroup>,
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
@@ -1535,6 +1584,7 @@ impl Default for Project {
             components: vec![],
             nets: vec![],
             net_classes: vec![],
+            length_groups: vec![],
             sheets: vec![],
             ports: vec![],
             bom_fields: vec![],
@@ -1995,9 +2045,11 @@ impl Project {
                 .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 100_000.0)
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                || n.max_length
+                    .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
             {
-                return Err("invalid net length target or tolerance".into());
+                return Err("invalid net length target, tolerance or ceiling".into());
             }
         }
         if self.net_classes.len() > 64 {
@@ -2027,6 +2079,8 @@ impl Project {
                     .is_some_and(|t| !t.is_finite() || t <= 0.0 || t > 10_000.0)
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                || c.max_length
+                    .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
             {
                 return Err("invalid net class".into());
@@ -2035,6 +2089,27 @@ impl Project {
                 if !nets.contains(net) || !classified.insert(*net) {
                     return Err("net class membership is invalid".into());
                 }
+            }
+        }
+        if self.length_groups.len() > 64 {
+            return Err("a project carries at most 64 length-match groups".into());
+        }
+        let mut group_names: BTreeSet<&str> = BTreeSet::new();
+        let mut grouped: BTreeSet<Id> = BTreeSet::new();
+        for group in &self.length_groups {
+            if !group.valid()
+                || !group_names.insert(group.name.as_str())
+                || group.nets.iter().any(|n| {
+                    !nets.contains(n) || group.nets.iter().filter(|other| *other == n).count() > 1
+                })
+            {
+                return Err(
+                    "length-match groups need a unique name, two or more known nets once each and a 0 to 1000 mm tolerance"
+                        .into(),
+                );
+            }
+            if group.nets.iter().any(|n| !grouped.insert(*n)) {
+                return Err("a net belongs to at most one length-match group".into());
             }
         }
         if self.board.pair_rules.len() > 64 {
