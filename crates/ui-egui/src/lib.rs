@@ -615,7 +615,6 @@ enum Tab {
     Rules,
     Checks,
     Settings,
-    PlotFiles,
     Libraries,
     PlotFiles,
 }
@@ -1529,7 +1528,6 @@ impl App {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
-            plot_viewer: plot_viewer::State::default(),
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
@@ -3258,7 +3256,6 @@ impl App {
                 }
             }
             KeyAction::FindInTree => {
-                self.left_tab = 1;
                 self.tree_search_focus = true;
             }
             KeyAction::PaletteLineUp | KeyAction::PaletteLineDown | KeyAction::PaletteRun => {}
