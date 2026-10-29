@@ -3121,6 +3121,55 @@ pub fn valid_parameter_note(note: &str) -> bool {
 pub fn valid_parameter_value(value: f64) -> bool {
     value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
 }
+/// Settings for the `missing_decoupling` check: how close a capacitor must sit
+/// to an integrated circuit power pin, and the value the finding suggests.
+///
+/// # Rules
+/// - `max_distance_mm` is measured pad centre to pad centre, in millimetres,
+///   between the power pad and the nearest pad of a capacitor on the same net.
+/// - The defaults are 3.0 mm and "100 nF"; they stay out of the saved file
+///   until changed.
+///
+/// # Dependencies
+/// - crates/rules/src/decoupling.rs reads it; `rules.decoupling_set` in
+///   crates/engine/src/lib.rs writes it.
+///
+/// # Do not
+/// - Store a per-part override here; part rules belong to the component rule
+///   record that issue 832 will add.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DecouplingRule {
+    /// Largest allowed pad to pad distance in millimetres.
+    pub max_distance_mm: f64,
+    /// Capacitor value the finding suggests, as plain text.
+    pub suggested_value: String,
+}
+impl Default for DecouplingRule {
+    fn default() -> Self {
+        Self {
+            max_distance_mm: 3.0,
+            suggested_value: "100 nF".into(),
+        }
+    }
+}
+impl DecouplingRule {
+    /// True when nothing was changed from the defaults.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+    /// Refuse a distance outside 0.1 to 50 mm or a value that is empty or long.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.max_distance_mm.is_finite() || !(0.1..=50.0).contains(&self.max_distance_mm) {
+            return Err("decoupling distance must be between 0.1 and 50 mm".into());
+        }
+        let value = self.suggested_value.trim();
+        if value.is_empty() || value.len() > 32 {
+            return Err("decoupling value must be 1 to 32 characters".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -3208,6 +3257,10 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Settings read by the `missing_decoupling` check; the defaults apply
+    /// until the designer changes them.
+    #[serde(default, skip_serializing_if = "DecouplingRule::is_default")]
+    pub decoupling: DecouplingRule,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -3354,6 +3407,7 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            decoupling: DecouplingRule::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -4330,6 +4384,7 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
+        self.decoupling.validate()?;
         if self
             .components
             .iter()

@@ -19421,6 +19421,10 @@
     "revision": "A",
     "title": "Showcase sensor node"
   },
+  "decoupling": {
+    "max_distance_mm": 15.0,
+    "suggested_value": "100 nF"
+  },
   "wires": [
     {
       "id": 158,

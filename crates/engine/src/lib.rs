@@ -3,11 +3,14 @@ mod artifacts;
 mod authoring;
 mod dry_run;
 mod images;
+mod layout;
 pub mod library;
 mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod scope;
+pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
@@ -1747,8 +1750,16 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, missing_decoupling, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
+            ),
+        ),
+        (
+            "rules.decoupling_set",
+            "Set how close a capacitor must be to an integrated circuit power pin for the missing_decoupling check, and the capacitor value its findings suggest; give at least one field",
+            schema(
+                json!({"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50,"description":"pad centre to pad centre, millimetres; default 3.0"},"suggested_value":{"type":"string","minLength":1,"maxLength":32,"description":"value named in findings; default 100 nF"}}),
+                &[],
             ),
         ),
         (
@@ -2304,6 +2315,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(snapmaker::commands())
+        .chain(layout::commands())
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
@@ -2380,10 +2392,11 @@ impl Session {
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
-        if commands
-            .iter()
-            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
-        {
+        if commands.iter().all(|c| {
+            c.command == "cam.isolation"
+                || snapmaker::handles(&c.command)
+                || layout::handles(&c.command)
+        }) {
             let mut results = vec![];
             for command in commands {
                 results.push(run_read_only(
@@ -6978,6 +6991,7 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
+        c if layout::handles(c) => layout::run(p, c, params),
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
         ))),
@@ -7077,7 +7091,7 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation" || snapmaker::handles(command) {
+    if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(command) {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -14132,6 +14146,30 @@ fn run_command(
             }
             p.pin_matrix.clear();
             Ok(json!({"reset": true}))
+        }
+        "rules.decoupling_set" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Params {
+                max_distance_mm: Option<f64>,
+                suggested_value: Option<String>,
+            }
+            let a: Params = parse(params)?;
+            if a.max_distance_mm.is_none() && a.suggested_value.is_none() {
+                return Err(Error::Invalid(
+                    "give max_distance_mm, suggested_value or both".into(),
+                ));
+            }
+            if let Some(d) = a.max_distance_mm {
+                p.decoupling.max_distance_mm = d;
+            }
+            if let Some(v) = a.suggested_value {
+                p.decoupling.suggested_value = v.trim().to_string();
+            }
+            p.decoupling.validate().map_err(Error::Invalid)?;
+            Ok(
+                json!({"max_distance_mm": p.decoupling.max_distance_mm, "suggested_value": p.decoupling.suggested_value}),
+            )
         }
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
