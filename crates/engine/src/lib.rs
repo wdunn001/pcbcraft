@@ -5459,10 +5459,9 @@ fn run_command(
             if a.format != "board" {
                 return Err(Error::Invalid("unsupported import format".into()));
             }
-            let text = pcbcraft_io::read_text(std::path::Path::new(&a.path))
-                .map_err(Error::Invalid)?;
-            let imported =
-                pcbcraft_io::read_board_interchange(&text).map_err(Error::Invalid)?;
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
+            let imported = pcbcraft_io::read_board_interchange(&text).map_err(Error::Invalid)?;
             let preserved_nodes = count_preserved_nodes(&imported);
             let summary = json!({
                 "format": "board",
@@ -8832,8 +8831,9 @@ fn run_command(
                     width,
                     layer,
                     arc: None,
-                
-                preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
+                });
                 ids.push(id);
             }
             p.graphics.remove(index);
@@ -9990,8 +9990,9 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
         "via.move" => {
@@ -10066,8 +10067,9 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
-                    
-                    preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                        preserved: pcbcraft_doc::PreservedSource::default(),
+                    });
                     ids.push(id);
                 }
             }
@@ -10089,8 +10091,9 @@ fn run_command(
                 cutouts: vec![],
                 filled: true,
                 kind: None,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
             Ok(json!({"id":id}))
         }
         "zone.move" => {
@@ -10394,8 +10397,9 @@ fn run_command(
                     cutouts: vec![],
                     filled: true,
                     kind: Some("teardrop".into()),
-                
-                preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
+                });
                 added += 1;
             }
             Ok(json!({"added": added, "junctions": total}))
@@ -12881,8 +12885,9 @@ fn run_command(
                         rotation: 0.0,
                         locked: None,
                         pads: component_pads(c),
-                    
-                    preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                        preserved: pcbcraft_doc::PreservedSource::default(),
+                    });
                 }
             }
             Ok(
@@ -13302,8 +13307,9 @@ fn run_command(
                 width,
                 layer,
                 arc: None,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
             Ok(json!({"id":id, "width": width}))
         }
         "track.add_arc" => {
@@ -13330,8 +13336,9 @@ fn run_command(
                 width,
                 layer,
                 arc: Some(a.mid),
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
             Ok(json!({
                 "id": id,
                 "length": (arc.length() * 1000.0).round() / 1000.0,
@@ -13405,8 +13412,9 @@ fn run_command(
                 width,
                 layer,
                 arc: None,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
             Ok(json!({"id":id,"kept":a.id}))
         }
         "track.chamfer" => {
@@ -13503,8 +13511,9 @@ fn run_command(
                 width,
                 layer,
                 arc: None,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
         "track.move" => {
@@ -13554,8 +13563,9 @@ fn run_command(
                         width,
                         layer,
                         arc: None,
-                    
-                    preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                        preserved: pcbcraft_doc::PreservedSource::default(),
+                    });
                 }
             }
             Ok(json!({"ids":ids,"net":net,"width":width}))
@@ -13616,8 +13626,9 @@ fn run_command(
                     width,
                     layer: a.layer,
                     arc: None,
-                
-                preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
+                });
             }
             for (from, to) in segs_n {
                 let id = allocate(next)?;
@@ -13630,8 +13641,9 @@ fn run_command(
                     width,
                     layer: a.layer,
                     arc: None,
-                
-                preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
+                });
             }
             Ok(json!({
                 "ids_p": ids_p,
@@ -18870,7 +18882,11 @@ mod tests {
         std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
         let path = path.to_string_lossy().to_string();
         let mut s = Session::default();
-        s.execute("component.add", json!({"kind":"led","reference":"D9","value":"LED","position":{"x":1,"y":1}}), None)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"led","reference":"D9","value":"LED","position":{"x":1,"y":1}}),
+            None,
+        )?;
         let before = s.project.clone();
         let undo_depth = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
         let summary = s.execute(
@@ -18879,7 +18895,11 @@ mod tests {
             None,
         )?;
         assert_eq!(summary["result"]["format"], "board");
-        assert!(summary["result"]["footprints"].as_u64().is_some_and(|n| n > 0));
+        assert!(
+            summary["result"]["footprints"]
+                .as_u64()
+                .is_some_and(|n| n > 0)
+        );
         assert_ne!(s.project, before);
         assert_eq!(
             s.inspect()["history"]["undo"].as_u64().unwrap_or(0),

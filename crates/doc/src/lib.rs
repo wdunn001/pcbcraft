@@ -908,7 +908,7 @@ impl Layer {
         }
     }
 
-    fn from_file_str(s: &str) -> Result<Self, String> {
+    pub fn from_file_str(s: &str) -> Result<Self, String> {
         let s = s.trim();
         if s.is_empty() {
             return Err("copper layer name is empty".into());

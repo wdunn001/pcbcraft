@@ -1750,8 +1750,9 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;
         // Cutout r2.0 -> 36 segments, hole r1.6 -> 24, via r0.2 -> 12.
@@ -2134,8 +2135,9 @@ mod tests {
             width: 0.5,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 3,
             net: 1,
@@ -2144,8 +2146,9 @@ mod tests {
             width: 0.5,
             layer: Layer::Back,
             arc: Some(Point::new(10.0, 12.0)),
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
         assert_eq!(top.positions.len(), 24, "one straight strip");
@@ -2171,8 +2174,9 @@ mod tests {
             cutouts: vec![cut],
             filled: true,
             kind: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.zones.push(CopperZone {
             id: 3,
             net: 1,
@@ -2181,8 +2185,9 @@ mod tests {
             cutouts: vec![],
             filled: false,
             kind: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
         assert!(

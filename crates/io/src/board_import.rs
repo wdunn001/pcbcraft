@@ -4,7 +4,7 @@ use pcbcraft_doc::{
     Track, Via,
 };
 use pcbcraft_geom::Point;
-use pcbcraft_library::{read_footprint, Error as LibraryError, Node, line_number_at_offset, parse};
+use pcbcraft_library::{Error as LibraryError, Node, line_number_at_offset, parse, read_footprint};
 use std::collections::BTreeMap;
 
 const MAX_NETS: usize = 512;
@@ -164,7 +164,9 @@ impl ImportCtx {
                     }
                 }
             } else if child.name() != "pad_to_mask_clearance" && child.atom.is_none() {
-                board.preserved.push_span(&self.source, child.span.clone())?;
+                board
+                    .preserved
+                    .push_span(&self.source, child.span.clone())?;
             }
         }
         Ok(())
@@ -211,13 +213,9 @@ impl ImportCtx {
                         &format!("pad {number} missing from footprint definition"),
                     )
                 })?;
-            let ord = parse_u32(pad_node.field("net"), &self.source, pad_node.span.start)
-                .unwrap_or(0);
-            let net = if ord == 0 {
-                None
-            } else {
-                Some(ord as Id)
-            };
+            let ord =
+                parse_u32(pad_node.field("net"), &self.source, pad_node.span.start).unwrap_or(0);
+            let net = if ord == 0 { None } else { Some(ord as Id) };
             pads.push(Pad {
                 number,
                 offset: def_pad.position,
@@ -253,6 +251,7 @@ impl ImportCtx {
         }
 
         if self.components.iter().all(|c| c.id != comp_id) {
+            let pins = template_pins(&kind);
             self.components.push(Component {
                 id: comp_id,
                 reference,
@@ -260,7 +259,7 @@ impl ImportCtx {
                 kind,
                 position: Point::default(),
                 rotation: 0.0,
-                pins: template_pins(&kind),
+                pins,
                 units: Vec::new(),
                 library_symbol: None,
                 library_footprint: None,
@@ -595,9 +594,7 @@ fn uuid_id(node: &Node) -> Option<Id> {
 
 fn format_parse_error(text: &str, err: pcbcraft_library::Error) -> String {
     match err {
-        pcbcraft_library::Error::Syntax { offset, message } => {
-            line_error(text, offset, &message)
-        }
+        pcbcraft_library::Error::Syntax { offset, message } => line_error(text, offset, &message),
         pcbcraft_library::Error::Limit(label) => format!("interchange file exceeds {label}"),
         pcbcraft_library::Error::Invalid(msg) => msg,
     }
@@ -624,9 +621,6 @@ mod tests {
     fn malformed_board_reports_line_number() {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
         let err = read_board_interchange(text).expect_err("truncated segment");
-        assert!(
-            err.contains("line"),
-            "expected a line number in {err:?}"
-        );
+        assert!(err.contains("line"), "expected a line number in {err:?}");
     }
 }

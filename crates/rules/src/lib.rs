@@ -1468,8 +1468,9 @@ mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
         }
         p
     }
@@ -1534,8 +1535,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 3,
             net: 1,
@@ -1544,16 +1546,18 @@ mod tests {
             width: 0.25,
             layer: Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.vias.push(Via {
             id: 4,
             net: 1,
             position: Point::new(12.1, 10.0),
             diameter: 1.4,
             drill: 0.4,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         let items = copper(&p);
         let front = items
@@ -1615,8 +1619,9 @@ mod tests {
             filled: true,
 
             kind: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 5,
             net: 1,
@@ -1625,8 +1630,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 6,
             net: 1,
@@ -1635,8 +1641,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 7,
             net: 2,
@@ -1645,8 +1652,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         let items = copper(&p);
         let zone = items
@@ -1692,8 +1700,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         let items = copper(&p);
         let zone = items
@@ -1726,8 +1735,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 3,
             net: 1,
@@ -1736,8 +1746,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         for column in 0..5 {
             p.board.vias.push(Via {
@@ -1746,8 +1757,9 @@ mod tests {
                 position: Point::new(12.0 + column as f64 * 0.5, 10.0),
                 diameter: 1.4,
                 drill: 0.4,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
         }
         p.validate()?;
         let items = copper(&p);
@@ -1790,8 +1802,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 3,
             net: 1,
@@ -1800,8 +1813,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         let items = copper(&p);
         let head = items.iter().find(|c| c.id == 2).ok_or("head missing")?;
@@ -1895,8 +1909,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(g),
             }],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         // Endpoints are front SMD; their separate front approach demonstrates
         // that the only cross-layer join comes from the plated package pad.
         for (id, start, end, layer) in [
@@ -1927,8 +1942,9 @@ mod tests {
                 width: 0.2,
                 layer,
                 arc: None,
-            
-            preserved: pcbcraft_doc::PreservedSource::default(),});
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
+            });
         }
         // Make the far endpoint a plated pad as well, so its back approach
         // meets that package's copper instead of an unsupported layer jump.
@@ -2006,8 +2022,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         assert!(
             drc(&p).is_empty(),
@@ -2024,8 +2041,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         assert!(
             drc(&p)
                 .iter()
@@ -2045,8 +2063,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         assert_eq!(airwires(&p).len(), 1);
         if let Some(t) = p.board.tracks.first_mut() {
             t.layer = Layer::Front;
@@ -2069,8 +2088,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 21,
             net: 4,
@@ -2079,8 +2099,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         assert!(drc(&p).iter().any(|f| f.code == "copper_short"));
     }
 
@@ -2114,8 +2135,9 @@ mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         drc(&p)
             .into_iter()
             .filter(|f| f.objects.contains(&30) && f.code != "unrouted")
@@ -2306,8 +2328,9 @@ mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         assert!(
             drc(&p).iter().any(|f| f.code == "panel_copper_near_score"),
             "track hugging the score line should fail"
@@ -2321,8 +2344,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         assert!(!drc(&ok).iter().any(|f| f.code == "panel_copper_near_score"));
     }
     #[test]
@@ -2435,8 +2459,9 @@ mod tests {
                     geometry: Some(peg),
                 },
             ],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.board.tracks.push(Track {
             id: 5,
             net: 1,
@@ -2445,8 +2470,9 @@ mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         let findings = drc(&p);
         assert!(
@@ -2478,8 +2504,9 @@ mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p.validate()?;
         let findings = drc(&p);
         assert!(
@@ -2515,8 +2542,9 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
             pad.diameter = 1.0;
@@ -2585,8 +2613,9 @@ mod tests {
             position: Point::new(20.0, 20.0),
             diameter: 0.8,
             drill: 0.4,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
     /// carries a 2 mm square copper outline.
@@ -2624,8 +2653,9 @@ mod tests {
                     raw_source: String::new(),
                 }),
             }],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         p
     }
     #[test]

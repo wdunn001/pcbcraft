@@ -6575,16 +6575,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(20.0, 20.0)),
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 102,
             net: 1,
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
             text: "GND (pour) 100%".into(),
@@ -6695,16 +6697,18 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 602,
             net: 500,
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let text = stats_text(&project)?;
         assert!(
@@ -6744,16 +6748,18 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
             net: 500,
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
             position: Point::new(1.5, 1.5),
@@ -6918,16 +6924,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
             net: 500,
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
         assert!(pcb.starts_with("IN;SP1;\n"), "the plotter is initialised");
@@ -6964,16 +6972,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
             net: 500,
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let package = odb_package(&project)?;
         assert!(
@@ -7027,16 +7037,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(20.0, 20.0)),
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 102,
             net: 1,
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
             text: "GND (pour) 100%".into(),
@@ -7320,8 +7332,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         Ok(project)
     }
@@ -7737,8 +7750,9 @@ mod tests {
             filled: true,
 
             kind: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
         assert!(
@@ -7787,16 +7801,18 @@ mod tests {
             width: 0.508,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
             net: 8,
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.unit = "inch".into();
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -7845,16 +7861,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
             net: 8,
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
             net: 8,
@@ -7870,8 +7888,9 @@ mod tests {
             filled: true,
 
             kind: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
             id: 6,
             center: Point::new(46.0, 20.0),
@@ -7919,8 +7938,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: vec![through_pad, pad2],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
             id: 1,
@@ -8092,6 +8112,7 @@ mod tests {
                 castellated: None,
                 geometry: Some(oval_geometry()),
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
@@ -8251,6 +8272,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.components.push(component(1, "R5", "R0603", false));
@@ -8458,6 +8480,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
@@ -8613,6 +8636,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             };
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
@@ -8638,16 +8662,18 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 30,
             net: 50,
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
             position: Point::new(2.0, 2.0),
@@ -8797,8 +8823,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(geometry("1", -1.0)),
             }],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
             component: 2,
@@ -8813,8 +8840,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(geometry("1", 0.0)),
             }],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let text = idf_board(&project)?;
         assert!(
@@ -8950,8 +8978,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, Some(5))],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
             component: 2,
@@ -8959,8 +8988,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: vec![pad("1", -1.0, 0.0, Some(9)), pad("2", 1.0, 0.0, None)],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 6,
             net: 9,
@@ -8969,16 +8999,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 7,
             net: 9,
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
             name: None,
@@ -9096,8 +9128,9 @@ mod tests {
             rotation: 90.0,
             locked: None,
             pads: vec![pad("1", -1.0, 0.0, None), pad("2", 1.0, 0.0, Some(9))],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 4,
             component: 2,
@@ -9105,8 +9138,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: vec![pad("1", 0.0, 0.0, Some(5)), pad("2", 2.0, 0.0, Some(9))],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         let text = ipc356_netlist(&project)?;
         let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
         assert_eq!(lines.len(), 4, "one line per pad");
@@ -9148,8 +9182,9 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9227,8 +9262,9 @@ mod tests {
             width: 0.2,
             layer: pcbcraft_doc::Layer::Front,
             arc: Some(Point::new(15.0, 12.0)),
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let board = kicad_board(&project)?;
         assert!(
@@ -9269,16 +9305,18 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 11,
             net: 7,
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
             layer: "board".into(),
@@ -9889,10 +9927,7 @@ mod tests {
             "legacy_segment_tag",
             "legacy_zone_tag",
         ] {
-            assert!(
-                text.contains(token),
-                "export must preserve {token}"
-            );
+            assert!(text.contains(token), "export must preserve {token}");
         }
         Ok(())
     }
@@ -9901,10 +9936,7 @@ mod tests {
     fn board_import_malformed_refuses_with_line_number() -> Result<(), String> {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
         let err = read_board_interchange(text).expect_err("truncated segment");
-        assert!(
-            err.contains("line"),
-            "expected a line number in {err:?}"
-        );
+        assert!(err.contains("line"), "expected a line number in {err:?}");
         Ok(())
     }
 
@@ -10075,6 +10107,7 @@ mod tests {
                         geometry: Some(geometry("2", 1.0, back)),
                     },
                 ],
+                preserved: pcbcraft_doc::PreservedSource::default(),
             }
         };
         project.nets.push(pcbcraft_doc::Net {
@@ -10217,8 +10250,9 @@ mod tests {
                     geometry: Some(geometry_two),
                 },
             ],
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 21,
             net: 5,
@@ -10227,16 +10261,18 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 31,
             net: 5,
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
             position: Point::new(0.5, 0.5),
@@ -10389,8 +10425,9 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
         assert!(
@@ -11148,8 +11185,9 @@ mod tests {
             width: 0.25,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         Ok(project)
     }
@@ -11475,8 +11513,9 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads: placed,
-        
-        preserved: pcbcraft_doc::PreservedSource::default(),});
+
+            preserved: pcbcraft_doc::PreservedSource::default(),
+        });
         project.validate()?;
         Ok(project)
     }
