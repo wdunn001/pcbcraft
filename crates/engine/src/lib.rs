@@ -2033,30 +2033,24 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above"
-                if p.components.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} parts, over the limit of {} in \"{}\"",
-                            p.components.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            "via count above"
-                if p.board.vias.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} vias, over the limit of {} in \"{}\"",
-                            p.board.vias.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
+            "part count above" if p.components.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} parts, over the limit of {} in \"{}\"",
+                    p.components.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
+            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} vias, over the limit of {} in \"{}\"",
+                    p.board.vias.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -9795,11 +9789,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 written.push(name.clone());
             }
             let placement = pcbcraft_io::panel_placement_text(p)?;
-            pcbcraft_io::atomic_write(
-                &directory.join("panel-placement.txt"),
-                placement.as_bytes(),
-            )
-            .map_err(Error::Invalid)?;
+            pcbcraft_io::atomic_write(&directory.join("panel-placement.txt"), placement.as_bytes())
+                .map_err(Error::Invalid)?;
             written.push("panel-placement.txt".into());
             written.sort();
             Ok(json!({"directory": a.directory, "files": written}))
@@ -9828,8 +9819,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(thickness) = a.thickness {
                 p.board.thickness = thickness;
             }
-            if let Some(er) = a.er {
-            }
+            if let Some(er) = a.er {}
             Ok(json!({"thickness": p.board.thickness, "er": p.board.er}))
         }
         "board.set_drill_origin" => {
@@ -17058,8 +17048,8 @@ mod tests {
     #[test]
     fn panel_two_by_two_sample_board_drill_and_placement() -> Result<(), Error> {
         let s = sample_two_by_two_panel()?;
-        let board_drill = pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?["pcb-Drill.drl"]
-            .clone();
+        let board_drill =
+            pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?["pcb-Drill.drl"].clone();
         let board_hits = pcbcraft_io::panel::count_excellon_hits(&board_drill);
         let files = pcbcraft_io::panel_fabrication_files(&s.project).map_err(Error::Invalid)?;
         let panel_drill = files
@@ -17078,8 +17068,7 @@ mod tests {
             panel_hits >= board_hits.saturating_mul(4) + 4,
             "panel drill carries four board copies plus tooling (board {board_hits}, panel {panel_hits})"
         );
-        let placement =
-            pcbcraft_io::panel_placement_text(&s.project).map_err(Error::Invalid)?;
+        let placement = pcbcraft_io::panel_placement_text(&s.project).map_err(Error::Invalid)?;
         for reference in ["J1", "R1", "D1"] {
             for index in 1..=4 {
                 let token = format!("\"{reference}_{index}\"");

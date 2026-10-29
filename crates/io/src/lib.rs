@@ -15,8 +15,8 @@ pub use board_mesh::{
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use gerber::gerber_copper;
-pub use panel::{panel_fabrication_files, panel_placement_text};
 use library_render::*;
+pub use panel::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;

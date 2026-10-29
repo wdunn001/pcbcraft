@@ -1,8 +1,8 @@
 //! Manufacturing panel fabrication: duplicated board geometry, rails, breakaway
 //! and tooling drills, panel fiducials, and per-copy pick-and-place rows.
 use pcbcraft_doc::{
-    panel_layout, Board, CopperZone, Cutout, Footprint, Hole, PanelCopyLayout, PanelLayout,
-    PanelSeparation, PanelSettings, Project, Track, Via,
+    Board, CopperZone, Cutout, Footprint, Hole, PanelCopyLayout, PanelLayout, PanelSeparation,
+    PanelSettings, Project, Track, Via, panel_layout,
 };
 use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
@@ -53,11 +53,7 @@ fn translate_via(v: &Via, dx: f64, dy: f64, copy_index: usize) -> Via {
 fn translate_zone(z: &CopperZone, dx: f64, dy: f64, copy_index: usize) -> CopperZone {
     CopperZone {
         id: remap_id(z.id, copy_index),
-        outline: z
-            .outline
-            .iter()
-            .map(|p| offset_point(*p, dx, dy))
-            .collect(),
+        outline: z.outline.iter().map(|p| offset_point(*p, dx, dy)).collect(),
         cutouts: z
             .cutouts
             .iter()
@@ -116,13 +112,19 @@ pub fn panel_merged_project(p: &Project, layout: &PanelLayout) -> Result<Project
     };
     for (copy_index, copy) in layout.copies.iter().enumerate() {
         for t in &board.tracks {
-            out.board.tracks.push(translate_track(t, copy.x, copy.y, copy_index));
+            out.board
+                .tracks
+                .push(translate_track(t, copy.x, copy.y, copy_index));
         }
         for v in &board.vias {
-            out.board.vias.push(translate_via(v, copy.x, copy.y, copy_index));
+            out.board
+                .vias
+                .push(translate_via(v, copy.x, copy.y, copy_index));
         }
         for z in &board.zones {
-            out.board.zones.push(translate_zone(z, copy.x, copy.y, copy_index));
+            out.board
+                .zones
+                .push(translate_zone(z, copy.x, copy.y, copy_index));
         }
         for f in &board.footprints {
             out.board
@@ -231,11 +233,7 @@ fn panel_fiducial_centers(layout: &PanelLayout) -> [(f64, f64); 3] {
     let w = layout.panel_width;
     let h = layout.panel_height;
     let inset = EDGE_INSET_MM;
-    [
-        (inset, inset),
-        (w - inset, inset),
-        (inset, h - inset),
-    ]
+    [(inset, inset), (w - inset, inset), (inset, h - inset)]
 }
 
 fn inject_gerber_x2_part_array(text: &str) -> String {
@@ -250,17 +248,17 @@ fn inject_gerber_x2_part_array(text: &str) -> String {
     format!("{}\n", lines.join("\n"))
 }
 
-fn inject_fiducial_flashes(front: &str, layout: &PanelLayout, scale: f64) -> Result<String, String> {
+fn inject_fiducial_flashes(
+    front: &str,
+    layout: &PanelLayout,
+    scale: f64,
+) -> Result<String, String> {
     let d = PANEL_FIDUCIAL_MM;
     let ap_line = format!("%ADD99C,{:.6}*%\n", d * scale);
     let attr = "%TA.AperFunction,FiducialPad,Panel*%\n";
     let mut body = String::new();
     for (x, y) in panel_fiducial_centers(layout) {
-        body.push_str(&format!(
-            "D99X{:.6}Y{:.6}D03*\n",
-            x * scale,
-            y * scale
-        ));
+        body.push_str(&format!("D99X{:.6}Y{:.6}D03*\n", x * scale, y * scale));
     }
     if front.contains("%ADD99C,") {
         return Ok(format!("{front}{body}"));
@@ -338,12 +336,14 @@ fn append_mechanical_drills(
     Ok(format!("{header}{tool_defs}{rest}{body}{tail}"))
 }
 
-fn copy_edge_points(p: &Project, copy: &PanelCopyLayout, board_w: f64, board_h: f64) -> Vec<(f64, f64)> {
+fn copy_edge_points(
+    p: &Project,
+    copy: &PanelCopyLayout,
+    board_w: f64,
+    board_h: f64,
+) -> Vec<(f64, f64)> {
     match &p.board.outline {
-        Some(o) => o
-            .iter()
-            .map(|pt| (pt.x + copy.x, pt.y + copy.y))
-            .collect(),
+        Some(o) => o.iter().map(|pt| (pt.x + copy.x, pt.y + copy.y)).collect(),
         None => vec![
             (copy.x, copy.y),
             (copy.x + board_w, copy.y),
@@ -353,12 +353,7 @@ fn copy_edge_points(p: &Project, copy: &PanelCopyLayout, board_w: f64, board_h: 
     }
 }
 
-fn append_copy_outlines(
-    edge: &str,
-    p: &Project,
-    layout: &PanelLayout,
-    scale: f64,
-) -> String {
+fn append_copy_outlines(edge: &str, p: &Project, layout: &PanelLayout, scale: f64) -> String {
     let marker = "M02*\n";
     let Some(idx) = edge.find(marker) else {
         return edge.to_string();
@@ -379,11 +374,7 @@ fn append_copy_outlines(
             ));
         }
         if let Some((x, y)) = pts.first() {
-            extra.push_str(&format!(
-                "X{:.6}Y{:.6}D01*\n",
-                x * scale,
-                y * scale
-            ));
+            extra.push_str(&format!("X{:.6}Y{:.6}D01*\n", x * scale, y * scale));
         }
     }
     format!("{}{}{}", &edge[..idx], extra, &edge[idx..])
@@ -460,10 +451,7 @@ pub fn panel_fabrication_files(p: &Project) -> Result<BTreeMap<String, String>, 
         );
     }
     if settings.separation == PanelSeparation::VScore {
-        files.insert(
-            "panel-Vcut.gbr".into(),
-            vcut_gerber(&layout, scale),
-        );
+        files.insert("panel-Vcut.gbr".into(), vcut_gerber(&layout, scale));
     }
     Ok(files)
 }
