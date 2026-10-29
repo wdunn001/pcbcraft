@@ -11,6 +11,7 @@
 //! - docs/doc-standard.md
 //! - crates/text/strings/en.txt
 //! - xtask/doc-ratchet.toml
+//! - xtask/src/guide_reference.rs
 //! - xtask/src/main.rs
 //!
 //! # Do not
@@ -313,13 +314,13 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
             errors.push(format!("1: front matter is missing `{key}`"));
         }
     }
-    if let Some(kind) = page.front.get("kind") {
-        if !KINDS.contains(&kind.as_str()) {
-            errors.push(format!(
-                "1: kind `{kind}` must be one of {}",
-                KINDS.join(", ")
-            ));
-        }
+    if let Some(kind) = page.front.get("kind")
+        && !KINDS.contains(&kind.as_str())
+    {
+        errors.push(format!(
+            "1: kind `{kind}` must be one of {}",
+            KINDS.join(", ")
+        ));
     }
     let mut shots_used = 0usize;
     let front_shots: Vec<String> = page
@@ -334,6 +335,7 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
         })
         .unwrap_or_default();
     shots_used += front_shots.len();
+    let generated = page.front.get("kind").is_some_and(|k| k == "reference");
     let banned = banned_names();
     for (n, line) in prose_lines(&page) {
         for key in directives(line) {
@@ -353,10 +355,10 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
         }
         for id in shot_refs(line) {
             shots_used += 1;
-            if let Some(known) = ctx.shots {
-                if !known.contains(&id) {
-                    errors.push(format!("{n}: shot `{id}` is not in {CATALOG_FILE}"));
-                }
+            if let Some(known) = ctx.shots
+                && !known.contains(&id)
+            {
+                errors.push(format!("{n}: shot `{id}` is not in {CATALOG_FILE}"));
             }
         }
         if line.contains('\u{2014}') || line.contains('\u{2013}') {
@@ -370,7 +372,7 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
                 errors.push(format!("{n}: do not name other design tools"));
             }
         }
-        if !line.trim_start().starts_with('#') {
+        if !generated && !line.trim_start().starts_with('#') {
             for (words, sentence) in long_sentences(line) {
                 errors.push(format!(
                     "{n}: sentence has {words} words, the limit is {MAX_WORDS}: {sentence}"
@@ -390,7 +392,7 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
             }
         }
     }
-    if shots_used == 0 {
+    if shots_used == 0 && !generated {
         errors.push("1: page needs at least one shot".into());
     }
     errors
@@ -564,10 +566,10 @@ fn read_allowed(text: &str) -> Option<u64> {
         let t = line.trim();
         if t.starts_with('[') {
             in_section = t == "[guide_coverage]";
-        } else if let (true, Some((k, v))) = (in_section, t.split_once('=')) {
-            if k.trim() == "unmentioned" {
-                return v.trim().parse().ok();
-            }
+        } else if let (true, Some((k, v))) = (in_section, t.split_once('='))
+            && k.trim() == "unmentioned"
+        {
+            return v.trim().parse().ok();
         }
     }
     None
@@ -607,7 +609,7 @@ fn md_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
 pub fn run(args: &[String]) -> Result<(), String> {
     let root = crate::root()?;
     let (entries, _) = pcbcraft_text::parse(pcbcraft_text::ENGLISH);
-    let keys: BTreeMap<String, String> = entries.into_iter().collect();
+    let keys: BTreeMap<String, String> = entries.iter().cloned().collect();
     let catalog = std::fs::read_to_string(root.join(CATALOG_FILE))
         .ok()
         .map(|t| catalog_ids(&t));
@@ -626,6 +628,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
         exists: &exists,
         anchors: &anchors,
     };
+    let reference =
+        crate::guide_reference::generate(&entries, &crate::guide_reference::load_commands());
+    if args.iter().any(|a| a == "--write-reference") {
+        for (path, text) in &reference {
+            std::fs::write(root.join(path), text).map_err(|e| format!("{path}: {e}"))?;
+        }
+        println!("wrote {} reference page(s)", reference.len());
+    }
     let mut files = Vec::new();
     md_files(&root.join(GUIDE_DIR), &mut files)?;
     files.sort();
@@ -654,6 +664,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let index_text =
         std::fs::read_to_string(root.join(INDEX_FILE)).map_err(|e| format!("{INDEX_FILE}: {e}"))?;
+    errors.extend(crate::guide_reference::check_fresh(&reference, &|p| {
+        std::fs::read_to_string(root.join(p)).ok()
+    }));
     errors.extend(check_index(&parse_index(&index_text)?, &on_disk));
     let gap = coverage_gap(&keys, &mentioned);
     let ratchet_path = root.join(RATCHET_FILE);

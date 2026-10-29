@@ -12,7 +12,7 @@ pages = []
 [[section]]
 dir = "reference"
 title = "Reference"
-pages = []
+pages = ["menus", "tools", "shortcuts", "checks", "settings", "commands"]
 
 [[section]]
 dir = "concepts"

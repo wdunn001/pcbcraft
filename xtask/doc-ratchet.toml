@@ -21,4 +21,4 @@ commands = true
 
 # Menu, tool and tab labels that no guide page mentions yet. Lower it as pages land.
 [guide_coverage]
-unmentioned = 55
+unmentioned = 0
