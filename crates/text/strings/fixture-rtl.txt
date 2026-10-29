@@ -1,0 +1,10 @@
+# Test-only pseudo right-to-left language. Latin letters in reverse order,
+# wrapped in marks, so a screenshot shows the language changed.
+language.name = Pseudo RTL
+language.direction = rtl
+menu.file = << eliF >>
+menu.settings = << sgnitteS >>
+menu.settings.language = << egaugnaL >>
+menu.edit = << tidE >>
+menu.help = << pleH >>
+app.home = << emoH >>
