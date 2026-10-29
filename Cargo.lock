@@ -1748,6 +1748,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcbcraft-assistant"
+version = "0.1.0"
+dependencies = [
+ "pcbcraft-engine",
+ "pcbcraft-mcp",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pcbcraft-cli"
 version = "0.1.0"
 dependencies = [

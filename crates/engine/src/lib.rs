@@ -291,6 +291,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "part.attach_source",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            schema(
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
+                &["id", "manufacturer", "mpn"],
+            ),
+        ),
+        (
             "component.field",
             "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
             schema(
@@ -1355,6 +1363,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"outer copper pad diameter in millimetres"},"drill":{"type":"number","minimum":0,"description":"drilled hole diameter in millimetres; keeps the current drill when omitted"}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "via.set_covering",
+            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
+            schema(
+                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "board.set_via_covering_default",
+            "Set the covering every via follows unless it has its own: open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered or filled_capped",
+            schema(
+                json!({"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["covering"],
             ),
         ),
         (
@@ -3999,6 +4023,59 @@ struct FindParams {
     #[serde(flatten)]
     filter: ComponentFilter,
 }
+/// Set (or clear, when `value` is `None`) one named property on a component.
+/// Returns whether the property is set afterwards.
+fn set_component_field(
+    component: &mut Component,
+    key: &str,
+    value: Option<&str>,
+) -> Result<bool, Error> {
+    if key.is_empty() || key.len() > 64 {
+        return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
+    }
+    if value.is_some_and(|v| v.len() > 256) {
+        return Err(Error::Invalid(
+            "field value must be at most 256 bytes".into(),
+        ));
+    }
+    let existing = component.fields.iter().position(|f| f.key == key);
+    match (value, existing) {
+        (Some(value), Some(index)) => {
+            component.fields[index].value = value.to_string();
+            Ok(true)
+        }
+        (Some(value), None) => {
+            if component.fields.len() >= 32 {
+                return Err(Error::Invalid(
+                    "a component carries at most 32 fields".into(),
+                ));
+            }
+            component.fields.push(ComponentField {
+                key: key.to_string(),
+                value: value.to_string(),
+            });
+            Ok(true)
+        }
+        (None, Some(index)) => {
+            component.fields.remove(index);
+            Ok(false)
+        }
+        (None, None) => Err(Error::Invalid("component has no such field".into())),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttachSourceParams {
+    id: Id,
+    manufacturer: String,
+    mpn: String,
+    #[serde(default)]
+    datasheet: String,
+    #[serde(default)]
+    distributor: String,
+    #[serde(default)]
+    sku: String,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FieldParams {
@@ -4185,6 +4262,18 @@ struct TrackEndParams {
 enum TrackEnd {
     Start,
     End,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringParams {
+    id: Id,
+    #[serde(default)]
+    covering: Option<pcbcraft_doc::ViaCovering>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringDefaultParams {
+    covering: pcbcraft_doc::ViaCovering,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6677,46 +6766,60 @@ fn run_command(
         }
         "component.field" => {
             let a: FieldParams = parse(params)?;
-            if a.key.is_empty() || a.key.len() > 64 {
-                return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
-            }
-            if a.value.as_ref().is_some_and(|v| v.len() > 256) {
-                return Err(Error::Invalid(
-                    "field value must be at most 256 bytes".into(),
-                ));
-            }
             let component = p
                 .components
                 .iter_mut()
                 .find(|c| c.id == a.id)
                 .ok_or_else(missing)?;
-            let existing = component.fields.iter().position(|f| f.key == a.key);
-            let set = match (&a.value, existing) {
-                (Some(value), Some(index)) => {
-                    component.fields[index].value = value.clone();
-                    true
-                }
-                (Some(value), None) => {
-                    if component.fields.len() >= 32 {
-                        return Err(Error::Invalid(
-                            "a component carries at most 32 fields".into(),
-                        ));
-                    }
-                    component.fields.push(ComponentField {
-                        key: a.key.clone(),
-                        value: value.clone(),
-                    });
-                    true
-                }
-                (None, Some(index)) => {
-                    component.fields.remove(index);
-                    false
-                }
-                (None, None) => {
-                    return Err(Error::Invalid("component has no such field".into()));
-                }
-            };
+            let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "part.attach_source" => {
+            let a: AttachSourceParams = parse(params)?;
+            let bounded = |name: &str, v: &str, max: usize| -> Result<(), Error> {
+                if v.len() > max || v.chars().any(char::is_control) {
+                    return Err(Error::Invalid(format!(
+                        "{name} must be at most {max} bytes without control characters"
+                    )));
+                }
+                Ok(())
+            };
+            if a.manufacturer.trim().is_empty() || a.mpn.trim().is_empty() {
+                return Err(Error::Invalid(
+                    "a source part needs a manufacturer and a part number".into(),
+                ));
+            }
+            bounded("manufacturer", &a.manufacturer, 256)?;
+            bounded("mpn", &a.mpn, 256)?;
+            bounded("datasheet", &a.datasheet, 256)?;
+            bounded("distributor", &a.distributor, 48)?;
+            bounded("sku", &a.sku, 256)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut written: Vec<String> = vec![];
+            let mut put = |key: String, value: &str| -> Result<(), Error> {
+                if value.is_empty() {
+                    return Ok(());
+                }
+                set_component_field(component, &key, Some(value))?;
+                written.push(key);
+                Ok(())
+            };
+            put("Manufacturer".into(), a.manufacturer.trim())?;
+            put("MPN".into(), a.mpn.trim())?;
+            put("Datasheet".into(), &a.datasheet)?;
+            if !a.sku.is_empty() {
+                let key = if a.distributor.trim().is_empty() {
+                    "SKU".to_string()
+                } else {
+                    format!("{} SKU", a.distributor.trim())
+                };
+                put(key, &a.sku)?;
+            }
+            Ok(json!({"id": a.id, "fields": written}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -10896,6 +10999,7 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -10971,6 +11075,7 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        covering: None,
                     });
                     ids.push(id);
                 }
@@ -15136,6 +15241,30 @@ fn run_command(
                 "position": *moved,
             }))
         }
+        "via.set_covering" => {
+            let a: ViaCoveringParams = parse(params)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            if via.drill <= 0.0
+                && a.covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                ));
+            }
+            via.covering = a.covering;
+            Ok(json!({"id":a.id,"covering":via.covering}))
+        }
+        "board.set_via_covering_default" => {
+            let a: ViaCoveringDefaultParams = parse(params)?;
+            p.board.via_covering_default = a.covering;
+            Ok(json!({"covering":p.board.via_covering_default}))
+        }
         "via.set_size" => {
             let a: ViaSizeParams = parse(params)?;
             if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
@@ -15153,6 +15282,15 @@ fn run_command(
             if !drill.is_finite() || drill < 0.0 || drill >= a.diameter {
                 return Err(Error::Invalid(
                     "via drill must be smaller than its pad".into(),
+                ));
+            }
+            if drill <= 0.0
+                && via
+                    .covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a tented, plugged or filled via needs a drilled hole".into(),
                 ));
             }
             via.diameter = a.diameter;
@@ -23371,6 +23509,96 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn via_covering_commands_set_default_and_override_with_bounds() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("net id".into()))?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        s.execute(
+            "board.set_via_covering_default",
+            json!({"covering":"tented"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.via_covering_default,
+            pcbcraft_doc::ViaCovering::Tented
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"filled_capped"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.vias[0].covering,
+            Some(pcbcraft_doc::ViaCovering::FilledCapped)
+        );
+        s.execute("via.set_covering", json!({"id":via}), None)?;
+        assert_eq!(
+            s.project.board.vias[0].covering, None,
+            "omitted follows the default"
+        );
+        let before = s.inspect();
+        for (command, params) in [
+            ("via.set_covering", json!({"id":via,"covering":"glued"})),
+            ("via.set_covering", json!({"id":9999,"covering":"tented"})),
+            (
+                "board.set_via_covering_default",
+                json!({"covering":"glued"}),
+            ),
+            ("board.set_via_covering_default", json!({})),
+        ] {
+            assert!(
+                s.execute(command, params, None).is_err(),
+                "{command} must refuse"
+            );
+        }
+        assert_eq!(
+            s.inspect(),
+            before,
+            "refused commands leave the design untouched"
+        );
+        let blind = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":9.0,"y":5.0},"diameter":0.6,"drill":0.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        assert!(
+            s.execute(
+                "via.set_covering",
+                json!({"id":blind,"covering":"plugged"}),
+                None
+            )
+            .is_err(),
+            "a via with no drilled hole cannot be plugged"
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"plugged"}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "via.set_size",
+                json!({"id":via,"diameter":0.6,"drill":0.0}),
+                None
+            )
+            .is_err(),
+            "removing the hole of a plugged via is refused"
+        );
+        s.undo()?;
+        Ok(())
+    }
+
+    #[test]
     fn failed_batch_is_atomic_and_stale_edits_reject() {
         let mut s = Session::default();
         let before = s.inspect();
@@ -23818,6 +24046,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn sheet_parent_records_refuse_cycles_and_missing_parents() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let child =
@@ -24244,6 +24473,46 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn part_attach_source_sets_manufacturer_and_mpn_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        s.execute(
+            "part.attach_source",
+            json!({"id":r1,"manufacturer":"Example Components","mpn":"SAMPLE-R-10K","datasheet":"https://example.invalid/d.pdf","distributor":"Sample Shop","sku":"SS-1"}),
+            None,
+        )?;
+        let after = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        assert_eq!(after, before + 1, "one undo step");
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(c.field("Manufacturer"), Some("Example Components"));
+        assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
+        assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
+        assert!(
+            s.execute(
+                "part.attach_source",
+                json!({"id":r1,"manufacturer":"","mpn":"x"}),
+                None
+            )
+            .is_err()
+        );
+        s.undo()?;
+        assert!(
+            s.project
+                .component(r1)
+                .ok_or_else(missing)?
+                .fields
+                .is_empty()
+        );
+        Ok(())
+    }
     #[test]
     fn undo_branch_never_reuses_ids() {
         let mut s = Session::default();

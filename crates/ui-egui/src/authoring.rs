@@ -104,7 +104,7 @@ fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
         visible: true,
     }
 }
-fn new_pad(number: &str, x: f64) -> FootprintPad {
+pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
     FootprintPad {
         number: number.into(),
         pad_type: "thru_hole".into(),
@@ -438,10 +438,12 @@ impl App {
         }
         ui.separator();
         ui.heading("Footprints");
+        self.refresh_footprint_quality();
         for def in self.project.library.footprints.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(&def.name);
                 ui.label(format!("{} pads", def.pads.len()));
+                self.quality_badge(ui, &def.name);
                 if ui
                     .button("Edit")
                     .on_hover_text("Edit this definition in the panel below.")
@@ -723,9 +725,19 @@ impl App {
                                         "Plated through-hole",
                                     )
                                     .on_hover_text("Drilled and plated so legs can pass through.");
+                                    ui.selectable_value(
+                                        &mut pad.pad_type,
+                                        "unplated".into(),
+                                        "Unplated hole",
+                                    )
+                                    .on_hover_text(
+                                        "A bare drilled hole for a locating peg or screw. It has no copper and no net.",
+                                    );
                                 });
                             if before != pad.pad_type {
-                                if pad.pad_type == "thru_hole" {
+                                if pad.pad_type == "unplated" {
+                                    apply_unplated_defaults(pad);
+                                } else if pad.pad_type == "thru_hole" {
                                     pad.layers = vec!["*.Cu".into(), "*.Mask".into()];
                                     pad.drill = Some(Drill {
                                         size: Point::new(0.8, 0.8),
@@ -821,6 +833,19 @@ impl App {
             self.run(command, params);
         }
     }
+}
+
+/// Turn a library pad into an unplated mechanical hole: no number, no copper
+/// layers, zero copper size, and a drill that alone defines the hole.
+pub(crate) fn apply_unplated_defaults(pad: &mut pcbcraft_library::FootprintPad) {
+    pad.number.clear();
+    pad.layers.clear();
+    let size = pad.drill.as_ref().map_or(Point::new(1.0, 1.0), |d| d.size);
+    pad.size = Point::default();
+    pad.drill = Some(Drill {
+        size,
+        offset: Point::default(),
+    });
 }
 
 #[cfg(test)]
