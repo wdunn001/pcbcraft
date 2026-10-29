@@ -65,7 +65,10 @@ impl Mode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Verdict {
     /// Run it now; `change` is true when it edits the design (counts toward the turn limit).
-    Run { change: bool },
+    Run {
+        /// True when the call edits the design.
+        change: bool,
+    },
     /// Wait for the user; the text says why.
     Ask(String),
     /// Do not run it; the text is the reason given to the model.
