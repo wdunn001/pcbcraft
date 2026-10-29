@@ -1,0 +1,31 @@
+{
+  "SAMPLE-R-10K": {
+    "Category": "Chip Resistor - Surface Mount",
+    "Resistance": "10 kOhms",
+    "Tolerance": "±1%",
+    "Package / Case": "0603 (1608 Metric)",
+    "Voltage - Rated": "75 V",
+    "Power (Watts)": "0.1W",
+    "Operating Temperature": "-55°C ~ 155°C",
+    "Packaging": "Cut Tape (CT)",
+    "RoHS": "RoHS Compliant"
+  },
+  "ALT-R-10K": {
+    "Category": "Resistors",
+    "Resistance": "10k",
+    "Tolerance": "+/-1 %",
+    "Package": "1608 Metric",
+    "Rated Voltage": "75V"
+  },
+  "SAMPLE-C-100N": {
+    "Category": "Ceramic Capacitors",
+    "Capacitance": "100 nF",
+    "Tolerance": "+80%, -20%",
+    "Package / Case": "0402 metric",
+    "Voltage - Rated": "16 V",
+    "Stock": "In stock"
+  },
+  "BARE-PART": {
+    "Category": "Mystery parts"
+  }
+}
