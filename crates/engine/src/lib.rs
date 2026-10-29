@@ -12593,17 +12593,24 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             "the repeated layout would move a footprint out of range".into(),
                         ));
                     }
+                    let target_foot_id = p
+                        .board
+                        .footprints
+                        .iter()
+                        .find(|f| f.component == target_part_id)
+                        .ok_or_else(missing)?
+                        .id;
+                    if footprint_locked(p, target_foot_id) {
+                        return Err(Error::Invalid(
+                            "a target footprint is locked against placement changes".into(),
+                        ));
+                    }
                     let target_foot = p
                         .board
                         .footprints
                         .iter_mut()
                         .find(|f| f.component == target_part_id)
                         .ok_or_else(missing)?;
-                    if footprint_locked(p, target_foot.id) {
-                        return Err(Error::Invalid(
-                            "a target footprint is locked against placement changes".into(),
-                        ));
-                    }
                     target_foot.position = want;
                     target_foot.rotation = rotation;
                 }

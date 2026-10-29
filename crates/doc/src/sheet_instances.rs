@@ -2,7 +2,7 @@
 
 use crate::{
     Component, ComponentField, DrawnWire, Id, Label, MAX_ITEMS, Net, Pin, PinRef, Point, Project,
-    Sheet, Wire,
+    Wire,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -408,7 +408,7 @@ pub fn validate_sheet_instances(project: &Project) -> Result<(), String> {
 #[cfg(test)]
 mod sheet_instance_tests {
     use super::*;
-    use crate::{Pin, Project};
+    use crate::{Pin, Project, Sheet};
 
     fn two_resistor_template() -> (Project, Id, Id, Id) {
         let mut p = Project::default();
