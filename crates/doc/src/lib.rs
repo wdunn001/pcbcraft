@@ -2182,6 +2182,8 @@ pub fn component_template(
         library_footprint: None,
         fields: vec![],
         sheet: 0,
+        instance: None,
+        prototype: None,
         pins: names
             .iter()
             .enumerate()
@@ -3824,6 +3826,8 @@ pub fn library_component(
         units,
         fields: vec![],
         sheet: 0,
+        instance: None,
+        prototype: None,
         library_symbol: Some(LibrarySymbol {
             library,
             unit: 1,
