@@ -99,7 +99,9 @@
               "length": 1.27,
               "electrical_type": "passive",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "2",
@@ -112,7 +114,9 @@
               "length": 1.27,
               "electrical_type": "passive",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             }
           ],
           "graphics": [
@@ -331,7 +335,9 @@
               "length": 2.794,
               "electrical_type": "passive",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             },
             {
               "number": "2",
@@ -344,7 +350,9 @@
               "length": 2.794,
               "electrical_type": "passive",
               "unit": 1,
-              "body_style": 1
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
             }
           ],
           "graphics": [
@@ -550,6 +558,16 @@
     }
   ],
   "net_classes": [],
+  "panel": {
+    "enabled": false,
+    "columns": 1,
+    "rows": 1,
+    "pitch_x": 0.0,
+    "pitch_y": 0.0,
+    "rail": 5.0,
+    "separation": "tab",
+    "tab_channel": 1.8
+  },
   "wires": [
     {
       "id": 8,

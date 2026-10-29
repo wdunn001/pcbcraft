@@ -1,5 +1,11 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
+mod document_hub;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http;
+mod prompts;
+mod resources;
 use base64::Engine as _;
+pub use document_hub::DocumentHub;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -10,6 +16,8 @@ use std::sync::{Arc, Mutex};
 
 pub type SharedSession = Arc<Mutex<Session>>;
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
+/// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
+pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
     Arc::new(Mutex::new(session))
 }
@@ -52,15 +60,19 @@ pub fn tool_list() -> Value {
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
+        json!({"name":"design.list_open","description":"List every design session open in the desktop app, with path, name, revision and dirty state","inputSchema":object(json!({}),&[])}),
+        json!({"name":"design.activate","description":"Switch the active design session by zero-based index or by filesystem path","inputSchema":object(json!({"index":{"type":"integer","minimum":0},"path":{"type":"string"}}),&[])}),
         json!({"name":"library.sources","description":"List every library location the unified browser reads: folders the user added and installed locations, each with collection counts","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
+        json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
         json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
+        json!({"name":"dry_run","description":"Preview 1–128 commands on a copy: returns each result and a summary of what would be added, removed, moved or changed. Nothing is applied and the revision does not change","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"undo","description":"Undo one transaction","inputSchema":object(json!({}),&[])}),
         json!({"name":"redo","description":"Redo one transaction","inputSchema":object(json!({}),&[])}),
         json!({"name":"new_design","description":"Replace the project with a new empty one; replacement is undoable","inputSchema":object(json!({}),&[])}),
@@ -75,12 +87,100 @@ pub fn tool_list() -> Value {
             json!({"name":spec.id,"description":spec.description,"inputSchema":spec.input_schema}),
         );
     }
+    for tool in &mut tools {
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        tool["title"] = json!(title_for(&name));
+        tool["annotations"] = annotations_for(&name);
+    }
     json!({"tools":tools})
 }
-fn text_result(value: Value) -> Value {
+
+/// Which family a tool belongs to, for its client-facing hints.
+#[derive(PartialEq)]
+enum ToolKind {
+    ReadOnly,
+    WritesFiles,
+    DiscardsState,
+    EditsDesign,
+}
+
+fn tool_kind(name: &str) -> ToolKind {
+    const READ_ONLY: [&str; 14] = [
+        "inspect_design",
+        "list_commands",
+        "checks",
+        "board_mesh",
+        "screenshot",
+        "library.catalog",
+        "library.search",
+        "library.inspect_symbol",
+        "library.inspect_footprint",
+        "library.compare",
+        "library.sources",
+        "design.recents",
+        "design.list_open",
+        "design.activate",
+    ];
+    if READ_ONLY.contains(&name) {
+        ToolKind::ReadOnly
+    } else if ["new_design", "sample_design", "open"].contains(&name) {
+        ToolKind::DiscardsState
+    } else if name.ends_with(".write")
+        || name.ends_with(".export")
+        || name.starts_with("export_")
+        || name.starts_with("library.export_")
+        || ["export", "save", "library.save", "output_job.package"].contains(&name)
+    {
+        ToolKind::WritesFiles
+    } else {
+        ToolKind::EditsDesign
+    }
+}
+
+/// The four MCP behaviour hints for one tool, so a client can decide when to ask first.
+///
+/// Read-only tools never change the design. File writers change nothing in the
+/// project but replace files on the host. Tools that replace the whole design are
+/// marked destructive. Every other edit is undoable, so it is not destructive.
+///
+/// # Rules
+/// The table lives here only; `docs/mcp.md` section "Tool hints" describes it.
+///
+/// # Dependencies
+/// `crates/mcp/src/lib.rs` (`tool_list` applies it to every listed tool).
+///
+/// # Do not
+/// Do not add a name to the read-only list unless the tool leaves the revision unchanged.
+fn annotations_for(name: &str) -> Value {
+    let (read_only, destructive, idempotent) = match tool_kind(name) {
+        ToolKind::ReadOnly => (true, false, true),
+        ToolKind::WritesFiles => (false, false, true),
+        ToolKind::DiscardsState => (false, true, false),
+        ToolKind::EditsDesign => (false, false, false),
+    };
+    json!({"readOnlyHint":read_only,"destructiveHint":destructive,"idempotentHint":idempotent,"openWorldHint":false})
+}
+
+/// A short display name: dots and underscores become spaces, first letter capitalized.
+///
+/// # Do not
+/// Do not put a rule here; a title is display text only.
+fn title_for(name: &str) -> String {
+    let spaced = name.replace(['.', '_'], " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+pub(crate) fn text_result(value: Value) -> Value {
     json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
 }
-fn error_result(error: String) -> Value {
+pub(crate) fn error_result(error: String) -> Value {
     json!({"content":[{"type":"text","text":error}],"isError":true})
 }
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
@@ -112,15 +212,45 @@ fn revision(args: &Value) -> Result<Option<u64>, String> {
 }
 
 pub fn call_tool(session: &SharedSession, name: &str, args: &Value) -> Value {
-    match invoke(session, name, args) {
+    match invoke_session(session, name, args) {
         Ok(v) => v,
         Err(e) => error_result(e),
     }
 }
-fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, String> {
+/// Check a tool call's arguments against the tool's schema, and for `execute` and `batch` each
+/// command's parameters against that command's schema, without running anything. The assistant
+/// gate uses it to refuse a malformed call with the engine's own reason.
+pub fn check_args(name: &str, args: &Value) -> Result<(), String> {
     if !args.is_object() {
         return Err("arguments must be an object".into());
     }
+    validate_tool_schema(name, args)?;
+    let one = |command: &Value| -> Result<(), String> {
+        let id = command.get("command").and_then(Value::as_str).unwrap_or("");
+        let spec = pcbcraft_engine::commands()
+            .into_iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| format!("unknown command: {id}"))?;
+        let params = command.get("params").cloned().unwrap_or(json!({}));
+        validate_schema(&params, &spec.input_schema, &format!("{id} params"))
+    };
+    match name {
+        "execute" => one(args)?,
+        "batch" | "dry_run" => {
+            for command in args
+                .get("commands")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                one(command)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+pub(crate) fn validate_tool_schema(name: &str, args: &Value) -> Result<(), String> {
     let tools = tool_list();
     let schema = tools
         .get("tools")
@@ -131,7 +261,20 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         })
         .and_then(|tool| tool.get("inputSchema"))
         .ok_or("unknown tool")?;
-    validate_schema(args, schema, "arguments")?;
+    validate_schema(args, schema, "arguments")
+}
+pub(crate) fn invoke_session(
+    session: &SharedSession,
+    name: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    if !args.is_object() {
+        return Err("arguments must be an object".into());
+    }
+    validate_tool_schema(name, args)?;
+    if matches!(name, "design.list_open" | "design.activate") {
+        return Err("multi-document tools require the desktop control bridge".into());
+    }
     if [
         "design.recents",
         "library.catalog",
@@ -423,6 +566,18 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
             json!({"commands":pcbcraft_engine::commands(),"units":"millimetres and degrees"})
         }
         "inspect_design" => s.inspect(),
+        "board_mesh" => {
+            let layers: Option<Vec<String>> = match args.get("layers") {
+                Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| e.to_string())?),
+                None => None,
+            };
+            let geometry = args
+                .get("geometry")
+                .and_then(Value::as_bool)
+                .unwrap_or(true);
+            s.board_mesh(layers.as_deref(), geometry)
+                .map_err(|e| e.to_string())?
+        }
         "checks" => {
             let report = s.checks();
             if args
@@ -469,6 +624,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                     .map_err(|e| e.to_string())?;
             s.batch(&commands, revision(args)?)
                 .map_err(|e| e.to_string())?
+        }
+        "dry_run" => {
+            let commands: Vec<Command> =
+                serde_json::from_value(args.get("commands").cloned().ok_or("missing commands")?)
+                    .map_err(|e| e.to_string())?;
+            let preview = s
+                .dry_run(&commands, revision(args)?)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(preview).map_err(|e| e.to_string())?
         }
         "undo" => s.undo().map_err(|e| e.to_string())?,
         "redo" => s.redo().map_err(|e| e.to_string())?,
@@ -599,7 +763,7 @@ fn validate_schema(value: &Value, schema: &Value, path: &str) -> Result<(), Stri
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-pub fn handle_rpc(session: &SharedSession, request: Value, connect: Option<&str>) -> Option<Value> {
+pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
@@ -643,12 +807,12 @@ pub fn handle_rpc(session: &SharedSession, request: Value, connect: Option<&str>
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or("2025-11-25");
-            let version = if ["2025-11-25", "2025-06-18", "2024-11-05"].contains(&requested) {
+            let version = if SUPPORTED_VERSIONS.contains(&requested) {
                 requested
             } else {
                 "2025-11-25"
             };
-            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
+            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"prompts":{"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
         }
         "ping" => json!({}),
         "tools/list" => tool_list(),
@@ -681,7 +845,36 @@ pub fn handle_rpc(session: &SharedSession, request: Value, connect: Option<&str>
                     error_result("live bridge is unavailable in browser builds".into())
                 }
             } else {
-                call_tool(session, name, &args)
+                hub.call_tool(name, &args)
+            }
+        }
+        "resources/list" => resources::list(),
+        "resources/templates/list" => resources::templates(),
+        "resources/read" => {
+            let Some(uri) = params.get("uri").and_then(Value::as_str) else {
+                return Some(rpc_error(id, -32602, "missing resource uri"));
+            };
+            match resources::read(hub, uri) {
+                Ok(value) => value,
+                Err(e) => {
+                    let mut reply = rpc_error(id, e.code, &e.message);
+                    if let Some(data) = e.data {
+                        reply["error"]["data"] = data;
+                    }
+                    return Some(reply);
+                }
+            }
+        }
+        "prompts/list" => prompts::list(),
+        "prompts/get" => {
+            let Some(name) = params.get("name").and_then(Value::as_str) else {
+                return Some(rpc_error(id, -32602, "missing prompt name"));
+            };
+            match prompts::get(name, params.get("arguments").unwrap_or(&Value::Null)) {
+                Ok(value) => value,
+                Err(prompts::PromptError(message)) => {
+                    return Some(rpc_error(id, -32602, &message));
+                }
             }
         }
         _ => return Some(rpc_error(id, -32601, "method not found")),
@@ -705,10 +898,22 @@ fn read_message(reader: &mut impl BufRead) -> Result<Option<String>, String> {
         .map(Some)
         .map_err(|e| e.to_string())
 }
+/// Run the stdio server loop: one JSON-RPC message per line in, one reply per request out.
+///
+/// # Rules
+/// Before a successful `initialize`, every request except `initialize` and `ping` gets
+/// -32002 "initialize the MCP session first" (lifecycle page of the 2025-11-25 spec).
+/// Notifications never get a reply. A failed `initialize` does not open the session.
+///
+/// # Dependencies
+/// `crates/mcp/src/lib.rs` (`handle_rpc`, `read_message`).
+///
+/// # Do not
+/// Do not gate `ping`. The HTTP transport in `http.rs` is stateless and does not use this gate.
 pub fn serve(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
-    session: &SharedSession,
+    hub: &DocumentHub,
     connect: Option<&str>,
 ) -> Result<(), String> {
     let mut initialized = false;
@@ -716,13 +921,13 @@ pub fn serve(
         let response = match serde_json::from_str::<Value>(&line) {
             Ok(request) => {
                 let method = request.get("method").and_then(Value::as_str);
-                if !initialized && method.is_some_and(|m| m.starts_with("tools/")) {
+                if !initialized && method.is_some_and(|m| m != "initialize" && m != "ping") {
                     request
                         .get("id")
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
                 } else {
                     let initialize = method == Some("initialize");
-                    let response = handle_rpc(session, request, connect);
+                    let response = handle_rpc(hub, request, connect);
                     if initialize && response.as_ref().is_some_and(|r| r.get("result").is_some()) {
                         initialized = true;
                     }
@@ -769,7 +974,7 @@ pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String> {
+pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     let listener = std::net::TcpListener::bind(loopback(address)?).map_err(|e| e.to_string())?;
     std::thread::Builder::new()
         .name("pcbcraft-control".into())
@@ -785,7 +990,7 @@ pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String>
                     let mut reader = BufReader::new(reader);
                     if let Ok(Some(line)) = read_message(&mut reader) {
                         let response = match serde_json::from_str(&line) {
-                            Ok(request) => handle_rpc(&session, request, None),
+                            Ok(request) => handle_rpc(&hub, request, None),
                             Err(_) => Some(rpc_error(Value::Null, -32700, "parse error")),
                         };
                         if let Some(response) = response {
@@ -800,9 +1005,224 @@ pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod http_tests;
+#[cfg(test)]
+mod protocol_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn run_session(lines: &[Value]) -> Result<Vec<Value>, String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        let mut output = vec![];
+        serve(&mut input.as_bytes(), &mut output, &hub, None)?;
+        String::from_utf8(output)
+            .map_err(|e| e.to_string())?
+            .lines()
+            .map(|line| serde_json::from_str(line).map_err(|e| e.to_string()))
+            .collect()
+    }
+    fn initialize_request(id: u64) -> Value {
+        json!({"jsonrpc":"2.0","id":id,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}})
+    }
+    #[test]
+    fn methods_other_than_initialize_and_ping_are_refused_before_initialize() -> Result<(), String>
+    {
+        let replies = run_session(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+            json!({"jsonrpc":"2.0","id":2,"method":"resources/list"}),
+            json!({"jsonrpc":"2.0","id":3,"method":"prompts/list"}),
+            json!({"jsonrpc":"2.0","id":4,"method":"foo"}),
+        ])?;
+        assert_eq!(replies.len(), 4);
+        for reply in &replies {
+            assert_eq!(reply["error"]["code"], -32002, "{reply}");
+        }
+        Ok(())
+    }
+    #[test]
+    fn ping_works_before_initialize() -> Result<(), String> {
+        let replies = run_session(&[json!({"jsonrpc":"2.0","id":1,"method":"ping"})])?;
+        assert_eq!(replies[0]["result"], json!({}));
+        Ok(())
+    }
+    #[test]
+    fn a_failed_initialize_does_not_open_the_session() -> Result<(), String> {
+        let replies = run_session(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+            initialize_request(3),
+            json!({"jsonrpc":"2.0","id":4,"method":"tools/list"}),
+        ])?;
+        assert_eq!(replies[0]["error"]["code"], -32602);
+        assert_eq!(replies[1]["error"]["code"], -32002);
+        assert!(replies[2]["result"].is_object());
+        assert!(replies[3]["result"]["tools"].is_array());
+        Ok(())
+    }
+    fn listed_tools() -> Result<Vec<Value>, String> {
+        tool_list()["tools"]
+            .as_array()
+            .cloned()
+            .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            assert!(
+                tool["title"].as_str().is_some_and(|t| !t.is_empty()),
+                "{name} has no title"
+            );
+            for hint in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(
+                    tool["annotations"][hint].is_boolean(),
+                    "{name} lacks {hint}"
+                );
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    fn tools_whose_description_says_without_editing_the_project_are_not_destructive()
+    -> Result<(), String> {
+        let mut seen = 0;
+        for tool in listed_tools()? {
+            if tool["description"]
+                .as_str()
+                .is_some_and(|d| d.contains("without editing the project"))
+            {
+                seen += 1;
+                assert_eq!(
+                    tool["annotations"]["destructiveHint"], false,
+                    "{}",
+                    tool["name"]
+                );
+            }
+        }
+        assert!(seen > 10, "the phrase is found on many tools");
+        Ok(())
+    }
+    #[test]
+    fn read_only_tools_never_change_the_revision() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let revision = |s: &SharedSession| {
+            call_tool(s, "inspect_design", &json!({}))["structuredContent"]["revision"].clone()
+        };
+        let before = revision(&session);
+        assert!(before.is_number(), "inspect_design reports a revision");
+        let mut called = 0;
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            let needs_args = tool["inputSchema"]["required"]
+                .as_array()
+                .is_some_and(|r| !r.is_empty());
+            if tool["annotations"]["readOnlyHint"] == true
+                && !needs_args
+                && !name.starts_with("design.")
+            {
+                call_tool(&session, name, &json!({}));
+                called += 1;
+            }
+        }
+        assert!(called >= 4, "several read-only tools were called");
+        assert_eq!(revision(&session), before);
+        Ok(())
+    }
+    #[test]
+    fn new_design_and_open_are_marked_destructive() -> Result<(), String> {
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            let destructive = tool["annotations"]["destructiveHint"] == true;
+            assert_eq!(
+                destructive,
+                ["new_design", "sample_design", "open"].contains(&name),
+                "{name}"
+            );
+        }
+        Ok(())
+    }
+    #[test]
+    fn dry_run_is_listed_and_previews_without_changing_the_revision() -> Result<(), String> {
+        let listed = tool_list()["tools"]
+            .as_array()
+            .is_some_and(|l| l.iter().any(|t| t["name"] == "dry_run"));
+        assert!(listed, "dry_run is in tools/list");
+        let session = shared(Session::default());
+        let reply = call_tool(
+            &session,
+            "dry_run",
+            &json!({"commands":[{"command":"component.add","params":{"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}}]}),
+        );
+        assert_eq!(reply["isError"], false, "{reply}");
+        let summary = &reply["structuredContent"]["summary"];
+        assert_eq!(summary["added"][0][1], "R1", "{reply}");
+        let revision = session.lock().map_err(|e| e.to_string())?.revision;
+        assert_eq!(revision, 0, "nothing was applied");
+        Ok(())
+    }
+    #[test]
+    fn package_tool_is_listed_with_its_schema_and_writes_a_zip() -> Result<(), String> {
+        let tools = tool_list();
+        let spec = tools["tools"]
+            .as_array()
+            .and_then(|list| {
+                list.iter()
+                    .find(|tool| tool["name"] == "output_job.package")
+            })
+            .ok_or("the package command is in the tool list")?;
+        assert_eq!(
+            spec["inputSchema"]["required"],
+            json!(["path"]),
+            "the path is the only required argument"
+        );
+        assert_eq!(
+            spec["inputSchema"]["properties"]["kinds"]["maxItems"], 24,
+            "the kind list is bounded"
+        );
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let path = std::env::temp_dir().join(format!("pcbcraft-mcp-{}.zip", std::process::id()));
+        let reply = call_tool(
+            &session,
+            "output_job.package",
+            &json!({"path": path.to_string_lossy()}),
+        );
+        assert_eq!(reply["isError"], false, "{reply}");
+        assert_eq!(
+            reply["structuredContent"]["result"]["manifest"], "manifest.json",
+            "the package reports its manifest"
+        );
+        assert!(path.exists(), "the zip is on disk");
+        let missing = call_tool(&session, "output_job.package", &json!({}));
+        assert_eq!(missing["isError"], true, "the path is required");
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+    #[test]
+    fn board_mesh_tool_returns_triangles_without_editing() -> Result<(), String> {
+        let session = shared(Session::default());
+        let reply = call_tool(&session, "board_mesh", &json!({"layers":["board"]}));
+        assert_eq!(reply["isError"], false, "{reply}");
+        let mesh = &reply["structuredContent"];
+        assert_eq!(mesh["vertices"], 24);
+        assert_eq!(mesh["triangles"], 12);
+        assert_eq!(mesh["bounds"]["max"][2], 1.6);
+        let bad = call_tool(&session, "board_mesh", &json!({"layers":["wings"]}));
+        assert_eq!(bad["isError"], true);
+        let summary = call_tool(&session, "board_mesh", &json!({"geometry":false}));
+        assert!(
+            summary["structuredContent"]["parts"][0]
+                .get("indices")
+                .is_none()
+        );
+        Ok(())
+    }
     #[test]
     fn checks_copper_only_reports_the_quick_copper_subset() -> Result<(), String> {
         let session = shared(Session::default());
@@ -1157,8 +1577,16 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
+            "pcb-F.Mask.gbr",
+            "pcb-B.Mask.gbr",
+            "pcb-F.Paste.gbr",
+            "pcb-B.Paste.gbr",
+            "pcb-F.SilkS.gbr",
+            "pcb-B.SilkS.gbr",
             "pcb-Edge.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
+            "pcb-DrillMap.gbr",
+            "README-fabrication.txt",
         ] {
             let text =
                 std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;
@@ -1166,6 +1594,10 @@ mod tests {
         }
         let front = std::fs::read_to_string(directory.path().join("pcb-F.Cu.gbr"))
             .map_err(|e| e.to_string())?;
+        assert!(
+            front.contains("%TF.FileFunction,Copper,L1,Top*%"),
+            "front copper carries its file function attribute"
+        );
         assert!(
             front.contains("X10.000000Y10.000000D02*\n"),
             "the exported copper should contain the drawn track"
@@ -2163,11 +2595,11 @@ mod tests {
             "a DXF header first"
         );
         assert!(
-            text.contains("8\nF_Cu\n0\nLINE\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
+            text.contains("0\nLINE\n8\nF_Cu\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
             "the routed track should be a line entity"
         );
         assert!(
-            text.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
+            text.contains("0\nLWPOLYLINE\n8\nEdge\n90\n4\n70\n1\n"),
             "the board outline should be a closed polyline"
         );
         assert_eq!(
@@ -2321,10 +2753,10 @@ mod tests {
         );
     }
     #[test]
-    fn protocol_negotiates_and_notifications_do_not_reply() {
-        let s = shared(Session::default());
+    fn protocol_negotiates_and_notifications_do_not_reply() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
         let response = handle_rpc(
-            &s,
+            &hub,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
             None,
         );
@@ -2336,16 +2768,17 @@ mod tests {
         );
         assert!(
             handle_rpc(
-                &s,
+                &hub,
                 json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
                 None
             )
             .is_none()
         );
+        Ok(())
     }
     #[test]
-    fn tool_errors_are_recoverable_and_stdout_is_json_lines() {
-        let s = shared(Session::default());
+    fn tool_errors_are_recoverable_and_stdout_is_json_lines() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
         let mut output = vec![];
         let initialize = json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}});
         let edit = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"component.move","arguments":{"id":999,"position":{"x":0,"y":0}}}});
@@ -2355,7 +2788,7 @@ mod tests {
             serve(
                 &mut BufReader::new(messages.as_bytes()),
                 &mut output,
-                &s,
+                &hub,
                 None
             )
             .is_ok()
@@ -2374,5 +2807,117 @@ mod tests {
             values.get(3).and_then(|v| v.pointer("/result/isError")),
             Some(&json!(false))
         );
+        Ok(())
+    }
+    #[test]
+    fn design_list_open_reports_two_slots_after_second_open() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let first = directory.path().join("first.pcbcraft");
+        let second = directory.path().join("second.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &first)?;
+        let mut other = Session::default();
+        other
+            .execute("net.create", json!({"name":"SECOND"}), None)
+            .map_err(|e| e.to_string())?;
+        pcbcraft_io::save(&other.project, &second)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":first.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(listed.get("isError"), Some(&json!(false)), "{listed}");
+        assert_eq!(
+            listed
+                .pointer("/structuredContent/documents")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        Ok(())
+    }
+    #[test]
+    fn design_activate_by_path_routes_execute_to_that_session() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let first = directory.path().join("a.pcbcraft");
+        let second = directory.path().join("b.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &first)?;
+        let mut touched = Session::default();
+        touched
+            .execute("net.create", json!({"name":"B"}), None)
+            .map_err(|e| e.to_string())?;
+        pcbcraft_io::save(&touched.project, &second)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":first.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let rev0_before = hub.session_revision(0)?;
+        assert_eq!(
+            hub.call_tool("design.activate", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        assert_eq!(hub.active_index()?, 1);
+        let edit = hub.call_tool(
+            "execute",
+            &json!({"command":"net.create","params":{"name":"ACTIVE"}}),
+        );
+        assert_eq!(edit.get("isError"), Some(&json!(false)), "{edit}");
+        assert_eq!(hub.session_revision(0)?, rev0_before);
+        assert!(hub.session_revision(1)? > rev0_before);
+        Ok(())
+    }
+    #[test]
+    fn design_activate_rejects_out_of_range_index() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let before = hub.active_index()?;
+        let bad = hub.call_tool("design.activate", &json!({"index":99}));
+        assert_eq!(bad.get("isError"), Some(&json!(true)));
+        assert_eq!(hub.active_index()?, before);
+        Ok(())
+    }
+    #[test]
+    fn inspect_design_includes_active_path_and_name_after_activation() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().join("named.pcbcraft");
+        let mut session = Session::default();
+        session.project.name = "Bench supply".into();
+        pcbcraft_io::save(&session.project, &path)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let inspect = hub.call_tool("inspect_design", &json!({}));
+        assert_eq!(inspect.get("isError"), Some(&json!(false)), "{inspect}");
+        assert_eq!(
+            inspect.pointer("/structuredContent/name"),
+            Some(&json!("Bench supply"))
+        );
+        assert_eq!(
+            inspect.pointer("/structuredContent/active_index"),
+            Some(&json!(0))
+        );
+        assert!(
+            inspect
+                .pointer("/structuredContent/path")
+                .and_then(Value::as_str)
+                .is_some_and(|p| !p.is_empty())
+        );
+        Ok(())
     }
 }

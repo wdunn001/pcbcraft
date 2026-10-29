@@ -32,7 +32,11 @@ allow = [
 # licenses; the exception is limited to the one crate that carries them.
 exceptions = [
     { allow = ["OFL-1.1", "Ubuntu-font-1.0"], crate = "epaint_default_fonts" },
+    # The Mozilla root list shipped as data, used by the assistant's desktop HTTP client.
+    # CDLA-Permissive-2.0 is a permissive data license; limited to the crate that carries it.
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
 ]
+
 
 [licenses.private]
 ignore = true

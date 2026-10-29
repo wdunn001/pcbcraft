@@ -4,6 +4,14 @@
 |---|---|---|---|
 | craft-ui | https://github.com/storytold/craft-libs | 1aa81a773aa9198a0e4c0daeda954d622475af38; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
+| SolidCraft agent chat backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/backend.rs` |
+| SolidCraft agent chat transcript | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/transcript.rs` and `turn.rs` |
+| SolidCraft agent chat test script backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/script.rs` |
+| SolidCraft agent chat API backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/api.rs` |
+| SolidCraft agent chat gate | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/gate.rs` |
+| SolidCraft agent chat connections and presets | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/connections.rs` |
+| SolidCraft agent chat settings page | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted in shape into `crates/ui-egui/src/assistant/settings.rs` |
+| SolidCraft Linux packaging | https://github.com/bherbruck/solidcraft | packaging/linux and packaging/env.sh at 2026-03; MIT OR Apache-2.0 | Adapted AppImage, deb, and rpm scripts, nfpm config, AppRun, and postinst for PCBCraft |
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |
 | KiCad library fixtures | https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints | Ubuntu packages 10.0.6~ubuntu24.04.1; CC-BY-SA 4.0 + KiCad design-output exception | Extracted R/LED/LM2904/LM358 symbols and unmodified R_0805 footprint; community contributors; exact provenance/checksums and modifications in docs/kicad-libraries.md; original license in crates/library/tests/fixtures/LICENSE-kicad-libraries.md |
@@ -18,3 +26,7 @@ the KiCad data license and source attribution embedded in the native collection.
 No KiCad implementation code has been copied or ported in this implementation.
 PCBCraft sample circuits are original; imported symbol/footprint artwork retains
 its KiCad data license and design-output exception. Dependencies retain their own licenses.
+
+The octagonal-hull walkaround and shove router in crates/engine/src/route and
+crates/geom/src/hull.rs is an original implementation from published algorithm
+descriptions. No third-party router source was copied or ported.

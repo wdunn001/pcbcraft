@@ -1,0 +1,27 @@
+schema = 1
+
+[profile]
+id = "unsupported-fixture"
+name = "Unsupported fields fixture"
+category = "test"
+summary = "Carries phase 2 tables for unsupported reporting tests."
+
+[[net_class]]
+name = "X"
+clearance = 0.2
+width = 0.2
+max_length = 100.0
+limits = { max_stub = 0.5, max_vias = 4 }
+
+[[pair]]
+name = "P"
+net_p = "A"
+net_n = "B"
+gap = 0.2
+equal_vias = true
+
+[[length_group]]
+name = "lg"
+
+[[companion]]
+kind = "decoupling"

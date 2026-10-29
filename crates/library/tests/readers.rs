@@ -1,4 +1,4 @@
-use pcbcraft_library::{Graphic, read_footprint, read_symbols};
+use pcbcraft_library::{Graphic, SymbolPin, read_footprint, read_symbols};
 
 #[test]
 fn real_device_symbols_preserve_pin_types_and_graphics() -> Result<(), Box<dyn std::error::Error>> {
@@ -180,7 +180,41 @@ fn footprint_models_are_recorded_and_bounded() -> Result<(), Box<dyn std::error:
          (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
     )?;
     let m = modern.model.as_ref().ok_or("at-form model missing")?;
-    assert_eq!(m.offset, [1.0, 2.0, 3.0], "newer files place with at");
+    assert_eq!(
+        m.offset,
+        [25.4, 50.8, 76.2],
+        "the legacy at form is inches, stored as millimetres"
+    );
+    let same = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (offset (xyz 25.4 50.8 76.2)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    assert_eq!(
+        same.model
+            .as_ref()
+            .ok_or("offset-form model missing")?
+            .offset,
+        m.offset,
+        "the legacy and modern forms read to the same millimetres"
+    );
+    let both = read_footprint(
+        "(footprint M (at 0 0 0) (layer F.Cu)\
+         (model \"pkg.step\" (at (xyz 1 1 1)) (offset (xyz 2 3 4)))\
+         (pad 1 smd circle (at 0 0) (size 1 1) (layers F.Cu)))",
+    )?;
+    assert_eq!(
+        both.model.as_ref().ok_or("both-form model missing")?.offset,
+        [2.0, 3.0, 4.0],
+        "offset wins over at"
+    );
+    assert!(
+        read_footprint(
+            "(footprint M (at 0 0 0) (layer F.Cu) (model \"a.wrl\" (at (xyz 99999 0 0))))"
+        )
+        .is_err(),
+        "a legacy offset that converts out of bounds is rejected"
+    );
     assert_eq!(m.scale, [1.0, 1.0, 1.0], "an absent scale is unit size");
     let plain = read_footprint(
         "(footprint M (at 0 0 0) (layer F.Cu) (model \"pkg.wrl\")\
@@ -399,4 +433,70 @@ fn chamfered_and_custom_kicad_pads_import_with_exact_outlines()
     }
     assert_eq!(f.unsupported.len(), 3);
     Ok(())
+}
+
+#[test]
+fn reader_keeps_inverted_clock_pin_style_off_unsupported_list()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = r#"(kicad_symbol_lib (version 20260206) (generator pcbcraft)
+  (symbol "INVCLK"
+    (property "Reference" "U" (at 0 0 0)
+      (effects (font (size 1.27 1.27) (thickness 0.15))))
+    (symbol "INVCLK_1_1"
+      (pin input inverted_clock (at 0 0 180) (length 2.54)
+        (name "CLK" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+    )
+  )
+)"#;
+    let symbols = read_symbols(source)?;
+    let symbol = symbols
+        .iter()
+        .find(|s| s.name == "INVCLK")
+        .ok_or("fixture missing")?;
+    assert_eq!(symbol.pins.len(), 1);
+    assert_eq!(symbol.pins[0].graphical_style, "inverted_clock");
+    assert!(symbol.pins[0].visible);
+    assert!(
+        symbol
+            .unsupported
+            .iter()
+            .all(|u| !u.contains("graphical style")),
+        "known styles must not land in unsupported: {:?}",
+        symbol.unsupported
+    );
+    Ok(())
+}
+
+#[test]
+fn symbol_pin_graphical_style_rejects_unknown_token() {
+    let pin = SymbolPin {
+        number: "1".into(),
+        name: "~".into(),
+        position: pcbcraft_geom::Point::new(0.0, 0.0),
+        angle: 0.0,
+        length: 2.54,
+        electrical_type: "passive".into(),
+        unit: 1,
+        body_style: 1,
+        graphical_style: "line".into(),
+        visible: true,
+    };
+    let mut symbol = pcbcraft_library::SymbolDefinition {
+        name: "X".into(),
+        reference: "U".into(),
+        value: "X".into(),
+        description: String::new(),
+        keywords: String::new(),
+        footprint: String::new(),
+        set: String::new(),
+        pins: vec![pin.clone()],
+        graphics: vec![],
+        extends: None,
+        raw_source: String::new(),
+        unsupported: vec![],
+    };
+    assert!(symbol.validate().is_ok());
+    symbol.pins[0].graphical_style = "mystery_shape".into();
+    assert!(symbol.validate().is_err());
 }
