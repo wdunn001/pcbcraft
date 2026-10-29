@@ -2149,6 +2149,7 @@ impl Default for Project {
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
+                preserved: PreservedSource::default(),
             },
         }
     }
@@ -4316,6 +4317,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
+            preserved: PreservedSource::default(),
         };
         let json = serde_json::to_string(&track.layer).map_err(|e| e.to_string())?;
         assert_eq!(json, "\"F.Cu\"");
@@ -4366,6 +4368,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::from_index(1)?,
             arc: None,
+            preserved: PreservedSource::default(),
         });
         p.validate()?;
         Ok(())
@@ -4386,6 +4389,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::Back,
             arc: None,
+            preserved: PreservedSource::default(),
         });
         p.validate()?;
         p.board.tracks[0].layer = Layer::from_index(2)?;
@@ -4542,6 +4546,7 @@ mod drill_tests {
                     geometry: Some(peg),
                 },
             ],
+            preserved: PreservedSource::default(),
         });
         assert!(
             p.validate()
