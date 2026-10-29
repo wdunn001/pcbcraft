@@ -1,6 +1,11 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod component_kind;
 mod machine_profile;
+mod package_def;
+pub use package_def::{
+    MAX_PACKAGE_CONTENTS, MAX_PROJECT_PACKAGES, PACKAGE_CONTAINERS, PACKAGE_TOKENS, PackageContent,
+    PackageDef, PackageRun, check_template, validate_packages,
+};
 mod outline;
 pub use machine_profile::*;
 pub use outline::{
@@ -3883,6 +3888,12 @@ pub struct Project {
     /// Regenerable fabrication outputs, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
+    /// Export packages this project saves besides the bundled ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<PackageDef>,
+    /// What each package export last wrote, by package id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub package_runs: Vec<PackageRun>,
     /// Manufacturing panel grid; disabled until the designer enables it.
     #[serde(default)]
     pub panel: PanelSettings,
@@ -4086,6 +4097,8 @@ impl Default for Project {
             compliance_mutes: vec![],
             output_jobs: vec![],
             artifacts: vec![],
+            packages: vec![],
+            package_runs: vec![],
             panel: PanelSettings::default(),
             custom_checks: vec![],
             pin_matrix: BTreeMap::new(),
@@ -5626,6 +5639,10 @@ self.validate_manufacturers()?;
             if !j.valid() || !job_names.insert(&j.name) {
                 return Err("output jobs need a unique name and known export kinds".into());
             }
+        }
+        validate_packages(&self.packages)?;
+        if self.package_runs.len() > MAX_PROJECT_PACKAGES * 2 {
+            return Err("too many package run records".into());
         }
         if self.artifacts.len() > MAX_ITEMS {
             return Err("artifact limit reached (2048)".into());
