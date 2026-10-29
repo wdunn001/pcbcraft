@@ -32,9 +32,7 @@ impl DesignDiff {
             .changes
             .iter()
             .map(|c| {
-                if let (Some(field), Some(before), Some(after)) =
-                    (&c.field, &c.before, &c.after)
-                {
+                if let (Some(field), Some(before), Some(after)) = (&c.field, &c.before, &c.after) {
                     format!(
                         "{} {} {} {}: {} -> {}",
                         c.kind, c.object, c.summary, field, before, after
@@ -116,26 +114,10 @@ fn diff_pair_maps(
     summary: impl Fn(Id) -> String,
 ) {
     for id in new_ids.difference(old_ids) {
-        push_change(
-            changes,
-            "added",
-            *id,
-            summary(*id),
-            None,
-            None,
-            None,
-        );
+        push_change(changes, "added", *id, summary(*id), None, None, None);
     }
     for id in old_ids.difference(new_ids) {
-        push_change(
-            changes,
-            "removed",
-            *id,
-            summary(*id),
-            None,
-            None,
-            None,
-        );
+        push_change(changes, "removed", *id, summary(*id), None, None, None);
     }
 }
 
@@ -258,17 +240,15 @@ fn diff_component_fields(
             );
         }
     }
-    let old_pins: BTreeMap<String, Option<Id>> = old
-        .pins
-        .iter()
-        .map(|p| (p.number.clone(), p.net))
-        .collect();
-    let new_pins: BTreeMap<String, Option<Id>> = new
-        .pins
-        .iter()
-        .map(|p| (p.number.clone(), p.net))
-        .collect();
-    for number in old_pins.keys().chain(new_pins.keys()).collect::<BTreeSet<_>>() {
+    let old_pins: BTreeMap<String, Option<Id>> =
+        old.pins.iter().map(|p| (p.number.clone(), p.net)).collect();
+    let new_pins: BTreeMap<String, Option<Id>> =
+        new.pins.iter().map(|p| (p.number.clone(), p.net)).collect();
+    for number in old_pins
+        .keys()
+        .chain(new_pins.keys())
+        .collect::<BTreeSet<_>>()
+    {
         let on = old_pins.get(number.as_str()).copied().flatten();
         let nn = new_pins.get(number.as_str()).copied().flatten();
         if on != nn {
@@ -375,17 +355,15 @@ fn diff_footprint(
             new.locked.map(|v| v.to_string()),
         );
     }
-    let old_pads: BTreeMap<String, Option<Id>> = old
-        .pads
-        .iter()
-        .map(|p| (p.number.clone(), p.net))
-        .collect();
-    let new_pads: BTreeMap<String, Option<Id>> = new
-        .pads
-        .iter()
-        .map(|p| (p.number.clone(), p.net))
-        .collect();
-    for number in old_pads.keys().chain(new_pads.keys()).collect::<BTreeSet<_>>() {
+    let old_pads: BTreeMap<String, Option<Id>> =
+        old.pads.iter().map(|p| (p.number.clone(), p.net)).collect();
+    let new_pads: BTreeMap<String, Option<Id>> =
+        new.pads.iter().map(|p| (p.number.clone(), p.net)).collect();
+    for number in old_pads
+        .keys()
+        .chain(new_pads.keys())
+        .collect::<BTreeSet<_>>()
+    {
         let on = old_pads.get(number.as_str()).copied().flatten();
         let nn = new_pads.get(number.as_str()).copied().flatten();
         if on != nn {
@@ -434,89 +412,101 @@ fn diff_footprints(changes: &mut Vec<DesignChange>, old: &Project, new: &Project
 }
 
 fn diff_tracks(changes: &mut Vec<DesignChange>, old: &Project, new: &Project) {
-    diff_id_entities(changes, &old.board.tracks, &new.board.tracks, |t| t.id, |o, n| {
-        let mut local = Vec::new();
-        if point_changed(o.start, n.start) || point_changed(o.end, n.end) {
-            push_change(
-                &mut local,
-                "changed",
-                o.id,
-                "track geometry".into(),
-                Some("segment"),
-                Some(format!(
-                    "{:.6},{:.6} -> {:.6},{:.6}",
-                    o.start.x, o.start.y, o.end.x, o.end.y
-                )),
-                Some(format!(
-                    "{:.6},{:.6} -> {:.6},{:.6}",
-                    n.start.x, n.start.y, n.end.x, n.end.y
-                )),
-            );
-        }
-        if o.net != n.net {
-            push_change(
-                &mut local,
-                "changed",
-                o.id,
-                "track net".into(),
-                Some("net"),
-                Some(o.net.to_string()),
-                Some(n.net.to_string()),
-            );
-        }
-        if f64_changed(o.width, n.width) {
-            push_change(
-                &mut local,
-                "changed",
-                o.id,
-                "track width".into(),
-                Some("width"),
-                Some(format!("{:.6}", o.width)),
-                Some(format!("{:.6}", n.width)),
-            );
-        }
-        if o.layer != n.layer {
-            push_change(
-                &mut local,
-                "changed",
-                o.id,
-                "track layer".into(),
-                Some("layer"),
-                Some(format!("{:?}", o.layer)),
-                Some(format!("{:?}", n.layer)),
-            );
-        }
-        local
-    });
+    diff_id_entities(
+        changes,
+        &old.board.tracks,
+        &new.board.tracks,
+        |t| t.id,
+        |o, n| {
+            let mut local = Vec::new();
+            if point_changed(o.start, n.start) || point_changed(o.end, n.end) {
+                push_change(
+                    &mut local,
+                    "changed",
+                    o.id,
+                    "track geometry".into(),
+                    Some("segment"),
+                    Some(format!(
+                        "{:.6},{:.6} -> {:.6},{:.6}",
+                        o.start.x, o.start.y, o.end.x, o.end.y
+                    )),
+                    Some(format!(
+                        "{:.6},{:.6} -> {:.6},{:.6}",
+                        n.start.x, n.start.y, n.end.x, n.end.y
+                    )),
+                );
+            }
+            if o.net != n.net {
+                push_change(
+                    &mut local,
+                    "changed",
+                    o.id,
+                    "track net".into(),
+                    Some("net"),
+                    Some(o.net.to_string()),
+                    Some(n.net.to_string()),
+                );
+            }
+            if f64_changed(o.width, n.width) {
+                push_change(
+                    &mut local,
+                    "changed",
+                    o.id,
+                    "track width".into(),
+                    Some("width"),
+                    Some(format!("{:.6}", o.width)),
+                    Some(format!("{:.6}", n.width)),
+                );
+            }
+            if o.layer != n.layer {
+                push_change(
+                    &mut local,
+                    "changed",
+                    o.id,
+                    "track layer".into(),
+                    Some("layer"),
+                    Some(format!("{:?}", o.layer)),
+                    Some(format!("{:?}", n.layer)),
+                );
+            }
+            local
+        },
+    );
 }
 
 fn diff_vias(changes: &mut Vec<DesignChange>, old: &Project, new: &Project) {
-    diff_id_entities(changes, &old.board.vias, &new.board.vias, |v| v.id, |o, n| {
-        let mut local = Vec::new();
-        if point_changed(o.position, n.position) {
-            push_change(
-                &mut local,
-                "changed",
-                o.id,
-                "via position".into(),
-                Some("position"),
-                Some(format!("{:.6},{:.6}", o.position.x, o.position.y)),
-                Some(format!("{:.6},{:.6}", n.position.x, n.position.y)),
-            );
-        }
-        if o.net != n.net {
-            push_change(
-                &mut local,
-                "changed",
-                o.id,
-                "via net".into(),
-                Some("net"),
-                Some(o.net.to_string()),
-                Some(n.net.to_string()),
-            );
-        }
-        local
-    });
+    diff_id_entities(
+        changes,
+        &old.board.vias,
+        &new.board.vias,
+        |v| v.id,
+        |o, n| {
+            let mut local = Vec::new();
+            if point_changed(o.position, n.position) {
+                push_change(
+                    &mut local,
+                    "changed",
+                    o.id,
+                    "via position".into(),
+                    Some("position"),
+                    Some(format!("{:.6},{:.6}", o.position.x, o.position.y)),
+                    Some(format!("{:.6},{:.6}", n.position.x, n.position.y)),
+                );
+            }
+            if o.net != n.net {
+                push_change(
+                    &mut local,
+                    "changed",
+                    o.id,
+                    "via net".into(),
+                    Some("net"),
+                    Some(o.net.to_string()),
+                    Some(n.net.to_string()),
+                );
+            }
+            local
+        },
+    );
 }
 
 fn diff_id_entities<T>(
@@ -548,7 +538,8 @@ fn diff_board_scalar(changes: &mut Vec<DesignChange>, old: &Project, new: &Proje
             Some(format!("{:.6}", new.board.clearance)),
         );
     }
-    if f64_changed(old.board.width, new.board.width) || f64_changed(old.board.height, new.board.height)
+    if f64_changed(old.board.width, new.board.width)
+        || f64_changed(old.board.height, new.board.height)
     {
         push_change(
             changes,
@@ -623,10 +614,28 @@ fn diff_custom_checks(changes: &mut Vec<DesignChange>, old: &Project, new: &Proj
 
 fn diff_schematic_only(changes: &mut Vec<DesignChange>, old: &Project, new: &Project) {
     diff_id_entities(changes, &old.wires, &new.wires, |w| w.id, |_, _| vec![]);
-    diff_id_entities(changes, &old.drawn_wires, &new.drawn_wires, |w| w.id, |_, _| vec![]);
+    diff_id_entities(
+        changes,
+        &old.drawn_wires,
+        &new.drawn_wires,
+        |w| w.id,
+        |_, _| vec![],
+    );
     diff_id_entities(changes, &old.labels, &new.labels, |l| l.id, |_, _| vec![]);
-    diff_id_entities(changes, &old.graphics, &new.graphics, |g| g.id, |_, _| vec![]);
-    diff_id_entities(changes, &old.no_connects, &new.no_connects, |f| f.id, |_, _| vec![]);
+    diff_id_entities(
+        changes,
+        &old.graphics,
+        &new.graphics,
+        |g| g.id,
+        |_, _| vec![],
+    );
+    diff_id_entities(
+        changes,
+        &old.no_connects,
+        &new.no_connects,
+        |f| f.id,
+        |_, _| vec![],
+    );
 }
 
 fn diff_rule_maps(changes: &mut Vec<DesignChange>, old: &Project, new: &Project) {
@@ -730,11 +739,16 @@ mod tests {
         new.board.footprints[0].position = Point::new(18.0, 15.0);
         let diff = project_diff(&old, &new);
         assert_eq!(diff.changes.len(), 2, "{:?}", diff.changes);
-        assert!(diff.changes.iter().any(|c| c.field.as_deref() == Some("value")));
-        assert!(diff
-            .changes
-            .iter()
-            .any(|c| c.field.as_deref() == Some("position")));
+        assert!(
+            diff.changes
+                .iter()
+                .any(|c| c.field.as_deref() == Some("value"))
+        );
+        assert!(
+            diff.changes
+                .iter()
+                .any(|c| c.field.as_deref() == Some("position"))
+        );
     }
 
     #[test]
@@ -768,10 +782,7 @@ mod tests {
     fn repinned_component_pin_records_one_change() {
         let mut old = minimal_project();
         let mut new = minimal_project();
-        for net in [
-            (1, "A"),
-            (2, "B"),
-        ] {
+        for net in [(1, "A"), (2, "B")] {
             old.nets.push(Net {
                 id: net.0,
                 name: net.1.into(),

@@ -873,6 +873,7 @@ pub(crate) mod tests {
                         modifiers: egui::Modifiers::NONE,
                     },
                 ],
+                egui::Modifiers::NONE,
             );
         }
         let session = shared.lock().map_err(|_| "session unavailable")?;
