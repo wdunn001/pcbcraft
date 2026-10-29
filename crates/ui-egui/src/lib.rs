@@ -4,10 +4,10 @@ mod canvas;
 mod library;
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
-use std::collections::BTreeMap;
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -6523,7 +6523,11 @@ impl App {
             return;
         }
         if matches!(self.tool, Tool::DrawLayer) {
-            ui.label(egui::RichText::new("DRAW ON LAYER").size(10.0).color(self.muted()));
+            ui.label(
+                egui::RichText::new("DRAW ON LAYER")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
             let names: Vec<(Id, String)> = self
                 .project
                 .board
@@ -6742,11 +6746,7 @@ impl App {
             ui.heading("Project files");
             ui.label(format!("Design file: {}", self.path.trim()));
             ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new("Builds")
-                    .size(10.0)
-                    .color(self.muted()),
-            );
+            ui.label(egui::RichText::new("Builds").size(10.0).color(self.muted()));
             self.builds_tab(ui);
         });
     }
@@ -6779,36 +6779,36 @@ impl App {
                     self.workbench_tabs(ui);
                     self.tool_strip(ui);
                     match self.tab {
-                    Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                    Tab::Files => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.files_tab(ui))
-                            .inner
+                        Tab::Schematic | Tab::Pcb => self.canvas(ui),
+                        Tab::Files => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.files_tab(ui))
+                                .inner
+                        }
+                        Tab::Board3d => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.board3d_tab(ui))
+                                .inner
+                        }
+                        Tab::Libraries => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.library(ui))
+                                .inner
+                        }
+                        Tab::Rules => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
+                        }
+                        Tab::Checks => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| self.checks_view(ui))
+                                .inner
+                        }
+                        Tab::Settings => {
+                            egui::ScrollArea::vertical()
+                                .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                        }
                     }
-                    Tab::Board3d => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.board3d_tab(ui))
-                            .inner
-                    }
-                    Tab::Libraries => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.library(ui))
-                            .inner
-                    }
-                    Tab::Rules => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
-                    }
-                    Tab::Checks => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.checks_view(ui))
-                            .inner
-                    }
-                    Tab::Settings => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
-                    }
-                }
                 });
         }
         self.capture(&ctx);
