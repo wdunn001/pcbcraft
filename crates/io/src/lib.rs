@@ -7,6 +7,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod board_mesh;
+mod drawn;
 mod fab_layers;
 mod gerber;
 mod library_render;
@@ -15,6 +16,7 @@ pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
+pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
 use library_render::*;
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
@@ -324,7 +326,7 @@ const PDF_MAX_OPS: usize = 20_000;
 const PDF_K: f64 = 72.0 / 25.4;
 
 impl PdfPage {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         PdfPage {
             ops: String::new(),
             count: 0,
@@ -1018,14 +1020,21 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
             ));
             Ok(())
         }
-        fn line(&mut self, w: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> Result<(), String> {
+        pub(crate) fn line(
+            &mut self,
+            w: f64,
+            x1: f64,
+            y1: f64,
+            x2: f64,
+            y2: f64,
+        ) -> Result<(), String> {
             let pos = self.bump()?;
             self.body.push_str(&format!(
                 "\t.Line {w:.6} {pos} P R {x1:.6} {y1:.6} {x2:.6} {y2:.6}\n"
             ));
             Ok(())
         }
-        fn arc(
+        pub(crate) fn arc(
             &mut self,
             w: f64,
             from: (f64, f64),
@@ -1987,14 +1996,30 @@ fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
         }
     }
     for h in &p.board.holes {
+        let d = (h.diameter * 1_000.0).round() as u64;
+        let span = if h.is_slot() {
+            (h.start().distance(h.finish()) * 1_000.0).round() as u64
+        } else {
+            0
+        };
+        let (x, y, ux, uy) = if h.is_slot() {
+            let center = h.center();
+            let half = Point::new(
+                (h.finish().x - h.start().x) / 2.0,
+                (h.finish().y - h.start().y) / 2.0,
+            );
+            (center.x, center.y, half.x, half.y)
+        } else {
+            (h.position.x, h.position.y, 0.0, 0.0)
+        };
         push(
             ProjectDrillHit {
-                d: (h.diameter * 1_000.0).round() as u64,
-                span: 0,
-                x: h.position.x,
-                y: h.position.y,
-                ux: 0.0,
-                uy: 0.0,
+                d,
+                span,
+                x,
+                y,
+                ux,
+                uy,
                 plated: false,
             },
             &mut hits,
@@ -2432,6 +2457,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     files.insert("pcb-Drill.drl".into(), drill);
     files.insert("pcb-Plated.drl".into(), plated_drill);
     files.insert("pcb-NPTH.drl".into(), npth_drill);
+    for (name, text) in drawn::gerber_layer_files(p)? {
+        files.insert(name, text);
+    }
     Ok(files)
 }
 /// Bill of materials as CSV: identical parts collapsed into one row with a
@@ -2652,10 +2680,21 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         count(1)?;
     }
     for hole in &p.board.holes {
-        out.push_str(&format!(
-            "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" plated=\"false\"/>\n",
-            hole.position.x, hole.position.y, hole.diameter
-        ));
+        match hole.end {
+            None => out.push_str(&format!(
+                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" plated=\"false\"/>\n",
+                hole.position.x, hole.position.y, hole.diameter
+            )),
+            Some(_) => out.push_str(&format!(
+                "<HOLE x=\"{:.3}\" y=\"{:.3}\" diameter=\"{:.3}\" x_end=\"{:.3}\" y_end=\"{:.3}\" length=\"{:.3}\" plated=\"false\"/>\n",
+                hole.start().x,
+                hole.start().y,
+                hole.diameter,
+                hole.finish().x,
+                hole.finish().y,
+                hole.length()
+            )),
+        }
         count(1)?;
     }
     for f in &p.board.footprints {
@@ -3360,7 +3399,10 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         )?;
     }
     for hole in &p.board.holes {
-        let points = [(hole.position.x, hole.position.y)];
+        let points = [
+            (hole.start().x, hole.start().y),
+            (hole.finish().x, hole.finish().y),
+        ];
         for name in ["F.Cu", "B.Cu"] {
             touch(&mut layers, name, &mut |plot| plot.holes += 1, &points)?;
         }
@@ -3878,125 +3920,147 @@ pub fn board_text(p: &Project, t: &pcbcraft_doc::BoardText) -> String {
     out
 }
 
+/// How many entities one DXF drawing may carry.
+const MAX_DXF_ENTITIES: usize = 20_000;
+
+/// Writer for one ASCII DXF R12 drawing, in millimetres, that tracks the
+/// entity count and the drawing extents as entities arrive.
+pub(crate) struct DxfWriter {
+    entities: String,
+    count: usize,
+    min_x: f64,
+    min_y: f64,
+    max_x: f64,
+    max_y: f64,
+}
+impl DxfWriter {
+    /// An empty drawing whose extents grow with the first entity.
+    fn new() -> Self {
+        Self {
+            entities: String::new(),
+            count: 0,
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 0.0,
+            max_y: 0.0,
+        }
+    }
+    /// Grow the drawing extents to include a point.
+    pub(crate) fn follow(&mut self, x: f64, y: f64) {
+        if self.count == 0 {
+            self.min_x = x;
+            self.min_y = y;
+            self.max_x = x;
+            self.max_y = y;
+        } else {
+            self.min_x = self.min_x.min(x);
+            self.min_y = self.min_y.min(y);
+            self.max_x = self.max_x.max(x);
+            self.max_y = self.max_y.max(y);
+        }
+    }
+    /// Append one entity: its type, then the layer it belongs to, then its
+    /// own group codes. R12 wants the type first; putting a placeholder
+    /// entity in front makes third-party readers drop the real entity onto
+    /// layer 0 and lose the layer name.
+    pub(crate) fn keep(&mut self, layer: &str, kind: &str, body: String) -> Result<(), String> {
+        self.count += 1;
+        if self.count > MAX_DXF_ENTITIES {
+            return Err("DXF export exceeds the entity limit".into());
+        }
+        self.entities.push_str("0\n");
+        self.entities.push_str(kind);
+        self.entities.push_str("\n8\n");
+        self.entities.push_str(layer);
+        self.entities.push('\n');
+        self.entities.push_str(&body);
+        Ok(())
+    }
+    fn line(&mut self, layer: &str, a: (f64, f64), b: (f64, f64)) -> Result<(), String> {
+        self.follow(a.0, a.1);
+        self.follow(b.0, b.1);
+        self.keep(
+            layer,
+            "LINE",
+            format!(
+                "10\n{:.3}\n20\n{:.3}\n11\n{:.3}\n21\n{:.3}\n",
+                a.0, a.1, b.0, b.1
+            ),
+        )
+    }
+    fn arc(
+        &mut self,
+        layer: &str,
+        c: (f64, f64),
+        r: f64,
+        from_deg: f64,
+        to_deg: f64,
+    ) -> Result<(), String> {
+        self.follow(c.0 - r, c.1 - r);
+        self.follow(c.0 + r, c.1 + r);
+        self.keep(
+            layer,
+            "ARC",
+            format!(
+                "10\n{:.3}\n20\n{:.3}\n40\n{:.3}\n50\n{:.6}\n51\n{:.6}\n",
+                c.0, c.1, r, from_deg, to_deg
+            ),
+        )
+    }
+    pub(crate) fn circle(&mut self, layer: &str, x: f64, y: f64, r: f64) -> Result<(), String> {
+        self.follow(x - r, y - r);
+        self.follow(x + r, y + r);
+        self.keep(
+            layer,
+            "CIRCLE",
+            format!("10\n{x:.3}\n20\n{y:.3}\n40\n{r:.3}\n"),
+        )
+    }
+    pub(crate) fn polyline(
+        &mut self,
+        layer: &str,
+        points: &[(f64, f64)],
+        closed: bool,
+    ) -> Result<(), String> {
+        let mut body = format!("90\n{}\n70\n{}\n", points.len(), u8::from(closed));
+        for (x, y) in points {
+            self.follow(*x, *y);
+            body.push_str(&format!("10\n{x:.3}\n20\n{y:.3}\n"));
+        }
+        self.keep(layer, "LWPOLYLINE", body)
+    }
+    pub(crate) fn text(
+        &mut self,
+        layer: &str,
+        x: f64,
+        y: f64,
+        height: f64,
+        rotation: f64,
+        value: &str,
+    ) -> Result<(), String> {
+        self.follow(x, y);
+        self.keep(
+            layer,
+            "TEXT",
+            format!("10\n{x:.3}\n20\n{y:.3}\n40\n{height:.3}\n50\n{rotation:.1}\n1\n{value}\n"),
+        )
+    }
+    /// The whole drawing: millimetre header, one ENTITIES section, EOF.
+    pub(crate) fn finish(self) -> String {
+        format!(
+            "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n9\n$EXTMIN\n10\n{:.3}\n20\n{:.3}\n9\n$EXTMAX\n10\n{:.3}\n20\n{:.3}\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{}0\nENDSEC\n0\nEOF\n",
+            self.min_x, self.min_y, self.max_x, self.max_y, self.entities
+        )
+    }
+}
+
 pub fn dxf_board(p: &Project) -> Result<String, String> {
     p.validate()?;
-    const MAX_ENTITIES: usize = 20_000;
-    struct Writer {
-        entities: String,
-        count: usize,
-        min_x: f64,
-        min_y: f64,
-        max_x: f64,
-        max_y: f64,
-    }
-    impl Writer {
-        fn follow(&mut self, x: f64, y: f64) {
-            if self.count == 0 {
-                self.min_x = x;
-                self.min_y = y;
-                self.max_x = x;
-                self.max_y = y;
-            } else {
-                self.min_x = self.min_x.min(x);
-                self.min_y = self.min_y.min(y);
-                self.max_x = self.max_x.max(x);
-                self.max_y = self.max_y.max(y);
-            }
-        }
-        fn keep(&mut self, layer: &str, body: String) -> Result<(), String> {
-            self.count += 1;
-            if self.count > MAX_ENTITIES {
-                return Err("DXF export exceeds the entity limit".into());
-            }
-            self.entities.push_str("0\nENTITY\n8\n");
-            self.entities.push_str(layer);
-            self.entities.push('\n');
-            self.entities.push_str(&body);
-            Ok(())
-        }
-        fn line(&mut self, layer: &str, a: (f64, f64), b: (f64, f64)) -> Result<(), String> {
-            self.follow(a.0, a.1);
-            self.follow(b.0, b.1);
-            self.keep(
-                layer,
-                format!(
-                    "0\nLINE\n10\n{:.3}\n20\n{:.3}\n11\n{:.3}\n21\n{:.3}\n",
-                    a.0, a.1, b.0, b.1
-                ),
-            )
-        }
-        fn arc(
-            &mut self,
-            layer: &str,
-            c: (f64, f64),
-            r: f64,
-            from_deg: f64,
-            to_deg: f64,
-        ) -> Result<(), String> {
-            self.follow(c.0 - r, c.1 - r);
-            self.follow(c.0 + r, c.1 + r);
-            self.keep(
-                layer,
-                format!(
-                    "0\nARC\n10\n{:.3}\n20\n{:.3}\n40\n{:.3}\n50\n{:.6}\n51\n{:.6}\n",
-                    c.0, c.1, r, from_deg, to_deg
-                ),
-            )
-        }
-        fn circle(&mut self, layer: &str, x: f64, y: f64, r: f64) -> Result<(), String> {
-            self.follow(x - r, y - r);
-            self.follow(x + r, y + r);
-            self.keep(
-                layer,
-                format!("0\nCIRCLE\n10\n{x:.3}\n20\n{y:.3}\n40\n{r:.3}\n"),
-            )
-        }
-        fn polyline(
-            &mut self,
-            layer: &str,
-            points: &[(f64, f64)],
-            closed: bool,
-        ) -> Result<(), String> {
-            let mut body = format!(
-                "0\nLWPOLYLINE\n90\n{}\n70\n{}\n",
-                points.len(),
-                u8::from(closed)
-            );
-            for (x, y) in points {
-                self.follow(*x, *y);
-                body.push_str(&format!("10\n{x:.3}\n20\n{y:.3}\n"));
-            }
-            self.keep(layer, body)
-        }
-        fn text(
-            &mut self,
-            layer: &str,
-            x: f64,
-            y: f64,
-            height: f64,
-            rotation: f64,
-            value: &str,
-        ) -> Result<(), String> {
-            self.follow(x, y);
-            self.keep(
-                layer,
-                format!(
-                    "0\nTEXT\n10\n{x:.3}\n20\n{y:.3}\n40\n{height:.3}\n50\n{rotation:.1}\n1\n{value}\n"
-                ),
-            )
-        }
-    }
+
     fn xy(q: &pcbcraft_geom::Point) -> (f64, f64) {
         (q.x, q.y)
     }
-    let mut w = Writer {
-        entities: String::new(),
-        count: 0,
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 0.0,
-        max_y: 0.0,
-    };
+    let mut w = DxfWriter::new();
     let corners = board_edge_points(p);
     w.polyline("Edge", &corners, true)?;
     for c in &p.board.cutouts {
@@ -4113,8 +4177,9 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
                 w.follow(ux + radius, uy + radius);
                 w.keep(
                     layer,
+                    "ARC",
                     format!(
-                        "0\nARC\n10\n{ux:.3}\n20\n{uy:.3}\n40\n{radius:.3}\n50\n{start:.3}\n51\n{end:.3}\n"
+                        "10\n{ux:.3}\n20\n{uy:.3}\n40\n{radius:.3}\n50\n{start:.3}\n51\n{end:.3}\n"
                     ),
                 )?;
                 continue;
@@ -4144,10 +4209,8 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
             &board_text(p, t),
         )?;
     }
-    Ok(format!(
-        "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n4\n9\n$EXTMIN\n10\n{:.3}\n20\n{:.3}\n9\n$EXTMAX\n10\n{:.3}\n20\n{:.3}\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n{}0\nENDSEC\n0\nEOF\n",
-        w.min_x, w.min_y, w.max_x, w.max_y, w.entities
-    ))
+    drawn::write_dxf_layers(p, &mut w)?;
+    Ok(w.finish())
 }
 /// A drawable entity read back from a DXF drawing file.
 #[derive(Clone, Debug, PartialEq)]
@@ -6702,6 +6765,7 @@ mod tests {
             id: 503,
             position: Point::new(1.5, 1.5),
             diameter: 3.2,
+            end: None,
         });
         project.board.machining = Some(pcbcraft_doc::MachiningNotes {
             edge_plating: None,
@@ -6733,6 +6797,68 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn drill_chart_counts_slots_by_width_and_length() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 510,
+            position: Point::new(10.0, 10.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 10.0)),
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 511,
+            position: Point::new(10.0, 20.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 20.0)),
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 512,
+            position: Point::new(30.0, 10.0),
+            diameter: 1.0,
+            end: None,
+        });
+        project.validate()?;
+        let text = drill_chart_csv(&project)?;
+        assert!(
+            text.contains("T1,1.000,0.000,no,1"),
+            "a round hole of the same width is its own tool: {text}"
+        );
+        assert!(
+            text.contains("T2,1.000,4.000,no,2"),
+            "both slots share one tool keyed by width and span: {text}"
+        );
+        assert!(text.contains("TOTAL,,,,3"), "every hit is counted: {text}");
+        Ok(())
+    }
+    #[test]
+    fn a_slotted_mounting_hole_writes_one_g85_span() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 520,
+            position: Point::new(10.0, 10.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 10.0)),
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let drill = &files["pcb-Drill.drl"];
+        assert!(
+            drill.contains("T1C1.000\n"),
+            "the tool is the slot width: {drill}"
+        );
+        assert!(
+            drill.contains("X10.000Y10.000G85X14.000Y10.000\n"),
+            "one hit spans the two centres: {drill}"
+        );
+        assert!(drill.ends_with("M30\n"));
+        let map = &files["pcb-DrillMap.gbr"];
+        assert!(
+            map.contains("X10.000000Y10.000000D02*\nX14.000000Y10.000000D01*\n"),
+            "the drill map draws the slot as a stroke from end to end: {map}"
+        );
+        Ok(())
+    }
     #[test]
     fn stackup_text_lists_layer_notes_and_machining_tolerances() -> Result<(), String> {
         let mut project = Project::default();
@@ -8515,6 +8641,7 @@ mod tests {
             id: 40,
             position: Point::new(2.0, 2.0),
             diameter: 3.0,
+            end: None,
         });
         project.validate()?;
         let text = ipc2581_text(&project)?;
@@ -9166,38 +9293,38 @@ mod tests {
             "a DXF file ends at EOF"
         );
         assert!(
-            dxf.contains("8\nEdge\n0\nLWPOLYLINE\n90\n4\n70\n1\n"),
+            dxf.contains("0\nLWPOLYLINE\n8\nEdge\n90\n4\n70\n1\n"),
             "the board edge is a closed four-vertex polyline"
         );
         assert!(
-            dxf.contains("8\nF_Cu\n0\nLINE\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
+            dxf.contains("0\nLINE\n8\nF_Cu\n10\n10.000\n20\n10.000\n11\n30.000\n21\n10.000\n"),
             "the front track becomes a line on the front copper layer"
         );
         assert!(
-            dxf.contains("8\nVia\n0\nCIRCLE\n10\n30.000\n20\n20.000\n40\n0.350\n"),
+            dxf.contains("0\nCIRCLE\n8\nVia\n10\n30.000\n20\n20.000\n40\n0.350\n"),
             "the via pad becomes a circle"
         );
         assert!(
-            dxf.contains("8\nDrill\n0\nCIRCLE\n10\n30.000\n20\n20.000\n40\n0.150\n"),
+            dxf.contains("0\nCIRCLE\n8\nDrill\n10\n30.000\n20\n20.000\n40\n0.150\n"),
             "the via drill becomes its own circle"
         );
         assert!(
-            dxf.contains("8\nBoard_Graphics\n0\nARC\n10\n47.000\n20\n10.071\n40\n7.000\n50\n359.419\n51\n180.581\n"),
+            dxf.contains("0\nARC\n8\nBoard_Graphics\n10\n47.000\n20\n10.071\n40\n7.000\n50\n359.419\n51\n180.581\n"),
             "a three-point board arc becomes a centre-radius arc"
         );
         assert!(
-            !dxf.contains("8\nBoard_Graphics\n0\nLINE\n"),
+            !dxf.contains("0\nLINE\n8\nBoard_Graphics\n"),
             "schematic graphics stay out of the board drawing"
         );
         assert!(
-            dxf.contains("8\nF_Silk\n0\nTEXT\n10\n5.000\n20\n5.000\n40\n1.500\n50\n90.0\n1\nTOP\n"),
+            dxf.contains("0\nTEXT\n8\nF_Silk\n10\n5.000\n20\n5.000\n40\n1.500\n50\n90.0\n1\nTOP\n"),
             "board labels become rotated text entities"
         );
-        assert_eq!(
-            dxf.matches("\n0\nENTITY\n").count(),
-            6,
-            "six entities in all"
+        assert!(
+            !dxf.contains("\n0\nENTITY\n"),
+            "entities carry their own type, not a placeholder"
         );
+        assert_eq!(dxf_entities(&dxf)?.len(), 6, "six entities in all");
         Ok(())
     }
     #[test]
@@ -10033,6 +10160,7 @@ mod tests {
             id: 41,
             position: Point::new(0.5, 0.5),
             diameter: 3.0,
+            end: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 51,
@@ -11098,7 +11226,6 @@ mod tests {
         assert!(back.contains("%TF.FileFunction,Copper,L2,Bot*%"));
         Ok(())
     }
-<<<<<<< HEAD
 
     fn sample_board_with_two_by_two_panel() -> Result<pcbcraft_doc::Project, String> {
         let json = include_str!("../tests/fixtures/sample_led_panel_base.json");
@@ -11253,6 +11380,85 @@ mod tests {
         Ok(())
     }
 
+    /// A two layer board fixture for the drawn layer plots: a cut outline with
+    /// a hole and a label, and a silk panel mark.
+    fn drawn_layer_project() -> Project {
+        let mut p = Project::default();
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 1,
+            name: "Card Outline".into(),
+            kind: pcbcraft_doc::ArtKind::Cut,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![
+                pcbcraft_doc::ArtShape::Rect {
+                    x: 10.0,
+                    y: 10.0,
+                    width: 40.0,
+                    height: 30.0,
+                    rotate: 0.0,
+                },
+                pcbcraft_doc::ArtShape::Circle {
+                    center: Point::new(30.0, 25.0),
+                    radius: 3.0,
+                },
+            ],
+        });
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 2,
+            name: "Panel Silk".into(),
+            kind: pcbcraft_doc::ArtKind::Silk,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Line {
+                start: Point::new(12.0, 12.0),
+                end: Point::new(48.0, 12.0),
+            }],
+        });
+        p
+    }
+
+    #[test]
+    fn drawn_layers_write_one_file_per_layer() -> Result<(), String> {
+        let p = drawn_layer_project();
+        let plots = drawn_layer_plots(&p)?;
+        let names: Vec<&str> = plots.files.keys().map(|k| k.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "card-outline.dxf",
+                "card-outline.hpg",
+                "card-outline.svg",
+                "panel-silk.dxf",
+                "panel-silk.gbr"
+            ],
+            "a cut layer gets a mill path and a silk layer gets a print file"
+        );
+        assert!(
+            plots.skipped.is_empty(),
+            "nothing in the fixture needs skipping"
+        );
+        let gerbers = gerber_files(&p)?;
+        assert!(
+            gerbers.contains_key("panel-silk.gbr"),
+            "the silk print joins the Gerber set"
+        );
+        let drawing = dxf_board(&p)?;
+        assert!(
+            drawing.contains("8\ncard-outline\n"),
+            "the board DXF carries the drawn cut layer"
+        );
+        assert!(
+            drawing.contains("8\npanel-silk\n"),
+            "the board DXF carries the drawn silk layer"
+        );
+        Ok(())
+    }
+
     #[test]
     fn panel_two_by_two_sample_board_drill_and_placement() -> Result<(), String> {
         let p = sample_board_with_two_by_two_panel()?;
@@ -11291,6 +11497,177 @@ mod tests {
         assert!(
             !placement.contains("FID"),
             "board fiducials must not be duplicated into panel placement"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drawn_layer_dxf_reads_back_with_the_same_figures() -> Result<(), String> {
+        let p = drawn_layer_project();
+        let plots = drawn_layer_plots(&p)?;
+        let text = plots
+            .files
+            .get("card-outline.dxf")
+            .ok_or("the cut layer writes a DXF")?;
+        assert!(
+            text.contains("$INSUNITS\n70\n4\n"),
+            "a mill plot declares millimetres"
+        );
+        let entities = dxf_entities(text)?;
+        assert_eq!(entities.len(), 2, "an outline and a hole");
+        assert!(
+            entities.iter().all(|e| e.layer == "card-outline"),
+            "every figure keeps the layer name"
+        );
+        let outline = entities
+            .iter()
+            .find_map(|e| match &e.shape {
+                DxfShape::Polyline { points, closed } if *closed => Some(points.clone()),
+                _ => None,
+            })
+            .ok_or("the rectangle reads back as a closed polyline")?;
+        assert_eq!(outline.len(), 4, "four corners");
+        for (got, want) in outline.iter().zip([
+            Point::new(10.0, 10.0),
+            Point::new(50.0, 10.0),
+            Point::new(50.0, 40.0),
+            Point::new(10.0, 40.0),
+        ]) {
+            assert!(
+                (got.x - want.x).abs() < 0.001 && (got.y - want.y).abs() < 0.001,
+                "corner {got:?} should be {want:?}"
+            );
+        }
+        let hole = entities
+            .iter()
+            .find_map(|e| match &e.shape {
+                DxfShape::Circle { center, radius } => Some((*center, *radius)),
+                _ => None,
+            })
+            .ok_or("the hole stays a true circle")?;
+        assert!(
+            (hole.0.x - 30.0).abs() < 0.001
+                && (hole.0.y - 25.0).abs() < 0.001
+                && (hole.1 - 3.0).abs() < 0.001,
+            "the hole keeps its centre and radius"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drawn_layer_svg_reads_back_with_the_same_figures() -> Result<(), String> {
+        let p = drawn_layer_project();
+        let plots = drawn_layer_plots(&p)?;
+        let text = plots
+            .files
+            .get("card-outline.svg")
+            .ok_or("the cut layer writes an SVG")?;
+        assert!(
+            text.contains("width=\"51.000mm\"") && text.contains("height=\"41.000mm\""),
+            "a laser plot is sized in millimetres"
+        );
+        assert!(
+            text.contains("stroke=\"#0000ff\""),
+            "cut lines stay blue, the usual laser rule"
+        );
+        let entities = svg_entities(text)?;
+        assert_eq!(entities.len(), 2, "an outline and a hole");
+        let outline = entities
+            .iter()
+            .find_map(|e| match &e.shape {
+                SvgShape::Polyline { points, closed } if *closed => Some(points.clone()),
+                _ => None,
+            })
+            .ok_or("the rectangle reads back as a closed polygon")?;
+        assert_eq!(outline.len(), 4, "four corners");
+        for (got, want) in outline.iter().zip([
+            Point::new(10.0, 10.0),
+            Point::new(50.0, 10.0),
+            Point::new(50.0, 40.0),
+            Point::new(10.0, 40.0),
+        ]) {
+            assert!(
+                (got.x - want.x).abs() < 0.001 && (got.y - want.y).abs() < 0.001,
+                "corner {got:?} should be {want:?}"
+            );
+        }
+        let hole = entities
+            .iter()
+            .find_map(|e| match &e.shape {
+                SvgShape::Circle { center, radius } => Some((*center, *radius)),
+                _ => None,
+            })
+            .ok_or("the hole stays a true circle")?;
+        assert!(
+            (hole.0.x - 30.0).abs() < 0.001
+                && (hole.0.y - 25.0).abs() < 0.001
+                && (hole.1 - 3.0).abs() < 0.001,
+            "the hole keeps its centre and radius, got {hole:?} in {text}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drawn_layer_file_names_cannot_leave_the_folder() -> Result<(), String> {
+        let mut p = Project::default();
+        for (id, name) in [
+            (1, "../../etc/passwd"),
+            (2, "Card Outline"),
+            (3, "card/outline"),
+        ] {
+            p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+                id,
+                name: name.into(),
+                kind: pcbcraft_doc::ArtKind::Other,
+                dotted: false,
+                dot_pitch: 1.0,
+                dot_size: 0.5,
+                visible: true,
+                shapes: vec![pcbcraft_doc::ArtShape::Line {
+                    start: Point::new(1.0, 1.0),
+                    end: Point::new(2.0, 2.0),
+                }],
+            });
+        }
+        let plots = drawn_layer_plots(&p)?;
+        for name in plots.files.keys() {
+            assert!(
+                !name.contains('/') && !name.contains('\\') && !name.contains(".."),
+                "{name} must stay inside the output folder"
+            );
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'),
+                "{name} holds only safe characters"
+            );
+        }
+        assert!(
+            plots.files.contains_key("etc-passwd.dxf"),
+            "a path-like name reduces to a plain stem"
+        );
+        assert!(
+            plots.files.contains_key("card-outline.dxf")
+                && plots.files.contains_key("card-outline-3.dxf"),
+            "two names that reduce alike are told apart by the layer id"
+        );
+        let mut blank = Project::default();
+        blank.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 9,
+            name: "///".into(),
+            kind: pcbcraft_doc::ArtKind::Other,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Line {
+                start: Point::new(1.0, 1.0),
+                end: Point::new(2.0, 2.0),
+            }],
+        });
+        let blank = drawn_layer_plots(&blank)?;
+        assert!(
+            blank.files.contains_key("layer-9.dxf"),
+            "a name with no usable characters falls back to the layer id"
         );
         Ok(())
     }
@@ -11383,6 +11760,46 @@ mod tests {
     }
 
     #[test]
+    fn mask_art_is_written_as_positive_other_not_soldermask() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 4,
+            name: "Ink Mask".into(),
+            kind: pcbcraft_doc::ArtKind::Mask,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Line {
+                start: Point::new(5.0, 5.0),
+                end: Point::new(15.0, 5.0),
+            }],
+        });
+        let plots = drawn_layer_plots(&p)?;
+        let text = plots
+            .files
+            .get("ink-mask.gbr")
+            .ok_or("a mask layer writes a Gerber")?;
+        assert!(
+            text.contains("%TF.FileFunction,Other,Ink_Mask*%"),
+            "mask art is an other layer, not a negative soldermask image"
+        );
+        assert!(
+            text.contains("%TF.FilePolarity,Positive*%"),
+            "drawn mask figures are ink, so the polarity is positive"
+        );
+        assert!(
+            !text.contains("Soldermask"),
+            "a positive ink layer must never be labelled as a soldermask"
+        );
+        assert!(
+            text.contains("G04 solder mask drawn layer \"Ink Mask\", top side"),
+            "the header names the layer and its side"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn examples_validate_after_load() -> Result<(), String> {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
         for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
@@ -11391,6 +11808,110 @@ mod tests {
                 load(&path)?;
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn perforation_plot_uses_physical_pitch() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 5,
+            name: "Snap Line".into(),
+            kind: pcbcraft_doc::ArtKind::Perforation,
+            dotted: true,
+            dot_pitch: 2.0,
+            dot_size: 0.4,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Line {
+                start: Point::new(0.0, 0.0),
+                end: Point::new(10.0, 0.0),
+            }],
+        });
+        let plots = drawn_layer_plots(&p)?;
+        let dxf = plots
+            .files
+            .get("snap-line.dxf")
+            .ok_or("a perforation writes a mill path")?;
+        let entities = dxf_entities(dxf)?;
+        assert_eq!(
+            entities.len(),
+            6,
+            "a ten millimetre line at a two millimetre pitch is six holes"
+        );
+        for (i, entity) in entities.iter().enumerate() {
+            let DxfShape::Circle { center, radius } = &entity.shape else {
+                return Err("each perforation mark is a drilled circle".into());
+            };
+            assert!(
+                (center.x - i as f64 * 2.0).abs() < 0.001,
+                "hole {i} sits at {} millimetres",
+                i as f64 * 2.0
+            );
+            assert!(
+                (radius - 0.2).abs() < 0.001,
+                "the dot size is a real diameter, not screen pixels"
+            );
+        }
+        let pen = plots
+            .files
+            .get("snap-line.hpg")
+            .ok_or("a perforation writes a pen path")?;
+        assert!(
+            pen.matches("PD").count() == 6,
+            "the pen path marks the same six holes"
+        );
+        assert!(
+            pen.contains("PU0,0;PD0,0;"),
+            "the first mark sits at the origin, forty units per millimetre"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn text_on_a_cut_layer_is_reported_when_skipped() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 6,
+            name: "Labels".into(),
+            kind: pcbcraft_doc::ArtKind::Cut,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![
+                pcbcraft_doc::ArtShape::Line {
+                    start: Point::new(1.0, 1.0),
+                    end: Point::new(5.0, 1.0),
+                },
+                pcbcraft_doc::ArtShape::Text {
+                    at: Point::new(2.0, 3.0),
+                    text: "A1".into(),
+                    size: 1.5,
+                    rotate: 0.0,
+                },
+            ],
+        });
+        let plots = drawn_layer_plots(&p)?;
+        assert_eq!(
+            plots.skipped,
+            ["text \"A1\" on layer Labels"],
+            "a machine path cannot follow a filled glyph, so the job says so"
+        );
+        let note = plots.skipped_note().ok_or("a skipped figure is reported")?;
+        assert!(
+            note.contains("1 figure(s) skipped") && note.contains("\"A1\""),
+            "the note names the figure and the layer"
+        );
+        let dxf = plots
+            .files
+            .get("labels.dxf")
+            .ok_or("the layer still plots")?;
+        assert!(
+            dxf.contains("0\nTEXT\n8\nlabels\n"),
+            "DXF keeps text as text so printer software can convert it"
+        );
+        let pen = plots.files.get("labels.hpg").ok_or("pen path")?;
+        assert!(!pen.contains("A1"), "the pen path leaves the label out");
         Ok(())
     }
 }

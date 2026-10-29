@@ -248,13 +248,15 @@ fn copper(project: &Project) -> Vec<Copper> {
         result.push(item);
     }
     for h in &project.board.holes {
-        // An unplated drill is a keep-out circle on every layer: copper may
-        // not enter the drilled annulus and the hole must clear the edge.
+        // An unplated drill is a keep-out shape on every layer: copper may
+        // not enter the drilled area and the drill must clear the edge. A
+        // slot is a capsule between its two centres, so clearance and the
+        // edge check measure the drilled shape itself.
         let item = Copper {
             id: h.id,
             net: 0,
-            start: h.position,
-            end: h.position,
+            start: h.start(),
+            end: h.finish(),
             radius: h.diameter / 2.0,
             contact_radius: h.diameter / 2.0,
             conservative: false,
@@ -2005,6 +2007,46 @@ mod tests {
                     && f.objects.contains(&5)
             }),
             "a track through a peg drill is a clearance finding: {findings:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn slot_clearance_is_measured_along_its_length() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.clearance = 0.2;
+        p.board.holes.push(pcbcraft_doc::Hole {
+            id: 40,
+            position: Point::new(14.0, 10.0),
+            diameter: 2.0,
+            end: Some(Point::new(20.0, 10.0)),
+        });
+        p.board.tracks.push(Track {
+            id: 41,
+            net: 1,
+            start: Point::new(21.1, 8.0),
+            end: Point::new(21.1, 12.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.objects.contains(&40) && f.code != "board_edge"),
+            "a track beside a slot's end centre is a clearance violation: {findings:?}"
+        );
+        p.board.tracks[0].start = Point::new(15.0, 12.0);
+        p.board.tracks[0].end = Point::new(19.0, 12.0);
+        let slot_only: Vec<Finding> = drc(&p)
+            .into_iter()
+            .filter(|f| f.objects.contains(&40))
+            .collect();
+        assert!(
+            slot_only.is_empty(),
+            "copper clear of the slot's side has room: {slot_only:?}"
         );
         Ok(())
     }

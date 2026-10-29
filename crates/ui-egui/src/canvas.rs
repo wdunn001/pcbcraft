@@ -1652,10 +1652,28 @@ impl App {
             painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
         }
         for h in &p.board.holes {
-            let center = camera.screen(h.position, rect);
             let radius = ((h.diameter / 2.0) as f32 * camera.zoom).max(1.5);
-            painter.circle_filled(center, radius, self.surface());
-            painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+            if h.is_slot() {
+                // A slot is a capsule: a line of the drill width between its
+                // two centres, capped with half circles at each end.
+                let a = camera.screen(h.start(), rect);
+                let b = camera.screen(h.finish(), rect);
+                let dir = (b - a).normalized();
+                let side = egui::vec2(-dir.y, dir.x) * radius;
+                let (a2, b2) = (a + dir * radius, b - dir * radius);
+                painter.line_segment([a, b], Stroke::new(radius * 2.0, self.surface()));
+                painter.circle_filled(a, radius, self.surface());
+                painter.circle_filled(b, radius, self.surface());
+                let ink = Stroke::new(1.0, self.ink());
+                painter.line_segment([a2 + side, b2 + side], ink);
+                painter.line_segment([a2 - side, b2 - side], ink);
+                painter.circle_stroke(a, radius, ink);
+                painter.circle_stroke(b, radius, ink);
+            } else {
+                let center = camera.screen(h.position, rect);
+                painter.circle_filled(center, radius, self.surface());
+                painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
+            }
         }
         for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);

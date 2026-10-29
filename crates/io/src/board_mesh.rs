@@ -670,6 +670,34 @@ fn circle_ring(center: Point, radius: f64) -> Vec<Point> {
         })
         .collect()
 }
+/// A stadium outline around the segment `a` to `b`: the shape a routed slot
+/// leaves, with half-circle caps at each centre.
+fn capsule_ring(a: Point, b: Point, radius: f64) -> Vec<Point> {
+    let mut points = Vec::new();
+    let length = a.distance(b);
+    if length < 1e-6 {
+        return circle_ring(a, radius);
+    }
+    let n = circle_segments(radius).max(8);
+    let axis = (b.y - a.y).atan2(b.x - a.x);
+    // Half circle around the far centre, then half circle around the near
+    // one, so the ring runs along one side and back along the other.
+    for i in 0..=n {
+        let angle = axis + std::f64::consts::PI * (i as f64) / (n as f64);
+        points.push(Point::new(
+            b.x + radius * angle.cos(),
+            b.y + radius * angle.sin(),
+        ));
+    }
+    for i in 0..=n {
+        let angle = axis - std::f64::consts::PI * (i as f64) / (n as f64);
+        points.push(Point::new(
+            a.x + radius * angle.cos(),
+            a.y + radius * angle.sin(),
+        ));
+    }
+    clean_ring(&points).unwrap_or_default()
+}
 fn grow(ring: &[Point], margin: f64) -> Vec<Point> {
     let (lo, hi) = ring_bounds(ring);
     let (hx, hy) = ((hi.x - lo.x) / 2.0, (hi.y - lo.y) / 2.0);
@@ -1229,7 +1257,15 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
         }
     }
     for hole in &p.board.holes {
-        drills.extend(clean_ring(&circle_ring(hole.position, hole.diameter / 2.0)));
+        if hole.is_slot() {
+            drills.extend(clean_ring(&capsule_ring(
+                hole.start(),
+                hole.finish(),
+                hole.diameter / 2.0,
+            )));
+        } else {
+            drills.extend(clean_ring(&circle_ring(hole.position, hole.diameter / 2.0)));
+        }
     }
     for cut in &p.board.cutouts {
         drills.extend(clean_ring(&circle_ring(cut.center, cut.radius)));
@@ -1706,6 +1742,7 @@ mod tests {
             id: 3,
             position: Point::new(30.0, 20.0),
             diameter: 3.2,
+            end: None,
         });
         p.board.vias.push(Via {
             id: 4,
@@ -1738,6 +1775,7 @@ mod tests {
             id: 2,
             position: Point::new(0.5, 15.0),
             diameter: 3.0,
+            end: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         assert_eq!(part(&mesh, PartKind::Board)?.positions.len(), 24);
@@ -2158,6 +2196,8 @@ mod tests {
             name: "Marks".into(),
             kind: ArtKind::Silk,
             dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
             visible: true,
             shapes: vec![
                 ArtShape::Line {

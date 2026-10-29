@@ -1007,13 +1007,46 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
+/// Every export kind a saved output job may name, in the order the UI lists
+/// them. This is the one list; validation, the engine schema and the job
+/// runner all read it.
+pub const OUTPUT_KINDS: [&str; 26] = [
+    "gerbers",
+    "netlist",
+    "bom",
+    "placement",
+    "dxf",
+    "cmp",
+    "idf",
+    "vrml",
+    "step",
+    "pdf",
+    "svg",
+    "ipc2581",
+    "dsn",
+    "ipc356",
+    "gencad",
+    "hyperlynx",
+    "plot",
+    "report",
+    "ps",
+    "odb",
+    "hpgl",
+    "stackup",
+    "drill_chart",
+    "stats",
+    "layer_plots",
+    "panel",
+];
+/// How many export kinds one output job may hold. It is larger than the kind
+/// list so a single job can still ask for every file a board needs.
+pub const MAX_OUTPUT_KINDS: usize = 32;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct OutputJob {
     pub name: String,
-    /// Export kinds, each one of: gerbers, netlist, bom, placement, dxf,
-    /// cmp, idf, vrml, step, pdf, svg.
+    /// Export kinds, each one of [`OUTPUT_KINDS`].
     pub kinds: Vec<String>,
 }
 impl OutputJob {
@@ -1021,37 +1054,11 @@ impl OutputJob {
         !self.name.trim().is_empty()
             && self.name.len() <= 64
             && !self.kinds.is_empty()
-            && self.kinds.len() <= 24
-            && self.kinds.iter().all(|k| {
-                matches!(
-                    k.as_str(),
-                    "gerbers"
-                        | "netlist"
-                        | "bom"
-                        | "placement"
-                        | "dxf"
-                        | "cmp"
-                        | "idf"
-                        | "vrml"
-                        | "step"
-                        | "pdf"
-                        | "svg"
-                        | "ipc2581"
-                        | "dsn"
-                        | "ipc356"
-                        | "gencad"
-                        | "hyperlynx"
-                        | "plot"
-                        | "report"
-                        | "ps"
-                        | "odb"
-                        | "hpgl"
-                        | "stackup"
-                        | "drill_chart"
-                        | "stats"
-                        | "panel"
-                )
-            })
+            && self.kinds.len() <= MAX_OUTPUT_KINDS
+            && self
+                .kinds
+                .iter()
+                .all(|k| OUTPUT_KINDS.contains(&k.as_str()))
     }
 }
 /// An unplated through hole: a drill that passes through the board without
@@ -1102,17 +1109,60 @@ fn front_layer() -> Layer {
     Layer::Front
 }
 /// An unplated through hole: a drill that passes through the board without
-/// plating or a net.
+/// plating or a net. A round drill carries one centre; a slot carries a
+/// second centre in `end` and is routed as a capsule of `diameter` width
+/// between the two.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Hole {
     pub id: Id,
     pub position: Point,
-    /// Drill diameter in millimetres.
+    /// Drill diameter in millimetres; for a slot this is its width.
     pub diameter: f64,
+    /// Second centre of a slotted hole in millimetres, at least 0.01 mm from
+    /// `position`. Absent for a round drill, so old designs keep loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<Point>,
 }
 impl Hole {
+    /// The near centre of the drill: the circle centre for a round hole, or
+    /// one end of a slot.
+    pub fn start(&self) -> Point {
+        self.position
+    }
+    /// The far centre of the drill: the same point for a round hole, the
+    /// other end of the capsule for a slot.
+    pub fn finish(&self) -> Point {
+        self.end.unwrap_or(self.position)
+    }
+    /// True when the drill is a slot rather than a round hole.
+    pub fn is_slot(&self) -> bool {
+        self.end.is_some()
+    }
+    /// Centre of the drill: the circle centre, or the midpoint of a slot.
+    pub fn center(&self) -> Point {
+        let end = self.finish();
+        Point::new(
+            (self.position.x + end.x) / 2.0,
+            (self.position.y + end.y) / 2.0,
+        )
+    }
+    /// Overall length along the drill axis in millimetres: the diameter for a
+    /// round hole, and the capsule length for a slot.
+    pub fn length(&self) -> f64 {
+        self.position.distance(self.finish()) + self.diameter
+    }
+    /// Longest span a slot may cover between its two centres, in millimetres.
+    pub const MAX_SPAN: f64 = 50.0;
     fn valid(&self) -> bool {
-        self.position.valid() && (0.05..=25.0).contains(&self.diameter)
+        if !self.position.valid() || !(0.05..=25.0).contains(&self.diameter) {
+            return false;
+        }
+        match self.end {
+            None => true,
+            Some(end) => {
+                end.valid() && (0.01..=Self::MAX_SPAN).contains(&self.position.distance(end))
+            }
+        }
     }
 }
 /// One named board layer record, kept for fabrication notes: a layer's role
@@ -1207,6 +1257,65 @@ pub enum ArtShape {
     },
 }
 impl ArtShape {
+    /// The true circle this figure draws, when it is one, so a format with
+    /// arcs or circle entities can keep it round instead of sampling it.
+    pub fn circle(&self) -> Option<(Point, f64)> {
+        match self {
+            Self::Circle { center, radius } => Some((*center, *radius)),
+            _ => None,
+        }
+    }
+
+    /// The straight-line paths this figure draws, in board millimetres, using
+    /// the same conventions as the canvas: a rectangle turns its corners by
+    /// its own rotation about its centre, a polygon is always closed, and a
+    /// circle is sampled into a ring. Text returns no path because drawing
+    /// glyphs needs a stroke font; callers report text as skipped instead.
+    pub fn paths(&self) -> Vec<ArtPath> {
+        match self {
+            Self::Line { start, end } => vec![ArtPath {
+                points: vec![*start, *end],
+                closed: false,
+            }],
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                rotate,
+            } => {
+                let center = Point::new(x + width / 2.0, y + height / 2.0);
+                let points = [
+                    Point::new(*x, *y),
+                    Point::new(x + width, *y),
+                    Point::new(x + width, y + height),
+                    Point::new(*x, y + height),
+                ]
+                .into_iter()
+                .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
+                .collect();
+                vec![ArtPath {
+                    points,
+                    closed: true,
+                }]
+            }
+            Self::Circle { center, radius } => vec![ArtPath {
+                points: art_circle_points(*center, *radius),
+                closed: true,
+            }],
+            Self::Poly { points } => {
+                if points.len() < 2 {
+                    return vec![];
+                }
+                vec![ArtPath {
+                    points: points.clone(),
+                    closed: true,
+                }]
+            }
+            Self::Text { .. } => vec![],
+        }
+    }
+
     fn valid(&self) -> bool {
         match self {
             Self::Line { start, end } => start.valid() && end.valid(),
@@ -1246,6 +1355,65 @@ impl ArtShape {
         }
     }
 }
+/// One polyline of a drawn figure, in board millimetres. Plotters, macros
+/// and the screen all read figures through this so they agree on corners,
+/// closure and circle sampling.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ArtPath {
+    /// The points to travel through, in order.
+    pub points: Vec<Point>,
+    /// True when the path returns to its first point.
+    pub closed: bool,
+}
+impl ArtPath {
+    /// Every point along this path, walking each segment at a physical step
+    /// and placing the first mark at the start. Closed paths include the
+    /// closing segment. Used to turn a perforation line into real holes.
+    pub fn dots(&self, pitch: f64) -> Vec<Point> {
+        const SAMPLES: usize = 100_000;
+        let mut out = Vec::new();
+        if !(pitch.is_finite() && pitch > 0.0) {
+            return out;
+        }
+        let Some(first) = self.points.first().copied() else {
+            return out;
+        };
+        out.push(first);
+        let mut ring = self.points.clone();
+        if self.closed {
+            ring.push(first);
+        }
+        let mut next = pitch;
+        let mut travelled = 0.0;
+        for pair in ring.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            let len = ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt();
+            if !len.is_finite() || len <= 0.0 {
+                continue;
+            }
+            while travelled + len >= next {
+                let t = (next - travelled) / len;
+                out.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                if out.len() >= SAMPLES {
+                    return out;
+                }
+                next += pitch;
+            }
+            travelled += len;
+        }
+        out
+    }
+}
+/// Sample a circle into a ring of points, without repeating the first point.
+fn art_circle_points(center: Point, radius: f64) -> Vec<Point> {
+    const SEGMENTS: usize = 64;
+    (0..SEGMENTS)
+        .map(|i| {
+            let a = std::f64::consts::TAU * i as f64 / SEGMENTS as f64;
+            Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+        })
+        .collect()
+}
 /// A layer the designer draws: card outlines to cut, perforations to snap
 /// along, custom silk screens, masks or reference art. Copper stays where it
 /// is; these layers sit beside it and are plotted for laser, mill and
@@ -1261,6 +1429,15 @@ pub struct ArtLayer {
     /// snaps along, or a light print guide.
     #[serde(default)]
     pub dotted: bool,
+    /// Centre-to-centre distance between the dots of a dotted layer, in
+    /// millimetres. Machines need a physical pitch; the screen dashes are a
+    /// preview of this.
+    #[serde(default = "art_dot_pitch")]
+    pub dot_pitch: f64,
+    /// Diameter of each dot of a dotted layer, in millimetres. A laser marks
+    /// it, a mill drills it.
+    #[serde(default = "art_dot_size")]
+    pub dot_size: f64,
     /// False hides the layer everywhere on screen.
     #[serde(default = "art_visible")]
     pub visible: bool,
@@ -1274,10 +1451,20 @@ impl ArtLayer {
             && self.name.len() <= 64
             && self.shapes.len() <= 512
             && self.shapes.iter().all(ArtShape::valid)
+            && self.dot_pitch.is_finite()
+            && (0.1..=20.0).contains(&self.dot_pitch)
+            && self.dot_size.is_finite()
+            && (0.05..=10.0).contains(&self.dot_size)
     }
 }
 fn art_visible() -> bool {
     true
+}
+fn art_dot_pitch() -> f64 {
+    1.0
+}
+fn art_dot_size() -> f64 {
+    0.5
 }
 fn art_text_size() -> f64 {
     1.0
@@ -1688,9 +1875,10 @@ impl ProjectLibrary {
 }
 /// A closed polygon outline: 3-256 distinct vertices, the first repeated last,
 /// finite in-range coordinates and nonzero enclosed area.
-/// Area in square millimetres of an implicitly closed polygon, by the
-/// shoelace formula; zero for polygons with fewer than three vertices.
-pub fn outline_area(points: &[Point]) -> f64 {
+/// Signed area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula: positive when the vertices wind counter-clockwise, zero
+/// for polygons with fewer than three vertices.
+pub fn outline_signed_area(points: &[Point]) -> f64 {
     if points.len() < 3 {
         return 0.0;
     }
@@ -1699,7 +1887,12 @@ pub fn outline_area(points: &[Point]) -> f64 {
         let b = points[(i + 1) % points.len()];
         area += a.x * b.y - b.x * a.y;
     }
-    (area / 2.0).abs()
+    area / 2.0
+}
+/// Area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula; zero for polygons with fewer than three vertices.
+pub fn outline_area(points: &[Point]) -> f64 {
+    outline_signed_area(points).abs()
 }
 
 pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
@@ -2397,7 +2590,23 @@ impl Project {
         }
         for h in &self.board.holes {
             if !h.valid() {
-                return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+                return Err(
+                    "unplated holes need a sane position, a 0.05 to 25 mm drill and, for a slot, two centres at least 0.01 mm apart and at most 50 mm apart"
+                        .into(),
+                );
+            }
+            if h.is_slot() {
+                let radius = h.diameter / 2.0;
+                let board = &self.board;
+                let fits = |p: Point| {
+                    p.x - radius >= 0.0
+                        && p.y - radius >= 0.0
+                        && p.x + radius <= board.width
+                        && p.y + radius <= board.height
+                };
+                if !fits(h.start()) || !fits(h.finish()) {
+                    return Err("a slot must fit inside the board".into());
+                }
             }
         }
         if self.board.fiducials.len() > 128 {
@@ -3982,6 +4191,140 @@ mod drill_tests {
             p.validate()
                 .is_err_and(|e| e.contains("unplated footprint pad cannot carry a net"))
         );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod art_tests {
+    use super::*;
+
+    #[test]
+    fn art_shape_paths_match_the_canvas_rotation_sign() -> Result<(), String> {
+        let shape = ArtShape::Rect {
+            x: 10.0,
+            y: 10.0,
+            width: 20.0,
+            height: 10.0,
+            rotate: 90.0,
+        };
+        let paths = shape.paths();
+        assert_eq!(paths.len(), 1, "a rectangle is one closed path");
+        let path = paths.first().ok_or("no path")?;
+        assert!(path.closed, "a rectangle closes");
+        assert_eq!(path.points.len(), 4, "four corners");
+        // Corners turn by +90 degrees about the centre (20, 15), the same
+        // turn the canvas applies: (10,10) -> (25,5), (30,10) -> (25,25),
+        // (30,20) -> (15,25), (10,20) -> (15,5).
+        for (got, want) in path.points.iter().zip([
+            Point::new(25.0, 5.0),
+            Point::new(25.0, 25.0),
+            Point::new(15.0, 25.0),
+            Point::new(15.0, 5.0),
+        ]) {
+            assert!(
+                (got.x - want.x).abs() < 1e-9 && (got.y - want.y).abs() < 1e-9,
+                "corner {got:?} should be {want:?}"
+            );
+        }
+        let circle = ArtShape::Circle {
+            center: Point::new(5.0, 5.0),
+            radius: 2.0,
+        };
+        assert_eq!(circle.circle(), Some((Point::new(5.0, 5.0), 2.0)));
+        let ring = circle.paths();
+        assert_eq!(ring.len(), 1);
+        assert!(
+            ring.first()
+                .is_some_and(|p| p.closed && p.points.len() == 64),
+            "a circle samples into a closed ring"
+        );
+        assert!(
+            ArtShape::Text {
+                at: Point::new(1.0, 1.0),
+                text: "A".into(),
+                size: 1.0,
+                rotate: 0.0,
+            }
+            .paths()
+            .is_empty(),
+            "text needs a stroke font, so it draws no straight path"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn art_path_dots_follow_the_physical_pitch() -> Result<(), String> {
+        let line = ArtShape::Line {
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 10.0),
+        };
+        let path = line.paths().pop().ok_or("a line draws one path")?;
+        let dots = path.dots(1.0);
+        assert_eq!(
+            dots.len(),
+            11,
+            "a mark every millimetre, both ends included"
+        );
+        assert!((dots[0].y - 0.0).abs() < 1e-9);
+        assert!((dots[10].y - 10.0).abs() < 1e-9);
+        assert_eq!(path.dots(0.0).len(), 0, "a pitch must be positive");
+        Ok(())
+    }
+
+    #[test]
+    fn old_projects_with_round_holes_still_load() -> Result<(), String> {
+        let hole: Hole = serde_json::from_value(
+            serde_json::json!({"id":7,"position":{"x":3.0,"y":4.0},"diameter":3.2}),
+        )
+        .map_err(|e| e.to_string())?;
+        assert!(!hole.is_slot(), "a plain drill has no second centre");
+        assert_eq!(hole.finish(), hole.position);
+        assert!((hole.length() - 3.2).abs() < 1e-12);
+        let written = serde_json::to_value(&hole).map_err(|e| e.to_string())?;
+        assert!(
+            written.get("end").is_none(),
+            "a round hole writes no second centre, so files stay as they were"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_slot_reports_its_midpoint_and_overall_length() -> Result<(), String> {
+        let hole = Hole {
+            id: 8,
+            position: Point::new(10.0, 5.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 5.0)),
+        };
+        assert!(hole.is_slot());
+        assert_eq!(hole.center(), Point::new(12.0, 5.0));
+        assert!((hole.length() - 5.0).abs() < 1e-12);
+        Ok(())
+    }
+
+    #[test]
+    fn validation_refuses_a_collapsed_slot_and_one_off_the_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.holes.push(Hole {
+            id: 9,
+            position: Point::new(0.2, 5.0),
+            diameter: 1.0,
+            end: Some(Point::new(5.0, 5.0)),
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("slot must fit inside the board")),
+            "a slot whose cap hangs over the rim is refused"
+        );
+        p.board.holes[0].position = Point::new(10.0, 5.0);
+        p.board.holes[0].end = Some(Point::new(10.0, 5.0));
+        assert!(
+            p.validate().is_err(),
+            "a slot with no distance between its centres is a round drill, not a slot"
+        );
+        p.board.holes[0].end = Some(Point::new(70.0, 5.0));
+        assert!(p.validate().is_err(), "a slot spans at most 50 mm");
         Ok(())
     }
 }

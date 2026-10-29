@@ -1593,10 +1593,23 @@ impl App {
                         *held = diameter;
                     }
                 } else {
-                    ui.label(format!(
-                        "{:.2} mm at {:.1}, {:.1}",
-                        hole.diameter, hole.position.x, hole.position.y
-                    ));
+                    if hole.is_slot() {
+                        ui.label(format!(
+                            "{:.2} mm slot {:.2} mm long at {:.1}, {:.1}",
+                            hole.diameter,
+                            hole.length(),
+                            hole.position.x,
+                            hole.position.y
+                        ))
+                        .on_hover_text(
+                            "A routed slot: its width, its overall length end to end, and where it starts.",
+                        );
+                    } else {
+                        ui.label(format!(
+                            "{:.2} mm at {:.1}, {:.1}",
+                            hole.diameter, hole.position.x, hole.position.y
+                        ));
+                    }
                     if ui
                         .small_button("Tune")
                         .on_hover_text("Change this hole's drill size.")
@@ -8938,6 +8951,50 @@ mod tests {
         assert!(
             (hole.radius - 1.5).abs() < 1e-9,
             "the hole should be exactly the size that was typed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.tool_call(
+            "hole.slot",
+            json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
+        );
+        let slot = app
+            .project
+            .board
+            .holes
+            .iter()
+            .find(|h| h.is_slot())
+            .map(|h| h.id)
+            .ok_or("the slot should be on the board")?;
+        app.change_tab(Tab::Pcb);
+        app.refresh();
+        let ctx = egui::Context::default();
+        authoring::tests::tap(&ctx, &mut app, "Layers")?;
+        assert!(
+            scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
+            "the hole list is the place a slot is read: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
+            "a slot reads as its width and its overall length: {}",
+            app.message
+        );
+        // The canvas paints the slot without complaint; the drawing is the
+        // only place a capsule outline shows up.
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.select(Some(slot));
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            app.project.board.holes.iter().any(|h| h.id == slot),
+            "looking at the slot leaves it on the board"
         );
         Ok(())
     }
