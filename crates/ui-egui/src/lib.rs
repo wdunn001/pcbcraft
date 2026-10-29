@@ -422,17 +422,17 @@ fn default_keymap_profiles() -> HashMap<String, keymap::Keymap> {
     map
 }
 
-fn builtin_default_keymap() -> &'static keymap::Keymap {
-    static MAP: std::sync::OnceLock<keymap::Keymap> = std::sync::OnceLock::new();
-    MAP.get_or_init(keymap::Keymap::default_bindings)
-}
-
 impl Preferences {
     fn active_keymap(&self) -> &keymap::Keymap {
         self.keymap_profiles
             .get(&self.active_keymap_profile)
             .or_else(|| self.keymap_profiles.get("Default"))
-            .unwrap_or_else(builtin_default_keymap)
+            .unwrap_or_else(|| {
+                self.keymap_profiles
+                    .values()
+                    .next()
+                    .expect("Preferences must include at least one keymap profile")
+            })
     }
     fn active_keymap_mut(&mut self) -> &mut keymap::Keymap {
         let name = if self.keymap_profiles.contains_key(&self.active_keymap_profile) {
@@ -1107,6 +1107,7 @@ impl App {
     }
 
     fn run(&mut self, command: &str, params: Value) {
+        let repeat_params = params.clone();
         let result = self
             .session
             .lock()
@@ -1118,7 +1119,7 @@ impl App {
         match result {
             Ok(v) => {
                 if command != "object.delete" {
-                    self.last_repeat = Some((command.to_string(), params.clone()));
+                    self.last_repeat = Some((command.to_string(), repeat_params));
                 }
                 self.message = format!("{command} · committed");
                 if let Some(skipped) = v

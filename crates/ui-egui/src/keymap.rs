@@ -89,7 +89,7 @@ fn parse_storage_key(name: &str) -> Option<Key> {
     if name == "slash" || name == "?" {
         return Some(Key::Slash);
     }
-    Key::ALL.into_iter().find(|k| k.name() == name)
+    Key::ALL.into_iter().find(|k| k.name() == name).copied()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -651,8 +651,8 @@ impl Default for Keymap {
 
 impl Keymap {
     pub fn default_bindings() -> Self {
-        let mut bindings = HashMap::new();
-        let mut extra_chords = HashMap::new();
+        let mut bindings: HashMap<KeyAction, KeyChord> = HashMap::new();
+        let mut extra_chords: HashMap<KeyAction, Vec<KeyChord>> = HashMap::new();
         for entry in SPECS {
             let Some(chord) = entry.default_chord else {
                 continue;
@@ -875,7 +875,7 @@ pub fn pressed_chords(ctx: &egui::Context) -> Vec<KeyChord> {
 pub struct KeymapProfileFile {
     pub version: u32,
     pub name: String,
-    pub bindings: HashMap<KeyAction, KeyChord>,
+    pub bindings: HashMap<KeyAction, KeyChordStore>,
 }
 
 impl KeymapProfileFile {
@@ -885,7 +885,11 @@ impl KeymapProfileFile {
         Self {
             version: Self::VERSION,
             name,
-            bindings: map.export_bindings(),
+            bindings: map
+                .export_bindings()
+                .into_iter()
+                .map(|(action, chord)| (action, chord.store()))
+                .collect(),
         }
     }
 
@@ -894,8 +898,8 @@ impl KeymapProfileFile {
             return Err(format!("unsupported profile version {}", self.version));
         }
         let mut map = Keymap::default_bindings();
-        for (action, chord) in self.bindings {
-            map.set_binding(action, chord)?;
+        for (action, stored) in self.bindings {
+            map.set_binding(action, KeyChord::load(stored)?)?;
         }
         Ok(map)
     }
