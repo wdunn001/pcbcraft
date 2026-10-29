@@ -144,7 +144,7 @@ impl App {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Name");
-                    ui.text_edit_singleline(&mut w.name)
+                    ui.add(crate::targets::text_field(&mut w.name))
                         .on_hover_text("Name the footprint will have in the project library.");
                 });
                 field(ui, "Pitch", "Distance from one pin centre to the next.", &mut w.pitch);

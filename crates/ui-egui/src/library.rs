@@ -310,7 +310,7 @@ impl App {
                 });
             ui.horizontal(|ui| {
                 ui.label(t!("library.collection_browser.library_path"));
-                ui.add(egui::TextEdit::singleline(&mut self.library.path).desired_width(480.0))
+                ui.add(crate::targets::text_field(&mut self.library.path).desired_width(480.0))
                     .on_hover_text(t!(
                         "library.collection_browser.the_collection_the_search_box.tip"
                     ));
@@ -318,7 +318,7 @@ impl App {
             ui.horizontal(|ui| {
                 let response = ui
                     .add(
-                        egui::TextEdit::singleline(&mut self.library.new_source)
+                        crate::targets::text_field(&mut self.library.new_source)
                             .hint_text(t!("library.collection_browser.folder_to_add_as_a"))
                             .desired_width(320.0),
                     )
@@ -373,7 +373,7 @@ impl App {
             });
             ui.horizontal(|ui| {
                 let response = ui.add(
-                    egui::TextEdit::singleline(&mut self.library.query)
+                    crate::targets::text_field(&mut self.library.query)
                         .hint_text(t!(
                             "library.collection_browser.search_names_descriptions_keywords"
                         ))
@@ -424,7 +424,7 @@ impl App {
             if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label(t!("library.collection_browser.directory_scan_reached_its_limit"));}
             let listed: Vec<Value> = results.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
             let shown: Vec<&Value> = listed.iter().filter(|item| entry_matches(item, &filter)).collect();
-            let response = left.add(egui::TextEdit::singleline(&mut self.library.filter).hint_text(t!("library.collection_browser.filter_shown_results")).desired_width(240.0));
+            let response = left.add(crate::targets::text_field(&mut self.library.filter).hint_text(t!("library.collection_browser.filter_shown_results")).desired_width(240.0));
             let response = response.on_hover_text(t!("library.collection_browser.narrow_the_list_below_as.tip"));
             if left.button(t!("library.collection_browser.clear_filter")).on_hover_text(t!("library.collection_browser.clear_filter.tip")).clicked() || response.double_clicked() {self.library.filter.clear();}
             if !filter.is_empty() {left.label(t!("library.collection_browser.len_of_len2_listed_entries", len = shown.len(), len2 = listed.len()));}
