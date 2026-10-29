@@ -72,7 +72,7 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
-pub use gerber_job::{gerber_job, gerber_zip};
+pub use gerber_job::{gerber_job, gerber_zip, with_fixed_clock};
 /// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
 /// Laser marking job types, profiles, and export functions.
