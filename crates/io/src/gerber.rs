@@ -895,6 +895,7 @@ mod tests {
                     rules,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
