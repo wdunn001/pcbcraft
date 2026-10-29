@@ -1372,6 +1372,182 @@ pub struct LibraryLink {
     /// Folder that holds the library files for this nickname.
     pub path: String,
 }
+/// How neighbouring board copies are separated on a manufacturing panel.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelSeparation {
+    /// Routed channels with breakaway tabs (default for new panel settings).
+    #[default]
+    TabRouting,
+    /// V-score lines cut partway through the panel thickness.
+    VScore,
+}
+/// Grid and separation settings for manufacturing panelisation, carried with
+/// the saved design.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PanelSettings {
+    /// When false, panel export and checks treat the board as a single instance.
+    #[serde(default)]
+    pub enabled: bool,
+    pub columns: usize,
+    pub rows: usize,
+    pub pitch_x: f64,
+    pub pitch_y: f64,
+    /// Border kept clear around the outside copies, millimetres.
+    pub rail: f64,
+    #[serde(default)]
+    pub separation: PanelSeparation,
+    /// Routed channel width between copies when separation is tab routing.
+    #[serde(default = "default_tab_channel_width")]
+    pub tab_channel_width: f64,
+}
+fn default_tab_channel_width() -> f64 {
+    1.8
+}
+impl Default for PanelSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            columns: 2,
+            rows: 2,
+            pitch_x: 2.0,
+            pitch_y: 2.0,
+            rail: 5.0,
+            separation: PanelSeparation::TabRouting,
+            tab_channel_width: default_tab_channel_width(),
+        }
+    }
+}
+impl PanelSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.columns < 1
+            || self.rows < 1
+            || self.columns > 32
+            || self.rows > 32
+            || self.columns * self.rows > 1024
+        {
+            return Err("panels run 1 to 32 copies per side and at most 1024 in total".into());
+        }
+        if !self.pitch_x.is_finite()
+            || !self.pitch_y.is_finite()
+            || self.pitch_x < 0.0
+            || self.pitch_y < 0.0
+        {
+            return Err("gaps between copies cannot be negative".into());
+        }
+        if !(0.0..=25.0).contains(&self.rail) {
+            return Err("rails must be 0 to 25 millimetres".into());
+        }
+        if !self.tab_channel_width.is_finite() || !(1.6..=2.0).contains(&self.tab_channel_width) {
+            return Err("tab routing channels must be 1.6 to 2.0 millimetres".into());
+        }
+        Ok(())
+    }
+}
+/// One board copy position on a panel grid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelCopyLayout {
+    pub row: usize,
+    pub column: usize,
+    pub x: f64,
+    pub y: f64,
+    pub center_x: f64,
+    pub center_y: f64,
+}
+/// Panel size and copy origins from [`panel_layout`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct PanelLayout {
+    pub settings: PanelSettings,
+    pub board_width: f64,
+    pub board_height: f64,
+    pub panel_width: f64,
+    pub panel_height: f64,
+    pub copies: Vec<PanelCopyLayout>,
+}
+impl PanelLayout {
+    pub fn to_report_json(&self) -> serde_json::Value {
+        let copies: Vec<serde_json::Value> = self
+            .copies
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "row": c.row,
+                    "column": c.column,
+                    "x": c.x,
+                    "y": c.y,
+                    "center_x": c.center_x,
+                    "center_y": c.center_y,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "columns": self.settings.columns,
+            "rows": self.settings.rows,
+            "copies": copies.len(),
+            "board": {"width": self.board_width, "height": self.board_height},
+            "pitch": {"x": self.settings.pitch_x, "y": self.settings.pitch_y},
+            "rail": self.settings.rail,
+            "panel": {"width": self.panel_width, "height": self.panel_height},
+            "layout": copies,
+        })
+    }
+}
+/// Board width and height used for panel layout: outline bounding box or the
+/// plain rectangle when no outline is traced.
+pub fn board_panel_size(board: &Board) -> Result<(f64, f64), String> {
+    let (board_w, board_h) = match board.outline.as_deref() {
+        Some(outline) if outline.len() >= 3 => {
+            let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
+            let max_x = outline
+                .iter()
+                .map(|v| v.x)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
+            let max_y = outline
+                .iter()
+                .map(|v| v.y)
+                .fold(f64::NEG_INFINITY, f64::max);
+            (max_x - min_x, max_y - min_y)
+        }
+        _ => (board.width, board.height),
+    };
+    if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
+        return Err("the board has no size to panelise".into());
+    }
+    Ok((board_w, board_h))
+}
+/// Lay the board out in a copy grid with gaps and rails; shared by the panel
+/// preview command and fabrication export.
+pub fn panel_layout(project: &Project, settings: &PanelSettings) -> Result<PanelLayout, String> {
+    settings.validate()?;
+    let (board_w, board_h) = board_panel_size(&project.board)?;
+    let s = settings;
+    let panel_w = s.columns as f64 * board_w + (s.columns - 1) as f64 * s.pitch_x + 2.0 * s.rail;
+    let panel_h = s.rows as f64 * board_h + (s.rows - 1) as f64 * s.pitch_y + 2.0 * s.rail;
+    let copies: Vec<PanelCopyLayout> = (0..s.rows)
+        .flat_map(|row| (0..s.columns).map(move |column| (row, column)))
+        .map(|(row, column)| {
+            let x = s.rail + column as f64 * (board_w + s.pitch_x);
+            let y = s.rail + row as f64 * (board_h + s.pitch_y);
+            PanelCopyLayout {
+                row,
+                column,
+                x,
+                y,
+                center_x: x + board_w / 2.0,
+                center_y: y + board_h / 2.0,
+            }
+        })
+        .collect();
+    Ok(PanelLayout {
+        settings: settings.clone(),
+        board_width: board_w,
+        board_height: board_h,
+        panel_width: panel_w,
+        panel_height: panel_h,
+        copies,
+    })
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -1451,6 +1627,9 @@ pub struct Project {
     #[serde(default)]
     pub no_connects: Vec<NoConnectFlag>,
     pub board: Board,
+    /// Manufacturing panel grid and separation settings; absent until recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel: Option<PanelSettings>,
     #[serde(default)]
     pub library: ProjectLibrary,
 }
@@ -1552,6 +1731,7 @@ impl Default for Project {
             graphics: vec![],
             labels: vec![],
             no_connects: vec![],
+            panel: None,
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -2205,6 +2385,9 @@ impl Project {
         }
         if self.rule_regions.len() > 64 {
             return Err("region exclusions cover at most 64 check codes".into());
+        }
+        if let Some(panel) = &self.panel {
+            panel.validate()?;
         }
         for (code, regions) in &self.rule_regions {
             if code.is_empty() || code.len() > 32 {

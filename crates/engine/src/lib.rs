@@ -1240,6 +1240,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "panel.set",
+            "Record or update manufacturing panel settings on the project: grid size, gaps, rail width, tab routing or V-score separation, and whether panel export applies",
+            schema(
+                json!({"enabled":{"type":"boolean"},"columns":{"type":"integer","minimum":1,"maximum":32},"rows":{"type":"integer","minimum":1,"maximum":32},"pitch_x":{"type":"number","minimum":0,"maximum":10000},"pitch_y":{"type":"number","minimum":0,"maximum":10000},"rail":{"type":"number","minimum":0,"maximum":25},"separation":{"type":"string","enum":["tab_routing","v_score"]},"tab_channel_width":{"type":"number","minimum":1.6,"maximum":2.0}}),
+                &[],
+            ),
+        ),
+        (
+            "panel.clear",
+            "Remove recorded panel settings from the project",
+            schema(json!({}), &[]),
+        ),
+        (
             "board.set_finish",
             "Record the board's surface finish (for example HASL, ENIG or OSP) for reports and fabrication notes",
             schema(
@@ -3113,6 +3126,39 @@ struct PanelParams {
 }
 fn default_rail() -> f64 {
     3.0
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PanelSetParams {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    columns: Option<usize>,
+    #[serde(default)]
+    rows: Option<usize>,
+    #[serde(default)]
+    pitch_x: Option<f64>,
+    #[serde(default)]
+    pitch_y: Option<f64>,
+    #[serde(default)]
+    rail: Option<f64>,
+    #[serde(default)]
+    separation: Option<PanelSeparation>,
+    #[serde(default)]
+    tab_channel_width: Option<f64>,
+}
+fn panel_settings_from_params(a: &PanelParams) -> Result<PanelSettings, String> {
+    let settings = PanelSettings {
+        enabled: true,
+        columns: a.columns,
+        rows: a.rows,
+        pitch_x: a.pitch_x,
+        pitch_y: a.pitch_y,
+        rail: a.rail,
+        ..PanelSettings::default()
+    };
+    settings.validate()?;
+    Ok(settings)
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9607,75 +9653,61 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "board.panel" => {
             let a: PanelParams = parse(params)?;
-            if a.columns < 1
-                || a.rows < 1
-                || a.columns > 32
-                || a.rows > 32
-                || a.columns * a.rows > 1024
+            let settings = panel_settings_from_params(&a).map_err(Error::Invalid)?;
+            let layout = panel_layout(p, &settings).map_err(Error::Invalid)?;
+            Ok(layout.to_report_json())
+        }
+        "panel.set" => {
+            let a: PanelSetParams = parse(params)?;
+            if a.enabled.is_none()
+                && a.columns.is_none()
+                && a.rows.is_none()
+                && a.pitch_x.is_none()
+                && a.pitch_y.is_none()
+                && a.rail.is_none()
+                && a.separation.is_none()
+                && a.tab_channel_width.is_none()
             {
                 return Err(Error::Invalid(
-                    "panels run 1 to 32 copies per side and at most 1024 in total".into(),
+                    "panel.set needs at least one setting".into(),
                 ));
             }
-            let (board_w, board_h) = match p.board.outline.as_deref() {
-                Some(outline) if outline.len() >= 3 => {
-                    let min_x = outline.iter().map(|v| v.x).fold(f64::INFINITY, f64::min);
-                    let max_x = outline
-                        .iter()
-                        .map(|v| v.x)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    let min_y = outline.iter().map(|v| v.y).fold(f64::INFINITY, f64::min);
-                    let max_y = outline
-                        .iter()
-                        .map(|v| v.y)
-                        .fold(f64::NEG_INFINITY, f64::max);
-                    (max_x - min_x, max_y - min_y)
-                }
-                _ => (p.board.width, p.board.height),
-            };
-            if !board_w.is_finite() || !board_h.is_finite() || board_w <= 0.0 || board_h <= 0.0 {
-                return Err(Error::Invalid("the board has no size to panelise".into()));
+            let mut settings = p.panel.take().unwrap_or_default();
+            if let Some(enabled) = a.enabled {
+                settings.enabled = enabled;
             }
-            if !a.pitch_x.is_finite()
-                || !a.pitch_y.is_finite()
-                || a.pitch_x < 0.0
-                || a.pitch_y < 0.0
-            {
-                return Err(Error::Invalid(
-                    "gaps between copies cannot be negative".into(),
-                ));
+            if let Some(columns) = a.columns {
+                settings.columns = columns;
             }
-            if !(0.0..=25.0).contains(&a.rail) {
-                return Err(Error::Invalid("rails must be 0 to 25 millimetres".into()));
+            if let Some(rows) = a.rows {
+                settings.rows = rows;
             }
-            let panel_w =
-                a.columns as f64 * board_w + (a.columns - 1) as f64 * a.pitch_x + 2.0 * a.rail;
-            let panel_h = a.rows as f64 * board_h + (a.rows - 1) as f64 * a.pitch_y + 2.0 * a.rail;
-            let copies: Vec<serde_json::Value> = (0..a.rows)
-                .flat_map(|row| (0..a.columns).map(move |column| (row, column)))
-                .map(|(row, column)| {
-                    let x = a.rail + column as f64 * (board_w + a.pitch_x);
-                    let y = a.rail + row as f64 * (board_h + a.pitch_y);
-                    json!({
-                        "row": row,
-                        "column": column,
-                        "x": x,
-                        "y": y,
-                        "center_x": x + board_w / 2.0,
-                        "center_y": y + board_h / 2.0,
-                    })
-                })
-                .collect();
-            Ok(json!({
-                "columns": a.columns,
-                "rows": a.rows,
-                "copies": copies.len(),
-                "board": {"width": board_w, "height": board_h},
-                "pitch": {"x": a.pitch_x, "y": a.pitch_y},
-                "rail": a.rail,
-                "panel": {"width": panel_w, "height": panel_h},
-                "layout": copies,
-            }))
+            if let Some(pitch_x) = a.pitch_x {
+                settings.pitch_x = pitch_x;
+            }
+            if let Some(pitch_y) = a.pitch_y {
+                settings.pitch_y = pitch_y;
+            }
+            if let Some(rail) = a.rail {
+                settings.rail = rail;
+            }
+            if let Some(separation) = a.separation {
+                settings.separation = separation;
+            }
+            if let Some(tab_channel_width) = a.tab_channel_width {
+                settings.tab_channel_width = tab_channel_width;
+            }
+            settings.validate().map_err(Error::Invalid)?;
+            p.panel = Some(settings.clone());
+            Ok(json!({"panel": settings}))
+        }
+        "panel.clear" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid("panel.clear takes an empty object".into()));
+            }
+            let had = p.panel.is_some();
+            p.panel = None;
+            Ok(json!({"removed": had}))
         }
         "board.set_finish" => {
             let a: FinishParams = parse(params)?;
@@ -16749,6 +16781,49 @@ mod tests {
                 None
             )
             .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn panel_layout_matches_board_panel_json() -> Result<(), Error> {
+        let mut s = Session::default();
+        let params = json!({"columns": 2, "rows": 2, "pitch_x": 60.0, "pitch_y": 40.0});
+        let from_command = s.execute("board.panel", params.clone(), None)?["result"].clone();
+        let settings = panel_settings_from_params(&parse(&params)?).map_err(Error::Invalid)?;
+        let layout = panel_layout(&s.project, &settings).map_err(Error::Invalid)?;
+        assert_eq!(from_command, layout.to_report_json());
+        Ok(())
+    }
+
+    #[test]
+    fn panel_settings_save_load_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "panel.set",
+            json!({
+                "enabled": true,
+                "columns": 3,
+                "rows": 2,
+                "pitch_x": 5.0,
+                "pitch_y": 4.0,
+                "rail": 5.0,
+                "separation": "tab_routing",
+                "tab_channel_width": 1.7
+            }),
+            None,
+        )?;
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate().map_err(Error::Invalid)?;
+        assert_eq!(loaded.panel, s.project.panel);
+        assert!(
+            loaded
+                .panel
+                .as_ref()
+                .is_some_and(|p| p.enabled && p.columns == 3),
+            "panel settings survive save and load"
         );
         Ok(())
     }
