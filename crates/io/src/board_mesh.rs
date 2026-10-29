@@ -1751,6 +1751,8 @@ mod tests {
             diameter: 0.8,
             drill: 0.4,
             preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         let mesh = board_mesh(&p, slab_only())?;

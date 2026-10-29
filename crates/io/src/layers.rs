@@ -662,6 +662,8 @@ mod tests {
             diameter: 0.6,
             drill: 0.3,
             preserved: pcbcraft_doc::PreservedSource::default(),
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         let pad = pcbcraft_doc::Pad {

@@ -982,9 +982,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
+            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
-                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
+                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
                 &["net", "position"],
             ),
         ),
@@ -1339,11 +1339,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "via.set_span",
+            "Change which copper layers an existing via joins, making it through, blind or buried; the span must be one the board allows",
+            schema(
+                json!({"id":id_schema(),"from_layer":{"type":"string","description":"upper copper layer of the span; keeps the current one when omitted"},"to_layer":{"type":"string","description":"lower copper layer of the span; keeps the current one when omitted"}}),
+                &["id"],
+            ),
+        ),
+        (
             "via.set_covering",
             "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
             schema(
                 json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
                 &["id"],
+            ),
+        ),
+        (
+            "via.allow_span",
+            "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
+            schema(
+                json!({"from_layer":{"type":"string"},"to_layer":{"type":"string"},"allow":{"type":"boolean"}}),
+                &["from_layer", "to_layer", "allow"],
             ),
         ),
         (
@@ -2104,6 +2120,14 @@ impl Session {
         self.commit(candidate);
         self.next_id = next;
         Ok(json!({"revision":self.revision,"results":results}))
+    }
+    /// Run one command on a scratch copy and return its result without
+    /// committing anything: no revision bump, no undo entry. For read
+    /// commands a panel polls every frame.
+    pub fn peek(&self, id: &str, params: Value) -> Result<Value, Error> {
+        let mut candidate = self.project.clone();
+        let mut next = self.next_id;
+        run(&mut candidate, &mut next, id, &params)
     }
     fn commit(&mut self, p: Project) {
         self.undo.push_back(std::mem::replace(&mut self.project, p));
@@ -3279,6 +3303,65 @@ struct ViaParams {
     diameter: Option<f64>,
     #[serde(default)]
     drill: Option<f64>,
+    #[serde(default)]
+    from_layer: Option<String>,
+    #[serde(default)]
+    to_layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaSpanParams {
+    id: Id,
+    #[serde(default)]
+    from_layer: Option<String>,
+    #[serde(default)]
+    to_layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaAllowSpanParams {
+    from_layer: String,
+    to_layer: String,
+    allow: bool,
+}
+/// Resolve a requested via span against the board. Ends at the outer layers
+/// are stored as unset so old files and default vias stay identical.
+fn resolve_via_span(
+    p: &Project,
+    from: Option<&str>,
+    to: Option<&str>,
+    current: (Option<pcbcraft_doc::Layer>, Option<pcbcraft_doc::Layer>),
+) -> Result<(Option<pcbcraft_doc::Layer>, Option<pcbcraft_doc::Layer>), Error> {
+    let last = p.copper_layer_count().saturating_sub(1);
+    let top = pcbcraft_doc::Layer::Front;
+    let resolve = |s: &str| p.resolve_copper_layer(s).map_err(Error::Invalid);
+    let a = match from {
+        Some(s) => resolve(s)?,
+        None => current.0.unwrap_or(top),
+    };
+    let b = match to {
+        Some(s) => resolve(s)?,
+        None => match current.1 {
+            Some(l) => l,
+            None => pcbcraft_doc::Layer::from_index(last).map_err(Error::Invalid)?,
+        },
+    };
+    if a.index() >= b.index() {
+        return Err(Error::Invalid(
+            "a via span must run from an upper to a lower copper layer".into(),
+        ));
+    }
+    if !p.allowed_via_spans().contains(&(a, b)) {
+        return Err(Error::Invalid(format!(
+            "via_span_not_allowed: this board does not allow a via from {} to {}",
+            p.layer_name(a),
+            p.layer_name(b)
+        )));
+    }
+    Ok((
+        (a.index() != 0).then_some(a),
+        (b.index() != last).then_some(b),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10748,6 +10831,12 @@ fn run_command(
                     "via drill must be smaller than its pad".into(),
                 ));
             }
+            let (from_layer, to_layer) = resolve_via_span(
+                p,
+                a.from_layer.as_deref(),
+                a.to_layer.as_deref(),
+                (None, None),
+            )?;
             let id = allocate(next)?;
             p.board.vias.push(pcbcraft_doc::Via {
                 id,
@@ -10756,6 +10845,8 @@ fn run_command(
                 diameter,
                 drill,
                 preserved: pcbcraft_doc::PreservedSource::default(),
+                from_layer,
+                to_layer,
                 covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
@@ -10773,6 +10864,71 @@ fn run_command(
                 .ok_or_else(missing)?;
             via.position = a.position;
             Ok(json!({"id": a.id}))
+        }
+        "via.set_span" => {
+            let a: ViaSpanParams = parse(params)?;
+            let current = p
+                .board
+                .vias
+                .iter()
+                .find(|v| v.id == a.id)
+                .map(|v| (v.from_layer, v.to_layer))
+                .ok_or_else(missing)?;
+            let (from_layer, to_layer) =
+                resolve_via_span(p, a.from_layer.as_deref(), a.to_layer.as_deref(), current)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            via.from_layer = from_layer;
+            via.to_layer = to_layer;
+            let via = via.clone();
+            let (x, y) = p.via_span(&via);
+            Ok(json!({
+                "id": a.id,
+                "from_layer": p.layer_name(x),
+                "to_layer": p.layer_name(y),
+                "kind": p.via_kind(&via).label(),
+            }))
+        }
+        "via.allow_span" => {
+            let a: ViaAllowSpanParams = parse(params)?;
+            let x = p
+                .resolve_copper_layer(&a.from_layer)
+                .map_err(Error::Invalid)?;
+            let y = p
+                .resolve_copper_layer(&a.to_layer)
+                .map_err(Error::Invalid)?;
+            let last = p.copper_layer_count().saturating_sub(1);
+            if x.index() >= y.index() || y.index() > last {
+                return Err(Error::Invalid(
+                    "a via span must run from an upper to a lower copper layer".into(),
+                ));
+            }
+            let key = (x.index(), y.index());
+            if a.allow {
+                if p.allowed_via_spans().contains(&(x, y)) {
+                    return Err(Error::Invalid("that span is already allowed".into()));
+                }
+                p.board.via_spans.push(key);
+            } else {
+                if !p.board.via_spans.contains(&key) {
+                    return Err(Error::Invalid(
+                        "that span is not one of the extra allowed spans".into(),
+                    ));
+                }
+                let in_use = p.board.vias.iter().any(|v| {
+                    let (s, e) = p.via_span(v);
+                    (s.index(), e.index()) == key
+                });
+                if in_use {
+                    return Err(Error::Invalid("a via still uses that span".into()));
+                }
+                p.board.via_spans.retain(|k| *k != key);
+            }
+            Ok(json!({"from_layer":a.from_layer,"to_layer":a.to_layer,"allow":a.allow}))
         }
         "via.stitch" => {
             let a: StitchParams = parse(params)?;
@@ -10833,6 +10989,8 @@ fn run_command(
                         diameter: a.diameter,
                         drill: a.drill,
                         preserved: pcbcraft_doc::PreservedSource::default(),
+                        from_layer: None,
+                        to_layer: None,
                         covering: None,
                     });
                     ids.push(id);
@@ -32379,6 +32537,84 @@ mod tests {
             assert!(s.execute("zone.pour", params, None).is_err());
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    fn six_layer_session() -> Result<(Session, u64), Error> {
+        let mut s = Session::default();
+        for i in 1..=6 {
+            s.project
+                .board
+                .layer_records
+                .push(pcbcraft_doc::LayerRecord {
+                    name: format!("L{i}"),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    copper_role: None,
+                });
+            if i < 6 {
+                s.project
+                    .board
+                    .layer_records
+                    .push(pcbcraft_doc::LayerRecord {
+                        name: format!("P{i}"),
+                        kind: "prepreg".into(),
+                        thickness: 0.4,
+                        copper_role: None,
+                    });
+            }
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, net))
+    }
+    #[test]
+    fn via_place_refuses_forbidden_span() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let at = json!({"x":10.0,"y":10.0});
+        let buried = json!({"net":net,"position":at,"diameter":0.6,"drill":0.3,"from_layer":"L3","to_layer":"L4"});
+        assert!(s.execute("via.place", buried.clone(), None).is_err());
+        assert!(s.project.board.vias.is_empty(), "a refusal changes nothing");
+        let backwards =
+            json!({"net":net,"position":at,"diameter":0.6,"from_layer":"L4","to_layer":"L2"});
+        assert!(s.execute("via.place", backwards, None).is_err());
+        let blind = json!({"net":net,"position":at,"diameter":0.6,"drill":0.3,"to_layer":"L2"});
+        s.execute("via.place", blind, None)?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        s.execute(
+            "via.allow_span",
+            json!({"from_layer":"L3","to_layer":"L4","allow":true}),
+            None,
+        )?;
+        s.execute("via.place", buried, None)?;
+        assert_eq!(s.project.board.vias.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn via_set_span_updates_range() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let id = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("via.set_span", json!({"id":id,"to_layer":"L2"}), None)?;
+        assert_eq!(out["result"]["kind"], "Blind");
+        assert_eq!(out["result"]["to_layer"], "L2");
+        assert_eq!(s.project.board.vias[0].to_layer.map(|l| l.index()), Some(1));
+        assert!(
+            s.execute("via.set_span", json!({"id":id,"to_layer":"L4"}), None)
+                .is_err()
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.vias[0].to_layer, None,
+            "undo restores the span"
+        );
+        let back = s.execute("via.set_span", json!({"id":id,"to_layer":"B.Cu"}), None);
+        assert!(back.is_ok(), "bottom layer is the through span");
         Ok(())
     }
 }
