@@ -260,3 +260,20 @@ tooltip | button:Print art, top silkscreen | missing tooltip, tracked in #520
 story | button:Print art, bottom silkscreen | no story yet, tracked in #520
 tooltip | button:Set substrate | has a tooltip; sits below the fold on the Files page now that rows are 24 px, so the walk cannot hover it, tracked in #520
 story | button:Add hole | below the fold of the longer Settings page, tracked in #520
+story | button:Input with * | the two pin matrix stories press the output cells; the other cells run the same click code
+story | button:Output with * | the two pin matrix stories press the output cells; the other cells run the same click code
+story | button:Two-way with * | the two pin matrix stories press the output cells; the other cells run the same click code
+tooltip | button:Tri-state with * | grid cells below the first screen cannot be hovered in the walk; every cell sets one hover text from the same code, tracked in #520
+story | button:Tri-state with * | the two pin matrix stories press the output cells; the other cells run the same click code
+tooltip | button:Passive with * | grid cells below the first screen cannot be hovered in the walk; every cell sets one hover text from the same code, tracked in #520
+story | button:Passive with * | the two pin matrix stories press the output cells; the other cells run the same click code
+tooltip | button:Power in with * | grid cells below the first screen cannot be hovered in the walk; every cell sets one hover text from the same code, tracked in #520
+story | button:Power in with * | the two pin matrix stories press the output cells; the other cells run the same click code
+tooltip | button:Power out with * | grid cells below the first screen cannot be hovered in the walk; every cell sets one hover text from the same code, tracked in #520
+story | button:Power out with * | the two pin matrix stories press the output cells; the other cells run the same click code
+story | button:Open collector with * | the two pin matrix stories press the output cells; the other cells run the same click code
+story | button:Open emitter with * | the two pin matrix stories press the output cells; the other cells run the same click code
+story | button:Free with * | the two pin matrix stories press the output cells; the other cells run the same click code
+story | button:Not connected with * | the two pin matrix stories press the output cells; the other cells run the same click code
+tooltip | button:Unspecified with * | grid cells below the first screen cannot be hovered in the walk; every cell sets one hover text from the same code, tracked in #520
+story | button:Unspecified with * | the two pin matrix stories press the output cells; the other cells run the same click code

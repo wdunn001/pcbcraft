@@ -486,6 +486,9 @@ fn a_newcomer_lets_two_outputs_share_a_net() -> Result<(), String> {
     };
     assert_eq!(conflicts(&app), 1, "the clash starts out reported");
     authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    // Fold the grid away and open it again, like someone tidying the page.
+    authoring::tests::tap(&ctx, &mut app, "Pin connections")?;
+    authoring::tests::tap(&ctx, &mut app, "Pin connections")?;
     // The cell starts at error; one click cycles error to ok.
     tap_matrix_cell(&ctx, &mut app, "output", "output")?;
     assert_eq!(
