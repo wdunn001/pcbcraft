@@ -1001,17 +1001,60 @@ fn front_layer() -> Layer {
     Layer::Front
 }
 /// An unplated through hole: a drill that passes through the board without
-/// plating or a net.
+/// plating or a net. A round drill carries one centre; a slot carries a
+/// second centre in `end` and is routed as a capsule of `diameter` width
+/// between the two.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Hole {
     pub id: Id,
     pub position: Point,
-    /// Drill diameter in millimetres.
+    /// Drill diameter in millimetres; for a slot this is its width.
     pub diameter: f64,
+    /// Second centre of a slotted hole in millimetres, at least 0.01 mm from
+    /// `position`. Absent for a round drill, so old designs keep loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<Point>,
 }
 impl Hole {
+    /// The near centre of the drill: the circle centre for a round hole, or
+    /// one end of a slot.
+    pub fn start(&self) -> Point {
+        self.position
+    }
+    /// The far centre of the drill: the same point for a round hole, the
+    /// other end of the capsule for a slot.
+    pub fn finish(&self) -> Point {
+        self.end.unwrap_or(self.position)
+    }
+    /// True when the drill is a slot rather than a round hole.
+    pub fn is_slot(&self) -> bool {
+        self.end.is_some()
+    }
+    /// Centre of the drill: the circle centre, or the midpoint of a slot.
+    pub fn center(&self) -> Point {
+        let end = self.finish();
+        Point::new(
+            (self.position.x + end.x) / 2.0,
+            (self.position.y + end.y) / 2.0,
+        )
+    }
+    /// Overall length along the drill axis in millimetres: the diameter for a
+    /// round hole, and the capsule length for a slot.
+    pub fn length(&self) -> f64 {
+        self.position.distance(self.finish()) + self.diameter
+    }
+    /// Longest span a slot may cover between its two centres, in millimetres.
+    pub const MAX_SPAN: f64 = 50.0;
     fn valid(&self) -> bool {
-        self.position.valid() && (0.05..=25.0).contains(&self.diameter)
+        if !self.position.valid() || !(0.05..=25.0).contains(&self.diameter) {
+            return false;
+        }
+        match self.end {
+            None => true,
+            Some(end) => {
+                end.valid() && (0.01..=Self::MAX_SPAN).contains(&self.position.distance(end))
+            }
+        }
     }
 }
 /// One named board layer record, kept for fabrication notes: a layer's role
@@ -1651,9 +1694,10 @@ impl ProjectLibrary {
 }
 /// A closed polygon outline: 3-256 distinct vertices, the first repeated last,
 /// finite in-range coordinates and nonzero enclosed area.
-/// Area in square millimetres of an implicitly closed polygon, by the
-/// shoelace formula; zero for polygons with fewer than three vertices.
-pub fn outline_area(points: &[Point]) -> f64 {
+/// Signed area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula: positive when the vertices wind counter-clockwise, zero
+/// for polygons with fewer than three vertices.
+pub fn outline_signed_area(points: &[Point]) -> f64 {
     if points.len() < 3 {
         return 0.0;
     }
@@ -1662,7 +1706,12 @@ pub fn outline_area(points: &[Point]) -> f64 {
         let b = points[(i + 1) % points.len()];
         area += a.x * b.y - b.x * a.y;
     }
-    (area / 2.0).abs()
+    area / 2.0
+}
+/// Area in square millimetres of an implicitly closed polygon, by the
+/// shoelace formula; zero for polygons with fewer than three vertices.
+pub fn outline_area(points: &[Point]) -> f64 {
+    outline_signed_area(points).abs()
 }
 
 pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
@@ -2213,7 +2262,23 @@ impl Project {
         }
         for h in &self.board.holes {
             if !h.valid() {
-                return Err("unplated holes need a sane position and a 0.05 to 25 mm drill".into());
+                return Err(
+                    "unplated holes need a sane position, a 0.05 to 25 mm drill and, for a slot, two centres at least 0.01 mm apart and at most 50 mm apart"
+                        .into(),
+                );
+            }
+            if h.is_slot() {
+                let radius = h.diameter / 2.0;
+                let board = &self.board;
+                let fits = |p: Point| {
+                    p.x - radius >= 0.0
+                        && p.y - radius >= 0.0
+                        && p.x + radius <= board.width
+                        && p.y + radius <= board.height
+                };
+                if !fits(h.start()) || !fits(h.finish()) {
+                    return Err("a slot must fit inside the board".into());
+                }
             }
         }
         if self.board.fiducials.len() > 128 {
@@ -3465,6 +3530,59 @@ mod drill_tests {
         assert_eq!(one.len(), 5);
         assert!((pcbcraft_geom::polygon_area(&one).abs() - (2.0 - 0.02)).abs() < 1e-12);
         assert!(pcbcraft_geom::polygon_is_simple(&one));
+    }
+    #[test]
+    fn old_projects_with_round_holes_still_load() -> Result<(), String> {
+        let hole: Hole = serde_json::from_value(
+            serde_json::json!({"id":7,"position":{"x":3.0,"y":4.0},"diameter":3.2}),
+        )
+        .map_err(|e| e.to_string())?;
+        assert!(!hole.is_slot(), "a plain drill has no second centre");
+        assert_eq!(hole.finish(), hole.position);
+        assert!((hole.length() - 3.2).abs() < 1e-12);
+        let written = serde_json::to_value(&hole).map_err(|e| e.to_string())?;
+        assert!(
+            written.get("end").is_none(),
+            "a round hole writes no second centre, so files stay as they were"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_slot_reports_its_midpoint_and_overall_length() -> Result<(), String> {
+        let hole = Hole {
+            id: 8,
+            position: Point::new(10.0, 5.0),
+            diameter: 1.0,
+            end: Some(Point::new(14.0, 5.0)),
+        };
+        assert!(hole.is_slot());
+        assert_eq!(hole.center(), Point::new(12.0, 5.0));
+        assert!((hole.length() - 5.0).abs() < 1e-12);
+        Ok(())
+    }
+    #[test]
+    fn validation_refuses_a_collapsed_slot_and_one_off_the_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.holes.push(Hole {
+            id: 9,
+            position: Point::new(0.2, 5.0),
+            diameter: 1.0,
+            end: Some(Point::new(5.0, 5.0)),
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("slot must fit inside the board")),
+            "a slot whose cap hangs over the rim is refused"
+        );
+        p.board.holes[0].position = Point::new(10.0, 5.0);
+        p.board.holes[0].end = Some(Point::new(10.0, 5.0));
+        assert!(
+            p.validate().is_err(),
+            "a slot with no distance between its centres is a round drill, not a slot"
+        );
+        p.board.holes[0].end = Some(Point::new(70.0, 5.0));
+        assert!(p.validate().is_err(), "a slot spans at most 50 mm");
+        Ok(())
     }
 }
 

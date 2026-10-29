@@ -7,8 +7,7 @@ use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
-
+use std::collections::{BTreeSet, VecDeque};
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{0}")]
@@ -865,10 +864,34 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.hole_set_size",
-            "Resize the drill of an unplated hole in millimetres",
+            "Resize the drill of an unplated hole in millimetres; for a slot this is its width",
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "hole.slot",
+            "Route an unplated slot: a capsule drill from one centre to another at the given width, at least 0.01 mm and at most 50 mm between the centres",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
+            ),
+        ),
+        (
+            "pattern.repeat",
+            "Step and repeat holes and cutouts into a grid: every named object is copied at each column and row offset, row by row, and each copy is an independent object",
+            schema(
+                json!({"ids":{"type":"array","items":id_schema(),"minItems":1,"maxItems":64,"description":"holes and cutouts to copy"},"columns":{"type":"integer","minimum":1,"maximum":64},"rows":{"type":"integer","minimum":1,"maximum":64},"dx":{"type":"number","exclusiveMinimum":0,"maximum":10000,"description":"column pitch, millimetres"},"dy":{"type":"number","exclusiveMinimum":0,"maximum":10000,"description":"row pitch, millimetres"}}),
+                &["ids", "columns", "rows", "dx", "dy"],
+            ),
+        ),
+        (
+            "board.notch",
+            "Cut a rectangular notch out of one straight board outline edge: four corners are inserted so checks, plots and routing all see the new rim",
+            schema(
+                json!({"segment":{"type":"integer","minimum":0,"description":"outline edge index"},"at":{"type":"number","description":"distance along the edge to the notch middle, millimetres"},"width":{"type":"number","exclusiveMinimum":0,"maximum":50,"description":"notch opening along the edge, millimetres"},"depth":{"type":"number","exclusiveMinimum":0,"maximum":25,"description":"how far the notch cuts in, millimetres"}}),
+                &["segment", "at", "width", "depth"],
             ),
         ),
         (
@@ -2841,6 +2864,42 @@ struct NetTieMoveParams {
 struct HoleSizeParams {
     id: Id,
     diameter: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SlotParams {
+    start: Point,
+    end: Point,
+    width: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepeatParams {
+    ids: Vec<Id>,
+    columns: usize,
+    rows: usize,
+    dx: f64,
+    dy: f64,
+}
+/// One object a step-and-repeat pattern copies: a hole, slotted or round, or
+/// a round cutout.
+enum PatternSource {
+    Hole(Hole),
+    Cutout(Cutout),
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NotchParams {
+    /// Index of the outline edge the notch is cut into, counted from the
+    /// first vertex.
+    segment: usize,
+    /// Distance in millimetres along that edge from its first vertex to the
+    /// middle of the notch.
+    at: f64,
+    /// Notch opening along the edge, in millimetres.
+    width: f64,
+    /// How far the notch cuts into the board, in millimetres.
+    depth: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8697,6 +8756,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 id,
                 position: a.position,
                 diameter: a.diameter,
+                end: None,
             });
             Ok(json!({"id":id}))
         }
@@ -8711,8 +8771,295 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if !a.position.valid() {
                 return Err(Error::Invalid("hole position is out of range".into()));
             }
+            // A slot travels whole: both centres shift by the same offset, so
+            // the capsule keeps its length and angle.
+            let delta = Point::new(
+                a.position.x - hole.position.x,
+                a.position.y - hole.position.y,
+            );
             hole.position = a.position;
+            if let Some(end) = hole.end {
+                hole.end = Some(end.offset(delta));
+            }
             Ok(json!({"id":a.id}))
+        }
+        "hole.slot" => {
+            let a: SlotParams = parse(params)?;
+            if !a.start.valid() || !a.end.valid() {
+                return Err(Error::Invalid("slot centres are out of range".into()));
+            }
+            if !(0.05..=25.0).contains(&a.width) {
+                return Err(Error::Invalid(
+                    "slot width must be within 0.05 to 25 mm".into(),
+                ));
+            }
+            let span = a.start.distance(a.end);
+            if span < 0.01 {
+                return Err(Error::Invalid(
+                    "a slot needs two centres at least 0.01 mm apart".into(),
+                ));
+            }
+            if span > pcbcraft_doc::Hole::MAX_SPAN {
+                return Err(Error::Invalid(
+                    "a slot spans at most 50 mm between its centres".into(),
+                ));
+            }
+            if p.board.holes.len() >= 512 {
+                return Err(Error::Invalid(
+                    "a board carries at most 512 unplated holes".into(),
+                ));
+            }
+            let radius = a.width / 2.0;
+            let fits = |q: Point| {
+                q.x - radius >= 0.0
+                    && q.y - radius >= 0.0
+                    && q.x + radius <= p.board.width
+                    && q.y + radius <= p.board.height
+            };
+            if !fits(a.start) || !fits(a.end) {
+                return Err(Error::Invalid("a slot must fit inside the board".into()));
+            }
+            let id = allocate(next)?;
+            p.board.holes.push(pcbcraft_doc::Hole {
+                id,
+                position: a.start,
+                diameter: a.width,
+                end: Some(a.end),
+            });
+            Ok(json!({"id":id,"span":span,"length":span + a.width}))
+        }
+        "pattern.repeat" => {
+            let a: RepeatParams = parse(params)?;
+            if a.columns == 0
+                || a.columns > 64
+                || a.rows == 0
+                || a.rows > 64
+                || !a.dx.is_finite()
+                || a.dx <= 0.0
+                || a.dx > 10_000.0
+                || !a.dy.is_finite()
+                || a.dy <= 0.0
+                || a.dy > 10_000.0
+            {
+                return Err(Error::Invalid(
+                    "a pattern must be 1-64 by 1-64 with positive spacing".into(),
+                ));
+            }
+            if a.ids.is_empty() || a.ids.len() > 64 {
+                return Err(Error::Invalid(
+                    "a pattern copies 1 to 64 named objects".into(),
+                ));
+            }
+            let total = a.columns * a.rows;
+            if total < 2 {
+                return Err(Error::Invalid("a pattern needs at least two copies".into()));
+            }
+            let sources: Vec<PatternSource> = a
+                .ids
+                .iter()
+                .map(|id| {
+                    if let Some(hole) = p.board.holes.iter().find(|h| h.id == *id) {
+                        Ok(PatternSource::Hole(hole.clone()))
+                    } else if let Some(cutout) = p.board.cutouts.iter().find(|c| c.id == *id) {
+                        Ok(PatternSource::Cutout(cutout.clone()))
+                    } else {
+                        Err(Error::Invalid(format!(
+                            "pattern object {id} is not a hole or cutout"
+                        )))
+                    }
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            let unique: BTreeSet<Id> = a.ids.iter().copied().collect();
+            if unique.len() != a.ids.len() {
+                return Err(Error::Invalid("a pattern names each object once".into()));
+            }
+            let copies = total - 1;
+            let new_items = copies * sources.len();
+            if p.ids().count() + new_items > pcbcraft_doc::MAX_ITEMS {
+                return Err(Error::Invalid(
+                    "the pattern would exceed the project limit".into(),
+                ));
+            }
+            let added_holes = sources
+                .iter()
+                .filter(|s| matches!(s, PatternSource::Hole(_)))
+                .count()
+                * copies;
+            if p.board.holes.len() + added_holes > 512 {
+                return Err(Error::Invalid(
+                    "a board carries at most 512 unplated holes".into(),
+                ));
+            }
+            // Every copy is checked before any is placed, so a pattern that
+            // would hang off the board leaves the design untouched.
+            let fits_hole = |hole: &pcbcraft_doc::Hole| {
+                let radius = hole.diameter / 2.0;
+                let inside = |q: Point| {
+                    q.x - radius >= 0.0
+                        && q.y - radius >= 0.0
+                        && q.x + radius <= p.board.width
+                        && q.y + radius <= p.board.height
+                };
+                inside(hole.start()) && inside(hole.finish())
+            };
+            let mut holes = Vec::new();
+            let mut cutouts = Vec::new();
+            for row in 0..a.rows {
+                for column in 0..a.columns {
+                    if row == 0 && column == 0 {
+                        continue;
+                    }
+                    let delta = Point::new(column as f64 * a.dx, row as f64 * a.dy);
+                    for source in &sources {
+                        match source {
+                            PatternSource::Hole(hole) => {
+                                let mut copy = hole.clone();
+                                copy.position = copy.position.offset(delta);
+                                copy.end = copy.end.map(|e| e.offset(delta));
+                                if !fits_hole(&copy) {
+                                    return Err(Error::Invalid(
+                                        "a pattern copy would leave the board".into(),
+                                    ));
+                                }
+                                holes.push(copy);
+                            }
+                            PatternSource::Cutout(cutout) => {
+                                let mut copy = cutout.clone();
+                                copy.center = copy.center.offset(delta);
+                                if copy.center.x - copy.radius <= 0.0
+                                    || copy.center.y - copy.radius <= 0.0
+                                    || copy.center.x + copy.radius >= p.board.width
+                                    || copy.center.y + copy.radius >= p.board.height
+                                {
+                                    return Err(Error::Invalid(
+                                        "a pattern copy would leave the board".into(),
+                                    ));
+                                }
+                                cutouts.push(copy);
+                            }
+                        }
+                    }
+                }
+            }
+            let mut placed = Vec::with_capacity(holes.len() + cutouts.len());
+            for mut hole in holes {
+                hole.id = allocate(next)?;
+                placed.push(hole.id);
+                p.board.holes.push(hole);
+            }
+            for mut cutout in cutouts {
+                cutout.id = allocate(next)?;
+                placed.push(cutout.id);
+                p.board.cutouts.push(cutout);
+            }
+            Ok(json!({"count": placed.len(), "ids": placed}))
+        }
+        "board.notch" => {
+            let a: NotchParams = parse(params)?;
+            if !a.at.is_finite() || a.at < 0.0 || a.at > 10_000.0 {
+                return Err(Error::Invalid(
+                    "the notch position must be a distance along the edge".into(),
+                ));
+            }
+            if !a.width.is_finite() || a.width <= 0.0 || a.width > 50.0 {
+                return Err(Error::Invalid("a notch is 0 to 50 mm wide".into()));
+            }
+            if !a.depth.is_finite() || a.depth <= 0.0 || a.depth > 25.0 {
+                return Err(Error::Invalid("a notch cuts 0 to 25 mm deep".into()));
+            }
+            let mut outline = p.board.outline.clone().unwrap_or_else(|| {
+                vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(p.board.width, 0.0),
+                    Point::new(p.board.width, p.board.height),
+                    Point::new(0.0, p.board.height),
+                ]
+            });
+            let n = outline.len();
+            if a.segment >= n {
+                return Err(Error::Invalid(format!(
+                    "the outline has {n} edges, so segment is 0 to {}",
+                    n.saturating_sub(1)
+                )));
+            }
+            if n + 4 > 64 {
+                return Err(Error::Invalid(
+                    "a board outline holds at most 64 vertices".into(),
+                ));
+            }
+            let start = outline[a.segment];
+            let end = outline[(a.segment + 1) % n];
+            let length = start.distance(end);
+            if length < 0.02 {
+                return Err(Error::Invalid(
+                    "that outline edge is too short to notch".into(),
+                ));
+            }
+            let along = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
+            // The inward normal follows the outline's winding: for a
+            // counter-clockwise rim the inside is to the left of each edge.
+            let counter_clockwise = pcbcraft_doc::outline_signed_area(&outline) > 0.0;
+            let inward = if counter_clockwise {
+                Point::new(-along.y, along.x)
+            } else {
+                Point::new(along.y, -along.x)
+            };
+            let half = a.width / 2.0;
+            if a.at - half < 0.01 || a.at + half > length - 0.01 {
+                return Err(Error::Invalid(
+                    "the notch must sit within one edge without crossing its corners".into(),
+                ));
+            }
+            let mouth = start.offset(Point::new(along.x * (a.at - half), along.y * (a.at - half)));
+            let depth = Point::new(inward.x * a.depth, inward.y * a.depth);
+            // How far the mouth is from the opposite rim, measured along the
+            // inward normal, so a notch can never cut through the board.
+            let mouth_middle = mouth.offset(Point::new(along.x * half, along.y * half));
+            let mut reach = f64::INFINITY;
+            for i in 0..n {
+                let p = outline[i];
+                let q = outline[(i + 1) % n];
+                let (ex, ey) = (q.x - p.x, q.y - p.y);
+                let denom = inward.x * ey - inward.y * ex;
+                if denom.abs() < 1e-12 {
+                    continue;
+                }
+                let (wx, wy) = (p.x - mouth_middle.x, p.y - mouth_middle.y);
+                let t = (wx * ey - wy * ex) / denom;
+                let u = (wx * inward.y - wy * inward.x) / denom;
+                if t > 1e-9 && (0.0..=1.0).contains(&u) {
+                    reach = reach.min(t);
+                }
+            }
+            if !reach.is_finite() || a.depth > reach - 0.01 {
+                return Err(Error::Invalid(
+                    "the notch would cut deeper than the board".into(),
+                ));
+            }
+            let inner_a = mouth.offset(depth);
+            let inner_b = inner_a.offset(Point::new(along.x * a.width, along.y * a.width));
+            let far = inner_b.offset(Point::new(-depth.x, -depth.y));
+            let margin = 0.01;
+            let on_board = |q: Point| {
+                q.x >= 0.0 && q.y >= 0.0 && q.x <= p.board.width && q.y <= p.board.height
+            };
+            let inside = |q: Point| {
+                q.x >= margin
+                    && q.y >= margin
+                    && q.x <= p.board.width - margin
+                    && q.y <= p.board.height - margin
+            };
+            if !on_board(mouth) || !on_board(far) || !inside(inner_a) || !inside(inner_b) {
+                return Err(Error::Invalid(
+                    "the notch would cut deeper than the board".into(),
+                ));
+            }
+            let insert = a.segment + 1;
+            for (offset, point) in [mouth, inner_a, inner_b, far].into_iter().enumerate() {
+                outline.insert(insert + offset, point);
+            }
+            p.board.outline = Some(outline);
+            Ok(json!({"vertices": p.board.outline.as_ref().map(Vec::len).unwrap_or(0)}))
         }
         "board.hole_set_size" => {
             let a: HoleSizeParams = parse(params)?;
@@ -22930,6 +23277,293 @@ mod tests {
         s.execute("object.delete", json!({"id":id}), None)?;
         s.execute("object.delete", json!({"id":second}), None)?;
         assert!(s.project.board.holes.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn slot_must_fit_inside_the_board() -> Result<(), Error> {
+        let mut s = Session::default();
+        let result = s.execute(
+            "hole.slot",
+            json!({"start":{"x":10.0,"y":10.0},"end":{"x":14.0,"y":10.0},"width":1.0}),
+            None,
+        )?;
+        assert!(result["result"]["id"].as_u64().is_some());
+        assert_eq!(s.project.board.holes.len(), 1);
+        let hole = &s.project.board.holes[0];
+        assert!(hole.is_slot());
+        assert_eq!(hole.finish(), Point::new(14.0, 10.0));
+        assert!((hole.length() - 5.0).abs() < 1e-12);
+        // A cap hanging over the rim is refused and leaves the design alone.
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":0.4,"y":10.0},"end":{"x":6.0,"y":10.0},"width":1.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":50.0,"y":10.0},"end":{"x":59.8,"y":10.0},"width":1.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn slot_length_must_exceed_width() -> Result<(), Error> {
+        let mut s = Session::default();
+        // A length equal to the width is a round drill, not a slot.
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":2.0}),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":10.0,"y":10.0},"end":{"x":10.005,"y":10.0},"width":2.0}),
+                None,
+            )
+            .is_err(),
+            "centres closer than 0.01 mm cannot describe a slot"
+        );
+        assert!(
+            s.execute(
+                "hole.slot",
+                json!({"start":{"x":5.0,"y":20.0},"end":{"x":5.4,"y":20.0},"width":0.5}),
+                None,
+            )
+            .is_ok(),
+            "a 0.9 mm long by 0.5 mm wide slot is legal"
+        );
+        assert!(s.project.board.holes[0].is_slot());
+        Ok(())
+    }
+    #[test]
+    fn a_three_by_two_pattern_writes_six_hits_under_one_tool() -> Result<(), Error> {
+        let mut s = Session::default();
+        let slot = s.execute(
+            "hole.slot",
+            json!({"start":{"x":10.0,"y":10.0},"end":{"x":14.0,"y":10.0},"width":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let repeated = s.execute(
+            "pattern.repeat",
+            json!({"ids":[slot],"columns":3,"rows":2,"dx":10.0,"dy":8.0}),
+            None,
+        )?;
+        assert_eq!(
+            repeated["result"]["count"].as_u64(),
+            Some(5),
+            "a 3 by 2 pattern adds five copies"
+        );
+        assert_eq!(s.project.board.holes.len(), 6);
+        let ids: Vec<u64> = repeated["result"]["ids"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        assert_eq!(ids.len(), 5);
+        // Row-major: three copies along row 1, then two in row 2.
+        let xs: Vec<f64> = ids
+            .iter()
+            .filter_map(|id| s.project.board.holes.iter().find(|h| h.id == *id))
+            .map(|h| h.position.x)
+            .collect();
+        assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
+        let files = pcbcraft_io::gerber_files(&s.project)?;
+        let drill = &files["pcb-NPTH.drl"];
+        assert_eq!(
+            drill.matches("M15").count(),
+            6,
+            "every copy is a routed slot: {drill}"
+        );
+        assert!(
+            !drill.contains("G85"),
+            "slots are routs, not G85 spans: {drill}"
+        );
+        let tools: Vec<&str> = drill
+            .lines()
+            .filter(|l| l.starts_with('T') && l.contains('C'))
+            .collect();
+        assert_eq!(
+            tools,
+            vec!["T01C1.000"],
+            "one tool carries all six: {drill}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn patterns_refuse_when_any_copy_leaves_the_board_and_leave_the_design() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":40.0,"y":10.0},"diameter":2.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.project.board.holes.clone();
+        let revision = s.revision;
+        assert!(
+            s.execute(
+                "pattern.repeat",
+                json!({"ids":[hole],"columns":3,"rows":1,"dx":10.0,"dy":1.0}),
+                None,
+            )
+            .is_err(),
+            "the third column would fall off the 60 mm board"
+        );
+        assert_eq!(s.project.board.holes, before);
+        assert_eq!(s.revision, revision, "a refused pattern writes nothing");
+        assert!(
+            s.execute(
+                "pattern.repeat",
+                json!({"ids":[hole],"columns":2,"rows":2,"dx":10.0,"dy":10.0}),
+                None,
+            )
+            .is_ok()
+        );
+        Ok(())
+    }
+    #[test]
+    fn patterns_respect_the_hole_limit() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":5.0,"y":5.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(
+            s.execute(
+                "pattern.repeat",
+                json!({"ids":[hole],"columns":23,"rows":23,"dx":0.5,"dy":0.5}),
+                None,
+            )
+            .is_err(),
+            "529 copies would pass the 512-hole ceiling"
+        );
+        assert_eq!(s.project.board.holes.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn patterns_copy_cutouts_and_holes_together() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":10.0,"y":10.0},"diameter":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let cutout = s.execute(
+            "board.cutout.add",
+            json!({"center":{"x":14.0,"y":10.0},"radius":1.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "pattern.repeat",
+            json!({"ids":[hole,cutout],"columns":2,"rows":1,"dx":10.0,"dy":1.0}),
+            None,
+        )?;
+        assert_eq!(s.project.board.holes.len(), 2);
+        assert_eq!(s.project.board.cutouts.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn a_notch_inserts_four_corners_and_moves_the_edge_check() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let area_before =
+            pcbcraft_doc::outline_area(&s.project.board.outline.clone().unwrap_or_else(|| {
+                vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(60.0, 0.0),
+                    Point::new(60.0, 40.0),
+                    Point::new(0.0, 40.0),
+                ]
+            }));
+        let result = s.execute(
+            "board.notch",
+            json!({"segment":0,"at":10.0,"width":4.0,"depth":3.0}),
+            None,
+        )?;
+        assert_eq!(
+            result["result"]["vertices"].as_u64(),
+            Some(8),
+            "the plain rectangle gains four corners"
+        );
+        let outline = s.project.board.outline.clone().ok_or_else(missing)?;
+        assert_eq!(
+            outline,
+            vec![
+                Point::new(0.0, 0.0),
+                Point::new(8.0, 0.0),
+                Point::new(8.0, 3.0),
+                Point::new(12.0, 3.0),
+                Point::new(12.0, 0.0),
+                Point::new(60.0, 0.0),
+                Point::new(60.0, 40.0),
+                Point::new(0.0, 40.0),
+            ]
+        );
+        let area_after = pcbcraft_doc::outline_area(&outline);
+        assert!(
+            (area_before - area_after - 12.0).abs() < 1e-9,
+            "the notch removes 4 mm by 3 mm of board"
+        );
+        // Copper inside the notch now sits outside the board.
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":9.0,"y":2.0},"end":{"x":11.0,"y":2.0},"width":0.2}),
+            None,
+        )?;
+        let drc = s.checks()["drc"].clone();
+        let findings = drc.as_array().ok_or_else(missing)?;
+        assert!(
+            findings.iter().any(|f| f["code"] == "board_edge"),
+            "copper inside the notch is outside the board: {drc}"
+        );
+        assert!(
+            s.execute(
+                "board.notch",
+                json!({"segment":0,"at":1.0,"width":4.0,"depth":1.0}),
+                None,
+            )
+            .is_err(),
+            "a notch cannot cross the corner it is measured from"
+        );
+        // A notch deeper than the board it is cut into is refused.
+        let mut small = Session::default();
+        small.execute("board.resize", json!({"width":20.0,"height":10.0}), None)?;
+        assert!(
+            small
+                .execute(
+                    "board.notch",
+                    json!({"segment":0,"at":10.0,"width":4.0,"depth":12.0}),
+                    None,
+                )
+                .is_err(),
+            "a 12 mm notch cannot fit across a 10 mm board"
+        );
+        assert!(small.project.board.outline.is_none());
         Ok(())
     }
 
