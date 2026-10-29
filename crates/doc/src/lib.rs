@@ -2321,7 +2321,7 @@ impl Project {
                     return Err("embedded footprint pad numbers do not match symbol pins".into());
                 }
             }
-            if c.pins.is_empty() || c.pins.len() > 64 {
+            if c.pins.is_empty() || c.pins.len() > MAX_SUPPORTED_FOOTPRINT_PADS {
                 return Err("invalid pin count".into());
             }
             let mut numbers = BTreeSet::new();
@@ -2486,7 +2486,7 @@ impl Project {
                 || !f.rotation.is_finite()
                 || f.rotation.abs() > 360_000.0
                 || f.pads.is_empty()
-                || f.pads.len() > 64
+                || f.pads.len() > MAX_SUPPORTED_FOOTPRINT_PADS
             {
                 return Err("invalid footprint".into());
             }
@@ -2955,6 +2955,56 @@ mod drill_tests {
             polygon: vec![],
             raw_source: String::new(),
         }
+    }
+
+    #[test]
+    fn hundred_pad_board_footprint_passes_project_validate() -> Result<(), String> {
+        let pins: Vec<Pin> = (1..=100)
+            .map(|n| Pin {
+                number: n.to_string(),
+                name: n.to_string(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            })
+            .collect();
+        let pads: Vec<Pad> = (1..=100)
+            .map(|n| Pad {
+                number: n.to_string(),
+                offset: Point::new(n as f64 * 0.5, 0.0),
+                diameter: 0.5,
+                net: None,
+                castellated: None,
+                geometry: None,
+            })
+            .collect();
+        let mut project = Project::default();
+        project.components.push(Component {
+            id: 1,
+            reference: "U1".into(),
+            value: "grid".into(),
+            kind: "resistor".into(),
+            position: Point::new(50.0, 50.0),
+            rotation: 0.0,
+            pins,
+            units: vec![],
+            fields: vec![],
+            sheet: 0,
+            library_symbol: None,
+            library_footprint: None,
+        });
+        project.board.footprints.push(Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(50.0, 50.0),
+            rotation: 0.0,
+            locked: None,
+            pads,
+        });
+        project.validate()?;
+        Ok(())
     }
 
     #[test]
