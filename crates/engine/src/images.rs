@@ -7,10 +7,10 @@ pub(super) fn commands() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
             id: "file.attach_binary",
-            description: "Attach a PNG picture to the project as base64 text; attaching an existing name replaces it. PNG only, at most 4096 pixels per side, about 2 MiB, no animation and no 16-bit depth; at most 8 binary files",
+            description: "Attach a PNG picture to the project as base64 text, given either as data or as the path of a file on disk; attaching an existing name replaces it. PNG only, at most 4096 pixels per side, about 2 MiB, no animation and no 16-bit depth; at most 8 binary files",
             input_schema: schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":128},"data":{"type":"string","description":"standard base64 of the PNG bytes","maxLength":2_796_204}}),
-                &["name", "data"],
+                json!({"name":{"type":"string","minLength":1,"maxLength":128},"data":{"type":"string","description":"standard base64 of the PNG bytes","maxLength":2_796_204},"path":{"type":"string","minLength":1,"maxLength":1024,"description":"a PNG file to read instead of data"}}),
+                &["name"],
             ),
         },
         CommandSpec {
@@ -45,6 +45,13 @@ pub(super) fn commands() -> Vec<CommandSpec> {
     ]
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BinaryParams {
+    name: String,
+    data: Option<String>,
+    path: Option<String>,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ReferenceAddParams {
@@ -110,21 +117,30 @@ pub(super) fn run(
 }
 
 fn attach_binary(p: &mut Project, params: &Value) -> Result<Value, Error> {
-    let a: FileParams = parse(params)?;
+    let a: BinaryParams = parse(params)?;
     let name = a.name.trim().to_string();
     if name.is_empty() || name.len() > 128 {
         return Err(Error::Invalid(
             "attached file names must be 1 to 128 bytes".into(),
         ));
     }
-    if a.data.len() > pcbcraft_doc::MAX_BINARY_ATTACHMENT_BASE64 {
+    let data = match (a.data, a.path) {
+        (Some(data), None) => data,
+        (None, Some(path)) => {
+            pcbcraft_io::read_png_base64(std::path::Path::new(&path)).map_err(Error::Invalid)?
+        }
+        _ => {
+            return Err(Error::Invalid("give either data or path, not both".into()));
+        }
+    };
+    if data.len() > pcbcraft_doc::MAX_BINARY_ATTACHMENT_BASE64 {
         return Err(Error::Invalid(
             "an attached picture holds at most about 2 MiB".into(),
         ));
     }
     let file = pcbcraft_doc::EmbeddedFile {
         name: name.clone(),
-        data: a.data,
+        data,
         encoding: "base64".into(),
     };
     // The picture must decode, so a broken file never reaches the project.
@@ -429,6 +445,36 @@ mod tests {
         )?;
         let back = pcbcraft_io::gerber_silk(&s.project, Layer::Back).map_err(Error::Invalid)?;
         assert!(back.contains("D01"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_picture_attaches_from_a_file_path() -> Result<(), Error> {
+        let mut s = Session::default();
+        let dir = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = dir.path().join("logo.png");
+        std::fs::write(&path, LOGO).map_err(|e| Error::Invalid(e.to_string()))?;
+        let out = s.execute(
+            "file.attach_binary",
+            json!({"name":"logo.png","path":path.to_string_lossy()}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["width"], 64);
+        assert!(
+            s.execute(
+                "file.attach_binary",
+                json!({"name":"b.png","path":dir.path().join("none.png").to_string_lossy()}),
+                None
+            )
+            .is_err(),
+            "a missing file is refused"
+        );
+        assert!(
+            s.execute("file.attach_binary", json!({"name":"c.png"}), None)
+                .is_err(),
+            "data or path is required"
+        );
         Ok(())
     }
 
