@@ -1,6 +1,6 @@
 //! Fabrication Gerber bundle: X2 attributes, split drills, mask, paste, readme.
 #![allow(clippy::too_many_arguments)]
-use pcbcraft_doc::{Layer, Project, Via};
+use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
@@ -12,9 +12,13 @@ const MAX_TOOLS: usize = 64;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
 
 /// Whether a via gets a solder-mask opening on top and bottom plots.
-pub fn via_mask_opening(v: &Via) -> bool {
-    let _ = v;
-    true
+///
+/// The covering is the via's own, else the board default. Only an open via
+/// keeps its opening; tented, plugged and filled types close the hole, so the
+/// mask plots leave the opening out. A via without a drilled hole has nothing
+/// to open.
+pub fn via_mask_opening(v: &Via, board: &Board) -> bool {
+    v.drill > 0.0 && v.effective_covering(board).keeps_mask_opening()
 }
 
 #[derive(Clone, Copy)]
@@ -22,6 +26,8 @@ pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
+    /// Covering of the via this hit drills, `None` for pad and mounting holes.
+    pub via: Option<ViaCovering>,
     pub x: f64,
     pub y: f64,
     pub ux: f64,
@@ -42,6 +48,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um: (v.drill * 1_000.0).round() as u64,
                     span_um: 0,
                     plated: true,
+                    via: Some(v.effective_covering(&p.board)),
                     x: v.position.x,
                     y: v.position.y,
                     ux: 0.0,
@@ -73,6 +80,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                 d_um,
                 span_um,
                 plated: false,
+                via: None,
                 x,
                 y,
                 ux,
@@ -116,6 +124,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um,
                     span_um,
                     plated: g.pad_type == "thru_hole",
+                    via: None,
                     x: world.x,
                     y: world.y,
                     ux,
@@ -455,10 +464,12 @@ fn write_excellon(
     inch: bool,
 ) -> Result<String, String> {
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
-    let mut by_tool: BTreeMap<(u64, u64), Vec<&DrillHit>> = BTreeMap::new();
+    // Via hits get their own tools per covering so each tool can carry the
+    // via drill attribute and name its covering.
+    let mut by_tool: BTreeMap<(u64, u64, Option<ViaCovering>), Vec<&DrillHit>> = BTreeMap::new();
     for hit in round {
         by_tool
-            .entry((hit.d_um, hit.span_um))
+            .entry((hit.d_um, hit.span_um, hit.via))
             .or_default()
             .push(hit);
     }
@@ -473,12 +484,21 @@ fn write_excellon(
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
+        if let Some(covering) = key.2 {
+            out.push_str(&format!(
+                "; #@! TA.AperFunction,Plated,PTH,ViaDrill\n; via protection: {}\n",
+                covering.label()
+            ));
+        }
         out.push_str(&format!(
             "T{}C{:.prec$}\n",
             n + 1,
             d as f64 / 1000.0 * scale,
             prec = prec
         ));
+        if key.2.is_some() {
+            out.push_str("; #@! TD\n");
+        }
     }
     out.push_str("%\nG90\nG05\n");
     for (n, (_key, group)) in by_tool.iter().enumerate() {
@@ -621,7 +641,19 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
             out.push_str(&format!("Edge plating: {}\n", if v { "yes" } else { "no" }));
         }
     }
-    out.push_str("Via protection: open (default until configurable covering ships)\n");
+    out.push_str(&format!(
+        "Via protection: {}\n",
+        p.board.via_covering_default.label()
+    ));
+    let mut overrides: BTreeMap<&'static str, usize> = BTreeMap::new();
+    for v in &p.board.vias {
+        if let Some(c) = v.covering.filter(|c| *c != p.board.via_covering_default) {
+            *overrides.entry(c.label()).or_default() += 1;
+        }
+    }
+    for (label, count) in overrides {
+        out.push_str(&format!("Via protection override: {count} {label}\n"));
+    }
     out.push_str(
         "Drill tool numbers restart in each Excellon file; the CSV chart may use different indices.\n",
     );
@@ -824,7 +856,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         back.push_attrs(net_name(p, v.net), None);
         back.flash(back_code, x, y)?;
 
-        if via_mask_opening(v) && v.drill > 0.0 {
+        if via_mask_opening(v, &p.board) {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
             let n = 16usize;

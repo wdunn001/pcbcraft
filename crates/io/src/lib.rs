@@ -87,67 +87,6 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
     Err("host filesystem writes are unavailable in the browser; download support is planned".into())
 }
-
-/// Build a stored-mode ZIP from ordered `(name, bytes)` pairs.
-pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
-    let count = u16::try_from(entries.len())
-        .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
-    let mut zip: Vec<u8> = Vec::new();
-    let mut central: Vec<u8> = Vec::new();
-    let mut offset = 0u32;
-    for (name, data) in entries {
-        if name.is_empty() || name.len() > 255 {
-            return Err("archive entry names are 1 to 255 bytes".into());
-        }
-        let size = u32::try_from(data.len())
-            .map_err(|_| format!("{name} is larger than the 4 GiB a stored ZIP address"))?;
-        let name_len = u16::try_from(name.len())
-            .map_err(|_| format!("{name} has a name longer than 255 bytes"))?;
-        let crc = crc32(data);
-        let mut local = Vec::new();
-        local.extend_from_slice(b"PK\x03\x04");
-        local.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        local.extend_from_slice(&crc.to_le_bytes());
-        local.extend_from_slice(&size.to_le_bytes());
-        local.extend_from_slice(&size.to_le_bytes());
-        local.extend_from_slice(&name_len.to_le_bytes());
-        local.extend_from_slice(&0u16.to_le_bytes());
-        local.extend_from_slice(name.as_bytes());
-        local.extend_from_slice(data);
-        let mut dir = Vec::new();
-        dir.extend_from_slice(b"PK\x01\x02");
-        dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        dir.extend_from_slice(&crc.to_le_bytes());
-        dir.extend_from_slice(&size.to_le_bytes());
-        dir.extend_from_slice(&size.to_le_bytes());
-        dir.extend_from_slice(&name_len.to_le_bytes());
-        dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        dir.extend_from_slice(&offset.to_le_bytes());
-        dir.extend_from_slice(name.as_bytes());
-        zip.extend_from_slice(&local);
-        central.extend_from_slice(&dir);
-        offset = offset
-            .checked_add(
-                u32::try_from(local.len())
-                    .map_err(|_| format!("{name} makes the archive too large"))?,
-            )
-            .ok_or_else(|| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
-    }
-    let directory_start = u32::try_from(zip.len())
-        .map_err(|_| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
-    let central_size = u32::try_from(central.len())
-        .map_err(|_| "the archive directory is larger than a stored ZIP allows".to_string())?;
-    zip.extend_from_slice(&central);
-    zip.extend_from_slice(b"PK\x05\x06");
-    zip.extend_from_slice(&[0, 0, 0, 0]);
-    zip.extend_from_slice(&count.to_le_bytes());
-    zip.extend_from_slice(&count.to_le_bytes());
-    zip.extend_from_slice(&central_size.to_le_bytes());
-    zip.extend_from_slice(&directory_start.to_le_bytes());
-    zip.extend_from_slice(&0u16.to_le_bytes());
-    Ok(zip)
-}
-
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
     let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
@@ -214,7 +153,8 @@ fn footprint_bounds(p: &Project, f: &pcbcraft_doc::Footprint) -> (Point, Point) 
     }
 }
 
-/// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries.
+/// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries and
+/// the fabrication package manifest that repeats them.
 pub fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for byte in bytes {
@@ -254,26 +194,36 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
             file.data.clone().into_bytes(),
         ));
     }
-    zip_bytes(&entries)
+    zip_entries(&entries)
 }
 
-/// Build a stored (uncompressed) ZIP file from named byte entries.
-fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+/// Build a stored (uncompressed) ZIP file from named byte entries, in the
+/// order given. Every entry carries the fixed 1980-01-01 stamp and no
+/// attributes, so the same entries always produce the same bytes. Names are
+/// limited to 255 bytes, entries to 65535 and the archive to 4 GiB, the plain
+/// limits of the format this writer emits.
+pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let count = u16::try_from(entries.len())
+        .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
     let mut zip: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();
     let mut offset = 0u32;
     for (name, data) in entries {
-        if name.len() > 255 {
-            return Err("archive entry name is too long".into());
+        if name.is_empty() || name.len() > 255 {
+            return Err("archive entry names are 1 to 255 bytes".into());
         }
+        let size = u32::try_from(data.len())
+            .map_err(|_| format!("{name} is larger than the 4 GiB a stored ZIP address"))?;
+        let name_len = u16::try_from(name.len())
+            .map_err(|_| format!("{name} has a name longer than 255 bytes"))?;
         let crc = crc32(data);
         let mut local = Vec::new();
         local.extend_from_slice(b"PK\x03\x04");
         local.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         local.extend_from_slice(&crc.to_le_bytes());
-        local.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        local.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        local.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&name_len.to_le_bytes());
         local.extend_from_slice(&0u16.to_le_bytes());
         local.extend_from_slice(name.as_bytes());
         local.extend_from_slice(data);
@@ -281,23 +231,31 @@ fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
         dir.extend_from_slice(b"PK\x01\x02");
         dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         dir.extend_from_slice(&crc.to_le_bytes());
-        dir.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        dir.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        dir.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&name_len.to_le_bytes());
         dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         dir.extend_from_slice(&offset.to_le_bytes());
         dir.extend_from_slice(name.as_bytes());
         zip.extend_from_slice(&local);
         central.extend_from_slice(&dir);
-        offset += local.len() as u32;
+        offset = offset
+            .checked_add(
+                u32::try_from(local.len())
+                    .map_err(|_| format!("{name} makes the archive too large"))?,
+            )
+            .ok_or_else(|| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
     }
-    let directory_start = zip.len() as u32;
+    let directory_start = u32::try_from(zip.len())
+        .map_err(|_| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
+    let central_size = u32::try_from(central.len())
+        .map_err(|_| "the archive directory is larger than a stored ZIP allows".to_string())?;
     zip.extend_from_slice(&central);
     zip.extend_from_slice(b"PK\x05\x06");
     zip.extend_from_slice(&[0, 0, 0, 0]);
-    zip.extend_from_slice(&(entries.len() as u16).to_le_bytes());
-    zip.extend_from_slice(&(entries.len() as u16).to_le_bytes());
-    zip.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&central_size.to_le_bytes());
     zip.extend_from_slice(&directory_start.to_le_bytes());
     zip.extend_from_slice(&0u16.to_le_bytes());
     Ok(zip)
@@ -686,6 +644,24 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
                 [0.2, 0.35, 0.6]
             };
             page.text(t.position, t.size.max(1.0), rgb, &board_text(p, t))?;
+        }
+        for d in &p.board.datums {
+            let at = p.datum_position(d);
+            let mark = [0.0, 0.5, 0.0];
+            page.circle(at, 1.0, mark, 0.1, false)?;
+            page.path(
+                &[Point::new(at.x - 1.5, at.y), Point::new(at.x + 1.5, at.y)],
+                mark,
+                0.1,
+                false,
+            )?;
+            page.path(
+                &[Point::new(at.x, at.y - 1.5), Point::new(at.x, at.y + 1.5)],
+                mark,
+                0.1,
+                false,
+            )?;
+            page.text(Point::new(at.x + 1.5, at.y + 1.5), 1.5, mark, &d.name)?;
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
             pdf_project_graphic(page, g)?;
@@ -1364,7 +1340,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
             components(&comps_bottom).into_bytes(),
         ),
     ];
-    zip_bytes(&entries)
+    zip_entries(&entries)
 }
 
 /// A minimal AP214 (STEP) writer. The board outline and every placed pad
@@ -1408,6 +1384,16 @@ impl StepDoc {
     fn point(&mut self, c: Coords) -> Result<u32, String> {
         self.add(&format!(
             "CARTESIAN_POINT('',({},{},{}))",
+            Self::n(c.0),
+            Self::n(c.1),
+            Self::n(c.2)
+        ))
+    }
+    /// A cartesian point carrying a name, for datum labels.
+    fn named_point(&mut self, name: &str, c: Coords) -> Result<u32, String> {
+        self.add(&format!(
+            "CARTESIAN_POINT('{}',({},{},{}))",
+            name.replace('\'', "''"),
             Self::n(c.0),
             Self::n(c.1),
             Self::n(c.2)
@@ -1573,6 +1559,17 @@ pub fn step_board(p: &Project) -> Result<String, String> {
                 .collect();
             items.extend(doc.prism(&ring, depth)?);
         }
+    }
+    for datum in &p.board.datums {
+        let at = p.datum_position(datum);
+        let label = format!("DATUM_{}", datum.name);
+        let point = doc.named_point(&label, (at.x, at.y, 0.0))?;
+        let placement = doc.add(&format!(
+            "AXIS2_PLACEMENT_3D('{}',#{point},#{axis},#{reference})",
+            label.replace('\'', "''")
+        ))?;
+        items.push(point);
+        items.push(placement);
     }
     let listed: Vec<String> = items.iter().map(|i| format!("#{i}")).collect();
     doc.set(
@@ -2168,6 +2165,12 @@ fn excellon_drill_file(
 /// as G85 spans along the rotated long axis. Back-copper coordinates are
 /// mirrored about x=0 as fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
+    gerber_files_at(p, &gerber_job::now_utc())
+}
+/// The same fabrication files as `gerber_files`, with the creation date the
+/// job file records given by the caller. A package pins that date so two runs
+/// over the same design produce the same bytes.
+pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
@@ -2181,6 +2184,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         Rect(u64, u64),
         Obround(u64, u64),
         Round(u64, u64, u64),
+        /// A track stroke, kept apart from a pad or via circle of the same
+        /// diameter so the X2 aperture function names it a conductor.
+        Track(u64),
     }
     #[derive(Clone)]
     struct LayerFile {
@@ -2274,8 +2280,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 out.push_str(&format!("%TF.FileFunction,{ff}*%\n"));
             }
             for (ap, code) in &self.apertures {
+                if matches!(ap, Ap::Track(_)) {
+                    out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
+                }
                 match *ap {
-                    Ap::Circle(d) => out.push_str(&format!(
+                    Ap::Circle(d) | Ap::Track(d) => out.push_str(&format!(
                         "%ADD{code}C,{:.6}*%\n",
                         d as f64 / 1000.0 * self.scale
                     )),
@@ -2331,7 +2340,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let is_back = t.layer == pcbcraft_doc::Layer::Back;
         let file = if is_back { &mut back } else { &mut front };
         let w = (t.width * 1_000.0).round() as u64;
-        let code = file.code(Ap::Circle(w.max(1)))?;
+        let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
             file.ops += 1;
             if file.ops > MAX_OPS {
@@ -2461,6 +2470,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         "pcb-B.Cu.gbr".into(),
         back.finish(true, "back copper layer", Some("Copper,L2,Bot")),
     );
+    for (layer, name) in [
+        (pcbcraft_doc::Layer::Front, "F"),
+        (pcbcraft_doc::Layer::Back, "B"),
+    ] {
+        files.insert(
+            format!("pcb-{name}.Mask.gbr"),
+            gerber::gerber_mask(p, layer)?,
+        );
+        files.insert(
+            format!("pcb-{name}.Paste.gbr"),
+            gerber::gerber_paste(p, layer)?,
+        );
+        files.insert(
+            format!("pcb-{name}.SilkS.gbr"),
+            gerber::gerber_silk(p, layer)?,
+        );
+    }
     files.insert(
         "pcb-Edge.gbr".into(),
         outline.finish(false, "board outline", Some("Profile,NP")),
@@ -2492,28 +2518,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     if !files.contains_key("pcb-Plated.drl") {
         files.insert("pcb-Plated.drl".into(), plated_drill);
     }
-    let mut names: Vec<String> = files.keys().cloned().collect();
-    names.push("README-fabrication.txt".into());
-    names.sort();
-    files.insert(
-        "README-fabrication.txt".into(),
-        fab_export::fab_readme_text(p, &names)?,
-    );
-    let job = gerber_job::gerber_job_at(p, &files, &gerber_job::now_utc())?;
-    files.insert("pcb-job.gbrjob".into(), job);
-    names = files.keys().cloned().collect();
-    names.push("README-fabrication.txt".into());
-    names.sort();
-    files.insert(
-        "README-fabrication.txt".into(),
-        fab_export::fab_readme_text(p, &names)?,
-    );
-    Ok(files)
-}
-
-/// Fabrication files with a pinned Gerber job creation timestamp for packages.
-pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
-    let mut files = gerber_files(p)?;
+    // The job file is built from the files that exist, so it lists itself
+    // last and never drifts from the package it travels in.
     let job = gerber_job::gerber_job_at(p, &files, creation)?;
     files.insert("pcb-job.gbrjob".into(), job);
     let mut names: Vec<String> = files.keys().cloned().collect();
@@ -4262,6 +4268,13 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
             &board_text(p, t),
         )?;
     }
+    for d in &p.board.datums {
+        let at = p.datum_position(d);
+        w.circle("DATUMS", at.x, at.y, 1.0)?;
+        w.line("DATUMS", (at.x - 1.5, at.y), (at.x + 1.5, at.y))?;
+        w.line("DATUMS", (at.x, at.y - 1.5), (at.x, at.y + 1.5))?;
+        w.text("DATUMS", at.x + 1.5, at.y + 1.5, 1.5, 0.0, &d.name)?;
+    }
     drawn::write_dxf_layers(p, &mut w)?;
     Ok(w.finish())
 }
@@ -4635,6 +4648,21 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 },
                 spin,
                 escape(&board_text(p, t))
+            ));
+        }
+        for d in &p.board.datums {
+            let at = p.datum_position(d);
+            s.push_str(&format!(
+                "<g class=\"datum\" stroke=\"#7be07b\" stroke-width=\"0.1\" fill=\"none\"><circle cx=\"{x}\" cy=\"{y}\" r=\"1\"/><path d=\"M {} {y} L {} {y} M {x} {} L {x} {}\"/><text x=\"{}\" y=\"{}\" stroke=\"none\" fill=\"#7be07b\" font-size=\"1.5\">{}</text></g>",
+                at.x - 1.5,
+                at.x + 1.5,
+                at.y - 1.5,
+                at.y + 1.5,
+                at.x + 1.5,
+                at.y - 1.5,
+                escape(&d.name),
+                x = at.x,
+                y = at.y
             ));
         }
         for g in p.graphics.iter().filter(|g| g.layer == "board") {
@@ -6798,6 +6826,47 @@ mod tests {
     }
 
     #[test]
+    fn zip_entries_round_trip_and_reject_oversize_input() -> Result<(), String> {
+        let zip = zip_entries(&[
+            ("bom.csv".into(), b"Comment,Designator\n".to_vec()),
+            (
+                "pcb-F.Cu.gbr".into(),
+                b"%TF.FileFunction,Copper,L1,Top*%\n".to_vec(),
+            ),
+        ])?;
+        assert!(zip.starts_with(b"PK\x03\x04"), "a stored ZIP");
+        assert_eq!(
+            zip_entries(&[
+                ("bom.csv".into(), b"Comment,Designator\n".to_vec()),
+                (
+                    "pcb-F.Cu.gbr".into(),
+                    b"%TF.FileFunction,Copper,L1,Top*%\n".to_vec()
+                ),
+            ])?,
+            zip,
+            "the same entries always produce the same bytes"
+        );
+        let text = String::from_utf8_lossy(&zip).into_owned();
+        assert!(text.contains("bom.csv") && text.contains("pcb-F.Cu.gbr"));
+        let long = "n".repeat(256);
+        assert!(
+            zip_entries(&[(long, vec![])]).is_err(),
+            "a name past 255 bytes is refused, not truncated"
+        );
+        assert!(
+            zip_entries(&[(String::new(), vec![])]).is_err(),
+            "an empty name is refused"
+        );
+        let many: Vec<(String, Vec<u8>)> =
+            (0..65_536).map(|n| (format!("f{n}"), Vec::new())).collect();
+        assert!(
+            zip_entries(&many).is_err(),
+            "more than 65535 entries is refused, not wrapped in the header"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn postscript_writes_a_printable_document_for_both_views() -> Result<(), String> {
         let mut project = Project::default();
         project.board.tracks.push(pcbcraft_doc::Track {
@@ -6815,6 +6884,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -6933,6 +7003,7 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -6973,6 +7044,7 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -6980,6 +7052,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -7152,6 +7225,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7196,6 +7270,7 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7257,6 +7332,7 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8013,6 +8089,7 @@ mod tests {
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -8069,6 +8146,7 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -8190,12 +8268,14 @@ mod tests {
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
+                "pcb-B.SilkS.gbr",
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
                 "pcb-F.Mask.gbr",
                 "pcb-F.Paste.gbr",
+                "pcb-F.SilkS.gbr",
                 "pcb-NPTH.drl",
                 "pcb-Plated.drl",
                 "pcb-job.gbrjob",
@@ -8890,6 +8970,7 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -9217,6 +9298,7 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -9385,6 +9467,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            covering: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -9511,6 +9594,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            covering: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -10418,6 +10502,7 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -10571,6 +10656,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
+            covering: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -11819,6 +11905,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 903,
@@ -11849,6 +11936,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 913,
@@ -12348,6 +12436,188 @@ mod tests {
         assert!(readme.contains("L1"));
         assert!(readme.contains("fab@example.test"));
         assert!(readme.contains("Via protection: open"));
+        Ok(())
+    }
+    #[test]
+    fn step_board_names_each_datum_with_its_coordinates() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 900,
+            name: "A".into(),
+            position: Point::new(4.25, 6.5),
+            hole: None,
+        });
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 901,
+            name: "B-2".into(),
+            position: Point::new(20.0, 10.0),
+            hole: None,
+        });
+        let step = step_board(&project)?;
+        let lookup = |id: &str| -> Option<&str> {
+            let prefix = format!("#{id} = ");
+            step.lines().find_map(|l| l.strip_prefix(prefix.as_str()))
+        };
+        for (name, x, y) in [("A", 4.25, 6.5), ("B-2", 20.0, 10.0)] {
+            let label = format!("'DATUM_{name}'");
+            let placement = step
+                .lines()
+                .find(|l| l.contains("AXIS2_PLACEMENT_3D") && l.contains(&label))
+                .ok_or("placement missing")?;
+            let point_ref = placement
+                .split("',#")
+                .nth(1)
+                .and_then(|r| r.split(',').next())
+                .ok_or("point reference missing")?;
+            let point = lookup(point_ref).ok_or("point line missing")?;
+            assert!(point.starts_with(&format!("CARTESIAN_POINT({label}")));
+            let nums: Vec<f64> = point
+                .split_once(",(")
+                .ok_or("coordinates missing")?
+                .1
+                .trim_end_matches(");")
+                .trim_end_matches(')')
+                .split(',')
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            assert_eq!(nums.len(), 3);
+            assert!((nums[0] - x).abs() < 1e-3 && (nums[1] - y).abs() < 1e-3);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn board_pdf_draws_each_datum_name() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 900,
+            name: "MOUNT_A".into(),
+            position: Point::new(5.0, 5.0),
+            hole: None,
+        });
+        let pdf = pdf_document(&project, "pcb")?;
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(text.contains("MOUNT_A"));
+        let plain = pdf_document(&Project::default(), "pcb")?;
+        assert!(!String::from_utf8_lossy(&plain).contains("MOUNT_A"));
+        Ok(())
+    }
+
+    #[test]
+    fn svg_and_dxf_show_datums() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.datums.push(pcbcraft_doc::Datum {
+            id: 900,
+            name: "MOUNT_A".into(),
+            position: Point::new(5.0, 5.0),
+            hole: None,
+        });
+        assert!(svg(&project, "pcb")?.contains(">MOUNT_A</text>"));
+        let dxf = dxf_board(&project)?;
+        assert!(dxf.contains("DATUMS"));
+        assert!(dxf.contains("MOUNT_A"));
+        assert!(!dxf_board(&Project::default())?.contains("DATUMS"));
+        Ok(())
+    }
+    fn covering_fixture(
+        default: pcbcraft_doc::ViaCovering,
+        own: Option<pcbcraft_doc::ViaCovering>,
+    ) -> Result<Project, String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.via_covering_default = default;
+        for (id, x, covering) in [(10, 10.0, own), (11, 20.0, None)] {
+            project.board.vias.push(pcbcraft_doc::Via {
+                id,
+                net: 1,
+                position: Point::new(x, 10.0),
+                diameter: 0.6,
+                drill: 0.3,
+                covering,
+            });
+        }
+        project.validate()?;
+        Ok(project)
+    }
+    #[test]
+    fn tented_via_has_no_mask_opening_and_open_via_keeps_it() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let openings =
+            |files: &BTreeMap<String, String>| files["pcb-F.Mask.gbr"].matches("G36*").count();
+        let open = gerber_files(&covering_fixture(ViaCovering::Open, None)?)?;
+        assert_eq!(openings(&open), 2, "both open vias keep their opening");
+        let one_tented = gerber_files(&covering_fixture(
+            ViaCovering::Open,
+            Some(ViaCovering::Tented),
+        )?)?;
+        assert_eq!(
+            openings(&one_tented),
+            1,
+            "the tented via loses its opening, the open one keeps it"
+        );
+        let tented = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
+        assert_eq!(
+            openings(&tented),
+            0,
+            "a tented board default closes every via"
+        );
+        assert_eq!(
+            tented["pcb-B.Mask.gbr"].matches("G36*").count(),
+            0,
+            "the back mask closes too"
+        );
+        let own_open = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::Open),
+        )?)?;
+        assert_eq!(openings(&own_open), 1, "a via's own open beats the default");
+        Ok(())
+    }
+    #[test]
+    fn readme_names_the_via_protection_policy() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let files = gerber_files(&covering_fixture(ViaCovering::Tented, None)?)?;
+        let readme = &files["README-fabrication.txt"];
+        assert!(readme.contains("Via protection: tented\n"), "{readme}");
+        assert!(!readme.contains("override"), "no overrides, none listed");
+        let files = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::FilledCapped),
+        )?)?;
+        let readme = &files["README-fabrication.txt"];
+        assert!(
+            readme.contains("Via protection override: 1 filled and capped"),
+            "{readme}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn drill_file_marks_via_tools_with_the_via_attribute_and_covering() -> Result<(), String> {
+        use pcbcraft_doc::ViaCovering;
+        let files = gerber_files(&covering_fixture(
+            ViaCovering::Tented,
+            Some(ViaCovering::Plugged),
+        )?)?;
+        let drill = &files["pcb-Plated.drl"];
+        assert!(
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"),
+            "{drill}"
+        );
+        assert!(drill.contains("; via protection: tented\n"), "{drill}");
+        assert!(drill.contains("; via protection: plugged\n"), "{drill}");
+        assert_eq!(
+            drill.matches("; #@! TD\n").count(),
+            2,
+            "each via tool clears its attribute so later tools do not inherit it"
+        );
+        assert!(
+            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count() == 2,
+            "one tool per covering: {drill}"
+        );
         Ok(())
     }
 }
