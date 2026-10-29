@@ -1,6 +1,6 @@
 //! Paste stencil and board cut-path exporters for laser galvo software.
 
-use crate::dxf::{dxf_document, DxfWriter};
+use crate::DxfWriter;
 use pcbcraft_doc::{Footprint, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -481,7 +481,7 @@ pub fn stencil_dxf(p: &Project, options: &StencilOptions) -> Result<String, Stri
     }
     let reference = reference_outline(p);
     write_ring_dxf(&mut w, "reference", &reference)?;
-    Ok(dxf_document(&w))
+    Ok(w.finish())
 }
 
 fn write_ring_dxf(w: &mut DxfWriter, layer: &str, ring: &Ring) -> Result<(), String> {
@@ -585,7 +585,7 @@ pub fn cut_paths_dxf(p: &Project, options: &CutPathOptions) -> Result<String, St
     for ring in &paths.cutouts {
         write_ring_dxf(&mut w, "cutouts", ring)?;
     }
-    Ok(dxf_document(&w))
+    Ok(w.finish())
 }
 
 pub fn stencil_export_text(p: &Project, options: &StencilOptions) -> Result<String, String> {

@@ -29,6 +29,29 @@ fn point(node: &Node, field: &str, flip: bool) -> Result<Point, Error> {
         num(p.value(2))? * if flip { -1.0 } else { 1.0 },
     ))
 }
+fn pin_visible(node: &Node) -> bool {
+    for child in &node.children {
+        if child.name() != "hide" {
+            continue;
+        }
+        if child.children.len() <= 1 {
+            return false;
+        }
+        if child.field("yes") == "yes" || child.value(1) == "yes" {
+            return false;
+        }
+    }
+    true
+}
+fn pin_graphical_style(part: &Node) -> (String, bool) {
+    let token = part.value(2);
+    let style = if token.is_empty() { "line" } else { token };
+    if SymbolPin::graphical_style_supported(style) {
+        (style.to_owned(), false)
+    } else {
+        ("line".to_owned(), true)
+    }
+}
 fn angle(node: &Node) -> Result<f64, Error> {
     node.child("at")
         .map(|a| {
@@ -232,7 +255,8 @@ fn resolve(
             s.graphics.retain(|g| g.unit != u || g.body_style != b);
             for part in &child.children {
                 if part.name() == "pin" {
-                    if part.value(2) != "line" {
+                    let (graphical_style, unknown_style) = pin_graphical_style(part);
+                    if unknown_style {
                         s.unsupported.push(format!(
                             "pin {} graphical style {} is preserved in raw source",
                             part.field("number"),
@@ -248,6 +272,8 @@ fn resolve(
                         electrical_type: part.value(1).to_owned(),
                         unit: u,
                         body_style: b,
+                        graphical_style,
+                        visible: pin_visible(part),
                     });
                     if part.child("alternate").is_some() {
                         s.unsupported.push(format!(
@@ -440,9 +466,13 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     "pad {number} shape {shape} requires unsupported geometry"
                 ));
             }
+            let pad_type = match child.value(2) {
+                "np_thru_hole" => "unplated".into(),
+                token => token.to_owned(),
+            };
             s.pads.push(FootprintPad {
                 number,
-                pad_type: child.value(2).to_owned(),
+                pad_type,
                 shape,
                 position: point(child, "at", false)?,
                 rotation: angle(child)?,
