@@ -13,6 +13,7 @@ mod library;
 mod library_quality;
 mod motion;
 mod palette;
+mod pin_matrix;
 mod plot_viewer;
 mod reference_panel;
 mod sources;
@@ -7029,6 +7030,7 @@ impl App {
             }
             ui.add_space(12.0);
         }
+        self.pin_matrix_section(ui);
         ui.separator();
         ui.label(
             egui::RichText::new(checks.get("scope").and_then(Value::as_str).unwrap_or(""))

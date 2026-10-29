@@ -348,3 +348,176 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A design with two outputs, U1 pin 1 and U2 pin 1, wired to one net.
+fn two_outputs_on_one_net() -> Result<(App, egui::Context), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.run("net.create", json!({"name": "BUS"}));
+    app.refresh();
+    let net = app
+        .project
+        .nets
+        .first()
+        .map(|n| n.id)
+        .ok_or("net missing")?;
+    let mut parts = vec![];
+    for (reference, x) in [("U1", 0.0), ("U2", 10.0)] {
+        app.run(
+            "component.add",
+            json!({"kind":"resistor","reference":reference,"position":{"x":x,"y":0.0}}),
+        );
+        app.refresh();
+        let id = app
+            .project
+            .components
+            .iter()
+            .find(|c| c.reference == reference)
+            .map(|c| c.id)
+            .ok_or("part missing")?;
+        parts.push(id);
+    }
+    {
+        let mut session = app.session.lock().map_err(|_| "session busy")?;
+        for component in session.project.components.iter_mut() {
+            for pin in component.pins.iter_mut().filter(|p| p.number == "1") {
+                pin.electrical_type = "output".into();
+            }
+        }
+    }
+    app.run(
+        "net.connect",
+        json!({"net": net, "pins": [{"component": parts[0], "pin": "1"}, {"component": parts[1], "pin": "1"}]}),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    Ok((app, ctx))
+}
+
+/// Click the matrix cell for two pin types, scrolling the grid into view.
+fn tap_matrix_cell(
+    ctx: &egui::Context,
+    app: &mut App,
+    type_a: &str,
+    type_b: &str,
+) -> Result<(), String> {
+    if !scrolled_to_at(ctx, app, "Pin connections", 700.0)? {
+        return Err("the Checks tab should offer a Pin connections grid".into());
+    }
+    if !scrolled_to_at(ctx, app, "Unspecified", 700.0)? {
+        return Err("the whole grid should be reachable by scrolling".into());
+    }
+    for _ in 0..3 {
+        frame(ctx, app, vec![], egui::Modifiers::NONE);
+    }
+    let rect = ctx
+        .data(|d| d.get_temp::<egui::Rect>(pin_matrix::cell_memory_id(type_a, type_b)))
+        .ok_or("the grid cell was never painted")?;
+    frame(
+        ctx,
+        app,
+        vec![egui::Event::PointerMoved(rect.center())],
+        egui::Modifiers::NONE,
+    );
+    for pressed in [true, false] {
+        frame(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(rect.center()),
+                egui::Event::PointerButton {
+                    pos: rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+            egui::Modifiers::NONE,
+        );
+    }
+    app.refresh();
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_two_outputs_fighting() -> Result<(), String> {
+    let (mut app, ctx) = two_outputs_on_one_net()?;
+    let (errors, _, _) = App::finding_counts(&app.checks);
+    assert!(
+        errors >= 1,
+        "two outputs on one net should count as an error in the footer: {}",
+        app.message
+    );
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Pin conflict · 1 place")?
+            || scrolled_to_at(&ctx, &mut app, "Pin conflict · 1 place", 700.0)?,
+        "the review list should group the clash under its own heading"
+    );
+    assert!(
+        scrolled_to_at(
+            &ctx,
+            &mut app,
+            "U1 pin 1 (output) and U2 pin 1 (output) drive the same net; keep one driver or add a resistor",
+            700.0
+        )?,
+        "the review list should name both pins: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_lets_two_outputs_share_a_net() -> Result<(), String> {
+    let (mut app, ctx) = two_outputs_on_one_net()?;
+    let conflicts = |app: &App| -> usize {
+        app.checks
+            .get("erc")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, |v| {
+                v.iter()
+                    .filter(|f| {
+                        f.get("code").and_then(serde_json::Value::as_str) == Some("pin_conflict")
+                    })
+                    .count()
+            })
+    };
+    assert_eq!(conflicts(&app), 1, "the clash starts out reported");
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    // The cell starts at error; one click cycles error to ok.
+    tap_matrix_cell(&ctx, &mut app, "output", "output")?;
+    assert_eq!(
+        app.project.pin_matrix_level("output", "output"),
+        "ok",
+        "one click on the output cell lets two outputs share a net: {}",
+        app.message
+    );
+    assert_eq!(conflicts(&app), 0, "the finding disappears");
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Reset to default", 700.0)?,
+        "the Reset button stays on the page"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Reset to default")?;
+    app.refresh();
+    assert_eq!(conflicts(&app), 1, "Reset brings the finding back");
+    assert!(app.project.pin_matrix.is_empty());
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_every_matrix_cell_aloud() {
+    for a in pcbcraft_doc::PIN_ELECTRICAL_TYPES {
+        for b in pcbcraft_doc::PIN_ELECTRICAL_TYPES {
+            let level = pcbcraft_doc::default_pin_matrix_level(a, b);
+            let next = pin_matrix::next_level(level);
+            assert_ne!(next, level, "a click always changes {a} with {b}");
+            assert_eq!(
+                pin_matrix::next_level(pin_matrix::next_level(next)),
+                level,
+                "three clicks come back to the start for {a} with {b}"
+            );
+        }
+    }
+}
