@@ -478,22 +478,22 @@ impl App {
         }
         self.paint_edit_overlay(&painter, rect, camera);
         let text = match &self.tool {
-            Tool::Select => "SELECT",
-            Tool::Place(_) => "PLACE SYMBOL · CLICK TO COMMIT",
+            Tool::Select => t!("board.canvas.select"),
+            Tool::Place(_) => t!("board.canvas.place_symbol_click_to_commit"),
             Tool::LibraryPlace(..) | Tool::CustomPlace(..) => {
-                "PLACE SYMBOL PACKAGE · CLICK TO COMMIT"
+                t!("board.canvas.place_symbol_package_click_to")
             }
-            Tool::Wire(None) => "WIRE · PICK FIRST PIN",
-            Tool::Wire(Some(_)) => "WIRE · PICK SECOND PIN",
-            Tool::Route(None) => "ROUTE · PICK FIRST PAD",
-            Tool::Route(Some(_)) => "ROUTE · PICK SECOND PAD",
-            Tool::Move => "MOVE · CLICK TO PLACE SELECTION",
-            Tool::Cutout => "CUTOUT · CLICK TO PLACE",
-            Tool::Hole => "MOUNTING HOLE · CLICK TO DRILL",
-            Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
-            Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
-            Tool::DrawLayer => "DRAW SHAPE · PICK THE LAYER IN THE PANEL",
-            Tool::Measure => "MEASURE · CLICK TWO POINTS",
+            Tool::Wire(None) => t!("board.canvas.wire_pick_first_pin"),
+            Tool::Wire(Some(_)) => t!("board.canvas.wire_pick_second_pin"),
+            Tool::Route(None) => t!("board.canvas.route_pick_first_pad"),
+            Tool::Route(Some(_)) => t!("board.canvas.route_pick_second_pad"),
+            Tool::Move => t!("board.canvas.move_click_to_place_selection"),
+            Tool::Cutout => t!("board.canvas.cutout_click_to_place"),
+            Tool::Hole => t!("board.canvas.mounting_hole_click_to_drill"),
+            Tool::NoConnect => t!("board.canvas.no_connect_click_a_pin"),
+            Tool::Fiducial => t!("board.canvas.assembly_mark_click_a_clear"),
+            Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
+            Tool::Measure => t!("board.canvas.measure_click_two_points"),
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -511,7 +511,7 @@ impl App {
             painter.text(
                 rect.left_top() + Vec2::new(20.0, 40.0),
                 Align2::LEFT_TOP,
-                format!("FOCUSED ON {label} · tap the row again to show everything"),
+                t!("board.canvas.focused_on_label_tap_the", label = label),
                 FontId::monospace(10.0),
                 self.accent(),
             );
@@ -524,7 +524,7 @@ impl App {
             painter.text(
                 rect.left_top() + Vec2::new(20.0, 38.0),
                 Align2::LEFT_TOP,
-                format!("RELEASE TO PLACE {name} WHERE THE POINTER IS"),
+                t!("board.canvas.release_to_place_name_where", name = name),
                 FontId::monospace(10.0),
                 self.accent(),
             );
@@ -758,15 +758,15 @@ impl App {
                             ui,
                             "canvas-fit",
                             CanvasIcon::Fit,
-                            "Fit: zoom the view so the whole design fits.",
+                            &t!("board.canvas.fit_zoom_the_view_so"),
                         )
                         .clicked()
                     {
                         self.needs_fit = true;
                     }
                     if ui
-                        .small_button("+")
-                        .on_hover_text("Zoom in on the drawing.")
+                        .small_button(t!("board.canvas.text"))
+                        .on_hover_text(t!("board.canvas.text.tip"))
                         .clicked()
                     {
                         let zoom = if self.tab == Tab::Pcb {
@@ -777,8 +777,8 @@ impl App {
                         *zoom = (*zoom * 1.15).clamp(0.02, 100.0);
                     }
                     if ui
-                        .small_button("\u{2212}")
-                        .on_hover_text("Zoom out on the drawing.")
+                        .small_button(t!("board.canvas.text2"))
+                        .on_hover_text(t!("board.canvas.text2.tip"))
                         .clicked()
                     {
                         let zoom = if self.tab == Tab::Pcb {
@@ -819,7 +819,7 @@ impl App {
                                         ui,
                                         "handle-move",
                                         CanvasIcon::Move,
-                                        "Move: drop the selected object where you click next.",
+                                        &t!("board.canvas.move_drop_the_selected_object"),
                                     )
                                     .clicked()
                                 {
@@ -1640,8 +1640,7 @@ impl App {
                     if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
                         self.track_width = track.width;
                     }
-                    self.message =
-                        "Wire picked: change its width or straighten it in the inspector".into();
+                    self.message = t!("board.canvas_click.wire_picked_change_its_width");
                 }
             }
             Tool::Measure => self.measure_click(pos, zoom),
@@ -1684,7 +1683,7 @@ impl App {
                         self.tool = Tool::Wire(Some(pin));
                     }
                 } else {
-                    self.message = "Wire endpoints must be symbol pins".into();
+                    self.message = t!("board.canvas_click.wire_endpoints_must_be_symbol");
                 }
             }
             Tool::Route(start) => {
@@ -1717,7 +1716,7 @@ impl App {
                         self.tool = Tool::Route(Some((id, pad)));
                     }
                 } else {
-                    self.message = "Pick a pad to start or finish a route".into();
+                    self.message = t!("board.canvas_click.pick_a_pad_to_start");
                 }
             }
             Tool::Fiducial => self.run(
@@ -1749,7 +1748,7 @@ impl App {
             ),
             Tool::DrawLayer => {
                 let Some(layer) = self.art_layer else {
-                    self.message = "Pick or make a layer to draw on first".into();
+                    self.message = t!("board.canvas_click.pick_or_make_a_layer");
                     return;
                 };
                 let at = snap(pos);
@@ -1757,7 +1756,7 @@ impl App {
                     DrawShape::Words => {
                         let text = self.art_text.trim().to_owned();
                         if text.is_empty() {
-                            self.message = "Type the words to print first".into();
+                            self.message = t!("board.canvas_click.type_the_words_to_print");
                         } else {
                             self.run(
                                 "board.layer_text_add",
@@ -1773,9 +1772,7 @@ impl App {
                         if closing && self.art_points.len() >= 3 {
                             self.commit_poly(layer);
                         } else if self.art_points.len() >= 64 {
-                            self.message =
-                                "An outline holds up to 64 corners; click the first point to close it"
-                                    .into();
+                            self.message = t!("board.canvas_click.an_outline_holds_up_to");
                         } else {
                             self.art_points.push(pos);
                         }
@@ -1970,14 +1967,14 @@ impl App {
             painter.text(
                 rect.center() - Vec2::new(0.0, 25.0),
                 Align2::CENTER_CENTER,
-                "Start your circuit",
+                t!("schematic.paint_schematic.start_your_circuit"),
                 FontId::proportional(28.0),
                 self.ink(),
             );
             painter.text(
                 rect.center() + Vec2::new(0.0, 20.0),
                 Align2::CENTER_CENTER,
-                "Press A to add a symbol, or open the start screen for a worked example",
+                t!("schematic.paint_schematic.press_a_to_add_a"),
                 FontId::proportional(14.0),
                 self.muted(),
             );
@@ -2509,9 +2506,11 @@ impl App {
         painter.text(
             board.left_bottom() + Vec2::new(0.0, 18.0),
             Align2::LEFT_TOP,
-            format!(
-                "{} × {} mm    Top / Bottom    clearance {} mm",
-                p.board.width, p.board.height, p.board.clearance
+            t!(
+                "board.paint_board.width_height_mm_top_bottom",
+                width = p.board.width,
+                height = p.board.height,
+                clearance = p.board.clearance
             ),
             FontId::monospace(11.0),
             self.muted(),
