@@ -32,9 +32,11 @@ deny and the aggregated result job.
 | Clippy and docs | `cargo xtask clippy`, `cargo xtask docs` | Clippy with `-D warnings` on all targets, rustdoc with warnings denied |
 | Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
 | Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
+| Text catalog | `cargo xtask strings check` (and `strings extract`) | `crates/text/strings/en.txt` is well formed with no duplicate keys, translation files have no unknown keys and keep the English `{placeholders}`, every `t!("key")` in crates/ui-egui exists, and no string literal sits in a text call inside a function listed in `crates/text/strings/converted-fns.txt` |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
+| E2E and control coverage | `cargo xtask e2e` | Runs every `a_newcomer_*` story, walks every page of the UI, and fails with one line per control that has no tooltip, no story or no id (message names the id). Uploads `e2e-coverage` (report and logs). Exemptions: `e2e-exemptions.txt` |
 | UI screenshots | `cargo xtask screenshots` | Launches the real app under Xvfb with Mesa software Vulkan and captures eight views |
 | Build | `cargo build --locked` | Windows on every change, macOS also on main |
 | CI result | none | The one check to mark as required in branch protection |
@@ -45,6 +47,22 @@ Speed and friendliness to stacked pull requests:
 - Documentation-only changes skip the build jobs; the policy, deny and result jobs still run.
 - Caches (rust-cache) are written only by main and read by everything else.
 - Forks run on every push, so a stacked branch gets results before its pull request exists. In the upstream repository, plain branch pushes are covered by the pull request run.
+
+## The e2e gate
+
+`cargo xtask e2e` is the local twin of the `E2E stories and control coverage`
+job. A control id is its kind plus its label with digits folded to `#`
+(`button:Add pad`), or `icon:<id>` for tool-strip icons. The stories log the
+controls they press or type into; a walk of every page logs the controls it
+paints and hovers each one for a tooltip. A control must show a tooltip and be
+touched by at least one story. Every new control needs a label (or a
+`record_icon` id), a tooltip, and a story.
+
+`e2e-exemptions.txt` holds reviewed exceptions, one per line as
+`kind | id | reason` (kind `tooltip`, `story` or `name`, an id ending in `*`
+matches by prefix). The current list is the first run's backlog, tracked in
+#520, and may only shrink: an entry that matches nothing fails the gate. The
+job `strings` runs `cargo xtask strings check` on every Rust change.
 
 ## Seeing UI changes
 
