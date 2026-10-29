@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=PCBCraft
+GenericName=PCB design
+Comment=Schematic capture, PCB layout, design checks, and KiCad export
+Exec=pcbcraft %f
+TryExec=pcbcraft
+Icon=io.github.tangency-labs.pcbcraft
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.tangency-labs.pcbcraft
+Categories=Electronics;Engineering;
+Keywords=pcb;eda;schematic;layout;kicad;
+MimeType=application/x-pcbcraft;
