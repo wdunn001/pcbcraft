@@ -432,8 +432,10 @@ enum BarIcon {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
+    Files,
     Schematic,
     Pcb,
+    Board3d,
     Libraries,
     Rules,
     Checks,
@@ -576,6 +578,8 @@ pub struct App {
     home_open: bool,
     home_path_focus: bool,
     left_tab: usize,
+    /// Optional workspace tabs the user closed; the + menu reopens them.
+    closed_tabs: Vec<Tab>,
     tree_query: String,
     tree_hidden: Vec<String>,
     focus_layer: Option<String>,
@@ -911,6 +915,7 @@ impl App {
             home_open: false,
             home_path_focus: false,
             left_tab: 0,
+            closed_tabs: Vec::new(),
             tree_query: String::new(),
             tree_hidden: Vec::new(),
             focus_layer: None,
@@ -1231,6 +1236,7 @@ impl App {
         {
             self.selected = Some(f.component);
         }
+        self.closed_tabs.retain(|t| *t != tab);
         self.tab = tab;
         self.needs_fit = true;
         self.tool = Tool::Select;
@@ -2836,16 +2842,30 @@ impl App {
     fn workspace_tabs(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("workspace-tabs").show(ui, |ui| {
             ui.add_space(4.0);
+            let optional = [Tab::Rules, Tab::Checks, Tab::Settings];
+            let mut shown: Vec<(Tab, &str)> = vec![
+                (Tab::Files, "Files"),
+                (Tab::Schematic, "Schematic"),
+                (Tab::Pcb, "Layout"),
+                (Tab::Board3d, "3D View"),
+            ];
+            if self.tab == Tab::Libraries {
+                shown.push((Tab::Libraries, "Libraries"));
+            }
+            for (tab, label) in [
+                (Tab::Rules, "Rules"),
+                (Tab::Checks, "Checks"),
+                (Tab::Settings, "Settings"),
+            ] {
+                if !self.closed_tabs.contains(&tab) {
+                    shown.push((tab, label));
+                }
+            }
+            let used = shown.len() as f32 * 140.0 + 40.0;
+            let mut close = None;
             ui.horizontal(|ui| {
-                ui.add_space(12.0);
-                for (tab, label) in [
-                    (Tab::Schematic, "Schematic"),
-                    (Tab::Pcb, "PCB Layout"),
-                    (Tab::Libraries, "Libraries"),
-                    (Tab::Rules, "Rules"),
-                    (Tab::Checks, "Checks"),
-                    (Tab::Settings, "Settings"),
-                ] {
+                ui.add_space(((ui.available_width() - used) / 2.0).max(12.0));
+                for (tab, label) in shown.iter().copied() {
                     let (_, rect) = ui.allocate_space(Vec2::new(132.0, 30.0));
                     let selected = self.tab == tab;
                     let accent = self.accent();
@@ -2874,13 +2894,57 @@ impl App {
                                 );
                             }
                         });
+                    let response = response.on_hover_text(if optional.contains(&tab) {
+                        format!("Show the {label} view. Right-click to close it.")
+                    } else {
+                        format!("Show the {label} view.")
+                    });
                     if response.clicked() {
                         self.change_tab(tab);
                     }
+                    if optional.contains(&tab) {
+                        response.context_menu(|ui| {
+                            if ui
+                                .button("Close")
+                                .on_hover_text("Hide this view; the + menu brings it back.")
+                                .clicked()
+                            {
+                                close = Some(tab);
+                                ui.close();
+                            }
+                        });
+                    }
                 }
-                ui.add_enabled(false, egui::Button::new("3D Board"))
-                    .on_hover_text("A real Rust 3D viewer is planned.");
+                let closed = self.closed_tabs.clone();
+                ui.menu_button("+", |ui| {
+                    if closed.is_empty() {
+                        ui.add_enabled(false, egui::Label::new("Every view is open"));
+                    }
+                    for tab in closed {
+                        let name = match tab {
+                            Tab::Rules => "Rules",
+                            Tab::Checks => "Checks",
+                            _ => "Settings",
+                        };
+                        if ui
+                            .button(name)
+                            .on_hover_text("Open this view again.")
+                            .clicked()
+                        {
+                            self.change_tab(tab);
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("Open a view you closed.");
             });
+            if let Some(tab) = close {
+                self.closed_tabs.push(tab);
+                if self.tab == tab {
+                    self.change_tab(Tab::Schematic);
+                }
+            }
             if !matches!(self.tool, Tool::Select) {
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
@@ -5243,6 +5307,26 @@ impl App {
             }
         }
     }
+    /// The project's files in one place: the design file, the library
+    /// collections that feed it, and the builds with their output folder.
+    fn files_tab(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Files");
+        ui.label("The design file, its library sources and the builds made from it.");
+        ui.add_space(10.0);
+        ui.label(egui::RichText::new("DESIGN FILE").size(10.0).color(self.muted()));
+        ui.label(egui::RichText::new(&self.path).monospace());
+        ui.add_space(8.0);
+        if ui
+            .button("Library sources")
+            .on_hover_text("Manage the folders that feed the component list.")
+            .clicked()
+        {
+            self.change_tab(Tab::Libraries);
+        }
+        ui.add_space(16.0);
+        ui.label(egui::RichText::new("BUILDS").size(10.0).color(self.muted()));
+        self.builds_tab(ui);
+    }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
             && !self.project.variants.iter().any(|v| v.name == *name)
@@ -6545,6 +6629,18 @@ impl App {
                 .frame(egui::Frame::NONE.fill(self.surface()))
                 .show(ui, |ui| match self.tab {
                     Tab::Schematic | Tab::Pcb => self.canvas(ui),
+                    Tab::Files => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| Self::margined(ui, |ui| self.files_tab(ui)));
+                    }
+                    Tab::Board3d => {
+                        Self::margined(ui, |ui| {
+                            ui.heading("3D View");
+                            ui.label(
+                                "A 3D picture of the finished board is planned. Until it arrives, the Layout view shows every layer.",
+                            );
+                        });
+                    }
                     Tab::Libraries => {
                         egui::ScrollArea::vertical()
                             .show(ui, |ui| self.library(ui))
@@ -10796,7 +10892,7 @@ mod tests {
             1,
             "editor must have only its root window"
         );
-        authoring::tests::tap(&ctx, &mut app, "PCB Layout")?;
+        authoring::tests::tap(&ctx, &mut app, "Layout")?;
         assert!(matches!(app.tab, Tab::Pcb));
         assert_eq!(app.selected, Some(11));
         let key = |key, modifiers| egui::Event::Key {
