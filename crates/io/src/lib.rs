@@ -3334,6 +3334,269 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         rows.join("\n")
     ))
 }
+
+/// NeoDen YY1 pick-and-place machine placement file.
+///
+/// Supports two layouts: `Native` (preamble header rows, 13-column data) and
+/// `Import` (simplified 11-column format). Bottom-side parts have their X
+/// coordinate mirrored about the board width and their rotation negated.
+/// Through-hole parts are omitted. DNP parts are skipped unless `include_dnp`
+/// is true. Board size is validated against the machine limits (350 x 249 mm).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementLayout {
+    /// NeoDen YY1 native format with preamble header rows and 13 data columns.
+    Native,
+    /// Simplified 11-column import format.
+    Import,
+}
+
+fn neoden_rotation(rotation: f64, side: Side) -> f64 {
+    let r = rotation.rem_euclid(360.0);
+    match side {
+        Side::Top => r,
+        Side::Bottom => (360.0 - r).rem_euclid(360.0),
+    }
+}
+
+fn neoden_x_mirror(x: f64, board_width: f64, side: Side) -> f64 {
+    match side {
+        Side::Top => x,
+        Side::Bottom => board_width - x,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Top,
+    Bottom,
+}
+
+fn component_side(f: &pcbcraft_doc::Footprint) -> Side {
+    let back = f.pads.iter().any(|pad| {
+        pad.geometry.as_ref().is_some_and(|g| {
+            g.pad_type == "smd" && !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
+        })
+    });
+    if back { Side::Bottom } else { Side::Top }
+}
+
+fn is_through_hole(f: &pcbcraft_doc::Footprint) -> bool {
+    f.pads.iter().any(|pad| {
+        pad.geometry.as_ref().is_some_and(|g| g.pad_type == "thru_hole")
+    })
+}
+
+pub fn placement_neoden_yy1(
+    p: &Project,
+    layout: PlacementLayout,
+    include_dnp: bool,
+) -> Result<String, String> {
+    p.validate()?;
+
+    // Validate board size against NeoDen YY1 limits (350 x 249 mm)
+    if p.board.width > 350.0 {
+        return Err(format!(
+            "board width {:.1} mm exceeds NeoDen YY1 limit of 350.0 mm",
+            p.board.width
+        ));
+    }
+    if p.board.height > 249.0 {
+        return Err(format!(
+            "board height {:.1} mm exceeds NeoDen YY1 limit of 249.0 mm",
+            p.board.height
+        ));
+    }
+
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+
+    // Determine DNP set from the first variant (if any)
+    let dnp_ids: BTreeSet<u64> = if include_dnp {
+        BTreeSet::new()
+    } else if let Some(v) = p.variants.first() {
+        v.dnp.iter().copied().collect()
+    } else {
+        BTreeSet::new()
+    };
+
+    // Collect placement rows
+    let mut rows: Vec<(String, f64, f64, f64, Side, String, String)> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+
+        // Omit through-hole parts
+        if is_through_hole(f) {
+            continue;
+        }
+
+        // Skip DNP parts unless include_dnp is set
+        if dnp_ids.contains(&c.id) {
+            continue;
+        }
+
+        let side = component_side(f);
+        let package = match &c.library_footprint {
+            Some(fp) => fp.definition.name.clone(),
+            None => c.kind.clone(),
+        };
+
+        rows.push((
+            c.reference.clone(),
+            f.position.x,
+            f.position.y,
+            f.rotation,
+            side,
+            package,
+            c.kind.clone(),
+        ));
+    }
+
+    // Sort by reference
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+
+    match layout {
+        PlacementLayout::Native => {
+            let mut out = String::new();
+            // Preamble header rows
+            out.push_str("NEODEN,YY1,P&P FILE\n");
+            out.push_str(&format!("ProjectName,\"{}\"\n", p.name));
+            out.push_str(&format!("BoardSize,\"{:.1}x{:.1}\"\n", p.board.width, p.board.height));
+            out.push_str("NozzleChange,1,0\n");
+            out.push_str("NozzleChange,2,0\n");
+            out.push_str("NozzleChange,3,0\n");
+            out.push_str("NozzleChange,4,0\n");
+            out.push_str("PlacementStart\n");
+
+            // Data rows: Ref,Comment,Footprint,Qty,X,Y,Rotation,Side,NozzleChange,
+            //           RefX,RefY,PadX,PadY
+            for (ref_name, x, y, rot, side, footprint, comment) in &rows {
+                let nx = neoden_x_mirror(*x, p.board.width, *side);
+                let nr = neoden_rotation(*rot, *side);
+                let side_str = match *side {
+                    Side::Top => "T",
+                    Side::Bottom => "B",
+                };
+                out.push_str(&format!(
+                    "{},{},{},1,{:.2},{:.2},{:.2},{},0,{:.2},{:.2},{:.2},{:.2}\n",
+                    ref_name,
+                    comment,
+                    footprint,
+                    nx,
+                    *y,
+                    nr,
+                    side_str,
+                    nx,
+                    *y,
+                    nx,
+                    *y
+                ));
+            }
+
+            out.push_str("PlacementEnd\n");
+            Ok(out)
+        }
+        PlacementLayout::Import => {
+            let mut out = String::new();
+            // 11-column import format
+            out.push_str("Ref,Comment,Footprint,Qty,X,Y,Rotation,Side,NozzleChange,RefX,RefY\n");
+            for (ref_name, x, y, rot, side, footprint, comment) in &rows {
+                let nx = neoden_x_mirror(*x, p.board.width, *side);
+                let nr = neoden_rotation(*rot, *side);
+                let side_str = match *side {
+                    Side::Top => "T",
+                    Side::Bottom => "B",
+                };
+                out.push_str(&format!(
+                    "{},{},{},1,{:.2},{:.2},{:.2},{},0,{:.2},{:.2}\n",
+                    ref_name,
+                    comment,
+                    footprint,
+                    nx,
+                    *y,
+                    nr,
+                    side_str,
+                    nx,
+                    *y
+                ));
+            }
+            Ok(out)
+        }
+    }
+}
+
+/// Feeder sheet CSV for NeoDen YY1 pick-and-place machine.
+///
+/// Groups components by Comment + Footprint to determine feeder types.
+/// Output columns: FeederNo,Comment,Footprint,TapeWidth_mm,Nozzle,Quantity,Load
+pub fn feeder_sheet_neoden_yy1(p: &Project) -> Result<String, String> {
+    p.validate()?;
+
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+
+    // Determine DNP set from the first variant (if any)
+    let dnp_ids: BTreeSet<u64> = if let Some(v) = p.variants.first() {
+        v.dnp.iter().copied().collect()
+    } else {
+        BTreeSet::new()
+    };
+
+    // Group by (Comment, Footprint) and count quantities
+    let mut groups: BTreeMap<(String, String), usize> = BTreeMap::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+
+        if is_through_hole(f) {
+            continue;
+        }
+
+        if dnp_ids.contains(&c.id) {
+            continue;
+        }
+
+        let package = match &c.library_footprint {
+            Some(fp) => fp.definition.name.clone(),
+            None => c.kind.clone(),
+        };
+        let key = (c.kind.clone(), package);
+        *groups.entry(key).or_insert(0) += 1;
+    }
+
+    let mut out = String::new();
+    out.push_str("FeederNo,Comment,Footprint,TapeWidth_mm,Nozzle,Quantity,Load\n");
+    let mut feeder_no = 1;
+    for ((comment, footprint), qty) in &groups {
+        // Default tape width and nozzle based on footprint name heuristics
+        let tape_width = if footprint.contains("0402") || footprint.contains("1005") {
+            "8.0"
+        } else if footprint.contains("0603") || footprint.contains("1608") {
+            "8.0"
+        } else if footprint.contains("0805") || footprint.contains("2012") {
+            "8.0"
+        } else if footprint.contains("1206") || footprint.contains("3216") {
+            "12.0"
+        } else {
+            "12.0"
+        };
+        let nozzle = "1";
+        out.push_str(&format!(
+            "{},{},{},{},{},{},1\n",
+            feeder_no,
+            comment,
+            footprint,
+            tape_width,
+            nozzle,
+            qty
+        ));
+        feeder_no += 1;
+    }
+    Ok(out)
+}
+
 /// Fabrication plot report as CSV: one row per copper layer counting the
 /// elements a plot of that layer would draw (pads, tracks, vias, zones,
 /// text, fiducials and holes) with the bounding box of that layer's
