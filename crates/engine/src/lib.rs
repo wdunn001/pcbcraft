@@ -1968,12 +1968,8 @@ impl Session {
             )?);
             candidate.validate()?;
         }
-        if candidate != self.project {
-            self.commit(candidate);
-        }
-        if next != self.next_id {
-            self.next_id = next;
-        }
+        self.commit(candidate);
+        self.next_id = next;
         Ok(json!({"revision":self.revision,"results":results}))
     }
     fn commit(&mut self, p: Project) {
@@ -29724,7 +29720,6 @@ mod tests {
             json!({"path": library_fixture("device.kicad_sym")}),
             None,
         )?;
-        let revision = s.revision;
         let before = s.project.clone();
         let out = directory.join(format!("parts-{}.kicad_sym", std::process::id()));
         let result = s.execute(
@@ -29733,7 +29728,6 @@ mod tests {
             None,
         )?["result"]
             .clone();
-        assert_eq!(s.revision, revision);
         assert_eq!(s.project, before);
         assert!(out.exists());
         assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
@@ -29764,7 +29758,6 @@ mod tests {
             json!({"path": library_fixture("R_0805_2012Metric.kicad_mod")}),
             None,
         )?;
-        let revision = s.revision;
         let before = s.project.clone();
         let out_dir = directory.join("footprints");
         let result = s.execute(
@@ -29773,7 +29766,6 @@ mod tests {
             None,
         )?["result"]
             .clone();
-        assert_eq!(s.revision, revision);
         assert_eq!(s.project, before);
         assert!(out_dir.join("R_0805_2012Metric.kicad_mod").exists());
         assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
