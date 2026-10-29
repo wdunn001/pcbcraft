@@ -799,6 +799,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "hole.slot",
+            "Route an unplated slotted hole between two centres: the width is the routed drill, and the span is the separation of the two capsule centres; mounting slots carry no copper and belong to no net",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
+            ),
+        ),
+        (
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
@@ -2961,6 +2969,13 @@ struct ViaParams {
 struct HolePlaceParams {
     position: Point,
     diameter: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HoleSlotParams {
+    start: Point,
+    end: Point,
+    width: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8818,6 +8833,36 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 end: None,
             });
             Ok(json!({"id":id}))
+        }
+        "hole.slot" => {
+            let a: HoleSlotParams = parse(params)?;
+            if !a.start.valid() || !a.end.valid() {
+                return Err(Error::Invalid("slot centre is out of range".into()));
+            }
+            if !(0.05..=25.0).contains(&a.width) {
+                return Err(Error::Invalid(
+                    "slot width must be within 0.05 to 25 mm".into(),
+                ));
+            }
+            let span = a.start.distance(a.end);
+            if !(0.01..=pcbcraft_doc::Hole::MAX_SPAN).contains(&span) {
+                return Err(Error::Invalid(
+                    "slot span must be at least 0.01 mm and at most 50 mm between centres".into(),
+                ));
+            }
+            if p.board.holes.len() >= 512 {
+                return Err(Error::Invalid(
+                    "a board carries at most 512 unplated holes".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            p.board.holes.push(pcbcraft_doc::Hole {
+                id,
+                position: a.start,
+                diameter: a.width,
+                end: Some(a.end),
+            });
+            Ok(json!({"id": id}))
         }
         "board.hole_move" => {
             let a: Move = parse(params)?;
