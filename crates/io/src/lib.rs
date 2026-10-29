@@ -9922,9 +9922,7 @@ mod tests {
             footprint.preserved = pcbcraft_doc::PreservedSource::default();
         }
         for component in &mut project.components {
-            if let Some(footprint) = &mut component.library_footprint {
-                footprint.definition.unsupported.clear();
-            }
+            component.library_footprint = None;
         }
     }
 
