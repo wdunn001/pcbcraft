@@ -20,6 +20,7 @@ mod package;
 mod panel_export;
 mod plot_read;
 mod raster;
+mod uv_print;
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
@@ -42,7 +43,7 @@ pub use laser::{
 };
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
-    fabrication_point, gerber_copper_counts, layer_shapes,
+    fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
 };
 use library_render::*;
 pub use package::{
@@ -58,7 +59,11 @@ pub use plot_read::{
 };
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
-    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
+    layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
+};
+pub use uv_print::{
+    UvPrintArtwork, UvPrintExperiment, UvPrintOptions, UvPrintSide, UvPrintWhiteLayer,
+    eufymake_e1_profile, uv_print_artwork, write_uv_print_job_files,
 };
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
