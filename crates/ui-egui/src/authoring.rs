@@ -824,21 +824,7 @@ impl App {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    fn frame(ctx: &egui::Context, app: &mut App, events: Vec<egui::Event>) -> egui::FullOutput {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1440.0, 940.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-        output
-    }
+    use crate::test_support::{frame, tap};
     #[test]
     fn editor_button_commits_one_undoable_edit_and_retains_original_nodes() -> Result<(), String> {
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -855,7 +841,7 @@ pub(crate) mod tests {
         app.library.editor.draft = Some(Draft::Symbol(definition.clone()));
         app.library.editor.notice = Some("Original source and data license retained".into());
         let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![]);
+        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(output.viewport_output.len(), 1);
         let pos = output
             .shapes
@@ -885,6 +871,7 @@ pub(crate) mod tests {
                         modifiers: egui::Modifiers::NONE,
                     },
                 ],
+                egui::Modifiers::NONE,
             );
         }
         let session = shared.lock().map_err(|_| "session unavailable")?;
@@ -897,67 +884,6 @@ pub(crate) mod tests {
         app.tool_call("redo", json!({}));
         assert_eq!(app.project.library.symbols.len(), 1);
         Ok(())
-    }
-    /// Find the button whose label reads exactly `label`, scrolling the page
-    /// down and then up if needed, and click it like a person would.
-    pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(), String> {
-        // Two quiet passes first: hit-testing always trails the painter by a
-        // frame, and a scroll area only grows its scrollbar on the second
-        // pass, which shifts every row a hair.
-        frame(ctx, app, vec![]);
-        frame(ctx, app, vec![]);
-        for attempt in 0..16 {
-            let output = frame(ctx, app, vec![]);
-            // Later shapes sit on top of earlier ones, so the last visible
-            // copy of a label is the one a real click would land on.
-            let mut found = None;
-            for shape in &output.shapes {
-                if let egui::Shape::Text(text) = &shape.shape
-                    && text.galley.text() == label
-                {
-                    let center = text.pos + text.galley.size() / 2.0;
-                    if shape.clip_rect.contains(center) {
-                        found = Some(center);
-                    }
-                }
-            }
-            if let Some(pos) = found {
-                for pressed in [true, false] {
-                    frame(
-                        ctx,
-                        app,
-                        vec![
-                            egui::Event::PointerMoved(pos),
-                            egui::Event::PointerButton {
-                                pos,
-                                button: egui::PointerButton::Primary,
-                                pressed,
-                                modifiers: egui::Modifiers::NONE,
-                            },
-                        ],
-                    );
-                }
-                return Ok(());
-            }
-            let direction = if attempt < 10 { -120.0 } else { 120.0 };
-            frame(
-                ctx,
-                app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 750.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, direction),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-            );
-            // A scrolled frame needs one more pass before its hit-testing
-            // matches what the painter just drew, so land the settle frame.
-            frame(ctx, app, vec![]);
-        }
-        Err(format!("{label} never appeared on screen"))
     }
     fn draft_symbol(app: &App) -> Result<SymbolDefinition, String> {
         app.library
