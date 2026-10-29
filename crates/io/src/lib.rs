@@ -2870,7 +2870,7 @@ pub fn stats_text(p: &Project) -> Result<String, String> {
             }
         }
     }
-    let rows: [(&str, String); 19] = [
+    let rows: [(&str, String); 20] = [
         ("board_width_mm", format!("{:.3}", p.board.width)),
         ("board_height_mm", format!("{:.3}", p.board.height)),
         ("board_thickness_mm", format!("{:.3}", p.board.thickness)),
@@ -2886,6 +2886,7 @@ pub fn stats_text(p: &Project) -> Result<String, String> {
         ("vias", p.board.vias.len().to_string()),
         ("drilled_holes_total", drills.to_string()),
         ("copper_zones", p.board.zones.len().to_string()),
+        ("copper_rubouts", p.board.rubouts.len().to_string()),
         ("copper_cutouts", p.board.cutouts.len().to_string()),
         ("fiducials", p.board.fiducials.len().to_string()),
         ("board_texts", p.board.texts.len().to_string()),

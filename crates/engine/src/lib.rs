@@ -961,6 +961,54 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "rubout.add",
+            "Place a closed copper-side rubout region for isolation milling to consume later",
+            schema(
+                json!({"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"outline":{"type":"array","minItems":4,"maxItems":257,"items":point_schema(),"description":"closed polygon, millimetres; first vertex repeated last"}}),
+                &["outline"],
+            ),
+        ),
+        (
+            "rubout.move",
+            "Translate a rubout region by a delta; the outline moves as one closed polygon",
+            schema(
+                json!({"id":id_schema(),"delta":point_schema()}),
+                &["id", "delta"],
+            ),
+        ),
+        (
+            "rubout.set_layer",
+            "Move a rubout region to the other copper layer without changing its outline",
+            schema(
+                json!({"id":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                &["id", "layer"],
+            ),
+        ),
+        (
+            "rubout.set_point",
+            "Move one vertex of a rubout outline by index; closing vertices stay paired",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0},"position":point_schema()}),
+                &["id", "index", "position"],
+            ),
+        ),
+        (
+            "rubout.insert_point",
+            "Insert a new vertex into a rubout outline at an index; outlines hold 3 to 256 vertices",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0},"position":point_schema()}),
+                &["id", "index", "position"],
+            ),
+        ),
+        (
+            "rubout.remove_point",
+            "Remove one vertex from a rubout outline by index; at least three vertices must remain",
+            schema(
+                json!({"id":id_schema(),"index":{"type":"integer","minimum":0}}),
+                &["id", "index"],
+            ),
+        ),
+        (
             "symbol.refresh",
             "Re-read a symbol from its library file and refresh every placed component that carries it, in one undo step, so symbol artwork and pin geometry edits propagate; components whose pin numbers or units no longer match are skipped and reported",
             schema(
@@ -2903,6 +2951,33 @@ struct ZoneCutoutParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RuboutParams {
+    #[serde(default = "front")]
+    layer: Layer,
+    outline: Vec<Point>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuboutPointParams {
+    id: Id,
+    index: usize,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuboutInsertParams {
+    id: Id,
+    index: usize,
+    position: Point,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuboutRemoveParams {
+    id: Id,
+    index: usize,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StitchBounds {
     x: f64,
     y: f64,
@@ -4020,6 +4095,7 @@ fn object_exists(p: &Project, id: Id) -> bool {
         || p.board.tracks.iter().any(|t| t.id == id)
         || p.board.vias.iter().any(|v| v.id == id)
         || p.board.zones.iter().any(|z| z.id == id)
+        || p.board.rubouts.iter().any(|r| r.id == id)
         || p.board.cutouts.iter().any(|c| c.id == id)
         || p.board.texts.iter().any(|t| t.id == id)
 }
@@ -8947,6 +9023,136 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             zone.cutouts.push(a.outline);
             Ok(json!({"cutouts": zone.cutouts.len()}))
         }
+        "rubout.add" => {
+            let a: RuboutParams = parse(params)?;
+            if p.board.rubouts.len() >= 128 {
+                return Err(Error::Invalid(
+                    "a board carries at most 128 copper rubout regions".into(),
+                ));
+            }
+            validate_closed_outline(&a.outline).map_err(Error::Invalid)?;
+            let id = allocate(next)?;
+            p.board.rubouts.push(CopperRubout {
+                id,
+                layer: a.layer,
+                outline: a.outline,
+            });
+            Ok(json!({"id": id}))
+        }
+        "rubout.move" => {
+            let a: DeltaParams = parse(params)?;
+            let rubout = p
+                .board
+                .rubouts
+                .iter_mut()
+                .find(|r| r.id == a.id)
+                .ok_or_else(missing)?;
+            let shift = |point: &Point| Point::new(point.x + a.delta.x, point.y + a.delta.y);
+            let outline: Vec<Point> = rubout.outline.iter().map(shift).collect();
+            if !outline.iter().all(|point| point.valid()) {
+                return Err(Error::Invalid("rubout vertex is out of range".into()));
+            }
+            rubout.outline = outline;
+            Ok(json!({"id": a.id}))
+        }
+        "rubout.set_layer" => {
+            let a: ZoneLayerParams = parse(params)?;
+            let rubout = p
+                .board
+                .rubouts
+                .iter_mut()
+                .find(|r| r.id == a.id)
+                .ok_or_else(missing)?;
+            if rubout.layer == a.layer {
+                return Err(Error::Invalid(
+                    "that rubout is already on the requested layer".into(),
+                ));
+            }
+            rubout.layer = a.layer;
+            Ok(json!({"id": a.id, "layer": a.layer.name()}))
+        }
+        "rubout.set_point" => {
+            let a: RuboutPointParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("rubout vertex is out of range".into()));
+            }
+            let rubout = p
+                .board
+                .rubouts
+                .iter_mut()
+                .find(|r| r.id == a.id)
+                .ok_or_else(missing)?;
+            let outline = &mut rubout.outline;
+            if a.index >= outline.len() {
+                return Err(Error::Invalid(
+                    "vertex index is outside this outline".into(),
+                ));
+            }
+            let last = outline.len() - 1;
+            outline[a.index] = a.position;
+            if a.index == 0 {
+                outline[last] = a.position;
+            } else if a.index == last {
+                outline[0] = a.position;
+            }
+            validate_closed_outline(outline).map_err(Error::Invalid)?;
+            Ok(json!({"id": a.id, "index": a.index, "position": a.position}))
+        }
+        "rubout.insert_point" => {
+            let a: RuboutInsertParams = parse(params)?;
+            if !a.position.valid() {
+                return Err(Error::Invalid("rubout vertex is out of range".into()));
+            }
+            let rubout = p
+                .board
+                .rubouts
+                .iter_mut()
+                .find(|r| r.id == a.id)
+                .ok_or_else(missing)?;
+            let outline = &mut rubout.outline;
+            if outline.len() >= 257 {
+                return Err(Error::Invalid(
+                    "this outline already holds the most vertices".into(),
+                ));
+            }
+            if a.index > outline.len() - 1 {
+                return Err(Error::Invalid(
+                    "vertex index is outside this outline".into(),
+                ));
+            }
+            outline.insert(a.index, a.position);
+            if a.index == 0 {
+                let last = outline.len() - 1;
+                outline[last] = a.position;
+            }
+            validate_closed_outline(outline).map_err(Error::Invalid)?;
+            Ok(json!({"id": a.id, "index": a.index, "position": a.position}))
+        }
+        "rubout.remove_point" => {
+            let a: RuboutRemoveParams = parse(params)?;
+            let rubout = p
+                .board
+                .rubouts
+                .iter_mut()
+                .find(|r| r.id == a.id)
+                .ok_or_else(missing)?;
+            let outline = &mut rubout.outline;
+            if a.index > outline.len() - 2 {
+                return Err(Error::Invalid(
+                    "vertex index is outside this outline".into(),
+                ));
+            }
+            if outline.len() <= 4 {
+                return Err(Error::Invalid(
+                    "an outline needs at least three vertices".into(),
+                ));
+            }
+            outline.remove(a.index);
+            let last = outline.len() - 1;
+            outline[last] = outline[0];
+            validate_closed_outline(outline).map_err(Error::Invalid)?;
+            Ok(json!({"id": a.id, "index": a.index}))
+        }
         "teardrop.add" => {
             let a: TeardropParams = parse(params)?;
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
@@ -9536,6 +9742,11 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 },
                 "vias": p.board.vias.len(),
                 "zones": {"poured": poured, "outline_only": p.board.zones.len() - poured},
+                "rubouts": {
+                    "front": p.board.rubouts.iter().filter(|r| r.layer == Layer::Front).count(),
+                    "back": p.board.rubouts.iter().filter(|r| r.layer == Layer::Back).count(),
+                    "total": p.board.rubouts.len(),
+                },
                 "cutouts": p.board.cutouts.len(),
                 "texts": p.board.texts.len(),
                 "drilled_holes": holes,
@@ -12294,6 +12505,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 z.cutouts = cutouts;
                 return Ok(json!({"id": a.id}));
             }
+            if let Some(r) = p.board.rubouts.iter_mut().find(|r| r.id == a.id) {
+                let mut outline = r.outline.clone();
+                shift_all(&mut outline)?;
+                r.outline = outline;
+                return Ok(json!({"id": a.id}));
+            }
             if let Some(c) = p.board.cutouts.iter_mut().find(|c| c.id == a.id) {
                 let center = shift(c.center);
                 if !center.valid() {
@@ -12413,6 +12630,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.tracks.retain(|t| t.id != a.id && t.net != a.id);
             p.board.vias.retain(|v| v.id != a.id && v.net != a.id);
             p.board.zones.retain(|z| z.id != a.id && z.net != a.id);
+            p.board.rubouts.retain(|r| r.id != a.id);
             p.board.cutouts.retain(|c| c.id != a.id);
             p.board.holes.retain(|h| h.id != a.id);
             p.board.fiducials.retain(|f| f.id != a.id);
@@ -20041,6 +20259,60 @@ mod tests {
         assert!(s.project.board.zones.is_empty());
         s.undo()?;
         assert_eq!(s.project.board.zones.len(), 1);
+        Ok(())
+    }
+    #[test]
+    fn copper_rubout_validates_and_undoes_cleanly() -> Result<(), Error> {
+        let mut s = Session::default();
+        let square = json!([
+            {"x":10.0,"y":10.0},
+            {"x":50.0,"y":10.0},
+            {"x":50.0,"y":30.0},
+            {"x":10.0,"y":30.0},
+            {"x":10.0,"y":10.0}
+        ]);
+        let out = s.execute(
+            "rubout.add",
+            json!({"layer":"F.Cu","outline":square}),
+            None,
+        )?;
+        let id = out["result"]["id"]
+            .as_u64()
+            .ok_or_else(|| Error::Invalid("rubout id missing".into()))?;
+        assert_eq!(s.project.board.rubouts.len(), 1);
+        assert_eq!(s.project.board.rubouts[0].layer, Layer::Front);
+        assert!(s.project.validate().is_ok());
+        let stats = s.execute("board.statistics", json!({}), None)?["result"].clone();
+        assert_eq!(stats["rubouts"]["total"], 1);
+        assert_eq!(stats["rubouts"]["front"], 1);
+        s.execute(
+            "rubout.set_layer",
+            json!({"id":id,"layer":"B.Cu"}),
+            None,
+        )?;
+        assert_eq!(s.project.board.rubouts[0].layer, Layer::Back);
+        s.execute("rubout.move", json!({"id":id,"delta":{"x":2.0,"y":0.0}}), None)?;
+        assert_eq!(s.project.board.rubouts[0].outline[0].x, 12.0);
+        assert!(
+            s.execute(
+                "rubout.set_layer",
+                json!({"id":id,"layer":"B.Cu"}),
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            s.execute(
+                "rubout.add",
+                json!({"layer":"F.Cu","outline":[{"x":0.0,"y":0.0},{"x":10.0,"y":0.0},{"x":10.0,"y":5.0},{"x":1.0,"y":5.0}]}),
+                None,
+            )
+            .is_err()
+        );
+        s.execute("object.delete", json!({"id":id}), None)?;
+        assert!(s.project.board.rubouts.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.rubouts.len(), 1);
         Ok(())
     }
     #[test]

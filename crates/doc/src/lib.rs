@@ -870,6 +870,17 @@ pub struct Cutout {
     pub center: Point,
     pub radius: f64,
 }
+/// A closed polygon on one copper side marking where isolation milling should
+/// remove unused copper later. Like a zone cutout, but board-level and not
+/// tied to a poured net.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct CopperRubout {
+    pub id: Id,
+    pub layer: Layer,
+    /// Closed outline in millimetres: at least three distinct vertices with the
+    /// first vertex repeated last.
+    pub outline: Vec<Point>,
+}
 /// A rectangular area that silences one check code for objects inside it.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct RuleRegion {
@@ -1257,6 +1268,9 @@ pub struct Board {
     /// Poured copper zones, one polygon per zone on a single layer.
     #[serde(default)]
     pub zones: Vec<CopperZone>,
+    /// Closed copper-side regions reserved for rubout during isolation milling.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rubouts: Vec<CopperRubout>,
     pub cutouts: Vec<Cutout>,
     /// Text labels drawn on the board.
     #[serde(default)]
@@ -1574,6 +1588,7 @@ impl Default for Project {
                 fiducials: vec![],
                 netties: vec![],
                 zones: vec![],
+                rubouts: vec![],
                 cutouts: vec![],
                 texts: vec![],
             },
@@ -1763,6 +1778,15 @@ impl Project {
         if let Some(c) = b.cutouts.iter().find(|c| c.id == id) {
             return Some(c.center);
         }
+        if let Some(r) = b.rubouts.iter().find(|r| r.id == id) {
+            let n = r.outline.len().saturating_sub(1);
+            if n == 0 {
+                return None;
+            }
+            let sx: f64 = r.outline[..n].iter().map(|p| p.x).sum();
+            let sy: f64 = r.outline[..n].iter().map(|p| p.y).sum();
+            return Some(Point::new(sx / n as f64, sy / n as f64));
+        }
         if let Some(f) = b.footprints.iter().find(|f| f.id == id) {
             return Some(f.position);
         }
@@ -1854,6 +1878,7 @@ impl Project {
             .chain(self.board.tracks.iter().map(|x| x.id))
             .chain(self.board.vias.iter().map(|x| x.id))
             .chain(self.board.zones.iter().map(|x| x.id))
+            .chain(self.board.rubouts.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
             .chain(self.board.holes.iter().map(|x| x.id))
             .chain(self.board.fiducials.iter().map(|x| x.id))
@@ -2053,6 +2078,9 @@ impl Project {
         }
         if self.board.fiducials.len() > 128 {
             return Err("a board carries at most 128 fiducial marks".into());
+        }
+        if self.board.rubouts.len() > 128 {
+            return Err("a board carries at most 128 copper rubout regions".into());
         }
         for f in &self.board.fiducials {
             if !f.valid() {
@@ -2601,6 +2629,9 @@ impl Project {
             {
                 return Err("cutout must be strictly inside the board".into());
             }
+        }
+        for r in &b.rubouts {
+            validate_closed_outline(&r.outline)?;
         }
         if b.texts.len() > 256 {
             return Err("a board carries at most 256 text labels".into());
