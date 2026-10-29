@@ -95,7 +95,7 @@ fn a_newcomer_puts_a_connection_under_a_rule_set_and_lets_it_go() -> Result<(), 
     Ok(())
 }
 #[test]
-fn a_newcomer_opens_rules_and_settings_from_the_top() -> Result<(), String> {
+fn a_newcomer_opens_rules_from_the_top() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
