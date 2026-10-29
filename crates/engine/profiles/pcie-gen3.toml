@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "pcie-gen3"
+name = "PCIe gen3"
+category = "interface"
+summary = "PCIe gen3 rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "pcie-gen3_default"
