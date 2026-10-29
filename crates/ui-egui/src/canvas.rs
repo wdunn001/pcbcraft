@@ -2397,6 +2397,9 @@ impl App {
         }
         self.paint_ratsnest(painter, rect, camera, p);
         let mirrored = camera.mirror;
+        // Seen from below, the top layers are the far side: they stay visible
+        // but recede, so the bottom copper and parts read first.
+        let recede = |on_bottom: bool| if mirrored && !on_bottom { 0.35 } else { 1.0 };
         for z in board_side::bottom_last(
             p.board.zones.iter().filter(|_| shown("Copper zones")),
             mirrored,
@@ -2413,10 +2416,11 @@ impl App {
                 self.colours().canvas.back
             };
             let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
+            let far = recede(z.layer != Layer::Front);
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
-                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3)
+                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3 * far)
             };
             if z.filled || self.selected == Some(z.id) {
                 painter.add(egui::Shape::convex_polygon(
@@ -2427,7 +2431,10 @@ impl App {
             }
             painter.add(egui::Shape::closed_line(
                 screen.clone(),
-                Stroke::new(1.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2])),
+                Stroke::new(
+                    1.0,
+                    Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(far),
+                ),
             ));
             for cut in &z.cutouts {
                 let cut_screen: Vec<egui::Pos2> =
@@ -2462,6 +2469,7 @@ impl App {
                         self.accent()
                     } else if t.layer == Layer::Front {
                         self.copper(Some(t.net), self.colours().canvas.front)
+                            .linear_multiply(recede(false))
                     } else {
                         self.copper(Some(t.net), self.colours().canvas.back)
                     },
@@ -2536,7 +2544,7 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let color = art.silk;
+            let color = art.silk.linear_multiply(recede(on_bottom));
             let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
                 .component(f.component)
@@ -2595,7 +2603,8 @@ impl App {
                                 } else {
                                     art.top_copper
                                 },
-                            ),
+                            )
+                            .linear_multiply(recede(on_bottom)),
                         ));
                     }
                     let hole = pad.drill_outline_points();

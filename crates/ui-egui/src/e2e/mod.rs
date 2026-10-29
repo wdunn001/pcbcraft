@@ -32,5 +32,6 @@ mod showcase;
 mod toolbar;
 mod tree_rows;
 mod via_covering;
+mod view_side;
 mod vias;
 mod workbench;

@@ -164,8 +164,43 @@ impl App {
     /// Switch between the top view and the view from below, keeping the same
     /// board point in the middle of the canvas.
     pub(crate) fn toggle_view_from_below(&mut self) {
-        self.preferences.view_from_below = !self.preferences.view_from_below;
-        self.message = if self.preferences.view_from_below {
+        let below = !self.preferences.view_from_below;
+        self.set_view_side(below);
+    }
+
+    /// Choose the side the Layout canvas looks at and draws on.
+    ///
+    /// Why: the Top | Bottom control, the From below button and the console
+    /// entry all mean the same thing, so they share one setter.
+    ///
+    /// # Rules
+    /// - Mirrors the camera (`canvas.rs` reads `seen_from_below`), and keeps the
+    ///   layout region flag in step so the segmented control shows the choice.
+    /// - Moves the drawing target to the same kind of layer on that side:
+    ///   copper to the bottom copper, silkscreen to the bottom silkscreen, and
+    ///   back again for Top. Edge cuts and user layers stay where they are.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/draw_target.rs` `App::set_target`.
+    /// - `crates/ui-egui/src/workspace.rs` `RegionLayout::bottom_side`.
+    ///
+    /// # Do not
+    /// - Touch the document; the side of a view is a display preference.
+    pub(crate) fn set_view_side(&mut self, below: bool) {
+        use crate::draw_target::{Side, Target};
+        self.preferences.view_from_below = below;
+        self.region().bottom_side = below;
+        let side = if below { Side::Bottom } else { Side::Top };
+        let copper = if below { Layer::Back } else { Layer::Front };
+        let target = match self.target {
+            Target::Copper(_) => Target::Copper(copper),
+            Target::Silk(_) => Target::Silk(side),
+            Target::Mask(_) => Target::Mask(side),
+            Target::Paste(_) => Target::Paste(side),
+            other => other,
+        };
+        self.set_target(target);
+        self.message = if below {
             t!("board.canvas.from_below.on")
         } else {
             t!("board.canvas.from_below.off")
