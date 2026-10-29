@@ -11705,6 +11705,11 @@ mod tests {
     #[test]
     fn gerber_files_plated_and_unplated_drill_files_list_only_their_tools() -> Result<(), String> {
         let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 1,
             net: 1,
@@ -11730,6 +11735,11 @@ mod tests {
     #[test]
     fn drill_map_plot_carries_one_legend_row_per_tool() -> Result<(), String> {
         let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 1,
             net: 1,
