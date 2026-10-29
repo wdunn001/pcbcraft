@@ -1,5 +1,6 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod a11y;
+mod assistant;
 mod authoring;
 mod board3d;
 mod canvas;
@@ -522,9 +523,33 @@ struct Preferences {
     /// Cut routed corners at 45 degrees; off allows right-angle corners.
     #[serde(default = "default_true")]
     chamfer_corners: bool,
+    /// Show the Assistant tab and its shortcut; off starts nothing.
+    #[serde(default = "default_true")]
+    assistant_enabled: bool,
+    /// Saved model connections. Keys are never kept here, only in the system keychain.
+    #[serde(default)]
+    assistant_connections: Vec<pcbcraft_assistant::Connection>,
+    /// Id of the connection used by default.
+    #[serde(default)]
+    assistant_default: String,
+    /// What the assistant may do without asking.
+    #[serde(default)]
+    assistant_mode: pcbcraft_assistant::Mode,
+    /// Per-connection override of the mode, by connection id.
+    #[serde(default)]
+    assistant_modes: std::collections::BTreeMap<String, pcbcraft_assistant::Mode>,
+    /// Tool keys the user chose to always allow, by connection id.
+    #[serde(default)]
+    assistant_always_allow: std::collections::BTreeMap<String, Vec<String>>,
+    /// Changes one message may make before the model is told to stop.
+    #[serde(default = "default_turn_limit")]
+    assistant_turn_limit: u32,
 }
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
+}
+fn default_turn_limit() -> u32 {
+    pcbcraft_assistant::DEFAULT_TURN_LIMIT
 }
 fn default_ui_scale() -> f32 {
     a11y::DEFAULT_UI_SCALE
@@ -549,6 +574,13 @@ impl Default for Preferences {
             language: default_language(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
+            assistant_enabled: true,
+            assistant_connections: Vec::new(),
+            assistant_default: String::new(),
+            assistant_mode: pcbcraft_assistant::Mode::Ask,
+            assistant_modes: Default::default(),
+            assistant_always_allow: Default::default(),
+            assistant_turn_limit: default_turn_limit(),
         }
     }
 }
@@ -677,8 +709,10 @@ impl Camera {
         )
     }
 }
+pub use assistant::Host;
 pub struct App {
     session: SharedSession,
+    assistant: assistant::State,
     project: Project,
     revision: u64,
     checks: Value,
@@ -1029,6 +1063,7 @@ impl App {
         };
         Self {
             session,
+            assistant: assistant::State::default(),
             project,
             revision: u64::MAX,
             checks: json!({}),
@@ -1312,6 +1347,7 @@ impl App {
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
+            self.assistant_design_opened();
             self.needs_fit = true;
         }
         success
@@ -2666,6 +2702,9 @@ impl App {
                 if i.key_pressed(egui::Key::S) {
                     self.tool_call("save", json!({"path":self.path}));
                 }
+                if i.modifiers.shift && i.key_pressed(egui::Key::A) {
+                    self.assistant_toggle();
+                }
                 if i.key_pressed(egui::Key::K) {
                     self.command_open = !self.command_open;
                     self.command_focus = self.command_open;
@@ -4004,6 +4043,8 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.add_space(16.0);
+        assistant::settings::section(self, ui);
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("ROUTING")
@@ -5748,19 +5789,17 @@ impl App {
                         "Properties",
                     )
                     .on_hover_text("Details for whatever is selected on the drawing.");
-                    ui.selectable_value(
-                        &mut self.preferences.aside_lower_tab,
-                        1,
-                        "Assistant",
-                    )
-                    .on_hover_text("How to connect an external agent through MCP.");
+                    if assistant::shown(self) {
+                        ui.selectable_value(
+                            &mut self.preferences.aside_lower_tab,
+                            1,
+                            assistant::tab_label(self.assistant.waiting()),
+                        )
+                        .on_hover_text(assistant::TAB_TIP);
+                    }
                 });
-                if self.preferences.aside_lower_tab == 1 {
-                    ui.add_space(12.0);
-                    ui.label(
-                        "Connect an agent through the live MCP bridge described in docs/mcp.md. \
-                         The desktop session exposes the same typed commands the UI uses.",
-                    );
+                if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
+                    assistant::pane::show(self, ui);
                     return;
                 }
                 egui::ScrollArea::vertical()
@@ -7004,6 +7043,7 @@ impl App {
         self.icon_rects.clear();
         self.refresh();
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
+        self.assistant_frame(&ctx);
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
