@@ -71,7 +71,8 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 ## M4: Complete workflows and distribution
 
 - [ ] Simulation strategy compatible with the Rust-only constraint (#292)
-- [ ] Full schematic/PCB/library editor workflows and reference-project parity suite (#293)
+- [ ] Full schematic/PCB/library editor workflows
+- [x] Reference-project parity suite with golden outputs (#293)
 - [ ] Autosave/recovery, project migration, large-board responsiveness (#294)
 - [ ] Native Windows/Linux/macOS packaging and browser distribution (#295), built by the CI/CD pipeline (#340)
 - [ ] Craft Launcher integration where authorized by its maintainers (#296)
