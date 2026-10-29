@@ -893,7 +893,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_bindings_have_unique_chords_per_context() {
+    fn default_bindings_have_unique_chords_per_context() -> Result<(), String> {
         let map = Keymap::default_bindings();
         let mut seen: BTreeMap<(String, bool, bool, bool, ShortcutContext), KeyAction> =
             BTreeMap::new();
@@ -908,16 +908,14 @@ mod tests {
                     ctx,
                 );
                 if let Some(other) = seen.insert(key, action) {
-                    panic!(
-                        "{:?} and {:?} both use {} in {:?}",
-                        action,
-                        other,
-                        format_chord(chord),
-                        ctx
-                    );
+                    return Err(format!(
+                        "{other:?} and {action:?} both use {} in {ctx:?}",
+                        format_chord(chord)
+                    ));
                 }
             }
         }
+        Ok(())
     }
 
     #[test]
@@ -936,17 +934,21 @@ mod tests {
     }
 
     #[test]
-    fn keymap_reject_conflicting_rebind() {
+    fn keymap_reject_conflicting_rebind() -> Result<(), String> {
         let mut map = Keymap::default_bindings();
-        let rotate = map.chord_for(KeyAction::Rotate).expect("rotate chord");
-        let err = map
-            .set_binding(KeyAction::MoveTool, rotate)
-            .expect_err("conflict");
-        assert!(err.contains("Rotate"));
+        let rotate = map.chord_for(KeyAction::Rotate).ok_or("rotate chord")?;
+        let err = match map.set_binding(KeyAction::MoveTool, rotate) {
+            Err(e) => e,
+            Ok(()) => return Err("conflict".into()),
+        };
+        if !err.contains("Rotate") {
+            return Err(err);
+        }
+        Ok(())
     }
 
     #[test]
-    fn keymap_import_export_round_trip() {
+    fn keymap_import_export_round_trip() -> Result<(), String> {
         let mut map = Keymap::default_bindings();
         let t = KeyChord {
             key: Key::T,
@@ -954,11 +956,12 @@ mod tests {
             shift: false,
             alt: false,
         };
-        map.set_binding(KeyAction::Rotate, t).expect("rebind");
+        map.set_binding(KeyAction::Rotate, t)?;
         let file = KeymapProfileFile::from_keymap("Custom".into(), &map);
-        let json = serde_json::to_string(&file).expect("serialize");
-        let parsed: KeymapProfileFile = serde_json::from_str(&json).expect("parse");
-        let back = parsed.into_keymap().expect("import");
+        let json = serde_json::to_string(&file).map_err(|e| e.to_string())?;
+        let parsed: KeymapProfileFile = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+        let back = parsed.into_keymap()?;
         assert_eq!(back.chord_for(KeyAction::Rotate), Some(t));
+        Ok(())
     }
 }

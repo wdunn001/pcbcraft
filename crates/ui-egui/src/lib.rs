@@ -728,15 +728,17 @@ fn default_true() -> bool {
 
 impl Preferences {
     fn active_keymap(&self) -> &keymap::Keymap {
-        self.keymap_profiles
-            .get(&self.active_keymap_profile)
-            .or_else(|| self.keymap_profiles.get("Default"))
-            .unwrap_or_else(|| {
-                self.keymap_profiles
-                    .values()
-                    .next()
-                    .expect("Preferences must include at least one keymap profile")
-            })
+        if let Some(map) = self.keymap_profiles.get(&self.active_keymap_profile) {
+            return map;
+        }
+        if let Some(map) = self.keymap_profiles.get("Default") {
+            return map;
+        }
+        if let Some(map) = self.keymap_profiles.values().next() {
+            return map;
+        }
+        static FALLBACK: std::sync::OnceLock<keymap::Keymap> = std::sync::OnceLock::new();
+        FALLBACK.get_or_init(keymap::Keymap::default_bindings)
     }
     fn active_keymap_mut(&mut self) -> &mut keymap::Keymap {
         let name = if self
@@ -9373,7 +9375,7 @@ mod tests {
         let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| keys.as_str()).collect();
         for wanted in ["Ctrl+Z", "Ctrl+K", "?", "W", "X", "Delete", "Esc"] {
             assert!(
-                keys.iter().any(|k| *k == wanted),
+                keys.contains(&wanted),
                 "the shortcut list must mention {wanted}"
             );
         }
