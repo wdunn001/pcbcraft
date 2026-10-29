@@ -372,3 +372,23 @@ fn hovering_a_part_paints_its_outline_inside_the_frame_budget() -> Result<(), St
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_opens_the_tool_keys_in_settings() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Settings);
+    let ctx = egui::Context::default();
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![], Modifiers::NONE);
+    }
+    super::support::scrolled_to_at(&ctx, &mut app, "Keys", 720.0)?;
+    crate::authoring::tests::tap(&ctx, &mut app, "Keys")?;
+    assert!(
+        super::support::paints_text(&ctx, &mut app, "Select tool")?,
+        "the Keys section lists each tool hotkey"
+    );
+    Ok(())
+}

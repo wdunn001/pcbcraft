@@ -131,6 +131,11 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "project.set_auto_sync",
+            "Turn automatic schematic-to-board reconciliation on or off; when off, run board.sync to apply pending schematic changes",
+            schema(json!({"auto_sync":{"type":"boolean"}}), &["auto_sync"]),
+        ),
+        (
             "project.export_archive",
             "Write the whole design, including its attached text files, to a self-contained archive file that a colleague can open without any other project files",
             schema(
@@ -2334,7 +2339,13 @@ impl Session {
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
         let mut results = vec![];
+        let auto_sync = candidate.auto_sync;
+        let mut needs_sync = false;
+        let manual_sync = commands.iter().any(|c| c.command == "board.sync");
         for command in commands {
+            if auto_sync && command_triggers_board_sync(&command.command) {
+                needs_sync = true;
+            }
             results.push(run(
                 &mut candidate,
                 &mut next,
@@ -2342,6 +2353,10 @@ impl Session {
                 &command.params,
             )?);
             candidate.prune_object_refs();
+            candidate.validate()?;
+        }
+        if auto_sync && needs_sync && !manual_sync {
+            results.push(sync_board_from_schematic(&mut candidate, &mut next)?);
             candidate.validate()?;
         }
         self.commit(candidate);
@@ -2447,6 +2462,7 @@ impl Session {
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
+        s.project.auto_sync = false;
         s.execute("project.rename", json!({"name":"LED indicator"}), None)?;
         s.execute("component.add",json!({"kind":"connector","reference":"J1","value":"5V input","position":{"x":15,"y":26}}),None)?;
         s.execute(
@@ -2493,6 +2509,7 @@ impl Session {
         )?;
         s.undo.clear();
         s.redo.clear();
+        s.project.auto_sync = true;
         Ok(s)
     }
 }
@@ -3214,6 +3231,78 @@ fn component_pads(c: &Component) -> Vec<Pad> {
             .collect()
     }
 }
+
+fn board_outline_max_x(board: &pcbcraft_doc::Board) -> f64 {
+    if let Some(outline) = &board.outline {
+        outline.iter().map(|p| p.x).fold(0.0_f64, |a, b| a.max(b))
+    } else {
+        board.width
+    }
+}
+
+fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Error> {
+    let live: Vec<Id> = p.components.iter().map(|c| c.id).collect();
+    p.board.footprints.retain(|f| live.contains(&f.component));
+    let staging_x = board_outline_max_x(&p.board) + 10.0;
+    let mut staging_index = 0usize;
+    let mut skipped = vec![];
+    for c in &p.components {
+        if c.library_symbol.is_some() && c.library_footprint.is_none() {
+            skipped.push(c.id);
+            continue;
+        }
+        if let Some(f) = p.board.footprints.iter_mut().find(|f| f.component == c.id) {
+            f.pads = component_pads(c);
+        } else {
+            let col = staging_index % 4;
+            let row = staging_index / 4;
+            staging_index += 1;
+            let id = allocate(next)?;
+            p.board.footprints.push(Footprint {
+                id,
+                component: c.id,
+                position: Point::new(staging_x + col as f64 * 12.0, 10.0 + row as f64 * 8.0),
+                rotation: 0.0,
+                locked: None,
+                pads: component_pads(c),
+                side: None,
+            });
+        }
+    }
+    Ok(
+        json!({"footprints":p.board.footprints.iter().map(|f|json!({"id":f.id,"component":f.component})).collect::<Vec<_>>(),"unassigned_components":skipped}),
+    )
+}
+
+fn command_triggers_board_sync(command: &str) -> bool {
+    matches!(
+        command,
+        "component.add"
+            | "component.place_library"
+            | "footprint.assign"
+            | "footprint.assign_pattern"
+            | "footprint.assign_table"
+            | "footprint.assign_file"
+            | "footprint.assign_custom"
+            | "net.create"
+            | "net.rename"
+            | "net.swap"
+            | "net.connect"
+            | "net.disconnect"
+            | "netlist.import"
+            | "netlist.import_session"
+            | "wire.connect"
+            | "wire.draw"
+            | "wire.draw_bus"
+            | "wire.split"
+            | "label.set"
+            | "label.set_bus"
+            | "pin.no_connect"
+            | "object.delete"
+            | "object.duplicate"
+    )
+}
+
 fn place_definition(
     p: &mut Project,
     next: &mut Id,
@@ -3358,6 +3447,11 @@ struct ParameterRemoveParams {
 #[serde(deny_unknown_fields)]
 struct ProjectSetUnitParams {
     unit: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectSetAutoSyncParams {
+    auto_sync: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -6152,14 +6246,13 @@ fn collinear_track_merge_endpoints(a: &Track, b: &Track) -> Option<(Point, Point
     {
         return None;
     }
-    let endpoints = [a.start, a.end];
-    let shared = endpoints
-        .iter()
-        .find(|p| track_endpoints_near(**p, b.start) || track_endpoints_near(**p, b.end))?;
+    let shared = [a.start, a.end]
+        .into_iter()
+        .find(|p| track_endpoints_near(*p, b.start) || track_endpoints_near(*p, b.end))?;
     let far = |track: &Track| -> Option<Point> {
-        if track_endpoints_near(track.start, *shared) {
+        if track_endpoints_near(track.start, shared) {
             Some(track.end)
-        } else if track_endpoints_near(track.end, *shared) {
+        } else if track_endpoints_near(track.end, shared) {
             Some(track.start)
         } else {
             None
@@ -7176,6 +7269,16 @@ fn run_command(
             }
             p.unit = a.unit;
             Ok(json!({"unit": p.unit.as_str()}))
+        }
+        "project.set_auto_sync" => {
+            let a: ProjectSetAutoSyncParams = parse(params)?;
+            if p.auto_sync == a.auto_sync {
+                return Err(Error::Invalid(
+                    "automatic board sync is already in that state".into(),
+                ));
+            }
+            p.auto_sync = a.auto_sync;
+            Ok(json!({"auto_sync": p.auto_sync}))
         }
         "project.export_archive" => {
             let a: ArchivePathParams = parse(params)?;
@@ -15421,33 +15524,7 @@ fn run_command(
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
             }
-            let mut skipped = vec![];
-            for (index, c) in p.components.iter().enumerate() {
-                if c.library_symbol.is_some() && c.library_footprint.is_none() {
-                    skipped.push(c.id);
-                    continue;
-                }
-                if let Some(f) = p.board.footprints.iter_mut().find(|f| f.component == c.id) {
-                    f.pads = component_pads(c);
-                } else {
-                    let id = allocate(next)?;
-                    p.board.footprints.push(Footprint {
-                        id,
-                        component: c.id,
-                        position: Point::new(
-                            10.0 + (index % 4) as f64 * 12.0,
-                            10.0 + (index / 4) as f64 * 8.0,
-                        ),
-                        rotation: 0.0,
-                        locked: None,
-                        side: None,
-                        pads: component_pads(c),
-                    });
-                }
-            }
-            Ok(
-                json!({"footprints":p.board.footprints.iter().map(|f|json!({"id":f.id,"component":f.component})).collect::<Vec<_>>(),"unassigned_components":skipped}),
-            )
+            sync_board_from_schematic(p, next)
         }
         "board.resize" => {
             let a: Resize = parse(params)?;
@@ -17041,6 +17118,28 @@ fn run_command(
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn disable_auto_sync(s: &mut Session) {
+        s.project.auto_sync = false;
+    }
+
+    fn move_footprint_to_component(s: &mut Session, component: Id) -> Result<(), Error> {
+        let position = s.project.component(component).ok_or_else(missing)?.position;
+        let footprint = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component)
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "footprint.move",
+            json!({"id": footprint, "position": {"x": position.x, "y": position.y}}),
+            None,
+        )?;
+        Ok(())
+    }
 
     static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
     /// Every entry of a stored ZIP written by the package command, by name.
@@ -20344,6 +20443,50 @@ mod tests {
     }
 
     #[test]
+    fn placing_a_resistor_on_the_schematic_creates_its_board_footprint_in_one_revision()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(s.project.auto_sync);
+        let rev0 = s.revision;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            s.revision,
+            rev0 + 1,
+            "one undo step covers schematic and board"
+        );
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        assert!(s.project.components.is_empty());
+        assert!(s.project.board.footprints.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn auto_sync_can_be_turned_off_and_board_sync_applies_pending_changes() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("project.set_auto_sync", json!({"auto_sync": false}), None)?;
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(s.project.board.footprints.is_empty());
+        s.execute("board.sync", json!({}), None)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].component, id);
+        Ok(())
+    }
+
+    #[test]
     fn project_metadata_records_replaces_clears_and_refuses_bad_keys() -> Result<(), Error> {
         let mut s = Session::default();
         let out = s.execute(
@@ -22239,6 +22382,7 @@ mod tests {
     #[test]
     fn footprint_local_rules_tighten_clearance_and_read_edit_export() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         let definition = library::footprint(std::path::Path::new(&library_fixture(
             "R_0805_2012Metric.kicad_mod",
         )))?;
@@ -22276,6 +22420,7 @@ mod tests {
             json!({"net":b,"pins":[{"component":r,"pin":"2"}]}),
             None,
         )?;
+        move_footprint_to_component(&mut s, r)?;
         s.execute(
             "track.add",
             json!({"net":b,"start":[8.175,9],"end":[8.175,11],"width":0.2}),
@@ -25902,16 +26047,21 @@ mod tests {
     #[test]
     fn auto_net_and_wire_commit_as_one_undo_step() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
+        let mut ids = Vec::new();
         for x in [10, 30] {
-            s.execute(
+            let id = s.execute(
                 "component.add",
                 json!({"kind":"resistor","position":{"x":x,"y":10}}),
                 None,
-            )?;
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            ids.push(id);
         }
         s.execute(
             "wire.connect",
-            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"1"}}),
+            json!({"from":{"component":ids[0],"pin":"2"},"to":{"component":ids[1],"pin":"1"}}),
             None,
         )?;
         assert_eq!(s.project.nets.len(), 1);
@@ -28326,53 +28476,77 @@ mod tests {
         gap: f64,
         width: f64,
     ) -> Result<(Id, Id, Id, Id), Error> {
+        disable_auto_sync(s);
         let pitch = gap + width;
         s.execute(
             "library.footprint.upsert",
             json!({"definition": pair_pitch_footprint("PairConn", pitch)?}),
             None,
         )?;
-        s.execute(
+        let j1 = s.execute(
             "component.add",
             json!({"kind":"connector","reference":"J1","position":{"x":10.0,"y":20.0}}),
             None,
-        )?;
-        s.execute(
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let j2 = s.execute(
             "component.add",
             json!({"kind":"connector","reference":"J2","position":{"x":50.0,"y":20.0}}),
             None,
-        )?;
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
         s.execute(
             "wire.connect",
-            json!({"from":{"component":1,"pin":"1"},"to":{"component":2,"pin":"1"}}),
+            json!({"from":{"component":j1,"pin":"1"},"to":{"component":j2,"pin":"1"}}),
             None,
         )?;
-        let net_p = s.project.components[0].pins[0].net.ok_or_else(missing)?;
+        let net_p = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == j1)
+            .ok_or_else(missing)?
+            .pins[0]
+            .net
+            .ok_or_else(missing)?;
         s.execute(
             "wire.connect",
-            json!({"from":{"component":1,"pin":"2"},"to":{"component":2,"pin":"2"}}),
+            json!({"from":{"component":j1,"pin":"2"},"to":{"component":j2,"pin":"2"}}),
             None,
         )?;
-        let net_n = s.project.components[0].pins[1].net.ok_or_else(missing)?;
+        let net_n = s
+            .project
+            .components
+            .iter()
+            .find(|c| c.id == j1)
+            .ok_or_else(missing)?
+            .pins[1]
+            .net
+            .ok_or_else(missing)?;
         s.execute(
             "board.set_diffpair",
             json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap}),
             None,
         )?;
         s.execute("board.sync", json!({}), None)?;
-        for component in [1_u64, 2] {
+        for component in [j1, j2] {
             s.execute(
                 "footprint.assign_custom",
                 json!({"id":component,"name":"PairConn"}),
                 None,
             )?;
         }
+        for component in [j1, j2] {
+            move_footprint_to_component(s, component)?;
+        }
         let fp_j1 = s
             .project
             .board
             .footprints
             .iter()
-            .find(|f| f.component == 1)
+            .find(|f| f.component == j1)
             .ok_or_else(missing)?
             .id;
         let fp_j2 = s
@@ -28380,7 +28554,7 @@ mod tests {
             .board
             .footprints
             .iter()
-            .find(|f| f.component == 2)
+            .find(|f| f.component == j2)
             .ok_or_else(missing)?
             .id;
         Ok((fp_j1, fp_j2, net_p, net_n))
@@ -28391,6 +28565,7 @@ mod tests {
         let gap = 0.3;
         let width = 0.2;
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
         let before = s.project.board.tracks.len();
         s.execute(
@@ -28442,6 +28617,7 @@ mod tests {
         let (gap, width) = (0.3, 0.2);
         for (mode, want_diagonal) in [(None, true), (Some("octilinear"), true)] {
             let mut s = Session::default();
+            disable_auto_sync(&mut s);
             let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
             s.execute(
                 "footprint.move",
@@ -29493,6 +29669,7 @@ mod tests {
     #[test]
     fn net_tie_merges_everything_and_net_swap_exchanges_names_only() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         let a = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
@@ -30607,6 +30784,7 @@ mod tests {
     #[test]
     fn teardrops_grow_on_junctions_undo_in_one_step_and_can_be_removed() -> Result<(), Error> {
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         s.execute(
             "component.add",
             json!({"kind":"resistor","reference":"R1","position":[20.0,20.0]}),

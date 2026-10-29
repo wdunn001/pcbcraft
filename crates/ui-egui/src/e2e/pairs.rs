@@ -10,6 +10,7 @@ fn pair_board(right_angles: bool) -> Result<(App, Id, Id), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.run("project.set_auto_sync", json!({"auto_sync": false}));
     for (reference, y) in [("R1", 20.0), ("R2", 34.0)] {
         let x = if reference == "R1" { 10.0 } else { 50.0 };
         app.run(

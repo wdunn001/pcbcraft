@@ -429,5 +429,6 @@
     "notices": [],
     "symbols": [],
     "footprints": []
-  }
+  },
+  "auto_sync": true
 }

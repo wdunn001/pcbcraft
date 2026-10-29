@@ -2987,8 +2987,10 @@ impl crate::App {
                         "board.layer_add",
                         serde_json::json!({"name": name, "kind": "other"}),
                     );
-                    if self.message.starts_with("board.layer_add") {
-                        self.art_layer = self.selected;
+                    if self.message.starts_with("board.layer_add")
+                        && let Some(id) = self.selected
+                    {
+                        self.set_target(Target::User(id));
                     }
                 }
             }
