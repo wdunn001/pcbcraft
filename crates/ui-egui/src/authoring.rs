@@ -5,6 +5,10 @@ use pcbcraft_library::{
     Drill, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
+/// Most pads the editor lists one by one; a 40 by 40 BGA fits.
+/// Placing a footprint still stops at 64 pads until the placement limit is lifted.
+const PAD_LIST_LIMIT: usize = 1600;
+
 #[derive(Clone)]
 pub(super) enum Draft {
     Symbol(SymbolDefinition),
@@ -37,6 +41,7 @@ pub(super) struct Editor {
     pub draft: Option<Draft>,
     pub path: String,
     pub notice: Option<String>,
+    pub wizard: super::footprint_wizard::Wizard,
     pub tool: LibraryTool,
     pub camera: Camera,
     pub needs_fit: bool,
@@ -54,6 +59,7 @@ impl Default for Editor {
             draft: None,
             path: "parts.pcbcraft-lib".into(),
             notice: None,
+            wizard: Default::default(),
             tool: LibraryTool::Select,
             camera: Camera {
                 center: Point::default(),
@@ -1103,6 +1109,16 @@ impl App {
                 self.library.editor.notice = None;
                 self.library.editor.needs_fit = true;
             }
+            if ui
+                .button("Generate footprint")
+                .on_hover_text(
+                    "Build a footprint from a package family and the numbers in its datasheet.",
+                )
+                .clicked()
+            {
+                self.library.editor.wizard.open = true;
+                self.library.editor.mode = 2;
+            }
         });
         ui.separator();
         match self.library.editor.mode {
@@ -1233,6 +1249,7 @@ impl App {
         }
     }
     fn library_editor(&mut self, ui: &mut egui::Ui) {
+        self.footprint_wizard(ui);
         let Some(mut draft) = self.library.editor.draft.take() else {
             ui.heading("Library editor");
             ui.label(
@@ -1442,7 +1459,7 @@ impl App {
                     .button("Add pad")
                     .on_hover_text("Add a new pad to this footprint.")
                     .clicked()
-                    && def.pads.len() < 64
+                    && def.pads.len() < PAD_LIST_LIMIT
                 {
                     let mut n = 1;
                     while def.pads.iter().any(|p| p.number == n.to_string()) {
@@ -1451,7 +1468,7 @@ impl App {
                     def.pads.push(new_pad(&n.to_string(), 0.0));
                 }
                 let mut remove = None;
-                for (i, pad) in def.pads.iter_mut().enumerate().take(64) {
+                for (i, pad) in def.pads.iter_mut().enumerate().take(PAD_LIST_LIMIT) {
                     ui.push_id(("pad", i), |ui| {
                         ui.collapsing(format!("Pad {} · {}", pad.number, pad.pad_type), |ui| {
                             text(ui, "Number", &mut pad.number);
@@ -1614,19 +1631,7 @@ pub(crate) mod tests {
         app: &mut App,
         events: Vec<egui::Event>,
     ) -> egui::FullOutput {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    Vec2::new(1440.0, 940.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| app.show(ui),
-        );
-        output.textures_delta.clear();
-        output
+        crate::e2e::support::frame(ctx, app, events, egui::Modifiers::NONE)
     }
     #[test]
     fn editor_button_commits_one_undoable_edit_and_retains_original_nodes() -> Result<(), String> {

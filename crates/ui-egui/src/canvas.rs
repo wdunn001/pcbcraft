@@ -187,6 +187,12 @@ impl App {
     ) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
         let response = response.on_hover_text(tip);
+        let name = match icon {
+            CanvasIcon::Fit => "Fit",
+            CanvasIcon::Move => "Move",
+            CanvasIcon::Rotate => "Rotate",
+        };
+        crate::a11y::name_control(&response, name, None);
         self.record_icon(id, rect);
         let ink = if response.hovered() {
             self.accent()
