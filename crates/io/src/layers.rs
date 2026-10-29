@@ -342,6 +342,102 @@ fn push_drill_hole(shapes: &mut Vec<Shape>, pos: Point, diameter: f64, mark: f64
     ));
 }
 
+fn footprint_bounds(p: &Project, f: &Footprint) -> (Point, Point) {
+    let points = f.drawing_points(p);
+    let min = points
+        .iter()
+        .fold(Point::new(f64::INFINITY, f64::INFINITY), |bounds, pt| {
+            Point::new(bounds.x.min(pt.x), bounds.y.min(pt.y))
+        });
+    let max = points.iter().fold(
+        Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
+        |bounds, pt| Point::new(bounds.x.max(pt.x), bounds.y.max(pt.y)),
+    );
+    if min.valid() && max.valid() {
+        (min, max)
+    } else {
+        (Point::new(-3.4, -1.4), Point::new(3.4, 1.4))
+    }
+}
+
+fn push_reference_marker(
+    _shapes: &mut Vec<Shape>,
+    _origin: Point,
+    _rotation: f64,
+    _label_y: f64,
+    _label_x: f64,
+    _p: &Project,
+    skipped: &mut Vec<String>,
+) {
+    skipped.push("reference labels need the stroke font".into());
+}
+
+fn push_pad_clearance_zones(shapes: &mut Vec<Shape>, p: &Project, profile_pad_clearance_mm: f64) {
+    for f in &p.board.footprints {
+        let rules = footprint_rules(f, p);
+        let footprint_clearance = rules.clearance.unwrap_or(0.0);
+        for pad in &f.pads {
+            let margin = profile_pad_clearance_mm
+                .max(footprint_clearance)
+                .max(p.board.clearance);
+            let outline = footprint_pad_outline(f, pad);
+            let grown = grow_outline(&outline, margin);
+            if grown.len() < 3 {
+                continue;
+            }
+            let fab: Vec<Point> = grown.iter().map(|pt| fabrication_point(p, *pt)).collect();
+            shapes.push(Shape::Polygon(fab, ShapePolarity::Negative));
+        }
+    }
+}
+
+/// Legend strokes for one board side, with pad keep-out zones applied as negative
+/// polygons and skipped strings listed when text cannot be stroked yet.
+pub fn legend_shapes(
+    p: &Project,
+    side: Layer,
+    profile_pad_clearance_mm: f64,
+    include_values: bool,
+) -> Result<LayerShapes, String> {
+    let fab_layer = if side == Layer::Back {
+        FabLayer::LegendBottom
+    } else {
+        FabLayer::LegendTop
+    };
+    let mut out = layer_shapes(p, fab_layer)?;
+    let top = side != Layer::Back;
+    for f in &p.board.footprints {
+        if let Some(c) = p.component(f.component) {
+            let (min, max) = footprint_bounds(p, f);
+            let label_x = (min.x + max.x) / 2.0;
+            push_reference_marker(
+                &mut out.shapes,
+                f.position,
+                f.rotation,
+                min.y - 1.2,
+                label_x,
+                p,
+                &mut out.skipped,
+            );
+            if include_values {
+                push_reference_marker(
+                    &mut out.shapes,
+                    f.position,
+                    f.rotation,
+                    max.y + 1.2,
+                    label_x,
+                    p,
+                    &mut out.skipped,
+                );
+                let _ = c;
+            }
+        }
+    }
+    let _ = top;
+    push_pad_clearance_zones(&mut out.shapes, p, profile_pad_clearance_mm);
+    Ok(out)
+}
+
 /// Collect drawable shapes for one fabrication layer.
 pub fn layer_shapes(p: &Project, layer: FabLayer) -> Result<LayerShapes, String> {
     p.validate()?;
