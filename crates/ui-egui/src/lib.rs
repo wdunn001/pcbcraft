@@ -1,13 +1,16 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
+mod a11y;
 mod authoring;
 mod board3d;
 mod canvas;
 mod datums;
 mod editing;
+mod footprint_wizard;
 mod impedance_panel;
 mod library;
 mod library_quality;
 mod plot_viewer;
+mod reference_panel;
 mod sources;
 mod via_covering;
 mod via_span;
@@ -513,9 +516,18 @@ struct Preferences {
     /// Language tag of the text catalog, or `system` to follow the computer.
     #[serde(default = "default_language")]
     language: String,
+    /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
+    #[serde(default = "default_ui_scale")]
+    ui_scale: f32,
+    /// Cut routed corners at 45 degrees; off allows right-angle corners.
+    #[serde(default = "default_true")]
+    chamfer_corners: bool,
 }
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
+}
+fn default_ui_scale() -> f32 {
+    a11y::DEFAULT_UI_SCALE
 }
 fn default_aside_split() -> f32 {
     0.45
@@ -535,8 +547,53 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             library_dock_open: true,
             language: default_language(),
+            ui_scale: a11y::DEFAULT_UI_SCALE,
+            chamfer_corners: true,
         }
     }
+}
+/// Pair name, coupling gap, both routed lengths and their skew for a net that
+/// belongs to a declared differential pair; nothing for any other net.
+fn pair_rows(project: &Project, net: Id) -> Vec<(String, String)> {
+    let Some(pair) = project
+        .board
+        .diff_pairs
+        .iter()
+        .find(|d| d.net_p == net || d.net_n == net)
+    else {
+        return vec![];
+    };
+    let length = |n: Id| -> f64 {
+        project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == n)
+            .map(track_length)
+            .sum()
+    };
+    let (lp, ln) = (length(pair.net_p), length(pair.net_n));
+    vec![
+        ("Pair".into(), format!("{} · routed together", pair.name)),
+        (
+            "Pair gap".into(),
+            format!("{:.3} mm between the two sides", pair.gap),
+        ),
+        (
+            "Pair lengths".into(),
+            format!(
+                "{} {:.2} mm · {} {:.2} mm",
+                project.net_name(pair.net_p),
+                lp,
+                project.net_name(pair.net_n),
+                ln
+            ),
+        ),
+        (
+            "Pair skew".into(),
+            format!("{:.2} mm apart", (lp - ln).abs()),
+        ),
+    ]
 }
 /// The copper length of a track segment in millimetres, following the bow
 /// of an arc when the segment carries one.
@@ -731,6 +788,8 @@ pub struct App {
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
+    canvas_rect: Rect,
+    canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
     value: String,
     x: f64,
@@ -839,6 +898,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         };
         rows.push(("Width".into(), width_note));
         clearance_rows(t.net, &mut rows);
+        rows.extend(pair_rows(project, t.net));
         rows.push((
             "From".into(),
             format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
@@ -1091,6 +1151,8 @@ impl App {
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
+            canvas_rect: Rect::NOTHING,
+            canvas_menu: None,
             message: "Ready · A add · W wire · X route · M move · R rotate · E properties".into(),
             value: String::new(),
             x: 0.0,
@@ -2640,6 +2702,7 @@ impl App {
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
+                self.canvas_menu = None;
                 self.edit.measure = None;
                 self.edit.box_from = None;
                 self.edit.box_to = None;
@@ -2714,6 +2777,7 @@ impl App {
                         )
                         .sense(egui::Sense::click()),
                     );
+                    a11y::name_control(&brand, "PCBCraft start screen", None);
                     if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
                     }
@@ -3903,6 +3967,21 @@ impl App {
                 .on_hover_text("Light canvas and panels, easier on printed previews.");
         });
         ui.checkbox(&mut self.preferences.grid, "Show grid");
+        ui.label("Interface size");
+        ui.horizontal(|ui| {
+            for (label, scale) in a11y::UI_SCALE_STEPS {
+                let on = (self.preferences.ui_scale - scale).abs() < 0.01;
+                if ui
+                    .selectable_label(on, label)
+                    .on_hover_text(format!(
+                        "Make text and controls {label} of normal size. Ctrl and plus or minus also work."
+                    ))
+                    .clicked()
+                {
+                    self.preferences.ui_scale = scale;
+                }
+            }
+        });
         ui.horizontal(|ui| {
             ui.label("Route on");
             ui.selectable_value(&mut self.route_layer, pcbcraft_doc::Layer::Front, "Top")
@@ -3925,6 +4004,16 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("ROUTING")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.checkbox(&mut self.preferences.chamfer_corners, "Chamfer corners")
+            .on_hover_text(
+                "On by default: routed corners are cut at 45 degrees, because right angles hurt signal quality and add emissions. Turn it off to allow right-angle corners.",
+            );
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("BOARD GEOMETRY")
@@ -4241,6 +4330,8 @@ impl App {
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
         ui.add_space(12.0);
+        self.reference_image_section(ui);
+        ui.add_space(12.0);
         ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
         let erc = self
             .checks
@@ -4387,6 +4478,22 @@ impl App {
             .clicked()
         {
             self.write_job_file("svgdraw", "svg", "Web drawing");
+        }
+        for (side, label, tip) in [
+            (
+                "top",
+                "Print art, top silkscreen",
+                "Writes the top silkscreen as true-size artwork for a UV printer: a transparent colour picture, a white-ink picture and a drawing, all in the make folder. Text outlines are not included yet.",
+            ),
+            (
+                "bottom",
+                "Print art, bottom silkscreen",
+                "Writes the bottom silkscreen as true-size artwork for a UV printer, not mirrored, because the printer looks at the real board. It lands in the make folder.",
+            ),
+        ] {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                self.write_uv_print_files(side, label);
+            }
         }
         ui.add_space(6.0);
         ui.label(
@@ -5576,6 +5683,25 @@ impl App {
             return;
         }
         self.tool_call(tool, json!({"path": directory}));
+    }
+    /// Write the UV print artwork for one side into the make folder.
+    fn write_uv_print_files(&mut self, side: &str, label: &str) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(&directory).is_err() {
+            self.message = "that folder could not be created".into();
+            return;
+        }
+        let job = format!("uvprint-{side}");
+        let _ = self.tool_call(
+            "output_job.add",
+            json!({"name": &job, "kinds": ["uv_print"]}),
+        );
+        if self.tool_call(
+            "output_job.run",
+            json!({"name": &job, "directory": &directory, "uv_print": {"side": side}}),
+        ) {
+            self.message = format!("{label} saved in {directory}");
+        }
     }
     fn write_job_file(&mut self, job: &str, kind: &str, label: &str) {
         let directory = self.make_directory();
@@ -6877,6 +7003,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.style(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
@@ -6939,6 +7066,7 @@ impl App {
                     }
                 });
         }
+        a11y::paint_focus_ring(&ctx, self.accent());
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
@@ -6959,6 +7087,11 @@ impl eframe::App for App {
 }
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
+}
+
+#[cfg(test)]
+fn pcb_screen(app: &App, world: Point) -> egui::Pos2 {
+    app.pcb.screen(world, app.canvas_rect)
 }
 
 #[cfg(test)]

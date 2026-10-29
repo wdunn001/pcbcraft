@@ -9,11 +9,13 @@
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
 //! - xtask/src/doc_check.rs
+//! - xtask/src/tooltips.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
 mod e2e;
+mod tooltips;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -28,6 +30,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
   wasm         WebAssembly check of the shared UI and browser entry point
+  tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
   deny         cargo-deny licenses, advisories, bans and sources
@@ -524,6 +527,7 @@ fn run() -> Result<(), String> {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
         }
         "docs" => docs()?,
+        "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
         "deny" => deny()?,
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,
