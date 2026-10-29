@@ -228,6 +228,18 @@ pub fn validity(width: f64, height: f64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn z_common_is_half_of_even_mode_and_z_diff_twice_odd() {
+        let c = Coupled {
+            z_even: 60.0,
+            z_odd: 42.5,
+            ee_even: 3.0,
+            ee_odd: 2.5,
+        };
+        assert_eq!(c.z_common(), 30.0);
+        assert_eq!(c.z_diff(), 85.0);
+    }
     type T = Result<(), String>;
     fn rel(a: f64, b: f64) -> f64 {
         (a / b - 1.0).abs()
