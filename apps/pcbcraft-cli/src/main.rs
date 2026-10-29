@@ -46,12 +46,18 @@ fn run() -> Result<(), String> {
             }
             println!("{result}");
         }
-        "mcp" => pcbcraft_mcp::serve(
-            &mut std::io::stdin().lock(),
-            &mut std::io::stdout().lock(),
-            &pcbcraft_mcp::shared(session),
-            option(&args, "--connect"),
-        )?,
+        "mcp" => {
+            let hub = pcbcraft_mcp::DocumentHub::new(
+                session,
+                option(&args, "--project").map(str::to_string),
+            )?;
+            pcbcraft_mcp::serve(
+                &mut std::io::stdin().lock(),
+                &mut std::io::stdout().lock(),
+                &hub,
+                option(&args, "--connect"),
+            )?
+        }
         "run" => {
             let path = args
                 .get(1)
