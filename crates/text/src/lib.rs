@@ -8,6 +8,8 @@
 //! Screens read text through [`t!`], which asks the catalog that the running
 //! frame activated with [`activate`].
 
+pub mod numbers;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -21,6 +23,7 @@ pub const CONVERTED_FNS: &str = include_str!("../strings/converted-fns.txt");
 const FIXTURE_FR: &str = include_str!("../strings/fixture-fr.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_RTL: &str = include_str!("../strings/fixture-rtl.txt");
+const FIXTURE_DE: &str = include_str!("../strings/fixture-de.txt");
 
 /// Language tag meaning "follow the computer's language".
 pub const SYSTEM: &str = "system";
@@ -128,6 +131,10 @@ fn fixture_languages() -> Vec<Language> {
             tag: FIXTURE_RTL_TAG.into(),
             name: language_name(FIXTURE_RTL),
         },
+        Language {
+            tag: "de".into(),
+            name: language_name(FIXTURE_DE),
+        },
     ]
 }
 
@@ -175,6 +182,7 @@ fn language_text(tag: &str) -> Option<&'static str> {
         "fr" => Some(FIXTURE_FR),
         #[cfg(feature = "fixture")]
         FIXTURE_RTL_TAG => Some(FIXTURE_RTL),
+        "de" => Some(FIXTURE_DE),
         _ => None,
     }
 }
@@ -475,6 +483,12 @@ impl Catalog {
                 }
             }
         }
+    }
+
+    /// The loaded language tag, for the number and date functions in
+    /// [`numbers`]. `en` when the tag was unknown.
+    pub fn number_tag(&self) -> &str {
+        &self.tag
     }
 
     /// Every key English defines, in sorted order.
@@ -899,7 +913,7 @@ mod tests {
     #[test]
     fn a_bad_tag_or_the_system_tag_gives_a_working_catalog() {
         assert_eq!(Catalog::for_language("zz").tag(), "en");
-        assert_eq!(match_locale("de_DE.UTF-8"), "en");
+        assert_eq!(match_locale("xx_XX.UTF-8"), "en");
         assert_eq!(Catalog::for_language("").get("menu.file"), "File");
     }
 
