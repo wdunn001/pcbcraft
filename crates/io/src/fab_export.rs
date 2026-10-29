@@ -17,7 +17,7 @@ pub fn via_mask_opening(v: &Via) -> bool {
 }
 
 #[derive(Clone, Copy)]
-struct DrillHit {
+pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
@@ -50,16 +50,32 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
         }
     }
     for h in &p.board.holes {
+        let d_um = (h.diameter * 1_000.0).round() as u64;
+        let span_um = if h.is_slot() {
+            (h.start().distance(h.finish()) * 1_000.0).round() as u64
+        } else {
+            0
+        };
+        let (x, y, ux, uy) = if h.is_slot() {
+            let center = h.center();
+            let half = Point::new(
+                (h.finish().x - h.start().x) / 2.0,
+                (h.finish().y - h.start().y) / 2.0,
+            );
+            (center.x, center.y, half.x, half.y)
+        } else {
+            (h.position.x, h.position.y, 0.0, 0.0)
+        };
         push(
             &mut hits,
             DrillHit {
-                d_um: (h.diameter * 1_000.0).round() as u64,
-                span_um: 0,
+                d_um,
+                span_um,
                 plated: false,
-                x: h.position.x,
-                y: h.position.y,
-                ux: 0.0,
-                uy: 0.0,
+                x,
+                y,
+                ux,
+                uy,
             },
         );
     }
@@ -183,8 +199,7 @@ impl GerberLayer {
             self.body.push_str(&format!("%TO.N,{name}*%\n"));
         }
         if let Some((reference, pad)) = part {
-            self.body
-                .push_str(&format!("%TO.P,{reference},{pad}*%\n"));
+            self.body.push_str(&format!("%TO.P,{reference},{pad}*%\n"));
             self.body.push_str(&format!("%TO.C,{reference}*%\n"));
         }
     }
@@ -253,6 +268,7 @@ impl GerberLayer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn arc_segment(
         &mut self,
         code: u32,
@@ -335,18 +351,18 @@ impl GerberLayer {
     }
 }
 
-fn net_name<'a>(p: &'a Project, id: u64) -> Option<&'a str> {
+fn net_name(p: &Project, id: u64) -> Option<&str> {
     p.nets.iter().find(|n| n.id == id).map(|n| n.name.as_str())
 }
 
-fn component_reference<'a>(p: &'a Project, component_id: u64) -> Option<&'a str> {
+fn component_reference(p: &Project, component_id: u64) -> Option<&str> {
     p.components
         .iter()
         .find(|c| c.id == component_id)
         .map(|c| c.reference.as_str())
 }
 
-fn footprint_rules<'a>(p: &'a Project, component_id: u64) -> Option<&'a FootprintRules> {
+fn footprint_rules(p: &Project, component_id: u64) -> Option<&FootprintRules> {
     p.components
         .iter()
         .find(|c| c.id == component_id)
@@ -402,9 +418,9 @@ fn pad_ap(pad: &pcbcraft_doc::Pad) -> Ap {
 }
 
 fn pad_on_back(pad: &pcbcraft_doc::Pad) -> bool {
-    pad.geometry.as_ref().is_some_and(|g| {
-        !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-    })
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F.")))
 }
 
 fn pad_is_smd(pad: &pcbcraft_doc::Pad) -> bool {
@@ -414,9 +430,9 @@ fn pad_is_smd(pad: &pcbcraft_doc::Pad) -> bool {
 }
 
 fn pad_is_through(pad: &pcbcraft_doc::Pad) -> bool {
-    pad.geometry.as_ref().is_some_and(|g| {
-        g.drill.is_some() || g.pad_type.starts_with("thru_hole")
-    })
+    pad.geometry
+        .as_ref()
+        .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"))
 }
 
 fn outline_ring(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
@@ -440,7 +456,10 @@ fn write_excellon(
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
     let mut by_tool: BTreeMap<(u64, u64), Vec<&DrillHit>> = BTreeMap::new();
     for hit in round {
-        by_tool.entry((hit.d_um, hit.span_um)).or_default().push(hit);
+        by_tool
+            .entry((hit.d_um, hit.span_um))
+            .or_default()
+            .push(hit);
     }
     if by_tool.len() > MAX_TOOLS {
         return Err("drill export needs 64 or fewer distinct tools".into());
@@ -451,7 +470,7 @@ fn write_excellon(
         ("METRIC,TZ", 3)
     };
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
-    for (n, (key, _)) in by_tool.keys().enumerate() {
+    for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
         out.push_str(&format!(
             "T{}C{:.prec$}\n",
@@ -542,9 +561,10 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
             plated = if *plated { "yes" } else { "no" },
             count = count
         ));
-        for hit in hits.iter().filter(|h| {
-            h.d_um == *d_um && h.span_um == *span_um && h.plated == *plated
-        }) {
+        for hit in hits
+            .iter()
+            .filter(|h| h.d_um == *d_um && h.span_um == *span_um && h.plated == *plated)
+        {
             let (x, y) = (hit.x - origin.x, hit.y - origin.y);
             if hit.span_um == 0 {
                 layer.flash(code, x, y)?;
@@ -582,7 +602,10 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
         out.push_str("(none recorded)\n");
     } else {
         for l in &p.board.layer_records {
-            out.push_str(&format!("  {} ({}, {:.3} mm)\n", l.name, l.kind, l.thickness));
+            out.push_str(&format!(
+                "  {} ({}, {:.3} mm)\n",
+                l.name, l.kind, l.thickness
+            ));
         }
     }
     out.push_str(&format!(
@@ -594,10 +617,7 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
             out.push_str(&format!("Drill tolerance: +/- {:.3} mm\n", v));
         }
         if let Some(v) = m.edge_plating {
-            out.push_str(&format!(
-                "Edge plating: {}\n",
-                if v { "yes" } else { "no" }
-            ));
+            out.push_str(&format!("Edge plating: {}\n", if v { "yes" } else { "no" }));
         }
     }
     out.push_str("Via protection: open (default until configurable covering ships)\n");
@@ -656,13 +676,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-    let mirror = |x: f64, y: f64, back: bool| -> (f64, f64) {
-        if back {
-            (-x, y)
-        } else {
-            (x, y)
-        }
-    };
+    let mirror = |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x, y) } else { (x, y) } };
 
     let mut front = GerberLayer::new(scale);
     let mut back = GerberLayer::new(scale);
@@ -689,10 +703,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             if cutout.len() < 3 {
                 continue;
             }
-            let ring: Vec<(f64, f64)> = cutout
-                .iter()
-                .map(|q| mirror(q.x, q.y, is_back))
-                .collect();
+            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
             file.clear_fill(code, &ring)?;
         }
     }
@@ -823,10 +834,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             }
             let code_f = mask_front.code(Ap::Circle(1))?;
             mask_front.fill(code_f, &outline_ring(&ring))?;
-            let mirrored: Vec<(f64, f64)> = ring
-                .iter()
-                .map(|(x, y)| mirror(*x, *y, true))
-                .collect();
+            let mirrored: Vec<(f64, f64)> =
+                ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
             let code_b = mask_back.code(Ap::Circle(1))?;
             mask_back.fill(code_b, &outline_ring(&mirrored))?;
         }
@@ -925,10 +934,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             polarity: "Positive",
         }),
     );
-    files.insert(
-        "pcb-DrillMap.gbr".into(),
-        drill_map_plot(p)?,
-    );
+    files.insert("pcb-DrillMap.gbr".into(), drill_map_plot(p)?);
     if !plated.is_empty() {
         files.insert(
             "pcb-Plated.drl".into(),
@@ -949,9 +955,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
-    files.insert(
-        "README-fabrication.txt".into(),
-        fab_readme_text(p, &names)?,
-    );
+    files.insert("README-fabrication.txt".into(), fab_readme_text(p, &names)?);
     Ok(files)
 }
