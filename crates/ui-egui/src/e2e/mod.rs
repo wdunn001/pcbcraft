@@ -12,6 +12,7 @@ mod builds;
 mod checks;
 mod compare;
 mod editing;
+mod images;
 mod keymap;
 mod layers;
 mod layout;
