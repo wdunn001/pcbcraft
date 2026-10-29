@@ -41,7 +41,13 @@ impl ChatBackend for ScriptBackend {
     fn prompt(&mut self, parts: &[PromptPart]) {
         let text = parts
             .iter()
-            .find_map(|p| if let PromptPart::Text(t) = p { Some(t.clone()) } else { None })
+            .find_map(|p| {
+                if let PromptPart::Text(t) = p {
+                    Some(t.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_default();
         lock(&self.calls).push(format!("prompt: {text}"));
         lock(&self.prompts).push(parts.to_vec());
@@ -79,7 +85,10 @@ mod tests {
     fn script_backend_replays_events_and_records_prompts() {
         let mut backend = ScriptBackend::default();
         backend.prompt(&[PromptPart::Text("hello".into())]);
-        backend.report(Event::Text { thought: false, text: "hi".into() });
+        backend.report(Event::Text {
+            thought: false,
+            text: "hi".into(),
+        });
         backend.report(Event::Tool {
             id: "t1".into(),
             title: Some("run".into()),
@@ -87,7 +96,9 @@ mod tests {
             status: Some(ToolStatus::Pending),
             output: None,
         });
-        backend.report(Event::TurnEnded { reason: String::new() });
+        backend.report(Event::TurnEnded {
+            reason: String::new(),
+        });
         let events = backend.poll();
         assert_eq!(events.len(), 3);
         assert!(matches!(&events[0], Event::Text { text, .. } if text == "hi"));

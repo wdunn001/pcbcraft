@@ -40,18 +40,30 @@ pub enum Event {
         status: Option<ToolStatus>,
         output: Option<String>,
     },
+    /// A short progress note (such as `request 2 of 24`).
+    Note(String),
     /// Its plan, replaced whole: each entry with its status.
     Plan(Vec<(String, String)>),
     /// It asks before running something of its own; answered with [`ChatBackend::answer_permission`].
-    Permission { key: u64, title: String, options: Vec<PermissionOption> },
+    Permission {
+        key: u64,
+        title: String,
+        options: Vec<PermissionOption>,
+    },
     /// It needs the user to sign in; `methods` are its own ways to do so.
     AuthRequired { methods: Vec<AuthMethod> },
     /// What it says about its login.
     AuthStatus(String),
     /// Its own modes and the current one.
-    Modes { current: String, available: Vec<(String, String)> },
+    Modes {
+        current: String,
+        available: Vec<(String, String)>,
+    },
     /// Its models (empty `available`: only the current one changed).
-    Models { current: String, available: Vec<ModelInfo> },
+    Models {
+        current: String,
+        available: Vec<ModelInfo>,
+    },
     /// The message is answered (`reason`: why it stopped, empty for a normal end).
     TurnEnded { reason: String },
     /// Something failed; the backend is still running unless [`Event::Exited`] follows.
@@ -127,8 +139,13 @@ pub struct AuthMethod {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AuthKind {
     Agent,
-    Terminal { args: Vec<String>, command: Option<(String, Vec<String>)> },
-    EnvVar { vars: Vec<String> },
+    Terminal {
+        args: Vec<String>,
+        command: Option<(String, Vec<String>)>,
+    },
+    EnvVar {
+        vars: Vec<String>,
+    },
 }
 
 /// One model the agent offers.
@@ -220,7 +237,10 @@ mod tests {
     fn pictures_go_as_image_blocks() {
         let b = content_blocks(&[
             PromptPart::Text("hi".into()),
-            PromptPart::Picture { mime: "image/png".into(), base64: "AA==".into() },
+            PromptPart::Picture {
+                mime: "image/png".into(),
+                base64: "AA==".into(),
+            },
         ]);
         assert_eq!(b[1]["type"], "image");
         assert_eq!(b[1]["mimeType"], "image/png");
