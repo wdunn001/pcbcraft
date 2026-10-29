@@ -17,6 +17,9 @@ export default defineConfig({
   base,
   output: 'static',
   trailingSlash: 'always',
+  // The live host sends script-src 'self': no inline scripts. Never inline bundled scripts.
+  build: { inlineStylesheets: 'never' },
+  vite: { build: { assetsInlineLimit: 0 } },
   integrations: [
     starlight({
       title: 'PCBCraft',
@@ -28,6 +31,8 @@ export default defineConfig({
       components: {
         Header: './src/components/starlight/Header.astro',
         Footer: './src/components/starlight/Footer.astro',
+        ThemeProvider: './src/components/starlight/ThemeProvider.astro',
+        ThemeSelect: './src/components/starlight/ThemeSelect.astro',
       },
       sidebar: [
         { label: 'Guide', items: [{ autogenerate: { directory: 'docs/guide' } }] },

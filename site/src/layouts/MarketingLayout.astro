@@ -35,15 +35,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta name="theme-color" content="#0A1411" />
-    <script is:inline>
-      /* Same key and rule as Starlight's ThemeProvider: stored choice, else system, else dark. */
-      (function () {
-        var s = null;
-        try { s = localStorage.getItem('starlight-theme'); } catch (e) {}
-        var t = s || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-        document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
-      })();
-    </script>
+    <script is:inline src={url('theme-init.js')}></script>
   </head>
   <body class="marketing">
     <a class="skip-link" href="#main">Skip to content</a>

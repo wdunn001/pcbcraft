@@ -9,12 +9,14 @@
   "scripts": {
     "dev": "astro dev",
     "check": "astro check",
-    "build": "astro build",
+    "build": "astro build && node scripts/externalize-inline.mjs",
     "preview": "astro preview",
     "test:contrast": "node --test scripts/check-contrast.mjs",
     "test:a11y": "node scripts/check-a11y.mjs",
     "test:links": "node scripts/check-links.mjs",
-    "test": "npm run test:contrast && npm run check && npm run build && npm run test:links"
+    "test": "npm run test:contrast && npm run test:features && npm run check && npm run build && npm run test:links && npm run test:csp",
+    "test:features": "node --test scripts/check-features.mjs",
+    "test:csp": "node scripts/check-csp.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "0.42.6",
@@ -22,7 +24,8 @@
     "@fontsource/ibm-plex-sans-condensed": "5.3.0",
     "@fontsource/jetbrains-mono": "5.3.0",
     "astro": "7.3.8",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",

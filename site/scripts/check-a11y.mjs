@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
   let file = join(dist, path.slice(base.length));
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
   if (!existsSync(file)) { res.writeHead(404); return res.end('not found'); }
-  res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
+  res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Content-Security-Policy': (path.startsWith(`${base}docs/`) || path.startsWith(`${base}pagefind/`)) ? "script-src 'self' 'wasm-unsafe-eval'" : "script-src 'self'" });
   res.end(readFileSync(file));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -46,7 +46,7 @@ const browser = await chromium.launch();
 const failures = [];
 
 for (const theme of ['dark', 'light']) {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: theme });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: theme, bypassCSP: true });
   await ctx.addInitScript((t) => { try { localStorage.setItem('starlight-theme', t); } catch {} }, theme);
   const page = await ctx.newPage();
   for (const route of routes) {
@@ -77,11 +77,69 @@ for (const theme of ['dark', 'light']) {
   await ctx.close();
 }
 
+// CSP: pages are served with script-src 'self'; /docs/ also gets 'wasm-unsafe-eval' because the
+// Pagefind search loads WebAssembly. The docs search is opened and used; any violation fails.
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  const csp = [];
+  page.on('console', (m) => { if (/Content Security Policy/i.test(m.text())) csp.push(page.url() + ' ' + m.text().slice(0, 120)); });
+  page.on('pageerror', (e) => { if (/Content Security Policy|WebAssembly/i.test(e.message)) csp.push(e.message.slice(0, 140)); });
+  for (const route of ['', 'features/', 'docs/guide/getting-started/']) {
+    await page.goto(`${origin}${base}${route}`, { waitUntil: 'networkidle' });
+    await page.evaluate(() => { localStorage.clear(); document.documentElement.dataset.theme = 'dark'; });
+    await page.click('[data-theme-toggle]');
+    const t = await page.evaluate(() => document.documentElement.dataset.theme);
+    if (t !== 'light') failures.push(`theme toggle on /${route}: data-theme is ${t} after click`);
+  }
+  await page.click('button[data-open-modal]');
+  await page.waitForSelector('dialog[open] input', { timeout: 5000 }).catch(() => failures.push('docs search dialog did not open'));
+  await page.keyboard.type('getting');
+  await page.waitForTimeout(1500);
+  const results = await page.locator('dialog[open] .pagefind-ui__result, dialog[open] li a').count();
+  console.log(`docs search under CSP: ${results} result links, ${csp.length} CSP messages`);
+  for (const m of new Set(csp)) failures.push(`csp: ${m}`);
+  await ctx.close();
+}
+
+// Phone width: no page may scroll sideways at 360 px.
+{
+  const ctx = await browser.newContext({ viewport: { width: 360, height: 740 } });
+  const page = await ctx.newPage();
+  for (const route of routes) {
+    await page.goto(`${origin}${base}${route}`, { waitUntil: 'networkidle' });
+    const over = await page.evaluate(() => {
+      const w = document.documentElement.clientWidth;
+      const bad = [...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > w + 1 && !e.closest('pre, .expressive-code, table')).slice(0, 3).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).slice(0, 40)}`);
+      return { scroll: document.documentElement.scrollWidth - w, bad };
+    });
+    if (over.scroll > 1) failures.push(`overflow at 360 px on /${route}: ${over.scroll}px wider; ${over.bad.join(' | ')}`);
+  }
+  await ctx.close();
+}
+
+// Feature page filter: search narrows the list, an area pill leaves one section.
+{
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await ctx.newPage();
+  await page.goto(`${origin}${base}features/`, { waitUntil: 'networkidle' });
+  const total = await page.locator('.feat').count();
+  await page.fill('#q', 'gerber');
+  const hits = await page.locator('.feat:not([hidden])').count();
+  if (hits < 1 || hits >= total) failures.push(`feature search: ${hits} of ${total} shown for "gerber"`);
+  await page.fill('#q', '');
+  await page.click('.pill[data-area="rules"]');
+  const sections = await page.locator('[data-area-section]:not([hidden])').count();
+  if (sections !== 1) failures.push(`feature area filter: ${sections} sections shown, expected 1`);
+  console.log(`filter ok: search ${hits}/${total}, area pill leaves ${sections} section`);
+  await ctx.close();
+}
+
 if (shotsDir) {
   mkdirSync(shotsDir, { recursive: true });
   for (const [w, h, tag] of [[1440, 900, '1440'], [390, 844, '390']]) {
     for (const theme of ['dark', 'light']) {
-      const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, deviceScaleFactor: 1 });
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, deviceScaleFactor: 1, reducedMotion: 'reduce' });
       await ctx.addInitScript((t) => { try { localStorage.setItem('starlight-theme', t); } catch {} }, theme);
       const page = await ctx.newPage();
       for (const route of routes) {

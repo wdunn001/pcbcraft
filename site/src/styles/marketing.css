@@ -90,7 +90,7 @@ body.marketing {
 }
 .marketing main h1 {
   margin: 0.35em 0 0.4em;
-  font-size: clamp(2.4rem, 5.4vw, 4rem);
+  font-size: clamp(2.3rem, 4.4vw, 3.4rem);
   line-height: 1.04;
 }
 .marketing main h2 {
@@ -170,10 +170,10 @@ body.marketing {
   background: currentColor;
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 22%, transparent);
 }
-.t-sch { color: var(--pc-cyan); }
-.t-pcb { color: var(--pc-copper); }
-.t-lib { color: var(--pc-mask); }
-.t-out { color: var(--pc-gold); }
+.t-sch { --tone: var(--pc-cyan); color: var(--pc-cyan); }
+.t-pcb { --tone: var(--pc-copper); color: var(--pc-copper); }
+.t-lib { --tone: var(--pc-mask); color: var(--pc-mask); }
+.t-out { --tone: var(--pc-gold); color: var(--pc-gold); }
 .tag {
   font: 600 0.75rem/1 var(--pc-font-mono);
   letter-spacing: 0.1em;
@@ -186,4 +186,36 @@ body.marketing {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Placeholder mark: a small gold tag after any text whose copy is not final, and a corner tag
+   on an empty screenshot slot. It stays visible until #718 flips the entry to final. */
+[data-slot]::after {
+  content: attr(data-slot);
+  display: inline-block;
+  margin-inline-start: 0.6rem;
+  padding: 0 0.45rem;
+  vertical-align: middle;
+  color: var(--pc-gold);
+  border: 1px dashed var(--pc-gold);
+  border-radius: 3px;
+  font: 600 0.62rem/1.6 var(--pc-font-mono);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.view[data-slot] {
+  position: relative;
+}
+.view[data-slot]::after {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  margin: 0;
+  background: var(--pc-bg);
+}
+
+/* Grid children may shrink below their content (code blocks scroll inside their own box). */
+.marketing main [class*='grid'] > *,
+.marketing main .dl > * {
+  min-width: 0;
 }

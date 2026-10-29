@@ -1,8 +1,256 @@
 ---
+// Full feature list: every entry in src/data/features.yaml grouped by area, with a filter by
+// area and status, a search box, and the proof for each entry. Without JavaScript the controls
+// stay hidden and the whole list shows.
 import MarketingLayout from '../../layouts/MarketingLayout.astro';
-import ComingSoon from '../../components/ComingSoon.astro';
+import FeatureList from '../../components/FeatureList.astro';
+import { areas, features, inArea, statusLabels } from '../../lib/features';
+import { url } from '../../lib/site';
 ---
 
-<MarketingLayout title="Features" description="Placeholder page for Features.">
-  <ComingSoon heading="Features" issue="#714" />
+<MarketingLayout title="Features" description="Every PCBCraft feature, grouped by area, with a status mark and the proof for each one.">
+  <section class="head">
+    <div class="wrap">
+      <p class="eyebrow">Features</p>
+      <h1>Everything PCBCraft does today</h1>
+      <p class="lede">{features.length} features in {areas.length} areas. Each one names the command, tool or test that proves it exists.</p>
+    </div>
+  </section>
+
+  <section class="wrap" aria-label="Filter the feature list">
+    <form class="controls" id="controls" hidden>
+      <div class="field">
+        <label for="q">Search</label>
+        <input id="q" type="search" placeholder="Search features" autocomplete="off" title="Search the feature names, descriptions and proofs" />
+      </div>
+      <div class="field">
+        <label for="st">Status</label>
+        <select id="st" title="Show features with one status">
+          <option value="">All statuses</option>
+          {Object.entries(statusLabels).map(([id, label]) => <option value={id}>{label}</option>)}
+        </select>
+      </div>
+      <fieldset class="areas">
+        <legend>Area</legend>
+        <button type="button" class="pill" data-area="" aria-pressed="true" title="Show every area">All</button>
+        {areas.map((a) => <button type="button" class={`pill t-${a.tone}`} data-area={a.id} aria-pressed="false" title={`Show only ${a.label.toLowerCase()}`}>{a.label}</button>)}
+      </fieldset>
+      <p class="count" id="count" role="status" aria-live="polite"></p>
+    </form>
+
+    <nav class="jump" aria-label="Jump to an area">
+      {areas.map((a) => <a href={`#${a.id}`}>{a.label}</a>)}
+    </nav>
+
+    {
+      areas.map((a) => (
+        <section class="area" id={a.id} data-area-section={a.id} aria-labelledby={`h-${a.id}`}>
+          <h2 id={`h-${a.id}`} class={`t-${a.tone}`}><span class="pad"></span>{a.label}</h2>
+          <FeatureList items={inArea(a.id)} />
+          <p class="page-link"><a href={url(`features/${a.id}/`)}>Open the {a.label.toLowerCase()} page <span aria-hidden="true">→</span></a></p>
+        </section>
+      ))
+    }
+    <p class="empty" id="empty" hidden>No feature matches. Clear the search or pick another area.</p>
+
+    <aside class="key" aria-label="What the status marks mean">
+      <h2>Status marks</h2>
+      <dl>
+        <dt>Desktop and browser</dt><dd>Works in the desktop app and in the browser build.</dd>
+        <dt>Available</dt><dd>Ships in the desktop app. Browser behaviour is not checked yet.</dd>
+        <dt>Desktop only</dt><dd>Needs files or network access that the browser build does not have yet.</dd>
+      </dl>
+    </aside>
+  </section>
 </MarketingLayout>
+
+<script>
+  const root = document.getElementById('controls') as HTMLFormElement | null;
+  if (root) {
+    root.hidden = false;
+    root.addEventListener('submit', (e) => e.preventDefault());
+    const q = document.getElementById('q') as HTMLInputElement;
+    const st = document.getElementById('st') as HTMLSelectElement;
+    const pills = [...root.querySelectorAll<HTMLButtonElement>('.pill')];
+    const items = [...document.querySelectorAll<HTMLElement>('.feat')];
+    const sections = [...document.querySelectorAll<HTMLElement>('[data-area-section]')];
+    const count = document.getElementById('count')!;
+    const empty = document.getElementById('empty')!;
+    let area = '';
+    function apply() {
+      const terms = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      for (const it of items) {
+        const ok =
+          (!area || it.dataset.area === area) &&
+          (!st.value || it.dataset.status === st.value) &&
+          terms.every((t) => (it.dataset.search ?? '').includes(t));
+        it.hidden = !ok;
+        if (ok) shown++;
+      }
+      for (const s of sections) s.hidden = !s.querySelector('.feat:not([hidden])');
+      count.textContent = `${shown} of ${items.length} features shown`;
+      empty.hidden = shown !== 0;
+    }
+    pills.forEach((p) =>
+      p.addEventListener('click', () => {
+        area = p.dataset.area ?? '';
+        pills.forEach((o) => o.setAttribute('aria-pressed', String(o === p)));
+        apply();
+      }),
+    );
+    q.addEventListener('input', apply);
+    st.addEventListener('change', apply);
+    apply();
+  }
+</script>
+
+<style>
+  .head {
+    padding: 3.5rem 0 1.5rem;
+  }
+  .controls {
+    display: grid;
+    gap: 1rem 1.25rem;
+    grid-template-columns: 1fr;
+    align-items: end;
+    margin: 1rem 0 1.5rem;
+    padding: 1.2rem 1.3rem;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+    border-radius: 8px;
+  }
+  .controls[hidden] {
+    display: none;
+  }
+  @media (min-width: 48rem) {
+    .controls {
+      grid-template-columns: 2fr 1fr;
+    }
+    .areas,
+    .count {
+      grid-column: 1 / -1;
+    }
+  }
+  .field label,
+  legend {
+    display: block;
+    margin-bottom: 0.3rem;
+    color: var(--pc-muted);
+    font: 600 0.72rem var(--pc-font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  input,
+  select {
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    color: var(--pc-text);
+    background: var(--pc-bg);
+    border: 1px solid var(--pc-edge);
+    border-radius: 6px;
+    font: inherit;
+  }
+  .areas {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .areas legend {
+    padding: 0;
+  }
+  .pill {
+    margin: 0.2rem 0.35rem 0.2rem 0;
+    padding: 0.35rem 0.8rem;
+    color: var(--pc-text);
+    background: transparent;
+    border: 1px solid var(--pc-edge);
+    border-radius: 999px;
+    font: 500 0.85rem var(--pc-font-body);
+    cursor: pointer;
+  }
+  .pill:hover {
+    border-color: var(--pc-copper);
+  }
+  .pill[aria-pressed='true'] {
+    color: var(--pc-onacc);
+    background: var(--pc-copper);
+    border-color: var(--pc-copper);
+  }
+  .count {
+    margin: 0;
+    color: var(--pc-muted);
+    font: 0.8rem var(--pc-font-mono);
+  }
+  .jump {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    margin: 0 0 1rem;
+    font-size: 0.9rem;
+  }
+  .controls:not([hidden]) ~ .jump {
+    display: none;
+  }
+  .area {
+    padding: 2.2rem 0 0.5rem;
+    scroll-margin-top: 5rem;
+  }
+  .area[hidden] {
+    display: none;
+  }
+  .area h2 {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+    font-size: 1.55rem !important;
+  }
+  .area h2::before {
+    display: none !important;
+  }
+  .page-link {
+    margin: 0.9rem 0 0;
+    font-size: 0.92rem;
+  }
+  .empty {
+    padding: 2rem 0;
+    color: var(--pc-muted);
+  }
+  .key {
+    margin-top: 3rem;
+    padding: 1.4rem 1.5rem;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+    border-radius: 8px;
+  }
+  .key h2 {
+    font-size: 1.2rem !important;
+  }
+  .key h2::before {
+    display: none !important;
+  }
+  dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.5rem 1.5rem;
+    margin: 0;
+    color: var(--pc-muted);
+  }
+  dt {
+    color: var(--pc-text);
+    font: 600 0.8rem var(--pc-font-mono);
+  }
+  dd {
+    margin: 0;
+  }
+  @media (max-width: 36rem) {
+    dl {
+      grid-template-columns: 1fr;
+      gap: 0.1rem;
+    }
+    dd {
+      margin-bottom: 0.7rem;
+    }
+  }
+</style>
