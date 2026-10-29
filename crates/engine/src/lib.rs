@@ -2223,7 +2223,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, companion-part intent checks along schematic net paths (series resistors, pull-ups, termination, protection and decoupling), capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -22220,6 +22220,15 @@ mod tests {
         }
         assert!(s.project.validate().is_ok());
         Ok(())
+    }
+    #[test]
+    fn checks_scope_lists_courtyard_and_silk_checks() {
+        let scope = Session::default().checks()["scope"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(scope.contains("courtyards that overlap"));
+        assert!(scope.contains("drawn silk"));
     }
     #[test]
     fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {
