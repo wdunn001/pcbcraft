@@ -45,7 +45,10 @@ fn files_tab(recents: &IsolatedRecents) -> Result<(egui::Context, App, [String; 
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
-    let files = [recents.file("alpha.pcbcraft"), recents.file("beta.pcbcraft")];
+    let files = [
+        recents.file("alpha.pcbcraft"),
+        recents.file("beta.pcbcraft"),
+    ];
     for file in &files {
         app.path = file.clone();
         if !app.tool_call("save", json!({"path": file})) {
@@ -78,8 +81,11 @@ fn key(key: egui::Key) -> egui::Event {
 fn a_newcomer_opens_files_and_sees_recent_projects() -> Result<(), String> {
     let recents = IsolatedRecents::new()?;
     let (ctx, mut app, _) = files_tab(&recents)?;
-    for words in ["Recent projects", "alpha", "beta", "Open now"] {
-        assert!(paints_text(&ctx, &mut app, words)?, "the page shows {words}");
+    for words in ["Recent projects", "alpha", "beta", "OPEN NOW"] {
+        assert!(
+            paints_text(&ctx, &mut app, words)?,
+            "the page shows {words}"
+        );
     }
     for command in ["New project", "Open…", "Save", "Save as…", "Close project"] {
         assert!(
@@ -116,7 +122,7 @@ fn a_newcomer_reopens_a_recent_project() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "alpha")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, &files[0])?,
+        paints_text(&ctx, &mut app, "alpha.pcbcraft")?,
         "the right aside shows the full path of the picked project"
     );
     assert_eq!(app.tab, Tab::Files, "one click only picks it");
@@ -167,11 +173,14 @@ fn a_newcomer_saves_and_exports_from_the_files_tab() -> Result<(), String> {
     );
     authoring::tests::tap(&ctx, &mut app, "Export")?;
     assert_eq!(app.files_home.page, files_home::Page::Export);
-    for words in ["Common", "Bill of materials"] {
+    for words in ["COMMON", "Bill of materials"] {
         assert!(paints_text(&ctx, &mut app, words)?, "Export lists {words}");
     }
     authoring::tests::tap(&ctx, &mut app, "Bill of materials")?;
-    assert!(app.edit.dialog.open, "a format opens the same Export dialog");
+    assert!(
+        app.edit.dialog.open,
+        "a format opens the same Export dialog"
+    );
     authoring::tests::tap(&ctx, &mut app, "Export")?;
     assert!(
         out.path().join("bom.csv").exists(),

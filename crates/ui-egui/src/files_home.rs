@@ -453,6 +453,8 @@ impl App {
     /// # Do not
     /// - Add a tab strip or the Library here; the workspace lists one tab only.
     pub(crate) fn files_commands(&mut self, ui: &mut egui::Ui) {
+        // Selectable text would take the click that belongs to the row.
+        ui.style_mut().interaction.selectable_labels = false;
         let ctx = ui.ctx().clone();
         let tokens = theme::tokens(&ctx);
         let primary = |key: egui::Key, shift: bool| {
@@ -463,8 +465,7 @@ impl App {
             };
             ctx.format_shortcut(&egui::KeyboardShortcut::new(mods, key))
         };
-        let can_close =
-            !self.project.components.is_empty() || self.project_has_unsaved_changes();
+        let can_close = !self.project.components.is_empty() || self.project_has_unsaved_changes();
         let commands: [(Command, String, String, String, bool, bool); 10] = [
             (
                 Command::Recent,
@@ -737,6 +738,7 @@ impl App {
     /// # Do not
     /// - Draw the Library or Layers here.
     pub(crate) fn files_center(&mut self, ui: &mut egui::Ui) {
+        ui.style_mut().interaction.selectable_labels = false;
         let ctx = ui.ctx().clone();
         self.files_probe(&ctx);
         self.files_page_keys(&ctx);
@@ -789,8 +791,16 @@ impl App {
         ui.horizontal_wrapped(|ui| {
             for (command, label, tip) in [
                 (Command::New, t!("files.nav.new"), t!("files.nav.new.tip")),
-                (Command::Open, t!("files.nav.open"), t!("files.nav.open.tip")),
-                (Command::Save, t!("files.nav.save"), t!("files.nav.save.tip")),
+                (
+                    Command::Open,
+                    t!("files.nav.open"),
+                    t!("files.nav.open.tip"),
+                ),
+                (
+                    Command::Save,
+                    t!("files.nav.save"),
+                    t!("files.nav.save.tip"),
+                ),
                 (
                     Command::SaveAs,
                     t!("files.nav.save_as"),
@@ -823,7 +833,10 @@ impl App {
         if ctx.egui_wants_keyboard_input()
             || ui_kit::menu::any_open(ctx)
             || self.edit.dialog.open
-            || ctx.memory(|m| m.focused().is_some_and(|id| !self.files_home.rows.contains(&id)))
+            || ctx.memory(|m| {
+                m.focused()
+                    .is_some_and(|id| !self.files_home.rows.contains(&id))
+            })
         {
             return;
         }
@@ -976,12 +989,10 @@ impl App {
                         ui.label(fonts::caption(state).color(tokens.muted));
                     });
                 });
-                ui.add(
-                    egui::Label::new(
-                        fonts::mono(short_folder(&self.path)).color(tokens.muted),
-                    )
-                    .truncate(),
-                );
+                let folder = short_folder(&self.path);
+                if !folder.is_empty() {
+                    ui.add(egui::Label::new(fonts::mono(folder).color(tokens.muted)).truncate());
+                }
             });
     }
 
@@ -1037,15 +1048,14 @@ impl App {
         );
         text.horizontal(|ui| {
             if pinned {
-                let (r, _) = ui.allocate_exact_size(Vec2::splat(icons::ICON_SIZE), egui::Sense::hover());
+                let (r, _) =
+                    ui.allocate_exact_size(Vec2::splat(icons::ICON_SIZE), egui::Sense::hover());
                 (icons::PIN.0)(ui.painter(), r, tokens.copper);
             }
             let colour = if missing { tokens.muted } else { tokens.text };
             ui.add(egui::Label::new(fonts::strong(&name).color(colour)).truncate());
         });
-        text.add(
-            egui::Label::new(fonts::mono(short_folder(path)).color(tokens.muted)).truncate(),
-        );
+        text.add(egui::Label::new(fonts::mono(short_folder(path)).color(tokens.muted)).truncate());
         let when_colour = if missing { tokens.gold } else { tokens.muted };
         text.add(egui::Label::new(fonts::caption(when).color(when_colour)).truncate());
         let mut pin = false;
@@ -1083,8 +1093,15 @@ impl App {
         {
             remove = true;
         }
-        if button::icon_button(&mut buttons, icons::PIN, &pin_name, &pin_tip, Size::Normal, true)
-            .clicked()
+        if button::icon_button(
+            &mut buttons,
+            icons::PIN,
+            &pin_name,
+            &pin_tip,
+            Size::Normal,
+            true,
+        )
+        .clicked()
         {
             pin = true;
         }
@@ -1147,6 +1164,7 @@ impl App {
     /// # Dependencies
     /// - crates/ui-egui/src/lib.rs (`App::inspector` calls this on the Files tab)
     pub(crate) fn files_details(&mut self, ui: &mut egui::Ui) {
+        ui.style_mut().interaction.selectable_labels = false;
         let tokens = theme::tokens(ui.ctx());
         let label = t!("files.details.tab");
         let tip = t!("files.details.tab.tip");
@@ -1314,9 +1332,7 @@ impl App {
             detail_row(ui, &key, &value, &tokens);
         }
         ui.add_space(theme::SPACE[2]);
-        ui.label(
-            fonts::text(fonts::Role::Body, t!("files.details.hint")).color(tokens.muted),
-        );
+        ui.label(fonts::text(fonts::Role::Body, t!("files.details.hint")).color(tokens.muted));
     }
 
     /// The Open page: a folder browser with a typed path above it.
@@ -1411,7 +1427,11 @@ impl App {
                 t!("files.open.file.tip")
             };
             let response = ui_kit::rows::list_row(ui, selected, &label, &tip, |ui| {
-                let colour = if entry.folder { tokens.cyan } else { tokens.text };
+                let colour = if entry.folder {
+                    tokens.cyan
+                } else {
+                    tokens.text
+                };
                 ui.label(fonts::text(fonts::Role::Body, &label).color(colour));
             });
             if selected && self.files_home.reveal {
@@ -1567,6 +1587,7 @@ impl App {
             }
             let response = ui_kit::rows::list_row(ui, false, f.label, f.tip, |ui| {
                 ui.label(fonts::text(fonts::Role::Body, f.label).color(tokens.text));
+                ui.add(egui::Label::new(fonts::caption(f.tip).color(tokens.muted)).truncate());
             });
             if response.clicked() {
                 picked = Some((Some(f.id.to_owned()), None));
