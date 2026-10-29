@@ -130,7 +130,7 @@ impl App {
                 }
             }
             if ui
-                .small_button("Forget saved answers")
+                .tap_button("Forget saved answers")
                 .on_hover_text(
                     "Clear the answers kept for a day so the next search asks the source again.",
                 )

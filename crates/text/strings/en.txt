@@ -1,5 +1,9 @@
 # English base catalog. One `key = value` per line, # starts a comment.
 # Keys are stable ids: lowercase letters, digits, dots, dashes, underscores.
+# Plurals: write `base.one`, `base.other` and any other category the language
+# needs (zero, two, few, many) as `key = text with {count}`. Write the number
+# into the message (`{count} errors found`), not a separate noun. `other` is
+# mandatory and is the fallback; add exactly the categories your language uses.
 # Values may hold {name} placeholders. A control's tooltip uses the same key
 # with a `.tip` suffix. Translators copy this file and change only the values.
 language.name = English
@@ -848,6 +852,8 @@ settings.settings_tab.bottom.tip = New tracks are drawn on the bottom copper lay
 settings.settings_tab.pad_labels = Pad labels
 settings.settings_tab.choose_what_is_drawn_at.tip = Choose what is drawn at each pad centre on the board.
 settings.settings_tab.accent_color = Accent color
+settings.settings_tab.reduce_motion = Reduce motion
+settings.settings_tab.reduce_motion.tip = Turn off fades and gliding zoom. The wheel zooms in one step. Dragging is unchanged.
 settings.settings_tab.appearance_is_saved_automatically = Appearance is saved automatically.
 settings.settings_tab.routing = ROUTING
 settings.settings_tab.chamfer_corners = Chamfer corners
