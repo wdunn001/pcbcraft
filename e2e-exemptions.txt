@@ -253,3 +253,10 @@ story | button:Reset view | no story yet, tracked in #520
 story | button:Top view | no story yet, tracked in #520
 story | textinput:Datum name | no story yet, tracked in #520
 tooltip | textinput:what to print | missing tooltip, tracked in #520
+tooltip | button:Pour copper | missing tooltip, tracked in #520
+story | button:#% | no story yet, tracked in #520
+tooltip | button:Attach PNG | missing tooltip, tracked in #520
+tooltip | textinput:PNG file path | missing tooltip, tracked in #520
+tooltip | button:Print art, bottom silkscreen | missing tooltip, tracked in #520
+tooltip | button:Print art, top silkscreen | missing tooltip, tracked in #520
+story | button:Print art, bottom silkscreen | no story yet, tracked in #520

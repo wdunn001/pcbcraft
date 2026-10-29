@@ -1380,9 +1380,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "track.route_pair",
-            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled orthogonal L geometry at the pair gap",
+            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled geometry at the pair gap; corners are cut at 45 degrees by default, mode orthogonal keeps right angles",
             schema(
-                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["octilinear","orthogonal"]}}),
                 &["from_p", "from_n", "to_p", "to_n"],
             ),
         ),
@@ -1827,7 +1827,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "output_job.add",
-            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
+            "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics, uv_print for silkscreen artwork for a UV printer) that can be re-run after any edit",
             schema(
                 json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":pcbcraft_doc::MAX_OUTPUT_KINDS}}),
                 &["name", "kinds"],
@@ -1845,7 +1845,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.run",
             "Run an output job: write every file of its recipe (fabrication layers, netlist, bill of materials, placement, drawing) into a directory in one step",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"directory":{"type":"string","minLength":1},"uv_print":{"type":"object","description":"Settings for a uv_print kind: silkscreen artwork for a UV printer. Defaults to the top side at 720 DPI with 0.3 mm bleed.","properties":{"side":{"type":"string","enum":["top","bottom"]},"dpi":{"type":"integer","enum":[720,1440]},"gloss":{"type":"boolean"},"bleed_mm":{"type":"number","minimum":0,"maximum":5},"include_outline":{"type":"boolean"},"include_fiducials":{"type":"boolean"}},"additionalProperties":false}}),
                 &["name", "directory"],
             ),
         ),
@@ -3242,6 +3242,45 @@ struct OutputJobAddParams {
 struct OutputJobRunParams {
     name: String,
     directory: String,
+    #[serde(default)]
+    uv_print: Option<UvPrintJobParams>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UvPrintJobParams {
+    #[serde(default = "default_uv_side")]
+    side: String,
+    #[serde(default = "default_uv_dpi")]
+    dpi: u32,
+    #[serde(default)]
+    gloss: bool,
+    #[serde(default = "default_uv_bleed_job")]
+    bleed_mm: f64,
+    #[serde(default = "default_uv_include_outline")]
+    include_outline: bool,
+    #[serde(default = "default_uv_include_fiducials")]
+    include_fiducials: bool,
+}
+
+fn default_uv_side() -> String {
+    "top".into()
+}
+
+fn default_uv_dpi() -> u32 {
+    720
+}
+
+fn default_uv_bleed_job() -> f64 {
+    0.3
+}
+
+fn default_uv_include_outline() -> bool {
+    true
+}
+
+fn default_uv_include_fiducials() -> bool {
+    true
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5068,6 +5107,13 @@ struct RoutePairParams {
     width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
+    /// `octilinear` (default) chamfers the corner at 45 degrees; `orthogonal`
+    /// keeps the right-angle corner.
+    #[serde(default = "pair_mode")]
+    mode: route::Mode,
+}
+fn pair_mode() -> route::Mode {
+    route::Mode::Octilinear
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5443,6 +5489,112 @@ fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
         .diff_pairs
         .iter()
         .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
+}
+/// Track segments for the positive and negative side of a pair.
+type PairSegments = (Vec<(Point, Point)>, Vec<(Point, Point)>);
+/// Both sides of a pair with their corners cut at 45 degrees. The positive
+/// side takes the straight-diagonal-straight path; the negative side keeps its
+/// diagonal exactly `spacing` (centre to centre) from it, so the pair stays
+/// coupled through the bend.
+fn coupled_chamfer_segments(
+    start_p: Point,
+    end_p: Point,
+    start_n: Point,
+    end_n: Point,
+    spacing: f64,
+) -> Result<PairSegments, Error> {
+    let too_tight =
+        || Error::Invalid("there is not enough room to bend the pair at 45 degrees".into());
+    let dx = end_p.x - start_p.x;
+    let dy = end_p.y - start_p.y;
+    // Work in a frame whose first axis is the longer run.
+    let swap = dy.abs() > dx.abs();
+    let to = |q: Point| if swap { (q.y, q.x) } else { (q.x, q.y) };
+    let from = |m: f64, n: f64| {
+        if swap {
+            Point::new(n, m)
+        } else {
+            Point::new(m, n)
+        }
+    };
+    let (pm0, pn0) = to(start_p);
+    let (pm1, pn1) = to(end_p);
+    let (nm0, nn0) = to(start_n);
+    let (nm1, nn1) = to(end_n);
+    let (dm, dn) = (pm1 - pm0, pn1 - pn0);
+    let chain = |pts: Vec<Point>| {
+        let mut out = vec![];
+        for pair in pts.windows(2) {
+            if pair[0].distance(pair[1]) > 1e-6 {
+                out.push((pair[0], pair[1]));
+            }
+        }
+        out
+    };
+    if dn.abs() < 1e-6 {
+        return Ok((chain(vec![start_p, end_p]), chain(vec![start_n, end_n])));
+    }
+    let (sm, sn) = (dm.signum(), dn.signum());
+    let run = (dm.abs() - dn.abs()) / 2.0;
+    let pa = (pm0 + sm * run, pn0);
+    let pb = (pm0 + sm * (run + dn.abs()), pn1);
+    let root = std::f64::consts::SQRT_2;
+    let (wm, wn) = (-sn / root, sm / root);
+    let side = (wm * (nm0 - pm0) + wn * (nn0 - pn0)).signum();
+    if side == 0.0 {
+        return Err(too_tight());
+    }
+    let c = wm * pa.0 + wn * pa.1 + side * spacing;
+    let ma = (c - wn * nn0) / wm;
+    let mb = (c - wn * nn1) / wm;
+    if sm * (ma - nm0) < -1e-9 || sm * (mb - ma) < -1e-9 || sm * (nm1 - mb) < -1e-9 {
+        return Err(too_tight());
+    }
+    let seg_p = chain(vec![start_p, from(pa.0, pa.1), from(pb.0, pb.1), end_p]);
+    let seg_n = chain(vec![start_n, from(ma, nn0), from(mb, nn1), end_n]);
+    Ok((seg_p, seg_n))
+}
+/// Both sides of a pair with right-angle corners. The negative side nests
+/// round the positive side's corner at `spacing` (centre to centre).
+fn coupled_right_angle_segments(
+    start_p: Point,
+    end_p: Point,
+    start_n: Point,
+    end_n: Point,
+    spacing: f64,
+) -> PairSegments {
+    let chain = |pts: Vec<Point>| {
+        let mut out = vec![];
+        for pair in pts.windows(2) {
+            if pair[0].distance(pair[1]) > 1e-6 {
+                out.push((pair[0], pair[1]));
+            }
+        }
+        out
+    };
+    let seg_p = orthogonal_route_segments(start_p, end_p);
+    let dx = end_p.x - start_p.x;
+    let dy = end_p.y - start_p.y;
+    let offset = start_n.y - start_p.y;
+    if dx.abs() < 1e-6 || dy.abs() < 1e-6 || offset.abs() < 1e-6 {
+        return (seg_p, orthogonal_route_segments(start_n, end_n));
+    }
+    let inner = offset.signum() == dy.signum();
+    // Turn straight at the far pad's column when it already keeps the
+    // spacing, so the run clears the other side's pad.
+    let way = if inner { -dx.signum() } else { dx.signum() };
+    let x = if (end_n.x - end_p.x) * way >= spacing - 1e-9 {
+        end_n.x
+    } else {
+        end_p.x + way * spacing
+    };
+    let seg_n = chain(vec![
+        start_n,
+        Point::new(x, start_n.y),
+        Point::new(x, end_n.y),
+        end_n,
+    ]);
+    (seg_p, seg_n)
 }
 fn orthogonal_route_segments(start: Point, end: Point) -> Vec<(Point, Point)> {
     let bend = Point::new(end.x, start.y);
@@ -13377,6 +13529,45 @@ fn run_command(
             let mut written: Vec<String> = vec![];
             let mut skipped: Vec<String> = vec![];
             for kind in &job.kinds {
+                if kind == "uv_print" {
+                    let fallback: UvPrintJobParams = serde_json::from_value(json!({}))
+                        .map_err(|e| Error::Invalid(e.to_string()))?;
+                    let settings = a.uv_print.as_ref().unwrap_or(&fallback);
+                    let side = match settings.side.as_str() {
+                        "top" => pcbcraft_io::UvPrintSide::Top,
+                        "bottom" => pcbcraft_io::UvPrintSide::Bottom,
+                        other => {
+                            return Err(Error::Invalid(format!(
+                                "uv_print side must be top or bottom, not {other}"
+                            )));
+                        }
+                    };
+                    let profile = pcbcraft_doc::eufymake_e1_uv_printer();
+                    profile.validate().map_err(Error::Invalid)?;
+                    if !profile.allows_dpi(settings.dpi) {
+                        return Err(Error::Invalid(format!(
+                            "dpi {} is not allowed for the configured uv printer",
+                            settings.dpi
+                        )));
+                    }
+                    let options = pcbcraft_io::UvPrintOptions {
+                        side,
+                        dpi: settings.dpi,
+                        white_layer: pcbcraft_io::UvPrintWhiteLayer::Separate,
+                        gloss: settings.gloss,
+                        bleed_mm: settings.bleed_mm,
+                        include_outline: settings.include_outline,
+                        include_fiducials: settings.include_fiducials,
+                        experiment: pcbcraft_io::UvPrintExperiment::None,
+                        include_values: false,
+                    };
+                    let files =
+                        pcbcraft_io::write_uv_print_job_files(p, directory, &profile, &options)
+                            .map_err(Error::Invalid)?;
+                    written.extend(files);
+
+                    continue;
+                }
                 for (name, bytes) in render_kind(p, kind, None, None, &mut skipped)? {
                     pcbcraft_io::atomic_write(&directory.join(&name), &bytes)
                         .map_err(Error::Invalid)?;
@@ -14454,11 +14645,27 @@ fn run_command(
                         return Err(Error::Invalid("pad position is out of range".into()));
                     }
                 }
-                let segs_p = orthogonal_route_segments(start_p, end_p);
-                let segs_n = orthogonal_route_segments(start_n, end_n);
+                let (segs_p, segs_n) = match a.mode {
+                    route::Mode::Orthogonal => coupled_right_angle_segments(
+                        start_p,
+                        end_p,
+                        start_n,
+                        end_n,
+                        pair.gap + width,
+                    ),
+                    route::Mode::Octilinear => {
+                        coupled_chamfer_segments(start_p, end_p, start_n, end_n, pair.gap + width)?
+                    }
+                    route::Mode::OctilinearShove => {
+                        return Err(Error::Invalid(
+                            "a pair routes with chamfered or right-angle corners only".into(),
+                        ));
+                    }
+                };
                 validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
                 (width, pair.gap, segs_p, segs_n)
             };
+            let before = route::errors(p);
             let mut ids_p = vec![];
             let mut ids_n = vec![];
             for (from, to) in segs_p {
@@ -14487,7 +14694,18 @@ fn run_command(
                     arc: None,
                 });
             }
+            let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
+            let after = route::errors(p);
+            if let Some((code, objects)) = after.difference(&before).find(|(code, objects)| {
+                matches!(*code, "clearance" | "copper_short" | "board_edge")
+                    && objects.iter().any(|id| touched.contains(id))
+            }) {
+                return Err(Error::Invalid(format!(
+                    "the pair route would break the {code} check on object(s) {objects:?}; nothing was changed"
+                )));
+            }
             Ok(json!({
+                "mode": if a.mode == route::Mode::Orthogonal { "orthogonal" } else { "octilinear" },
                 "ids_p": ids_p,
                 "ids_n": ids_n,
                 "net_p": net_p,
@@ -20483,6 +20701,42 @@ mod tests {
     }
 
     #[test]
+    fn footprint_generate_same_name_replaces_the_first() -> Result<(), Error> {
+        let mut s = Session::default();
+        for (pins, size) in [(48, 7.0), (32, 5.0)] {
+            s.execute(
+                "library.footprint.generate",
+                json!({"family": "qfn", "name": "QFN_X", "pitch": 0.5,
+                       "pin_count": pins, "body_x": size, "body_y": size}),
+                None,
+            )?;
+        }
+        assert_eq!(s.project.library.footprints.len(), 1);
+        assert_eq!(s.project.library.footprints[0].pads.len(), 33);
+        Ok(())
+    }
+
+    #[test]
+    fn footprint_generate_refuses_a_30_mm_pitch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let before = s.revision;
+        let err = s
+            .execute(
+                "library.footprint.generate",
+                json!({"family": "qfn", "name": "Q", "pitch": 30.0, "pin_count": 32,
+                       "body_x": 5.0, "body_y": 5.0}),
+                None,
+            )
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains("pitch must be between 0.1 and 25.4"), "{err}");
+        assert_eq!(s.revision, before);
+        assert_eq!(s.project.library.footprints.len(), 0);
+        Ok(())
+    }
+
+    #[test]
     fn footprint_generate_rejects_unknown_family() -> Result<(), Error> {
         let mut s = Session::default();
         let before = s.revision;
@@ -25912,6 +26166,48 @@ mod tests {
     }
 
     #[test]
+    fn route_pair_bends_at_45_degrees_by_default_and_at_right_angles_on_request()
+    -> Result<(), Error> {
+        let (gap, width) = (0.3, 0.2);
+        for (mode, want_diagonal) in [(None, true), (Some("octilinear"), true)] {
+            let mut s = Session::default();
+            let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+            s.execute(
+                "footprint.move",
+                json!({"id":fp_j2,"position":{"x":50.0,"y":30.0}}),
+                None,
+            )?;
+            let mut params = json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            });
+            if let Some(m) = mode {
+                params["mode"] = json!(m);
+            }
+            let result = s.execute("track.route_pair", params, None);
+            assert!(want_diagonal);
+            result?;
+            let diagonal = |t: &pcbcraft_doc::Track| {
+                let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+                dx > 1e-6 && (dx - dy).abs() < 1e-6
+            };
+            assert!(
+                s.project.board.tracks.iter().any(diagonal),
+                "a 45 degree run exists"
+            );
+            assert!(s.project.board.tracks.iter().all(|t| {
+                let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+                dx < 1e-6 || dy < 1e-6 || diagonal(t)
+            }));
+            assert!(!drc_codes(&mut s)?.contains(&"diffpair_gap".to_string()));
+        }
+        Ok(())
+    }
+
+    #[test]
     fn route_pair_refuses_narrow_channel_and_leaves_tracks_unchanged() -> Result<(), Error> {
         let mut s = Session::default();
         let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, 0.3, 0.2)?;
@@ -27437,6 +27733,64 @@ mod tests {
             "plot-report.csv",
             "board-report.txt",
         ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn uv_print_artifact_refuses_oversize_board() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.project.board.width = 400.0;
+        s.project.board.height = 500.0;
+        s.project.validate().map_err(Error::Invalid)?;
+        let profile = pcbcraft_doc::eufymake_e1_uv_printer();
+        let options = pcbcraft_io::UvPrintOptions {
+            side: pcbcraft_io::UvPrintSide::Top,
+            dpi: 720,
+            white_layer: pcbcraft_io::UvPrintWhiteLayer::Separate,
+            gloss: false,
+            bleed_mm: 0.3,
+            include_outline: false,
+            include_fiducials: false,
+            experiment: pcbcraft_io::UvPrintExperiment::None,
+            include_values: false,
+        };
+        let err = pcbcraft_io::uv_print_artwork(&s.project, options.side, &profile, &options)
+            .err()
+            .ok_or_else(|| Error::Invalid("expected refusal".into()))?;
+        assert!(
+            err.contains("bed"),
+            "oversize board should name the bed limit: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn uv_print_job_writes_png_svg_and_white_mask() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-uv-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"uv","kinds":["uv_print"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({
+                "name":"uv",
+                "directory":directory.to_string_lossy(),
+                "uv_print":{"side":"top","dpi":720,"bleed_mm":0.3}
+            }),
+            None,
+        )?;
+        for name in ["top-colour.png", "top-white.png", "top.svg"] {
             assert!(
                 directory.join(name).exists(),
                 "{name} should have been written"
