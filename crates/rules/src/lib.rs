@@ -2,9 +2,9 @@
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, panel_layout, panel_score_lines,
+    PanelSeparation, Project, Via, ViaKind, panel_layout, panel_score_lines,
 };
-use pcbcraft_geom::{Point, point_segment, segment_distance};
+use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -263,10 +263,12 @@ fn copper(project: &Project) -> Vec<Copper> {
             hole,
             cutouts: vec![],
         };
-        let mut back = item.clone();
-        back.layer = Layer::Back;
-        result.push(back);
-        result.push(item);
+        // One pad per copper layer in the via's span; it conducts nowhere else.
+        for layer in project.via_span_layers(v) {
+            let mut pad = item.clone();
+            pad.layer = layer;
+            result.push(pad);
+        }
     }
     for h in &project.board.holes {
         // An unplated drill is a keep-out shape on every layer: copper may
@@ -332,6 +334,97 @@ fn copper(project: &Project) -> Vec<Copper> {
     }
     result
 }
+
+const LASER_OBJECT_CAP: usize = 4096;
+
+/// One closed copper outline on a layer, grouped by net for laser export.
+#[derive(Clone, Debug, Serialize)]
+pub struct LaserCopperOutline {
+    pub net: Id,
+    pub ring: Vec<Point>,
+}
+
+fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point> {
+    if start.distance(end) < 1e-9 {
+        return hull::octagon(&[start], half_width);
+    }
+    hull::octagon(&[start, end], half_width)
+}
+
+fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
+    if ring.len() >= 2
+        && let (Some(first), Some(last)) = (ring.first(), ring.last())
+        && first.distance(*last) < 1e-9
+    {
+        ring.pop();
+    }
+    ring
+}
+
+fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
+    if let Some(outline) = &item.outline {
+        return Some(open_ring(outline.clone()));
+    }
+    if item.start.distance(item.end) < 1e-9 {
+        return Some(hull::octagon(&[item.start], item.radius));
+    }
+    Some(track_capsule_outline(item.start, item.end, item.radius))
+}
+
+/// Copper outlines on one layer, grouped by net, using the same geometry as DRC.
+pub fn laser_copper_outlines(
+    project: &Project,
+    layer: Layer,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    let mut out = Vec::new();
+    for item in copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer && c.net != 0)
+    {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser copper outline limit reached (4096)".into());
+        }
+        let ring = copper_item_ring(&item)
+            .ok_or_else(|| "copper outline could not be built".to_string())?;
+        if !polygon_is_simple(&ring) {
+            return Err("a copper outline is not a simple closed ring".into());
+        }
+        out.push(LaserCopperOutline {
+            net: item.net,
+            ring,
+        });
+    }
+    Ok(out)
+}
+
+/// Isolation rings offset outward from each net's copper on one layer.
+pub fn isolation_cut_polygons(
+    project: &Project,
+    layer: Layer,
+    isolation_width_mm: f64,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    if !isolation_width_mm.is_finite() || isolation_width_mm <= 0.0 {
+        return Err("isolation width must be a positive millimetre value".into());
+    }
+    let outlines = laser_copper_outlines(project, layer)?;
+    let mut by_net: BTreeMap<Id, Vec<Point>> = BTreeMap::new();
+    for item in outlines {
+        by_net.entry(item.net).or_default().extend(item.ring);
+    }
+    let mut out = Vec::new();
+    for (net, points) in by_net {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser isolation outline limit reached (4096)".into());
+        }
+        let ring = hull::octagon(&points, isolation_width_mm);
+        if ring.len() < 3 || !polygon_is_simple(&ring) {
+            return Err("an isolation ring is not a simple closed polygon".into());
+        }
+        out.push(LaserCopperOutline { net, ring });
+    }
+    Ok(out)
+}
+
 /// Copper a new track must keep clear of, seen exactly as the checks see it.
 #[derive(Clone, Debug)]
 pub struct Obstacle {
@@ -1169,6 +1262,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(panel_findings(project));
+    result.extend(via_findings(project));
     result.extend(fab_findings(project, board));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
@@ -1405,6 +1499,89 @@ fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
     let drill = pad_drill_diameter(pad)?;
     let tool = rules.drill_tool(drill);
     Some((pad_outer_radius(pad) * 2.0 - tool) / 2.0)
+}
+
+/// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
+const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
+
+/// Plain-language warning when a via is too deep for its drill to plate well;
+/// none when the ratio is fine or a laser-drilled micro via is exempt.
+pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
+    let board = &project.board;
+    let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
+        Some(board.thickness)
+    } else {
+        project.via_depth(via)
+    };
+    let depth = depth?;
+    if via.drill > 0.0
+        && project.via_kind(via) != ViaKind::Micro
+        && depth / via.drill > MECHANICAL_ASPECT_LIMIT + 1e-9
+    {
+        return Some(format!(
+            "Via at {:.2}, {:.2} is {:.2} mm deep with a {:.2} mm drill; a ratio above {MECHANICAL_ASPECT_LIMIT:.0} to 1 is hard to plate",
+            via.position.x, via.position.y, depth, via.drill
+        ));
+    }
+    None
+}
+/// Checks on where each via starts and ends in the stack.
+fn via_findings(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    let allowed = project.allowed_via_spans();
+    let board = &project.board;
+    for via in &board.vias {
+        let span = project.via_span(via);
+        let (upper, lower) = span;
+        if !allowed.contains(&span) {
+            result.push(Finding {
+                code: "via_span_not_allowed",
+                severity: project.rule_severity("via_span_not_allowed", "error"),
+                message: format!(
+                    "Via at {:.2}, {:.2} runs from {} to {}, which this board does not allow",
+                    via.position.x,
+                    via.position.y,
+                    project.layer_name(upper),
+                    project.layer_name(lower)
+                ),
+                objects: vec![via.id],
+            });
+        }
+        if let Some(message) = via_aspect_warning(project, via) {
+            result.push(Finding {
+                code: "via_aspect_ratio",
+                severity: project.rule_severity("via_aspect_ratio", "warning"),
+                message,
+                objects: vec![via.id],
+            });
+        }
+    }
+    for (i, a) in board.vias.iter().enumerate() {
+        if project.via_kind(a) != ViaKind::Micro {
+            continue;
+        }
+        for b in board.vias.iter().skip(i + 1) {
+            if project.via_kind(b) != ViaKind::Micro
+                || a.position.distance(b.position) > a.diameter.max(b.diameter) / 2.0
+            {
+                continue;
+            }
+            let (a_up, a_low) = project.via_span(a);
+            let (b_up, b_low) = project.via_span(b);
+            if a_low == b_up || b_low == a_up {
+                result.push(Finding {
+                    code: "stacked_microvia",
+                    severity: project.rule_severity("stacked_microvia", "info"),
+                    message: format!(
+                        "Two micro vias are stacked at {:.2}, {:.2}; stacked micro vias are a known reliability risk",
+                        a.position.x, a.position.y
+                    ),
+                    objects: vec![a.id, b.id],
+                });
+            }
+        }
+    }
+    result
 }
 
 fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
@@ -1722,6 +1899,8 @@ mod tests {
             position: Point::new(12.1, 10.0),
             diameter: 1.4,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         p.validate()?;
@@ -1911,6 +2090,8 @@ mod tests {
                 position: Point::new(12.0 + column as f64 * 0.5, 10.0),
                 diameter: 1.4,
                 drill: 0.4,
+                from_layer: None,
+                to_layer: None,
                 covering: None,
             });
         }
@@ -2665,6 +2846,8 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         let fp_id = p.board.footprints[0].id;
@@ -2735,6 +2918,8 @@ mod tests {
             position: Point::new(20.0, 20.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
     }
@@ -3084,6 +3269,112 @@ mod tests {
             "a region elsewhere leaves the finding alone"
         );
     }
+
+    fn six_layer_project() -> Project {
+        let mut p = Project::default();
+        for i in 1..=6 {
+            p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            });
+            if i < 6 {
+                p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.2,
+                    copper_role: None,
+                });
+            }
+        }
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        p
+    }
+
+    fn span_via(p: &mut Project, id: Id, from: Option<u8>, to: Option<u8>) {
+        p.board.vias.push(Via {
+            id,
+            net: 1,
+            position: Point::new(12.1, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+            from_layer: from.and_then(|i| Layer::from_index(i).ok()),
+            to_layer: to.and_then(|i| Layer::from_index(i).ok()),
+            covering: None,
+        });
+    }
+    fn span_track(p: &mut Project, id: Id, layer: u8) {
+        p.board.tracks.push(Track {
+            id,
+            net: 1,
+            start: Point::new(11.0, 10.0),
+            end: Point::new(13.0, 10.0),
+            width: 0.25,
+            layer: Layer::from_index(layer).unwrap_or(Layer::Front),
+            arc: None,
+        });
+    }
+    #[test]
+    fn blind_via_connects_top_and_inner_not_bottom() -> Result<(), String> {
+        let mut p = six_layer_project();
+        span_via(&mut p, 4, None, Some(1));
+        span_track(&mut p, 5, 0);
+        span_track(&mut p, 6, 1);
+        span_track(&mut p, 7, 5);
+        p.validate()?;
+        let items = copper(&p);
+        let on = |layer: u8| items.iter().find(|c| c.id == 4 && c.layer.index() == layer);
+        assert!(on(0).is_some() && on(1).is_some());
+        assert!(
+            on(2).is_none() && on(5).is_none(),
+            "no copper below its span"
+        );
+        let via_top = on(0).ok_or("top via pad missing")?;
+        let top_track = items
+            .iter()
+            .find(|c| c.id == 5)
+            .ok_or("top track missing")?;
+        let inner_track = items
+            .iter()
+            .find(|c| c.id == 6)
+            .ok_or("inner track missing")?;
+        let bottom_track = items
+            .iter()
+            .find(|c| c.id == 7)
+            .ok_or("bottom track missing")?;
+        assert!(touching(via_top, top_track));
+        let via_inner = on(1).ok_or("inner via pad missing")?;
+        assert!(touching(via_inner, inner_track));
+        assert!(
+            !items
+                .iter()
+                .filter(|c| c.id == 4)
+                .any(|v| touching(v, bottom_track)),
+            "a blind via does not reach the bottom layer"
+        );
+        Ok(())
+    }
+    #[test]
+    fn via_findings_report_forbidden_span_and_stacked_microvias() -> Result<(), String> {
+        let mut p = six_layer_project();
+        span_via(&mut p, 4, Some(2), Some(3));
+        p.validate()?;
+        assert!(codes(&p).contains(&"via_span_not_allowed"));
+        p.board.via_spans.push((2, 3));
+        assert!(!codes(&p).contains(&"via_span_not_allowed"));
+        // Two shallow blind vias end to end at one spot are stacked.
+        p.board.vias.clear();
+        p.board.via_spans.push((1, 2));
+        span_via(&mut p, 8, None, Some(1));
+        span_via(&mut p, 9, Some(1), Some(2));
+        assert!(codes(&p).contains(&"stacked_microvia"));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -3212,6 +3503,8 @@ mod pour_tests {
             position: Point::new(20.0, 20.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         p.validate()?;

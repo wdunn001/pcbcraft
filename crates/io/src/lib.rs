@@ -7,24 +7,36 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod bitmap_trace;
 mod board_mesh;
 mod drawn;
 mod fab_export;
 mod gerber;
 mod gerber_job;
+mod laser;
 mod layers;
 mod library_render;
 mod package;
 mod panel_export;
 mod plot_read;
 mod raster;
+pub use bitmap_trace::{
+    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
+    decode_embedded_png, decode_png, embedded_bytes,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
-pub use gerber::gerber_copper;
+pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};
+pub use image::RgbaImage;
+pub use laser::{
+    LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
+};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
@@ -2076,6 +2088,8 @@ fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
 
 #[derive(Clone, Copy)]
 struct ProjectDrillHit {
+    /// Copper span of a blind or buried via; none for every other hole.
+    via_span: Option<(u8, u8)>,
     d: u64,
     span: u64,
     x: f64,
@@ -2095,6 +2109,7 @@ fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
         if v.drill > 0.0 {
             push(
                 ProjectDrillHit {
+                    via_span: fab_export::partial_via_span(p, v),
                     d: (v.drill * 1_000.0).round() as u64,
                     span: 0,
                     x: v.position.x,
@@ -2126,6 +2141,7 @@ fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
         };
         push(
             ProjectDrillHit {
+                via_span: None,
                 d,
                 span,
                 x,
@@ -2169,6 +2185,7 @@ fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
             };
             push(
                 ProjectDrillHit {
+                    via_span: None,
                     d,
                     span,
                     x: world.x,
@@ -2197,7 +2214,7 @@ fn excellon_drill_file(
     type DrillHit = (f64, f64, f64, f64);
     let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
     for hit in hits {
-        if plated_filter.is_some_and(|plated| hit.plated != plated) {
+        if plated_filter.is_some_and(|plated| hit.plated != plated) || hit.via_span.is_some() {
             continue;
         }
         drills
@@ -2528,11 +2545,16 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
         let ap = Ap::Circle(d.max(1));
-        let front_code = front.code(ap.clone())?;
-        let back_code = back.code(ap)?;
-        front.flash(front_code, v.position.x, v.position.y)?;
-        let (x, y) = mirror(v.position.x, v.position.y, true);
-        back.flash(back_code, x, y)?;
+        let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
+        if reaches_top {
+            let front_code = front.code(ap.clone())?;
+            front.flash(front_code, v.position.x, v.position.y)?;
+        }
+        if reaches_bottom {
+            let back_code = back.code(ap)?;
+            let (x, y) = mirror(v.position.x, v.position.y, true);
+            back.flash(back_code, x, y)?;
+        }
     }
     let mut outline = LayerFile::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
@@ -2605,6 +2627,11 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     ] {
         if let Some(text) = extras.get(key) {
             files.insert(key.to_string(), text.clone());
+        }
+    }
+    for (key, text) in &extras {
+        if key.starts_with("pcb-Drill-L") {
+            files.insert(key.clone(), text.clone());
         }
     }
     if !files.contains_key("pcb-NPTH.drl") {
@@ -6722,6 +6749,7 @@ mod tests {
         project.files.push(pcbcraft_doc::EmbeddedFile {
             name: "notes.txt".into(),
             data: "hello from the archive".into(),
+            encoding: String::new(),
         });
         let zip = archive_zip(&project)?;
         assert!(
@@ -6855,6 +6883,8 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
@@ -6974,6 +7004,8 @@ mod tests {
             position: Point::new(30.0, 40.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.validate()?;
@@ -7015,6 +7047,8 @@ mod tests {
             position: Point::new(10.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
@@ -7023,6 +7057,8 @@ mod tests {
             position: Point::new(20.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
@@ -7196,6 +7232,8 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.validate()?;
@@ -7241,6 +7279,8 @@ mod tests {
             position: Point::new(12.0, 12.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.validate()?;
@@ -7303,6 +7343,8 @@ mod tests {
             position: Point::new(40.0, 30.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
@@ -8062,6 +8104,8 @@ mod tests {
             position: Point::new(50.8, 25.4),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.unit = "inch".into();
@@ -8155,6 +8199,8 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
@@ -8977,6 +9023,8 @@ mod tests {
             position: Point::new(15.0, 11.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
@@ -9303,6 +9351,8 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
@@ -9473,6 +9523,8 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
@@ -9600,6 +9652,8 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 0.7,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
@@ -9613,6 +9667,7 @@ mod tests {
             ],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -9621,6 +9676,7 @@ mod tests {
             points: vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -9748,6 +9804,7 @@ mod tests {
             points: vec![Point::new(1.0, 2.0), Point::new(9.0, 2.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -10505,6 +10562,8 @@ mod tests {
             position: Point::new(4.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
@@ -10659,6 +10718,8 @@ mod tests {
             position: Point::new(30.0, 20.0),
             diameter: 1.4,
             drill: 0.8,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.validate()?;
@@ -10768,6 +10829,7 @@ mod tests {
             points: vec![Point::new(10.0, 10.0), Point::new(20.0, 15.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -10776,6 +10838,7 @@ mod tests {
             points: vec![Point::new(12.0, 12.0)],
             width: 1.5,
             text: "REV B".into(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -10784,6 +10847,7 @@ mod tests {
             points: vec![Point::new(30.0, 20.0)],
             width: 4.0,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
@@ -11872,6 +11936,8 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
@@ -11903,6 +11969,8 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
@@ -12404,6 +12472,81 @@ mod tests {
         assert!(readme.contains("Via protection: open"));
         Ok(())
     }
+
+    fn six_layer_project() -> Project {
+        let mut p = Project::default();
+        for i in 1..=6 {
+            p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            });
+            if i < 6 {
+                p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.2,
+                    copper_role: None,
+                });
+            }
+        }
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        p
+    }
+
+    #[test]
+    fn six_layer_three_span_drill_files() -> Result<(), String> {
+        let mut project = six_layer_project();
+        let via = |id, x, from: Option<u8>, to: Option<u8>| pcbcraft_doc::Via {
+            id,
+            net: 1,
+            position: Point::new(x, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
+            to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
+            covering: None,
+        };
+        project.board.vias.push(via(10, 5.0, None, None));
+        project.board.vias.push(via(11, 7.0, None, Some(1)));
+        project.board.vias.push(via(12, 9.0, Some(2), Some(3)));
+        project.board.via_spans.push((2, 3));
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let drills: Vec<&String> = files.keys().filter(|k| k.ends_with(".drl")).collect();
+        let span_files: Vec<&&String> = drills
+            .iter()
+            .filter(|k| k.starts_with("pcb-Drill-L"))
+            .collect();
+        assert_eq!(
+            span_files.len(),
+            2,
+            "blind and buried spans get their own files"
+        );
+        let blind = files
+            .get("pcb-Drill-L1-L2.drl")
+            .ok_or("blind drill file missing")?;
+        let buried = files
+            .get("pcb-Drill-L3-L4.drl")
+            .ok_or("buried drill file missing")?;
+        assert!(blind.contains("Plated,1,2,Blind"));
+        assert!(buried.contains("Plated,3,4,Buried"));
+        let through = files
+            .get("pcb-Plated.drl")
+            .ok_or("through drill file missing")?;
+        assert!(through.contains("Plated,1,6,PTH") || through.contains("PTH"));
+        assert_eq!(
+            through.lines().filter(|l| l.starts_with('X')).count(),
+            1,
+            "only the through via is in the through file"
+        );
+        Ok(())
+    }
     #[test]
     fn step_board_names_each_datum_with_its_coordinates() -> Result<(), String> {
         let mut project = Project::default();
@@ -12503,6 +12646,8 @@ mod tests {
                 position: Point::new(x, 10.0),
                 diameter: 0.6,
                 drill: 0.3,
+                from_layer: None,
+                to_layer: None,
                 covering,
             });
         }

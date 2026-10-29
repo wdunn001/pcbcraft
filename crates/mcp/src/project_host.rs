@@ -51,22 +51,8 @@ impl Default for MemHost {
     }
 }
 
-impl ProjectHost for MemHost {
-    fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
-        if self.open_queue.is_empty() {
-            None
-        } else {
-            Some(self.open_queue.remove(0))
-        }
-    }
-    fn save_download(&mut self, filename: &str, bytes: &[u8]) -> Result<(), String> {
-        self.downloads.push((filename.to_string(), bytes.to_vec()));
-        Ok(())
-    }
-}
-
 fn lock_session<'a>(
-    session: &'a pcbcraft_mcp::SharedSession,
+    session: &'a crate::SharedSession,
 ) -> Result<MutexGuard<'a, pcbcraft_engine::Session>, String> {
     session
         .lock()
@@ -75,7 +61,7 @@ fn lock_session<'a>(
 
 /// Apply an opened document to the shared session when it is a full project replacement.
 pub fn replace_session_from_open(
-    session: &pcbcraft_mcp::SharedSession,
+    session: &crate::SharedSession,
     kind: OpenKind,
 ) -> Result<(), String> {
     match kind {
@@ -90,16 +76,30 @@ pub fn replace_session_from_open(
     }
 }
 
+impl ProjectHost for MemHost {
+    fn pick_open(&mut self) -> Option<(String, Vec<u8>)> {
+        if self.open_queue.is_empty() {
+            None
+        } else {
+            Some(self.open_queue.remove(0))
+        }
+    }
+    fn save_download(&mut self, filename: &str, bytes: &[u8]) -> Result<(), String> {
+        self.downloads
+            .push((filename.to_string(), bytes.to_vec()));
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pcbcraft_doc::Project;
     use pcbcraft_io::{open_document, save_bytes};
-    use pcbcraft_mcp::shared;
 
     #[test]
     fn project_host_memory_open_edit_save_reopen_equal() -> Result<(), String> {
-        let session = shared(pcbcraft_engine::Session::default());
+        let session = crate::shared(pcbcraft_engine::Session::default());
         let mut host = MemHost::new();
         let seed = Project {
             name: "Host round trip".into(),

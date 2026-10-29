@@ -44,9 +44,9 @@ pub(crate) fn scrolled_to_at(
     let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
     // Down first, then back up, in case the label sits above where an earlier
     // search left the scroll.
-    for step in 0..160 {
+    for step in 0..300 {
         let (lane_x, lane_y) = lanes[step % lanes.len()];
-        let direction = if step < 80 { -60.0 } else { 60.0 };
+        let direction = if step < 150 { -60.0 } else { 60.0 };
         // Small point-sized steps: a line-sized jump can sail a short
         // button clean past the viewport between two polls.
         let wheel = egui::Event::MouseWheel {
@@ -91,6 +91,8 @@ pub(crate) fn frame(
     mut events: Vec<egui::Event>,
     modifiers: egui::Modifiers,
 ) -> egui::FullOutput {
+    ctx.enable_accesskit();
+    super::audit::record_touches(ctx, app, &events);
     events.insert(0, egui::Event::ModifiersChanged(modifiers));
     let mut output = ctx.run_ui(
         egui::RawInput {
@@ -103,6 +105,7 @@ pub(crate) fn frame(
         },
         |ui| app.show(ui),
     );
+    super::audit::remember_labels(&output);
     // This input test has no GPU renderer; intentionally discard texture uploads.
     output.textures_delta.clear();
     output
