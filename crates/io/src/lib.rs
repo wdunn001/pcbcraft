@@ -19,6 +19,7 @@ mod package;
 mod panel_export;
 mod plot_read;
 mod raster;
+mod stencil;
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
@@ -55,6 +56,13 @@ pub use plot_read::{
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg,
+};
+pub use stencil::{
+    cut_path_export_text, cut_paths, cut_paths_dxf, cut_paths_svg, stencil_apertures,
+    stencil_dxf, stencil_export_text, stencil_svg, validate_cut_path_options,
+    validate_stencil_options, CutPathOptions, CutPaths, PathFormat, Reduction, Ring,
+    StencilApertures, StencilFrame, StencilOptions, StencilSide, StencilSkipped,
+    CUT_PATH_FIBER_NOTE,
 };
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -12734,5 +12742,244 @@ mod tests {
             "four gaps between four spokes"
         );
         Ok(())
+    }
+
+﻿    fn stub_library_footprint(pads: Vec<pcbcraft_library::FootprintPad>) -> pcbcraft_doc::LibraryFootprint {
+        pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: pcbcraft_library::FootprintDefinition {
+                name: "test".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads,
+                graphics: vec![],
+                model: None,
+                rules: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            },
+        }
+    }
+
+    fn stencil_sample_project() -> Result<Project, String> {
+        use pcbcraft_library::FootprintPad;
+        let mut project = Project::default();
+        project.board.width = 40.0;
+        project.board.height = 30.0;
+        project.components.push(pcbcraft_doc::Component {
+            id: 1,
+            reference: "R1".into(),
+            value: "1k".into(),
+            kind: "resistor".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: "~".into(),
+                    offset: Point::default(),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: "~".into(),
+                    offset: Point::default(),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
+        });
+        let footprint_pad = |number: &str, x: f64, y: f64, size: f64, smd: bool| FootprintPad {
+            number: number.into(),
+            pad_type: if smd { "smd" } else { "thru_hole" }.into(),
+            shape: if smd { "rect" } else { "circle" }.into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::new(size, size),
+            layers: if smd {
+                vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()]
+            } else {
+                vec!["F.Cu".into(), "*.Cu".into()]
+            },
+            drill: if smd {
+                None
+            } else {
+                Some(pcbcraft_library::Drill {
+                    size: Point::new(0.8, 0.8),
+                    offset: Point::default(),
+                })
+            },
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let smd = |number: &str, x: f64, y: f64, size: f64| pcbcraft_doc::Pad {
+            number: number.into(),
+            offset: Point::new(x, y),
+            diameter: size,
+            net: None,
+            castellated: None,
+            geometry: Some(footprint_pad(number, x, y, size, true)),
+        };
+        let thru = |number: &str, x: f64, y: f64| pcbcraft_doc::Pad {
+            number: number.into(),
+            offset: Point::new(x, y),
+            diameter: 1.0,
+            net: None,
+            castellated: None,
+            geometry: Some(footprint_pad(number, x, y, 1.0, false)),
+        };
+        project.components[0].library_footprint = Some(stub_library_footprint(vec![
+            footprint_pad("1", 0.0, 0.0, 1.0, true),
+            footprint_pad("2", 2.0, 0.0, 1.0, false),
+        ]));
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![smd("1", 0.0, 0.0, 1.0), thru("2", 2.0, 0.0)],
+        });
+        project.validate()?;
+        Ok(project)
+    }
+
+    fn default_stencil_options() -> StencilOptions {
+        StencilOptions {
+            side: StencilSide::Top,
+            reduction: Reduction::Millimetres(0.0),
+            frame: None,
+            kerf_mm: 0.0,
+            mirror: false,
+            format: PathFormat::Svg,
+        }
+    }
+
+    #[test]
+    fn stencil_svg_has_one_closed_path_per_smd_pad_and_none_for_through_hole() -> Result<(), String>
+    {
+        let project = stencil_sample_project()?;
+        let svg = stencil_svg(&project, &default_stencil_options())?;
+        assert_eq!(svg.matches("<path d=\"").count(), 2, "aperture plus reference");
+        let apertures = stencil_apertures(&project, &default_stencil_options())?;
+        assert_eq!(apertures.rings.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn ten_percent_reduction_shrinks_a_one_millimetre_aperture_to_point_nine() -> Result<(), String>
+    {
+        let project = stencil_sample_project()?;
+        let mut options = default_stencil_options();
+        options.reduction = Reduction::Percent(10.0);
+        let rings = stencil_apertures(&project, &options)?.rings;
+        assert_eq!(rings.len(), 1);
+        let xs: Vec<f64> = rings[0].iter().map(|p| p.x).collect();
+        let width = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+            - xs.iter().cloned().fold(f64::INFINITY, f64::min);
+        // footprint at (10,10), 1 mm pad shrunk by 10% to 0.9 mm
+        assert!((width - 0.9).abs() < 0.02, "width {width}");
+        Ok(())
+    }
+
+    #[test]
+    fn kerf_shrinks_every_aperture_by_half_the_kerf() -> Result<(), String> {
+        let project = stencil_sample_project()?;
+        let base = stencil_apertures(&project, &default_stencil_options())?.rings[0].clone();
+        let mut options = default_stencil_options();
+        options.kerf_mm = 0.2;
+        let cut = stencil_apertures(&project, &options)?.rings[0].clone();
+        let width = |ring: &Ring| {
+            let xs: Vec<f64> = ring.iter().map(|p| p.x).collect();
+            xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+                - xs.iter().cloned().fold(f64::INFINITY, f64::min)
+        };
+        let base_w = width(&base);
+        let cut_w = width(&cut);
+        assert!((base_w - cut_w - 0.2).abs() < 0.02);
+        Ok(())
+    }
+
+    #[test]
+    fn bottom_stencil_mirrors_x_about_the_board_centre() -> Result<(), String> {
+        let project = stencil_sample_project()?;
+        let unmirrored = stencil_apertures(&project, &default_stencil_options())?.rings[0].clone();
+        let mut options = default_stencil_options();
+        options.mirror = true;
+        let mirrored = stencil_apertures(&project, &options)?.rings[0].clone();
+        let centre = project.board.width / 2.0;
+        for (a, b) in unmirrored.iter().zip(&mirrored) {
+            assert!((a.x + b.x - 2.0 * centre).abs() < 1e-6);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn frame_adds_a_rectangle_and_four_holes_at_the_inset() -> Result<(), String> {
+        let project = stencil_sample_project()?;
+        let mut options = default_stencil_options();
+        options.frame = Some(StencilFrame {
+            margin_mm: 10.0,
+            hole_diameter_mm: 2.0,
+            hole_inset_mm: 5.0,
+        });
+        let svg = stencil_svg(&project, &options)?;
+        assert!(svg.contains("id=\"frame\""));
+        assert_eq!(svg.matches("<path d=\"").count(), 7);
+        Ok(())
+    }
+
+    #[test]
+    fn stencil_dxf_reads_back_with_dxf_entities_and_the_same_aperture_count() -> Result<(), String>
+    {
+        let project = stencil_sample_project()?;
+        let mut options = default_stencil_options();
+        options.format = PathFormat::Dxf;
+        let text = stencil_dxf(&project, &options)?;
+        let entities = dxf_entities(&text)?;
+        let apertures = entities
+            .iter()
+            .filter(|e| e.layer == "apertures")
+            .count();
+        assert_eq!(apertures, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn cut_paths_offset_the_outline_outward_and_cutouts_inward_by_half_the_kerf(
+    ) -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 20.0;
+        project.board.height = 10.0;
+        project.board.cutouts.push(pcbcraft_doc::Cutout {
+            id: 1,
+            center: Point::new(10.0, 5.0),
+            radius: 2.0,
+        });
+        project.validate()?;
+        let options = CutPathOptions {
+            kerf_mm: 0.2,
+            cutouts: true,
+            format: PathFormat::Svg,
+        };
+        let paths = cut_paths(&project, &options)?;
+        let outline_w = paths.outline[1].x - paths.outline[0].x;
+        assert!((outline_w - 20.2).abs() < 0.05);
+        let cut_r = paths.cutouts[0][0].distance(Point::new(10.0, 5.0));
+        assert!((cut_r - 1.9).abs() < 0.05);
+        Ok(())
+
     }
 }
