@@ -2,6 +2,7 @@ use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer};
 use pcbcraft_geom::point_segment;
+mod board_art;
 mod underlay;
 
 /// The world rectangle each tab should show by default: the board outline on
@@ -1968,6 +1969,7 @@ impl App {
             );
         }
         self.draw_user_layers(painter, rect, camera, p);
+        self.paint_board_graphics(painter, rect, camera, p);
         painter.text(
             board.left_bottom() + Vec2::new(0.0, 18.0),
             Align2::LEFT_TOP,
