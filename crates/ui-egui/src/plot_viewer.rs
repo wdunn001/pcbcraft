@@ -61,6 +61,7 @@ impl State {
         !self.hidden_layers.iter().any(|h| h == id)
     }
 
+    #[cfg(test)]
     pub fn visible_layer_count(&self) -> usize {
         self.package
             .as_ref()
@@ -77,7 +78,6 @@ impl State {
 pub struct Theme {
     pub surface: Color32,
     pub muted: Color32,
-    pub ink: Color32,
     pub accent: Color32,
 }
 
@@ -358,16 +358,17 @@ fn paint_canvas(
         }
     }
 
-    if state.measure_mode && response.clicked() {
-        if let Some(pos) = response.interact_pointer_pos() {
-            let world = state.camera.world(pos, rect);
-            state.measure_pts.push(world);
-            if state.measure_pts.len() > 2 {
-                state.measure_pts.remove(0);
-            }
+    if state.measure_mode
+        && response.clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        let world = state.camera.world(pos, rect);
+        state.measure_pts.push(world);
+        if state.measure_pts.len() > 2 {
+            state.measure_pts.remove(0);
         }
     }
-    if state.measure_pts.len() >= 1 {
+    if !state.measure_pts.is_empty() {
         for pt in &state.measure_pts {
             let sp = state.camera.screen(*pt, rect);
             painter.circle_filled(sp, 4.0, theme.accent);

@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::keymap::{KeyAction, KeyChord};
-use crate::test_support::{frame, tap};
+use super::support::{frame, tap};
 use egui::Key;
 use serde_json::json;
 
@@ -61,6 +61,40 @@ fn a_newcomer_rebinds_rotate_to_another_key() -> Result<(), String> {
         app.project.footprint(11).map(|f| f.rotation),
         Some(90.0),
         "R should no longer rotate after the rebind: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_automatic_board_sync_off_from_the_keyboard() -> Result<(), String> {
+    let session =
+        pcbcraft_mcp::shared(pcbcraft_engine::Session::sample().map_err(|e| e.to_string())?);
+    let mut app = App::create(session, Preferences::default(), None, None);
+    app.refresh();
+    assert!(app.project.auto_sync, "new designs start with sync on");
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::Key {
+            key: Key::B,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Default::default()
+            },
+        }],
+        egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+    );
+    app.refresh();
+    assert!(
+        !app.project.auto_sync,
+        "Ctrl+Shift+B should turn automatic sync off: {}",
         app.message
     );
     Ok(())

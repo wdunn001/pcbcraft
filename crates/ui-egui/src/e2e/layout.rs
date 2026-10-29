@@ -25,7 +25,7 @@ fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Duplicate")?,
+        scrolled_to(&ctx, &mut app, "Duplicate")?,
         "a chosen part offers to be copied: {}",
         app.message
     );
@@ -62,7 +62,7 @@ fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Lock in place")?,
+        scrolled_to(&ctx, &mut app, "Lock in place")?,
         "a chosen footprint offers to be frozen: {}",
         app.message
     );
@@ -116,7 +116,7 @@ fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Dock left")?,
+        scrolled_to(&ctx, &mut app, "Dock left")?,
         "a chosen footprint offers to sit flush to an edge: {}",
         app.message
     );
@@ -171,7 +171,7 @@ fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Cut corner")?,
+        scrolled_to(&ctx, &mut app, "Cut corner")?,
         "a wire that meets another offers a corner cut: {}",
         app.message
     );

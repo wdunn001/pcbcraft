@@ -162,3 +162,21 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    authoring::tests::tap_icon(&ctx, &mut app, "tool-move")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        matches!(app.tool, Tool::Move),
+        "tapping the Move icon selects the Move tool"
+    );
+    Ok(())
+}
