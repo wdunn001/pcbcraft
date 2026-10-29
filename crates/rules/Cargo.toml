@@ -10,6 +10,7 @@ workspace = true
 
 [dev-dependencies]
 pcbcraft-library.workspace = true
+serde_json.workspace = true
 
 [dependencies]
 pcbcraft-geom.workspace = true
