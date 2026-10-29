@@ -1381,3 +1381,6 @@ unit.mil = mil
 unit.inch = in
 cmp.count.one = {count} part
 cmp.count.other = {count} parts
+
+# on-demand fallback font for a language the built-in fonts cannot draw
+font.the_font_file_for_this = The font file {file} was not found next to the program. Text in this language shows as empty boxes until the fonts folder is installed.

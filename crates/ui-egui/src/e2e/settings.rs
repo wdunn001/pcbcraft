@@ -64,3 +64,77 @@ fn a_newcomer_finds_appearance_on_the_settings_page() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// The Japanese font the installer ships next to the program; the test
+/// reads the same file from the repository that the native loader reads
+/// from beside the executable and the browser build fetches over HTTP.
+const JP_FONT: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/fonts/NotoSansJP-Regular.otf"
+);
+
+#[test]
+fn a_newcomer_picks_japanese_and_sees_no_empty_boxes() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let bytes = std::fs::read(JP_FONT).unwrap_or_default();
+    assert!(
+        !bytes.is_empty(),
+        "{JP_FONT} must ship in the repository"
+    );
+    crate::fonts::add_fallback(&ctx, "NotoSansJP-Regular", bytes);
+    app.set_language(&ctx, "ja");
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // Test-only Japanese words a designer meets in this app: board,
+    // design, wiring. The translation file arrives in another issue.
+    let japanese = "基板設計配線";
+    let galley = ctx.fonts_mut(|fonts| {
+        fonts.layout_no_wrap(
+            japanese.to_string(),
+            egui::FontId::proportional(14.0),
+            egui::Color32::WHITE,
+        )
+    });
+    let mut boxes = Vec::new();
+    for row in &galley.rows {
+        for glyph in &row.glyphs {
+            // A real Japanese glyph fills a full 14-point em; an empty
+            // box from the Latin font is far narrower.
+            if (glyph.chr as u32) >= 0x2e80 && glyph.advance_width < 13.0 {
+                boxes.push(format!(
+                    "{} drew only {:.1} points wide",
+                    glyph.chr, glyph.advance_width
+                ));
+            }
+        }
+    }
+    assert!(
+        boxes.is_empty(),
+        "Japanese text still shows empty boxes: {boxes:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_missing_font_file_keeps_the_app_usable_and_says_so() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The test binary runs with no fonts folder next to it, so the
+    // Japanese file really is missing for this app.
+    app.set_language(&ctx, "ja");
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.message.contains("font file")
+            && app.message.contains("NotoSansJP-Regular.otf"),
+        "the status line should say which font file is missing: {}",
+        app.message
+    );
+    app.change_tab(Tab::Settings);
+    assert!(
+        paints_text(&ctx, &mut app, "APPEARANCE")?,
+        "the app stays usable and keeps painting text"
+    );
+    Ok(())
+}

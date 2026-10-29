@@ -2742,6 +2742,7 @@ dependencies = [
  "pcbcraft-text",
  "serde",
  "serde_json",
+ "skrifa",
 ]
 
 [[package]]
@@ -2749,6 +2750,7 @@ name = "pcbcraft-web"
 version = "0.1.0"
 dependencies = [
  "eframe",
+ "js_sys",
  "pcbcraft-engine",
  "pcbcraft-mcp",
  "pcbcraft-ui-egui",

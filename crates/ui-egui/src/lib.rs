@@ -7,6 +7,7 @@ mod canvas;
 mod datums;
 mod editing;
 mod footprint_wizard;
+pub mod fonts;
 mod impedance_panel;
 mod library;
 mod library_quality;
@@ -1290,6 +1291,7 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
+        app.apply_fallback_font(&cc.egui_ctx);
         app
     }
     fn create(
@@ -3522,11 +3524,41 @@ impl App {
         .response
         .on_hover_text(t!("menu.edit.tip"));
     }
-    /// Switch the app's language; the next frame paints in it.
-    fn set_language(&mut self, tag: &str) {
+    /// Switch the app's language; the next frame paints in it. When the
+    /// language needs a fallback font file, load it from the `fonts/`
+    /// folder next to the program and report a missing file in the
+    /// status line.
+    fn set_language(&mut self, ctx: &egui::Context, tag: &str) {
         self.preferences.language = tag.to_string();
         self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
         pcbcraft_text::activate(&self.catalog);
+        self.apply_fallback_font(ctx);
+    }
+
+    /// The language tag the app is showing text in, as saved in the
+    /// preferences (`en`, `ja`, `zh`, … or `system`).
+    pub fn language(&self) -> String {
+        self.preferences.language.clone()
+    }
+
+    /// Load the fallback font for the saved language when it names one
+    /// (`ja`, `zh`). A missing file keeps the default fonts and sets a
+    /// plain sentence in [`App::message`]; the app stays usable.
+    /// The browser build fetches its font in `apps/pcbcraft-web` instead.
+    fn apply_fallback_font(&mut self, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(file) = fonts::load_for_language(ctx, &self.preferences.language) {
+            self.report_missing_font(file);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = ctx;
+    }
+
+    /// Say, in the status line, that a language's font file could not be
+    /// loaded, so the app still works but text may show as empty boxes.
+    /// The browser build calls this when its fetch fails.
+    pub fn report_missing_font(&mut self, file: &str) {
+        self.message = pcbcraft_text::lookup("font.the_font_file_for_this", &[("file", file)]);
     }
     fn language_menu(&mut self, ui: &mut egui::Ui) {
         let mut picked = None;
@@ -3555,7 +3587,7 @@ impl App {
         .response
         .on_hover_text(t!("menu.settings.language.tip"));
         if let Some(tag) = picked {
-            self.set_language(&tag);
+            self.set_language(ui.ctx(), &tag);
             ui.ctx().request_repaint();
         }
     }

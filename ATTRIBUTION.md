@@ -15,6 +15,7 @@
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |
 | KiCad library fixtures | https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints | Ubuntu packages 10.0.6~ubuntu24.04.1; CC-BY-SA 4.0 + KiCad design-output exception | Extracted R/LED/LM2904/LM358 symbols and unmodified R_0805 footprint; community contributors; exact provenance/checksums and modifications in docs/kicad-libraries.md; original license in crates/library/tests/fixtures/LICENSE-kicad-libraries.md |
+| Noto Sans JP | https://github.com/notofonts/noto-cjk (Sans/SubsetOTF/JP/NotoSansJP-Regular.otf) | 165c01b46ea533872e002e0785ff17e44f6d97d8; SIL OFL 1.1 | Unmodified Japanese fallback font shipped as `assets/fonts/NotoSansJP-Regular.otf` with license text in `assets/fonts/LICENSE-NotoSansJP.txt`; loaded at runtime, never embedded |
 
 KiCad's official PCB_POINT API/source documentation was consulted to distinguish
 non-manufactured reference-point metadata from copper/outline geometry; exact links
