@@ -14,3 +14,6 @@ pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-io.workspace = true
 eframe.workspace = true
+
+[build-dependencies]
+embed-resource = "3.0.11"
