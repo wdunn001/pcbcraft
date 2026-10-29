@@ -17,6 +17,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Single-window tabbed editor, shared project and cross-tab component selection
 - [x] Pinned craft-ui integration; dark/light/accent/grid preferences
 - [x] Native and WebAssembly compilation gates
+- [x] MCP specification conformance doc, tool hints, resources, prompts and loopback HTTP (#613, #636-#644)
 
 ## M1: First circuit (implemented subset)
 
@@ -38,6 +39,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [ ] Repeated common pins (#302) and back SMD placement (#305)
 - [x] Graphical pin styles on project-library symbols (#303 subset on fork main)
 - [x] Unplated footprint holes and board mounting holes/slots (#304 subset on fork main)
+- [x] Part listings with paging (#656), shared list filter (#657), symbol-to-listing adapters (#658)
 - [x] Explicit wire vertices, junctions, labels and no-connect flags (#308 subset on fork main)
 - [ ] Buses (#308) and hierarchy (#306, #307)
 - [ ] General import of boards and schematics with unknown-field preservation and round-trip fixtures (#309, #310, #311)
@@ -53,15 +55,18 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [ ] Inner copper layer stackups (#317)
 - [ ] Interactive 45° routing, obstacle avoidance, shove and track dragging (#282)
 - [x] Differential pair routing as one coupled gesture (#341 subset on fork main; skew tuning #407 remains open)
-- [ ] Length tuning and impedance-aware constraints (#283)
+- [x] Impedance estimates, length targets and an inspector UI (subset of #283)
 - [ ] Copper zone thermal reliefs, islands, keepouts and robust polygon operations (#284)
 - [ ] Comprehensive clearance and manufacturing checks (#285)
 - [ ] Checks on drawn machine layers against the copper and vias they cross (#277)
 - [ ] Design-intent electrical checks: power pins, decoupling and pull-ups (#334)
 - [x] Many fabrication plots, drill, placement, BOM and named output jobs (#286 subset on fork main; fabrication-valid copper gerbers #351 remain open)
-- [ ] Everyday editing: copy and paste, box select, measure, groups and track cleanup (#342)
-- [ ] Logos and reference images placed as bitmaps and traced to silk, mask or copper (#343)
+- [x] Everyday editing subset: selection, clipboard, measure and track cleanup (#342)
+- [x] Reference images on the board and traced logo paths (subset of #343)
 - [x] Initial Gerber copper layer writer (pad flashes and tracks)
+- [x] Stub length limit per net class (#363)
+- [x] Courtyard overlap and silkscreen checks (#490)
+- [x] Drill ring offset reporting (#491)
 
 ## M3: Sketch-driven board geometry and mechanical coordination
 
@@ -70,7 +75,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)
 - [ ] PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)
 - [ ] Component bodies in STEP and enclosure model import (#321)
-- [ ] Real 3D board tab with component bodies and inspection (#291)
+- [x] Board 3D tab with default box bodies and inspection (subset of #291)
 
 ## M4: Complete workflows and distribution
 
@@ -78,13 +83,15 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [ ] Full schematic/PCB/library editor workflows
 - [x] Reference-project parity suite with golden outputs (#293)
 - [ ] Autosave/recovery, project migration, large-board responsiveness (#294)
-- [ ] Native Windows/Linux/macOS packaging and browser distribution (#295), built by the CI/CD pipeline (#340)
+- [x] GitHub Actions build and dist pipeline (#340)
+- [x] Linux Flatpak and Snap packaging in CI (subset of #295, #340)
+- [ ] Native Windows/macOS packaging and browser distribution (#295), built by the CI/CD pipeline (#340)
 - [ ] Craft Launcher integration where authorized by its maintainers (#296)
 - [ ] Compare two versions of a design (#335)
-- [ ] Open and inspect fabrication files (#336)
+- [x] Open and inspect fabrication files (#336)
 - [ ] Drawing frames and title blocks for schematics and drawings (#337)
-- [ ] Accessibility: keyboard-only use, screen reader names and scalable text (#339)
-- [ ] Text catalog and translations for every user-visible string (#349)
+- [x] Accessibility foundation, WCAG contrast and target size or motion checks (subset of #339, #606, #607, #645-#652)
+- [x] Text catalog, plural rules, locale numbers and text direction (subset of #349, #511-#518, #602, #660, #661, #662)
 - [ ] Design calculators: track width, via, impedance, divider and unit conversion (#350)
 
 ## M5: Inner copper layers
@@ -103,11 +110,12 @@ objects with a stale marker and a preview, produced for fabrication houses and
 for in-house machines.
 
 - [ ] Artifact records with stale marker and preview (#323)
-- [ ] Machine profiles (#324)
+- [x] Machine profiles: built-in shop presets, TOML import, NeoDen YY1 pick-and-place (#324, #355, #389)
 - [ ] Fabrication-house plots with attributes, drill split and drill map (#325)
 - [ ] BOM artifact (#326)
 - [ ] Assembly and fabrication drawings (#327)
-- [x] Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; UV-specific workflows and drawn-layer BMP export remain open)
+- [x] Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; drawn-layer BMP export remains open)
+- [x] UV print artwork export from the board (#356)
 - [ ] CNC isolation G-code (#329)
 - [ ] CNC drilling and outline G-code (#330)
 - [ ] Paste stencil and laser cut paths (#331)
@@ -121,19 +129,23 @@ User-interface work that cuts across milestones. These lines carry
 
 - [x] Top menu bar, Start page, plain menu labels, canvas handles, pin and pad click wiring, stackup-first Layers, status strip, Review groups, custom checks, unified library sources and sets, drawn machine layer model
 - [ ] Workbench layout: top menu bar, library left, assistant and Layers tree right, tool strip under the tabs (#299)
-- [ ] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274)
+- [x] One vector-style Layers tree replaces the Parts, Nets and Layers docks (#274, #298)
 - [ ] Draw directly on your own layers from the canvas (#275)
-- [ ] Rules and Checks as top tabs, Project Settings with breathing room (#278)
-- [ ] Right-click context menu on the canvas (#279)
+- [x] Rules and Checks as top tabs, Project Settings with breathing room (#278)
+- [x] Right-click context menu on the canvas (#279)
 - [ ] Library browser with filters in the left dock (#280)
-- [ ] Online part sources: search distributor catalogs from the library (#333)
+- [x] Online part sources: search distributor catalogs from the library (#333)
 - [x] Generate IPC-style land patterns from package parameters and read-only footprint checks (#344 subset on fork main)
 - [ ] Parts table: edit every part's fields in one grid (#345)
 - [ ] Schematic tool strip: wiring, labels, shapes, text and tables drawn on the sheet (#346)
 - [ ] Several designs open at once, one document tab each (#347)
-- [ ] Assistant pane backed by the typed command surface (#348)
-- [ ] Assistant epic: bring the assistant structure of a sibling Craft app into PCBCraft (#360), with its core crate (#366), backends (#367, #374), settings (#368), edit gate (#369), context (#370), knowledge retrieval (#371), transcript (#372), offline behaviour and story suite (#373) and shared home decision (#375)
-- [ ] Move the end-to-end stories out of the UI crate's lib.rs into `crates/ui-egui/tests/e2e/<area>.rs` (#392)
+- [x] Assistant pane, settings, edit gate and per-design context (#348, #368, #369, #370)
+- [x] Assistant core crate and HTTP API surface (#366, #367)
+- [x] Offline local-model behaviour and story suite (#372, #373)
+- [ ] Assistant epic: sibling Craft app structure, extra backends, knowledge retrieval and shared home (#360, #371, #374, #375)
+- [x] Context actions routed through clipboard text where the host allows (#521, #522)
+- [x] Two-line tooltip standard, lint gate and settings or layout fixes (#617, #625-#630)
+- [x] Move the end-to-end stories out of the UI crate's lib.rs into `crates/ui-egui/tests/e2e/<area>.rs` (#392)
 - [ ] Help reference: electrical engineering terms, formulas and calculators inside the app (issue to be filed; related to #350)
 
 No feature is considered complete solely because a command exists. Workflows need
