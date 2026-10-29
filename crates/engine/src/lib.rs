@@ -2012,8 +2012,8 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above" => {
-                if p.components.len() as f64 > c.limit {
+            "part count above"
+                if p.components.len() as f64 > c.limit => {
                     breach(
                         vec![],
                         format!(
@@ -2024,9 +2024,8 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                         ),
                     )
                 }
-            }
-            "via count above" => {
-                if p.board.vias.len() as f64 > c.limit {
+            "via count above"
+                if p.board.vias.len() as f64 > c.limit => {
                     breach(
                         vec![],
                         format!(
@@ -2037,7 +2036,6 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                         ),
                     )
                 }
-            }
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -5500,7 +5498,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.tolerance
-                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
+                .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
             {
                 return Err(Error::Invalid(
                     "length tolerance must be between 0 and 100000 millimetres".into(),
@@ -5730,7 +5728,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.length_tolerance
-                .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
+                .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
             {
                 return Err(Error::Invalid(
                     "length tolerance must be between 0 and 1000 mm".into(),
@@ -5964,7 +5962,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.drill
-                .is_some_and(|d| !d.is_finite() || d < 0.05 || d > 100.0)
+                .is_some_and(|d| !d.is_finite() || !(0.05..=100.0).contains(&d))
             {
                 return Err(Error::Invalid(
                     "padstack drill must be within 0.05 to 100 mm".into(),
@@ -6924,7 +6922,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             wire.points = moved;
             for label in &mut p.labels {
                 if label.kind != "junction"
-                    || !net.is_some_and(|n| label.net == n)
+                    || net.is_none_or(|n| label.net != n)
                     || !old.contains(&label.position)
                 {
                     continue;
@@ -7009,7 +7007,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.text.len() > 1024 {
                 return Err(Error::Invalid("graphic text is too long".into()));
             }
-            if (a.shape == "text") != !a.text.is_empty() {
+            if (a.shape == "text") == a.text.is_empty() {
                 return Err(Error::Invalid("only text graphics may carry text".into()));
             }
             let id = allocate(next)?;
@@ -8055,13 +8053,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             let height = a.height.unwrap_or(3.0);
-            if !height.is_finite() || height < 0.5 || height > 50.0 {
+            if !height.is_finite() || !(0.5..=50.0).contains(&height) {
                 return Err(Error::Invalid(
                     "barcode height must be between 0.5 and 50 mm".into(),
                 ));
             }
             let module = a.module.unwrap_or(0.25);
-            if !module.is_finite() || module < 0.05 || module > 2.0 {
+            if !module.is_finite() || !(0.05..=2.0).contains(&module) {
                 return Err(Error::Invalid(
                     "barcode module width must be between 0.05 and 2 mm".into(),
                 ));
@@ -9270,7 +9268,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
                 if item
                     .size
-                    .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+                    .is_some_and(|s| !s.is_finite() || !(0.1..=50.0).contains(&s))
                 {
                     return Err(Error::Invalid(
                         "text size must be between 0.1 and 50 mm".into(),
@@ -10407,7 +10405,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.net.is_some_and(|n| !p.nets.iter().any(|x| x.id == n)) {
                 return Err(Error::Invalid("area references an unknown net".into()));
             }
-            if a.max_height.is_some_and(|h| h < 0.1 || h > 100.0) {
+            if a.max_height.is_some_and(|h| !(0.1..=100.0).contains(&h)) {
                 return Err(Error::Invalid(
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
@@ -10442,7 +10440,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "rules.area_set_height" => {
             let a: AreaHeightParams = parse(params)?;
-            if a.height.is_some_and(|h| h < 0.1 || h > 100.0) {
+            if a.height.is_some_and(|h| !(0.1..=100.0).contains(&h)) {
                 return Err(Error::Invalid(
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
@@ -12775,7 +12773,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
             }
             if a.size
-                .is_some_and(|s| !s.is_finite() || s < 0.1 || s > 50.0)
+                .is_some_and(|s| !s.is_finite() || !(0.1..=50.0).contains(&s))
             {
                 return Err(Error::Invalid(
                     "text size must be between 0.1 and 50 mm".into(),
