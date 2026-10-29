@@ -31,9 +31,10 @@ pub fn read_schematic_interchange_path(path: &Path, text: &str) -> Result<Projec
             "this schematic needs embedded symbol definitions; cache-library-only files are not supported".into(),
         );
     }
-    let lib = root
-        .child("lib_symbols")
-        .ok_or_else(|| "this schematic needs embedded symbol definitions; cache-library-only files are not supported".into())?;
+    let lib = root.child("lib_symbols").ok_or(
+        "this schematic needs embedded symbol definitions; cache-library-only files are not supported"
+            .to_string(),
+    )?;
     let symbols = read_embedded_symbols(text, lib)?;
     let mut ctx = ImportCtx::new(path, symbols);
     ctx.parse_page(0, None, Vec::new(), &root, text)?;
@@ -463,9 +464,9 @@ impl ImportCtx {
     }
 
     fn finish(mut self) -> Result<Project, String> {
+        let pages = std::mem::take(&mut self.pages);
         let mut project = Project::default();
-        project.name = self
-            .pages
+        project.name = pages
             .first()
             .map(|p| p.sheet_name.clone())
             .unwrap_or_else(|| "Imported schematic".into());
@@ -473,7 +474,7 @@ impl ImportCtx {
             symbols: self.symbols.into_values().collect(),
             ..ProjectLibrary::default()
         };
-        for page in &self.pages {
+        for page in &pages {
             if page.sheet_id != 0 {
                 project.sheets.push(Sheet {
                     id: page.sheet_id,
@@ -482,8 +483,7 @@ impl ImportCtx {
                 });
             }
         }
-        project.components = self
-            .pages
+        project.components = pages
             .iter()
             .flat_map(|p| p.components.clone())
             .collect();
@@ -491,7 +491,7 @@ impl ImportCtx {
         let mut uf = UnionFind::new();
         let mut keys: HashMap<(u64, i64, i64), usize> = HashMap::new();
 
-        for page in &self.pages {
+        for page in &pages {
             for wire in &page.wires {
                 for window in wire.windows(2) {
                     let a = connection_key(&mut keys, &mut uf, page.sheet_id, window[0]);
@@ -513,7 +513,7 @@ impl ImportCtx {
 
         let mut named: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
 
-        for page in &self.pages {
+        for page in &pages {
             for (kind, text, pos, _, bus) in &page.labels {
                 if kind == "bus" {
                     continue;
@@ -543,7 +543,7 @@ impl ImportCtx {
             }
         }
 
-        for page in &self.pages {
+        for page in &pages {
             for (pin_name, pos, _) in &page.sheet_pins {
                 attach_net_name(
                     &mut named,
@@ -609,7 +609,7 @@ impl ImportCtx {
             orphan += 1;
         }
 
-        for page in &self.pages {
+        for page in &pages {
             for wire in &page.wires {
                 let id = self.alloc();
                 let net = wire.first().and_then(|p| {
@@ -687,7 +687,7 @@ impl ImportCtx {
             }
         }
 
-        for page in &self.pages {
+        for page in &pages {
             for point in &page.no_connect_points {
                 if let Some((component_id, pin_number)) =
                     find_pin_at(&project.components, page.sheet_id, *point)
@@ -783,12 +783,10 @@ fn parse_wire_points(node: &Node) -> Result<Vec<Point>, String> {
     let pts = node
         .child("pts")
         .ok_or_else(|| "wire has no points".to_string())?;
-    let points: Vec<Point> = pts
-        .children
-        .iter()
-        .filter(|c| c.name() == "xy")
-        .map(|xy| Point::new(num(xy.value(1))?, num(xy.value(2))?))
-        .collect();
+    let mut points = Vec::new();
+    for xy in pts.children.iter().filter(|c| c.name() == "xy") {
+        points.push(Point::new(num(xy.value(1))?, num(xy.value(2))?));
+    }
     if points.len() < 2 {
         return Err("wire needs at least two points".into());
     }
