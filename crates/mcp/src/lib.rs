@@ -817,6 +817,43 @@ pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String>
 mod tests {
     use super::*;
     #[test]
+    fn package_tool_is_listed_with_its_schema_and_writes_a_zip() -> Result<(), String> {
+        let tools = tool_list();
+        let spec = tools["tools"]
+            .as_array()
+            .and_then(|list| {
+                list.iter()
+                    .find(|tool| tool["name"] == "output_job.package")
+            })
+            .ok_or("the package command is in the tool list")?;
+        assert_eq!(
+            spec["inputSchema"]["required"],
+            json!(["path"]),
+            "the path is the only required argument"
+        );
+        assert_eq!(
+            spec["inputSchema"]["properties"]["kinds"]["maxItems"], 24,
+            "the kind list is bounded"
+        );
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let path = std::env::temp_dir().join(format!("pcbcraft-mcp-{}.zip", std::process::id()));
+        let reply = call_tool(
+            &session,
+            "output_job.package",
+            &json!({"path": path.to_string_lossy()}),
+        );
+        assert_eq!(reply["isError"], false, "{reply}");
+        assert_eq!(
+            reply["structuredContent"]["result"]["manifest"], "manifest.json",
+            "the package reports its manifest"
+        );
+        assert!(path.exists(), "the zip is on disk");
+        let missing = call_tool(&session, "output_job.package", &json!({}));
+        assert_eq!(missing["isError"], true, "the path is required");
+        let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+    #[test]
     fn board_mesh_tool_returns_triangles_without_editing() -> Result<(), String> {
         let session = shared(Session::default());
         let reply = call_tool(&session, "board_mesh", &json!({"layers":["board"]}));
@@ -1189,8 +1226,16 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
+            "pcb-F.Mask.gbr",
+            "pcb-B.Mask.gbr",
+            "pcb-F.Paste.gbr",
+            "pcb-B.Paste.gbr",
+            "pcb-F.SilkS.gbr",
+            "pcb-B.SilkS.gbr",
             "pcb-Edge.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
+            "pcb-DrillMap.gbr",
+            "README-fabrication.txt",
         ] {
             let text =
                 std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;
@@ -1198,6 +1243,10 @@ mod tests {
         }
         let front = std::fs::read_to_string(directory.path().join("pcb-F.Cu.gbr"))
             .map_err(|e| e.to_string())?;
+        assert!(
+            front.contains("%TF.FileFunction,Copper,L1,Top*%"),
+            "front copper carries its file function attribute"
+        );
         assert!(
             front.contains("X10.000000Y10.000000D02*\n"),
             "the exported copper should contain the drawn track"
