@@ -1,4 +1,6 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
+mod panel;
+
 use pcbcraft_doc::{Board, Id, Layer, Project};
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
@@ -47,7 +49,7 @@ struct Hole {
     radius: f64,
 }
 
-fn copper(project: &Project) -> Vec<Copper> {
+pub(super) fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
         let local = project
@@ -841,6 +843,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![net.id],
         });
     }
+    result.extend(panel::panel_checks(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

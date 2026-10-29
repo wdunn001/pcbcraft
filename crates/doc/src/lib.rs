@@ -1548,6 +1548,100 @@ pub fn panel_layout(project: &Project, settings: &PanelSettings) -> Result<Panel
         copies,
     })
 }
+/// Minimum copper clearance from a V-score line on a manufacturing panel.
+pub const PANEL_SCORE_COPPER_CLEARANCE_MM: f64 = 0.40;
+/// Minimum component keep-out from a V-score line on a manufacturing panel.
+pub const PANEL_SCORE_COMPONENT_CLEARANCE_MM: f64 = 1.0;
+/// Minimum breakaway tab width between routed panel channels.
+pub const PANEL_TAB_MIN_WIDTH_MM: f64 = 2.0;
+/// Default assembler panel edge limit until a fab profile supplies shop limits.
+pub const PANEL_ASSEMBLER_MAX_EDGE_MM: f64 = 250.0;
+/// Fiducial marks expected in the panel rails when panel output is enabled.
+pub const PANEL_FIDUCIAL_MARK_COUNT: usize = 3;
+/// One straight segment in panel millimetres (V-score line or breakaway tab).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PanelSegment {
+    pub start: Point,
+    pub end: Point,
+}
+/// V-score cut lines spanning the full panel when separation is [`PanelSeparation::VScore`].
+pub fn panel_score_lines(layout: &PanelLayout) -> Vec<PanelSegment> {
+    if layout.settings.separation != PanelSeparation::VScore {
+        return vec![];
+    }
+    let s = &layout.settings;
+    let bw = layout.board_width;
+    let bh = layout.board_height;
+    let pw = layout.panel_width;
+    let ph = layout.panel_height;
+    let mut lines = Vec::new();
+    if s.columns > 1 {
+        for col in 0..s.columns - 1 {
+            let x = if s.pitch_x <= 1e-9 {
+                s.rail + (col + 1) as f64 * bw
+            } else {
+                s.rail + (col + 1) as f64 * bw + col as f64 * s.pitch_x + s.pitch_x * 0.5
+            };
+            lines.push(PanelSegment {
+                start: Point::new(x, 0.0),
+                end: Point::new(x, ph),
+            });
+        }
+    }
+    if s.rows > 1 {
+        for row in 0..s.rows - 1 {
+            let y = if s.pitch_y <= 1e-9 {
+                s.rail + (row + 1) as f64 * bh
+            } else {
+                s.rail + (row + 1) as f64 * bh + row as f64 * s.pitch_y + s.pitch_y * 0.5
+            };
+            lines.push(PanelSegment {
+                start: Point::new(0.0, y),
+                end: Point::new(pw, y),
+            });
+        }
+    }
+    lines
+}
+/// Breakaway tab centre lines across routed gaps when separation is
+/// [`PanelSeparation::TabRouting`].
+pub fn panel_tab_segments(layout: &PanelLayout) -> Vec<PanelSegment> {
+    if layout.settings.separation != PanelSeparation::TabRouting {
+        return vec![];
+    }
+    let s = &layout.settings;
+    let bw = layout.board_width;
+    let bh = layout.board_height;
+    let channel = s.tab_channel_width;
+    let mut segments = Vec::new();
+    for copy in &layout.copies {
+        if copy.column + 1 < s.columns && s.pitch_x > 1e-9 {
+            let gap_left = copy.x + bw;
+            let tab_w = (s.pitch_x - channel).max(0.0);
+            if tab_w > 1e-9 {
+                let y = copy.y + bh * 0.5;
+                let inset = (s.pitch_x - tab_w) * 0.5;
+                segments.push(PanelSegment {
+                    start: Point::new(gap_left + inset, y),
+                    end: Point::new(gap_left + inset + tab_w, y),
+                });
+            }
+        }
+        if copy.row + 1 < s.rows && s.pitch_y > 1e-9 {
+            let gap_bottom = copy.y + bh;
+            let tab_w = (s.pitch_y - channel).max(0.0);
+            if tab_w > 1e-9 {
+                let x = copy.x + bw * 0.5;
+                let inset = (s.pitch_y - tab_w) * 0.5;
+                segments.push(PanelSegment {
+                    start: Point::new(x, gap_bottom + inset),
+                    end: Point::new(x, gap_bottom + inset + tab_w),
+                });
+            }
+        }
+    }
+    segments
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
