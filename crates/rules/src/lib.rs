@@ -1,10 +1,12 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
-    PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, panel_layout, panel_score_lines,
+    ArtKind, ArtShape, Board, FabRules, Footprint, Id, Layer, PANEL_ASSEMBLER_MAX_MM,
+    PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM,
+    PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, Via, board_vscore_segments,
+    panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, point_segment, segment_distance};
+use pcbcraft_library::Graphic;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1234,6 +1236,248 @@ fn pad_annular_ring(rules: &FabRules, pad: &Pad) -> Option<f64> {
     Some((pad_outer_radius(pad) * 2.0 - tool) / 2.0)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DrillKind {
+    Via,
+    Pth,
+    Npth,
+}
+
+#[derive(Clone)]
+struct BoardDrill {
+    id: Id,
+    kind: DrillKind,
+    start: Point,
+    end: Point,
+    radius: f64,
+}
+
+fn footprint_world(f: &Footprint, local: Point) -> Point {
+    f.position.offset(local.rotate(-f.rotation))
+}
+
+fn is_silk_layer_name(layer: &str) -> bool {
+    layer.ends_with(".SilkS") || layer.contains(".Silk")
+}
+
+fn library_silk_width(graphic: &Graphic) -> Option<f64> {
+    let layer_ok = |layer: &str| is_silk_layer_name(layer);
+    match graphic {
+        Graphic::Line { width, layer, .. }
+        | Graphic::Rectangle { width, layer, .. }
+        | Graphic::Circle { width, layer, .. }
+        | Graphic::Arc { width, layer, .. }
+        | Graphic::Polyline { width, layer, .. } if layer_ok(layer) => Some(*width),
+        _ => None,
+    }
+}
+
+fn library_silk_segments(graphic: &Graphic) -> Vec<(Point, Point)> {
+    let layer_ok = |layer: &str| is_silk_layer_name(layer);
+    match graphic {
+        Graphic::Line {
+            start, end, layer, ..
+        } if layer_ok(layer) => vec![(*start, *end)],
+        Graphic::Rectangle {
+            start, end, layer, ..
+        } if layer_ok(layer) => {
+            let min = Point::new(start.x.min(end.x), start.y.min(end.y));
+            let max = Point::new(start.x.max(end.x), start.y.max(end.y));
+            vec![
+                (Point::new(min.x, min.y), Point::new(max.x, min.y)),
+                (Point::new(max.x, min.y), Point::new(max.x, max.y)),
+                (Point::new(max.x, max.y), Point::new(min.x, max.y)),
+                (Point::new(min.x, max.y), Point::new(min.x, min.y)),
+            ]
+        }
+        Graphic::Polyline { points, layer, .. } if layer_ok(layer) && points.len() >= 2 => points
+            .windows(2)
+            .map(|w| (w[0], w[1]))
+            .collect(),
+        Graphic::Arc {
+            start,
+            mid,
+            end,
+            layer,
+            ..
+        } if layer_ok(layer) => match pcbcraft_geom::arc_through(*start, *mid, *end) {
+            Some(arc) => (0..=8)
+                .map(|i| arc.point_at(i as f64 / 8.0))
+                .collect::<Vec<_>>()
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .collect(),
+            None => vec![],
+        },
+        _ => vec![],
+    }
+}
+
+fn user_silk_segments(shape: &ArtShape) -> Vec<(Point, Point)> {
+    match shape {
+        ArtShape::Line { start, end } => vec![(*start, *end)],
+        ArtShape::Rect {
+            x,
+            y,
+            width,
+            height,
+            rotate,
+        } => {
+            let center = Point::new(x + width / 2.0, y + height / 2.0);
+            let corners = [
+                Point::new(*x, *y),
+                Point::new(x + width, *y),
+                Point::new(x + width, y + height),
+                Point::new(*x, y + height),
+            ]
+            .into_iter()
+            .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
+            .collect::<Vec<_>>();
+            let mut segments: Vec<(Point, Point)> = corners
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .collect();
+            if corners.len() >= 2 {
+                segments.push((corners[corners.len() - 1], corners[0]));
+            }
+            segments
+        }
+        ArtShape::Circle { center, radius } => {
+            let pts: Vec<Point> = (0..=24)
+                .map(|i| {
+                    let t = i as f64 / 24.0 * std::f64::consts::TAU;
+                    Point::new(center.x + radius * t.cos(), center.y + radius * t.sin())
+                })
+                .collect();
+            let mut segments: Vec<(Point, Point)> = pts
+                .windows(2)
+                .map(|w| (w[0], w[1]))
+                .collect();
+            if let Some(first) = pts.first() {
+                if let Some(last) = pts.last() {
+                    if first != last {
+                        segments.push((*last, *first));
+                    }
+                }
+            }
+            segments
+        }
+        ArtShape::Poly { points } if points.len() >= 2 => points
+            .windows(2)
+            .map(|w| (w[0], w[1]))
+            .collect(),
+        _ => vec![],
+    }
+}
+
+fn collect_board_drills(board: &Board) -> Vec<BoardDrill> {
+    let mut drills = Vec::new();
+    for via in &board.vias {
+        if via.drill <= 0.0 {
+            continue;
+        }
+        let radius = via.drill / 2.0;
+        drills.push(BoardDrill {
+            id: via.id,
+            kind: DrillKind::Via,
+            start: via.position,
+            end: via.position,
+            radius,
+        });
+    }
+    for hole in &board.holes {
+        if hole.diameter <= 0.0 {
+            continue;
+        }
+        drills.push(BoardDrill {
+            id: hole.id,
+            kind: DrillKind::Npth,
+            start: hole.start(),
+            end: hole.finish(),
+            radius: hole.diameter / 2.0,
+        });
+    }
+    for fp in &board.footprints {
+        for pad in &fp.pads {
+            let Some(drill) = pad.geometry.as_ref().and_then(|g| g.drill.as_ref()) else {
+                continue;
+            };
+            let radius = drill.size.x.min(drill.size.y) / 2.0;
+            if radius <= 0.0 {
+                continue;
+            }
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let axis = Point::new(
+                (drill.size.x / 2.0 - radius).max(0.0),
+                (drill.size.y / 2.0 - radius).max(0.0),
+            );
+            let pad_rotation = g.rotation;
+            let transform = |local: Point| {
+                footprint_world(
+                    fp,
+                    pad.offset
+                        .offset(local.rotate(-pad_rotation))
+                        .rotate(-fp.rotation),
+                )
+            };
+            let kind = if g.pad_type == "unplated" {
+                DrillKind::Npth
+            } else {
+                DrillKind::Pth
+            };
+            drills.push(BoardDrill {
+                id: fp.id,
+                kind,
+                start: transform(drill.offset.offset(axis)),
+                end: transform(drill.offset.offset(Point::new(-axis.x, -axis.y))),
+                radius,
+            });
+        }
+    }
+    drills
+}
+
+fn drill_edge_gap(a: &BoardDrill, b: &BoardDrill) -> f64 {
+    segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius
+}
+
+fn drill_copper_gap(drill: &BoardDrill, copper: &Copper) -> f64 {
+    if drill.kind == DrillKind::Via && copper.id == drill.id {
+        return f64::INFINITY;
+    }
+    if drill.kind == DrillKind::Pth && copper.id == drill.id {
+        if let Some(hole) = &copper.hole {
+            let same = segment_distance(drill.start, drill.end, hole.start, hole.end)
+                + (drill.radius - hole.radius).abs()
+                < 1e-3;
+            if same {
+                return f64::INFINITY;
+            }
+        }
+    }
+    if let Some(outline) = &copper.outline {
+        polygon_segment(outline, drill.start, drill.end) - drill.radius - copper.outline_error
+    } else {
+        segment_distance(copper.start, copper.end, drill.start, drill.end)
+            - drill.radius
+            - copper.radius
+    }
+}
+
+fn pad_mask_opening_radius(pad: &Pad) -> Option<f64> {
+    let exposed = pad.geometry.as_ref().is_none_or(|g| {
+        g.layers
+            .iter()
+            .any(|l| l == "F.Mask" || l == "*.Mask" || l.ends_with(".Mask"))
+    });
+    if !exposed {
+        return None;
+    }
+    Some(pad.contact_radius())
+}
+
 fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
     let Some(rules) = board.rules.as_ref() else {
         return vec![];
@@ -1425,6 +1669,249 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                     ),
                     objects: vec![layer.id],
                 });
+            }
+        }
+    }
+    let drills = collect_board_drills(board);
+    if rules.hole_to_hole_via.is_some() || rules.hole_to_hole_pad.is_some() {
+        for (i, a) in drills.iter().enumerate() {
+            for b in drills.iter().skip(i + 1) {
+                let gap = drill_edge_gap(a, b);
+                let limit = match (a.kind, b.kind) {
+                    (DrillKind::Via, DrillKind::Via) => rules.hole_to_hole_via,
+                    (DrillKind::Pth, DrillKind::Pth) => rules.hole_to_hole_pad,
+                    _ => None,
+                };
+                let Some(min) = limit else {
+                    continue;
+                };
+                if gap + 1e-6 >= min {
+                    continue;
+                }
+                let code = if a.kind == DrillKind::Via {
+                    "hole_to_hole_via"
+                } else {
+                    "hole_to_hole_pad"
+                };
+                result.push(Finding {
+                    code,
+                    severity: project.rule_severity(code, "error"),
+                    message: format!(
+                        "Drill spacing {:.3} mm is below the {:.3} mm fabrication minimum",
+                        gap.max(0.0),
+                        min
+                    ),
+                    objects: vec![a.id, b.id],
+                });
+            }
+        }
+    }
+    let copper_items = copper(project);
+    for drill in &drills {
+        let limit = match drill.kind {
+            DrillKind::Via => rules.hole_to_copper_via,
+            DrillKind::Pth => rules.hole_to_copper_pth,
+            DrillKind::Npth => rules.hole_to_copper_npth,
+        };
+        let Some(min) = limit else {
+            continue;
+        };
+        let mut smallest = f64::INFINITY;
+        let mut target = 0;
+        for c in &copper_items {
+            let gap = drill_copper_gap(drill, c);
+            if gap < smallest {
+                smallest = gap;
+                target = c.id;
+            }
+        }
+        if smallest + 1e-6 < min {
+            let code = match drill.kind {
+                DrillKind::Via => "hole_to_copper_via",
+                DrillKind::Pth => "hole_to_copper_pth",
+                DrillKind::Npth => "hole_to_copper_npth",
+            };
+            result.push(Finding {
+                code,
+                severity: project.rule_severity(code, "error"),
+                message: format!(
+                    "Drill is {:.3} mm from copper, below the {:.3} mm minimum",
+                    smallest.max(0.0),
+                    min
+                ),
+                objects: if target == 0 {
+                    vec![drill.id]
+                } else {
+                    vec![drill.id, target]
+                },
+            });
+        }
+    }
+    if let Some(min) = rules.silk_line {
+        for fp in &board.footprints {
+            let Some(component) = project.component(fp.component) else {
+                continue;
+            };
+            let Some(lib) = component.library_footprint.as_ref() else {
+                continue;
+            };
+            for graphic in &lib.definition.graphics {
+                let Some(width) = library_silk_width(graphic) else {
+                    continue;
+                };
+                if width + 1e-6 >= min {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "silk_line",
+                    severity: project.rule_severity("silk_line", "error"),
+                    message: format!(
+                        "Silk stroke {:.3} mm is below the {:.3} mm minimum",
+                        width, min
+                    ),
+                    objects: vec![fp.id],
+                });
+            }
+        }
+        for g in &project.graphics {
+            if g.layer != "board" || g.shape != "line" {
+                continue;
+            }
+            if g.width + 1e-6 >= min {
+                continue;
+            }
+            result.push(Finding {
+                code: "silk_line",
+                severity: project.rule_severity("silk_line", "error"),
+                message: format!(
+                    "Silk stroke {:.3} mm is below the {:.3} mm minimum",
+                    g.width, min
+                ),
+                objects: vec![g.id],
+            });
+        }
+    }
+    if let Some(min) = rules.silk_to_pad {
+        let mut segments: Vec<(Point, Point, Id)> = Vec::new();
+        for fp in &board.footprints {
+            let Some(component) = project.component(fp.component) else {
+                continue;
+            };
+            let Some(lib) = component.library_footprint.as_ref() else {
+                continue;
+            };
+            for graphic in &lib.definition.graphics {
+                for (a, b) in library_silk_segments(graphic) {
+                    segments.push((
+                        footprint_world(fp, a),
+                        footprint_world(fp, b),
+                        fp.id,
+                    ));
+                }
+            }
+        }
+        for layer in &board.user_layers {
+            if layer.kind != ArtKind::Silk {
+                continue;
+            }
+            for shape in &layer.shapes {
+                for (a, b) in user_silk_segments(shape) {
+                    segments.push((a, b, layer.id));
+                }
+            }
+        }
+        for fp in &board.footprints {
+            let outline: Vec<(Vec<Point>, Id)> = fp
+                .pads
+                .iter()
+                .filter_map(|pad| {
+                    let points: Vec<Point> = pad
+                        .outline_points()
+                        .into_iter()
+                        .map(|p| footprint_world(fp, p))
+                        .collect();
+                    if points.len() >= 3 {
+                        Some((points, fp.id))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            for (a, b, silk_id) in &segments {
+                for (ring, pad_owner) in &outline {
+                    let distance = polygon_segment(ring, *a, *b);
+                    if distance + 1e-6 < min {
+                        result.push(Finding {
+                            code: "silk_to_pad",
+                            severity: project.rule_severity("silk_to_pad", "error"),
+                            message: format!(
+                                "Silk is {:.3} mm from a pad opening, below the {:.3} mm minimum",
+                                distance.max(0.0),
+                                min
+                            ),
+                            objects: vec![*silk_id, *pad_owner],
+                        });
+                    }
+                }
+            }
+        }
+    }
+    if let Some(min) = rules.mask_dam {
+        let mut openings: Vec<(Id, Point, f64)> = Vec::new();
+        for fp in &board.footprints {
+            for pad in &fp.pads {
+                let Some(radius) = pad_mask_opening_radius(pad) else {
+                    continue;
+                };
+                if let Some(center) = fp.pad_position(&pad.number) {
+                    openings.push((fp.id, center, radius));
+                }
+            }
+        }
+        for v in &board.vias {
+            if v.drill > 0.0 {
+                openings.push((v.id, v.position, v.drill / 2.0));
+            }
+        }
+        for (i, a) in openings.iter().enumerate() {
+            for b in openings.iter().skip(i + 1) {
+                let bridge = a.1.distance(b.1) - a.2 - b.2;
+                if bridge + 1e-6 >= min || bridge <= 0.0 {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "mask_dam",
+                    severity: project.rule_severity("mask_dam", "error"),
+                    message: format!(
+                        "Mask dam {:.3} mm between openings is below the {:.3} mm minimum",
+                        bridge,
+                        min
+                    ),
+                    objects: vec![a.0, b.0],
+                });
+            }
+        }
+    }
+    if let Some(edge) = rules.edge_vscore {
+        let score_lines = board_vscore_segments(project);
+        if !score_lines.is_empty() {
+            for a in &copper_items {
+                let edge_dist = score_lines
+                    .iter()
+                    .map(|(p, q)| segment_distance(a.start, a.end, *p, *q) - a.radius)
+                    .fold(f64::INFINITY, f64::min);
+                if edge_dist + 1e-6 < edge {
+                    result.push(Finding {
+                        code: "edge_vscore",
+                        severity: project.rule_severity("edge_vscore", "error"),
+                        message: format!(
+                            "Copper is {:.3} mm from a score line, below the {:.3} mm minimum",
+                            edge_dist.max(0.0),
+                            edge
+                        ),
+                        objects: vec![a.id],
+                    });
+                }
             }
         }
     }
@@ -2474,6 +2961,92 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn hole_to_hole_via_reports_when_vias_are_too_close() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.5),
+            ..FabRules::default()
+        });
+        p.board.vias.push(Via {
+            id: 50,
+            net: 1,
+            position: Point::new(10.0, 12.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        p.board.vias.push(Via {
+            id: 51,
+            net: 1,
+            position: Point::new(10.35, 12.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        let hit = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "hole_to_hole_via")
+            .ok_or("close vias should fail hole_to_hole_via")?;
+        assert!(
+            hit.message.contains("0.500"),
+            "message names the limit: {}",
+            hit.message
+        );
+        p.board.rules = None;
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "hole_to_hole_via"),
+            "absent rules emit no hole_to_hole_via findings"
+        );
+        Ok(())
+    }
+    #[test]
+    fn silk_line_reports_thin_footprint_silk() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.rules = Some(FabRules {
+            silk_line: Some(0.15),
+            ..FabRules::default()
+        });
+        let mut definition = pcbcraft_library::FootprintDefinition {
+            name: "test".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![],
+            graphics: vec![pcbcraft_library::Graphic::Line {
+                start: Point::new(-1.0, 0.0),
+                end: Point::new(1.0, 0.0),
+                width: 0.08,
+                layer: "F.SilkS".into(),
+            }],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let mut component = component_template("resistor", 2, "R1".into(), Point::new(10.0, 10.0))
+            .ok_or("template missing")?;
+        component.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition,
+        });
+        p.components.push(component);
+        p.board.footprints.push(Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![],
+        });
+        assert!(
+            drc(&p).iter().any(|f| f.code == "silk_line"),
+            "thin silk stroke should fail silk_line"
+        );
+        Ok(())
+    }
     #[test]
     fn annular_ring_uses_separate_via_and_pth_limits() -> Result<(), String> {
         let mut p = fixture();
