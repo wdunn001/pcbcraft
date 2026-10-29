@@ -10228,10 +10228,8 @@ fn run_command(
                 net,
                 points: a.points.clone(),
             });
-            if let Some(net) = net {
-                if !a.pins.is_empty() {
-                    assign(p, net, &a.pins)?;
-                }
+            if let Some(net) = net && !a.pins.is_empty() {
+                assign(p, net, &a.pins)?;
             }
             let place_junction = a.junction.unwrap_or(a.tee.is_some());
             let mut junction_id = None;
