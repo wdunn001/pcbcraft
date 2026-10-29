@@ -43,7 +43,7 @@ shortcuts_open = next(x for x, l in enumerate(out) if l.strip() == "shortcuts_op
 out[shortcuts_open + 1 : shortcuts_open + 1] = feat[1059:1068]
 
 library_field = next(x for x, l in enumerate(out) if l.strip() == "library: library::Browser,")
-out[library_field + 1 : library_field + 1] = feat[1074:1078]
+out[library_field + 1 : library_field + 1] = feat[1074:1079]
 
 frames_idx = out.index("            frames: 0,")
 inits = [
