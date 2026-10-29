@@ -18,6 +18,7 @@ pub(super) struct Browser {
     pub(super) source_filter: String,
     pub(super) new_source: String,
     pub(super) notice: String,
+    pub(super) quality: super::library_quality::Quality,
 }
 impl Browser {
     fn request(&mut self, ctx: &egui::Context, name: &str, args: Value) {

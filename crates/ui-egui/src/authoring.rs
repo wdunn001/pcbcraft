@@ -438,10 +438,12 @@ impl App {
         }
         ui.separator();
         ui.heading("Footprints");
+        self.refresh_footprint_quality();
         for def in self.project.library.footprints.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(&def.name);
                 ui.label(format!("{} pads", def.pads.len()));
+                self.quality_badge(ui, &def.name);
                 if ui
                     .button("Edit")
                     .on_hover_text("Edit this definition in the panel below.")

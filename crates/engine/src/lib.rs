@@ -291,6 +291,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "part.attach_source",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            schema(
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
+                &["id", "manufacturer", "mpn"],
+            ),
+        ),
+        (
             "component.field",
             "Set one named component property (datasheet, manufacturer, custom note), or clear it when value is null or omitted",
             schema(
@@ -3927,6 +3935,59 @@ struct FindParams {
     #[serde(flatten)]
     filter: ComponentFilter,
 }
+/// Set (or clear, when `value` is `None`) one named property on a component.
+/// Returns whether the property is set afterwards.
+fn set_component_field(
+    component: &mut Component,
+    key: &str,
+    value: Option<&str>,
+) -> Result<bool, Error> {
+    if key.is_empty() || key.len() > 64 {
+        return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
+    }
+    if value.is_some_and(|v| v.len() > 256) {
+        return Err(Error::Invalid(
+            "field value must be at most 256 bytes".into(),
+        ));
+    }
+    let existing = component.fields.iter().position(|f| f.key == key);
+    match (value, existing) {
+        (Some(value), Some(index)) => {
+            component.fields[index].value = value.to_string();
+            Ok(true)
+        }
+        (Some(value), None) => {
+            if component.fields.len() >= 32 {
+                return Err(Error::Invalid(
+                    "a component carries at most 32 fields".into(),
+                ));
+            }
+            component.fields.push(ComponentField {
+                key: key.to_string(),
+                value: value.to_string(),
+            });
+            Ok(true)
+        }
+        (None, Some(index)) => {
+            component.fields.remove(index);
+            Ok(false)
+        }
+        (None, None) => Err(Error::Invalid("component has no such field".into())),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttachSourceParams {
+    id: Id,
+    manufacturer: String,
+    mpn: String,
+    #[serde(default)]
+    datasheet: String,
+    #[serde(default)]
+    distributor: String,
+    #[serde(default)]
+    sku: String,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FieldParams {
@@ -6422,46 +6483,60 @@ fn run_command(
         }
         "component.field" => {
             let a: FieldParams = parse(params)?;
-            if a.key.is_empty() || a.key.len() > 64 {
-                return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
-            }
-            if a.value.as_ref().is_some_and(|v| v.len() > 256) {
-                return Err(Error::Invalid(
-                    "field value must be at most 256 bytes".into(),
-                ));
-            }
             let component = p
                 .components
                 .iter_mut()
                 .find(|c| c.id == a.id)
                 .ok_or_else(missing)?;
-            let existing = component.fields.iter().position(|f| f.key == a.key);
-            let set = match (&a.value, existing) {
-                (Some(value), Some(index)) => {
-                    component.fields[index].value = value.clone();
-                    true
-                }
-                (Some(value), None) => {
-                    if component.fields.len() >= 32 {
-                        return Err(Error::Invalid(
-                            "a component carries at most 32 fields".into(),
-                        ));
-                    }
-                    component.fields.push(ComponentField {
-                        key: a.key.clone(),
-                        value: value.clone(),
-                    });
-                    true
-                }
-                (None, Some(index)) => {
-                    component.fields.remove(index);
-                    false
-                }
-                (None, None) => {
-                    return Err(Error::Invalid("component has no such field".into()));
-                }
-            };
+            let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "part.attach_source" => {
+            let a: AttachSourceParams = parse(params)?;
+            let bounded = |name: &str, v: &str, max: usize| -> Result<(), Error> {
+                if v.len() > max || v.chars().any(char::is_control) {
+                    return Err(Error::Invalid(format!(
+                        "{name} must be at most {max} bytes without control characters"
+                    )));
+                }
+                Ok(())
+            };
+            if a.manufacturer.trim().is_empty() || a.mpn.trim().is_empty() {
+                return Err(Error::Invalid(
+                    "a source part needs a manufacturer and a part number".into(),
+                ));
+            }
+            bounded("manufacturer", &a.manufacturer, 256)?;
+            bounded("mpn", &a.mpn, 256)?;
+            bounded("datasheet", &a.datasheet, 256)?;
+            bounded("distributor", &a.distributor, 48)?;
+            bounded("sku", &a.sku, 256)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut written: Vec<String> = vec![];
+            let mut put = |key: String, value: &str| -> Result<(), Error> {
+                if value.is_empty() {
+                    return Ok(());
+                }
+                set_component_field(component, &key, Some(value))?;
+                written.push(key);
+                Ok(())
+            };
+            put("Manufacturer".into(), a.manufacturer.trim())?;
+            put("MPN".into(), a.mpn.trim())?;
+            put("Datasheet".into(), &a.datasheet)?;
+            if !a.sku.is_empty() {
+                let key = if a.distributor.trim().is_empty() {
+                    "SKU".to_string()
+                } else {
+                    format!("{} SKU", a.distributor.trim())
+                };
+                put(key, &a.sku)?;
+            }
+            Ok(json!({"id": a.id, "fields": written}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -23299,6 +23374,46 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn part_attach_source_sets_manufacturer_and_mpn_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        s.execute(
+            "part.attach_source",
+            json!({"id":r1,"manufacturer":"Example Components","mpn":"SAMPLE-R-10K","datasheet":"https://example.invalid/d.pdf","distributor":"Sample Shop","sku":"SS-1"}),
+            None,
+        )?;
+        let after = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        assert_eq!(after, before + 1, "one undo step");
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(c.field("Manufacturer"), Some("Example Components"));
+        assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
+        assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
+        assert!(
+            s.execute(
+                "part.attach_source",
+                json!({"id":r1,"manufacturer":"","mpn":"x"}),
+                None
+            )
+            .is_err()
+        );
+        s.undo()?;
+        assert!(
+            s.project
+                .component(r1)
+                .ok_or_else(missing)?
+                .fields
+                .is_empty()
+        );
+        Ok(())
+    }
     #[test]
     fn undo_branch_never_reuses_ids() {
         let mut s = Session::default();

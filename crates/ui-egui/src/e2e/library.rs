@@ -287,3 +287,173 @@ fn a_newcomer_sees_pegs_drawn_as_holes_and_not_as_copper() -> Result<(), String>
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    frame(&ctx, &mut app, vec![], none);
+    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    for letter in "resistor".chars() {
+        frame(&ctx, &mut app, vec![egui::Event::Text(letter.into())], none);
+    }
+    assert!(
+        paints_text(&ctx, &mut app, "Part sources are off")?,
+        "with no source the list says sources are off"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "SAMPLE-R-10K")?,
+        "no remote parts appear while sources are off"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Try sample source")?;
+    app.part_search = "SAMPLE-R-10K".into();
+    frame(&ctx, &mut app, vec![], none);
+    assert!(
+        paints_text(&ctx, &mut app, "12500 in stock")?,
+        "the card shows stock"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "0.10 USD each")?,
+        "the card shows a price"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Sample data, not a real catalogue")?,
+        "the card shows the source's credit"
+    );
+    authoring::tests::tap(&ctx, &mut app, "SAMPLE-R-10K")?;
+    frame(&ctx, &mut app, vec![], none);
+    assert!(matches!(&app.tool, Tool::Place(k) if k == "resistor"));
+    // A click on the sheet runs exactly this command.
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
+    );
+    let session = shared.lock().map_err(|_| "session")?;
+    let part = session
+        .project
+        .components
+        .last()
+        .ok_or("no part was placed")?;
+    assert_eq!(part.field("MPN"), Some("SAMPLE-R-10K"));
+    assert_eq!(part.field("Manufacturer"), Some("Example Components"));
+    Ok(())
+}
+
+/// A footprint whose two pads sit on top of each other, saved into the
+/// project library the way an import would.
+fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared,
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
+    app.refresh();
+    let Some(authoring::Draft::Footprint(mut def)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor should start with a draft".to_string());
+    };
+    def.name = "SquashedPair".into();
+    for pad in &mut def.pads {
+        pad.position = Point::new(0.0, 0.0);
+        pad.size = Point::new(2.0, 2.0);
+    }
+    app.run("library.footprint.upsert", json!({"definition": def}));
+    let revision = app.revision;
+    app.refresh_footprint_quality();
+    assert_eq!(
+        app.revision, revision,
+        "checking a footprint must not change the design"
+    );
+    Ok((app, egui::Context::default()))
+}
+
+#[test]
+fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
+    let (mut app, ctx) = app_with_overlapping_pads()?;
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    for needle in [
+        "Lib pad overlap · 1 place",
+        "SquashedPair: Two pads share the same copper area",
+        "Fix: Move or resize the pads so their outlines no longer overlap",
+    ] {
+        let mut shown = paints_text(&ctx, &mut app, needle)?;
+        for _ in 0..10 {
+            if shown {
+                break;
+            }
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -4.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+            shown = paints_text(&ctx, &mut app, needle)?;
+        }
+        assert!(shown, "the Checks tab should show \"{needle}\"");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_a_quality_badge_beside_each_project_footprint() -> Result<(), String> {
+    let (mut app, _ctx) = app_with_overlapping_pads()?;
+    assert!(
+        app.library
+            .quality
+            .findings_for("SquashedPair")
+            .iter()
+            .any(|f| f.error && f.code == "lib_pad_overlap"),
+        "the squashed footprint should be marked as having a mistake to fix"
+    );
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Libraries);
+    app.library.editor.mode = 0;
+    let mut shown = false;
+    for _ in 0..4 {
+        shown = paints_text(&ctx, &mut app, "to fix")?;
+        if shown {
+            break;
+        }
+    }
+    if !shown {
+        for _ in 0..10 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Line,
+                        delta: egui::vec2(0.0, -6.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+            if paints_text(&ctx, &mut app, "to fix")? {
+                shown = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        shown,
+        "the project footprint list should show a badge reading \"to fix\""
+    );
+    Ok(())
+}
