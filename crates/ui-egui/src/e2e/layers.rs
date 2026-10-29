@@ -115,6 +115,44 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_locks_a_layer_row_and_clicks_pass_through_it() -> Result<(), String> {
+    let (ctx, mut app) = pcb_app();
+    app.project.board.tracks.push(pcbcraft_doc::Track {
+        id: 9_998,
+        net: app.project.nets[0].id,
+        start: Point::new(10.0, 10.0),
+        end: Point::new(20.0, 10.0),
+        width: 0.25,
+        layer: pcbcraft_doc::Layer::Front,
+        arc: None,
+    });
+    let (spot, lo, hi) = (
+        Point::new(15.0, 10.0),
+        Point::new(9.0, 9.0),
+        Point::new(21.0, 11.0),
+    );
+    app.canvas_click(spot, 10.0);
+    assert_eq!(app.selection(), vec![9_998], "an unlocked track is clicked");
+    assert!(app.ids_in_rect(lo, hi).contains(&9_998), "and boxed");
+    app.set_selection(vec![]);
+    press_on(&ctx, &mut app, "side:top/copper", egui::Key::L);
+    assert!(app.tree.locked.contains("copper:front"), "L locks the row");
+    app.canvas_click(spot, 10.0);
+    assert!(
+        !app.selection().contains(&9_998),
+        "a click passes through a locked row"
+    );
+    assert!(
+        !app.ids_in_rect(lo, hi).contains(&9_998),
+        "a drag box skips a locked row"
+    );
+    key(&ctx, &mut app, egui::Key::L);
+    app.canvas_click(spot, 10.0);
+    assert_eq!(app.selection(), vec![9_998], "unlocked, it is picked again");
+    Ok(())
+}
+
+#[test]
 fn selecting_on_the_canvas_reveals_the_row_in_the_tree() -> Result<(), String> {
     let (ctx, mut app) = pcb_app();
     app.tree.expanded.remove("components");

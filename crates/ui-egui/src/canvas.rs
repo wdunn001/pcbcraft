@@ -1298,10 +1298,14 @@ impl App {
         None
     }
     /// The wire whose path passes nearest the click, within a fingertip's
-    /// width; curved wires are checked along their bow too.
+    /// width; curved wires are checked along their bow too. Wires on a locked
+    /// Layers tree row are skipped.
     fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
         let mut best: Option<(f64, Id)> = None;
         for track in &self.project.board.tracks {
+            if !self.id_allowed(track.id) {
+                continue;
+            }
             let mut reach = segment_distance(pos, track.start, track.end);
             if let Some(mid) = track.arc {
                 reach = reach
@@ -1319,6 +1323,7 @@ impl App {
             .board
             .vias
             .iter()
+            .filter(|v| self.id_allowed(v.id))
             .filter(|v| {
                 pos.distance(v.position) * (zoom as f64)
                     < (v.diameter as f32 * zoom / 2.0 + 6.0) as f64

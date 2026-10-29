@@ -185,7 +185,13 @@ impl App {
             if let Some(id) = self.pick_via(pos, zoom) {
                 return Hit::Via(id);
             }
-            for t in &self.project.board.tracks {
+            for t in self
+                .project
+                .board
+                .tracks
+                .iter()
+                .filter(|t| self.id_allowed(t.id))
+            {
                 if near(t.start.distance(pos), 6.0) {
                     return Hit::TrackEnd(t.id, false);
                 }
