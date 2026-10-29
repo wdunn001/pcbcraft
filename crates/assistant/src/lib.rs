@@ -1,9 +1,11 @@
 //! Assistant conversation model: backend seam, transcript, and turn accounting (no UI).
 mod api;
 mod backend;
+mod http;
 mod prompt;
 mod script;
 mod text;
+mod tool_names;
 mod transcript;
 mod turn;
 
@@ -16,9 +18,11 @@ pub use backend::{
     AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PermissionOption,
     PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
 };
+pub use http::{MAX_BODY, plain_http, plain_request};
 pub use prompt::SYSTEM_NOTE;
 pub use script::ScriptBackend;
 pub use text::{MAX_PROMPT, check_prompt_length, prompt_too_long_reason};
+pub use tool_names::{ToolNames, to_wire};
 pub use transcript::{Item, MAX_ITEMS, Transcript};
 pub use turn::{DEFAULT_TURN_LIMIT, MAX_REQUESTS_PER_TURN, ToolRequest, Turn};
 

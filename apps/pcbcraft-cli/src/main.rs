@@ -51,6 +51,14 @@ fn run() -> Result<(), String> {
                 session,
                 option(&args, "--project").map(str::to_string),
             )?;
+            if let Some(address) = option(&args, "--http") {
+                // The endpoint and token go to stderr (or a 0600 file); stdout stays unused.
+                let token_file = option(&args, "--token-file").map(Path::new);
+                let (listener, token) =
+                    pcbcraft_mcp::http::start_http(address, token_file, &mut std::io::stderr())?;
+                pcbcraft_mcp::http::serve_listener(&hub, &listener, &token);
+                return Ok(());
+            }
             pcbcraft_mcp::serve(
                 &mut std::io::stdin().lock(),
                 &mut std::io::stdout().lock(),
@@ -105,7 +113,7 @@ fn run() -> Result<(), String> {
             println!("{}", json!({"path":path,"view":view}));
         }
         "help" | "--help" | "-h" => println!(
-            "PCBCraft — Rust EDA, MCP-first\n\ncommands | inspect | checks | sample | run | export | snapshot | tool | mcp\n\nCommon: --sample or --project FILE\nTool: pcbcraft-cli tool NAME --args JSON [--save FILE]\nMCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991]\nDesktop: pcbcraft --sample --control 127.0.0.1:7991\nSee README.md and docs/mcp.md for schemas and examples."
+            "PCBCraft — Rust EDA, MCP-first\n\ncommands | inspect | checks | sample | run | export | snapshot | tool | mcp\n\nCommon: --sample or --project FILE\nTool: pcbcraft-cli tool NAME --args JSON [--save FILE]\nMCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE]]\nDesktop: pcbcraft --sample --control 127.0.0.1:7991\nSee README.md and docs/mcp.md for schemas and examples."
         ),
         _ => return Err(format!("unknown action: {action}")),
     }
