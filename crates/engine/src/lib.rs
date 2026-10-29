@@ -934,6 +934,35 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "board.datum_add",
+            "Add a named mounting datum for enclosure tools, at a position or at the centre of a drilled hole it then follows",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":32,"description":"letters, digits, underscore or hyphen, unique ignoring case"},"position":point_schema(),"hole":id_schema()}),
+                &["name"],
+            ),
+        ),
+        (
+            "board.datum_move",
+            "Move a datum to a new position; a datum tied to a hole is released from it",
+            schema(
+                json!({"id":id_schema(),"position":point_schema()}),
+                &["id", "position"],
+            ),
+        ),
+        (
+            "board.datum_rename",
+            "Rename a datum",
+            schema(
+                json!({"id":id_schema(),"name":{"type":"string","minLength":1,"maxLength":32}}),
+                &["id", "name"],
+            ),
+        ),
+        (
+            "board.datum_remove",
+            "Remove a datum",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
             "via.place",
             "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
             schema(
@@ -1276,6 +1305,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"outer copper pad diameter in millimetres"},"drill":{"type":"number","minimum":0,"description":"drilled hole diameter in millimetres; keeps the current drill when omitted"}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "via.set_covering",
+            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
+            schema(
+                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "board.set_via_covering_default",
+            "Set the covering every via follows unless it has its own: open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered or filled_capped",
+            schema(
+                json!({"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["covering"],
             ),
         ),
         (
@@ -3111,6 +3156,43 @@ struct ViaParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DatumAddParams {
+    name: String,
+    position: Option<Point>,
+    hole: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DatumRenameParams {
+    id: Id,
+    name: String,
+}
+fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Error> {
+    if !pcbcraft_doc::Datum::name_valid(name) {
+        return Err(Error::Invalid(
+            "datum names are 1 to 32 letters, digits, underscores or hyphens".into(),
+        ));
+    }
+    if p.board
+        .datums
+        .iter()
+        .any(|d| Some(d.id) != own && d.name.eq_ignore_ascii_case(name))
+    {
+        return Err(Error::Invalid("datum names must be unique".into()));
+    }
+    Ok(())
+}
+fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
+    if !position.valid() {
+        return Err(Error::Invalid("datum position is out of range".into()));
+    }
+    if !p.board_contains(position) {
+        return Err(Error::Invalid("a datum must lie inside the board".into()));
+    }
+    Ok(())
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HolePlaceParams {
     position: Point,
     diameter: f64,
@@ -4017,6 +4099,18 @@ struct TrackEndParams {
 enum TrackEnd {
     Start,
     End,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringParams {
+    id: Id,
+    #[serde(default)]
+    covering: Option<pcbcraft_doc::ViaCovering>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringDefaultParams {
+    covering: pcbcraft_doc::ViaCovering,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10247,6 +10341,80 @@ fn run_command(
             hole.diameter = a.diameter;
             Ok(json!({"id":a.id,"diameter":a.diameter}))
         }
+        "board.datum_add" => {
+            let a: DatumAddParams = parse(params)?;
+            check_datum_name(p, &a.name, None)?;
+            if p.board.datums.len() >= pcbcraft_doc::Datum::MAX {
+                return Err(Error::Invalid("a board carries at most 64 datums".into()));
+            }
+            let (position, hole) = match (a.position, a.hole) {
+                (Some(_), Some(_)) | (None, None) => {
+                    return Err(Error::Invalid(
+                        "give either a position or a hole for the datum".into(),
+                    ));
+                }
+                (Some(position), None) => (position, None),
+                (None, Some(hole)) => {
+                    let h = p
+                        .board
+                        .holes
+                        .iter()
+                        .find(|h| h.id == hole)
+                        .ok_or_else(missing)?;
+                    (h.center(), Some(hole))
+                }
+            };
+            check_datum_position(p, position)?;
+            let id = allocate(next)?;
+            p.board.datums.push(pcbcraft_doc::Datum {
+                id,
+                name: a.name,
+                position,
+                hole,
+            });
+            Ok(json!({"id":id,"position":position}))
+        }
+        "board.datum_move" => {
+            let a: Move = parse(params)?;
+            check_datum_position(p, a.position)?;
+            let datum = p
+                .board
+                .datums
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            datum.position = a.position;
+            datum.hole = None;
+            Ok(json!({"id":a.id,"position":a.position}))
+        }
+        "board.datum_rename" => {
+            let a: DatumRenameParams = parse(params)?;
+            check_datum_name(p, &a.name, Some(a.id))?;
+            let datum = p
+                .board
+                .datums
+                .iter_mut()
+                .find(|d| d.id == a.id)
+                .ok_or_else(missing)?;
+            datum.name = a.name;
+            let position = datum.position;
+            let position = p
+                .board
+                .datums
+                .iter()
+                .find(|d| d.id == a.id)
+                .map_or(position, |d| p.datum_position(d));
+            Ok(json!({"id":a.id,"position":position}))
+        }
+        "board.datum_remove" => {
+            let a: IdParams = parse(params)?;
+            let before = p.board.datums.len();
+            p.board.datums.retain(|d| d.id != a.id);
+            if p.board.datums.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"id":a.id}))
+        }
         "via.place" => {
             let a: ViaParams = parse(params)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
@@ -10283,6 +10451,7 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -10358,6 +10527,7 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        covering: None,
                     });
                     ids.push(id);
                 }
@@ -14084,6 +14254,15 @@ fn run_command(
                 c.center = center;
                 return Ok(json!({"id": a.id}));
             }
+            if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == a.id) {
+                let position = shift(d.position);
+                if !position.valid() {
+                    return Err(Error::Invalid("nudged position is out of range".into()));
+                }
+                d.position = position;
+                d.hole = None;
+                return Ok(json!({"id": a.id}));
+            }
             if let Some(t) = p.board.texts.iter_mut().find(|t| t.id == a.id) {
                 let position = shift(t.position);
                 if !position.valid() {
@@ -14197,6 +14376,20 @@ fn run_command(
             p.board.vias.retain(|v| v.id != a.id && v.net != a.id);
             p.board.zones.retain(|z| z.id != a.id && z.net != a.id);
             p.board.cutouts.retain(|c| c.id != a.id);
+            let detached: Vec<(Id, Point)> = p
+                .board
+                .datums
+                .iter()
+                .filter(|d| d.hole == Some(a.id))
+                .map(|d| (d.id, p.datum_position(d)))
+                .collect();
+            for (id, position) in detached {
+                if let Some(d) = p.board.datums.iter_mut().find(|d| d.id == id) {
+                    d.position = position;
+                    d.hole = None;
+                }
+            }
+            p.board.datums.retain(|d| d.id != a.id);
             p.board.holes.retain(|h| h.id != a.id);
             p.board.fiducials.retain(|f| f.id != a.id);
             p.board
@@ -14302,6 +14495,30 @@ fn run_command(
                 "position": *moved,
             }))
         }
+        "via.set_covering" => {
+            let a: ViaCoveringParams = parse(params)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            if via.drill <= 0.0
+                && a.covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                ));
+            }
+            via.covering = a.covering;
+            Ok(json!({"id":a.id,"covering":via.covering}))
+        }
+        "board.set_via_covering_default" => {
+            let a: ViaCoveringDefaultParams = parse(params)?;
+            p.board.via_covering_default = a.covering;
+            Ok(json!({"covering":p.board.via_covering_default}))
+        }
         "via.set_size" => {
             let a: ViaSizeParams = parse(params)?;
             if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
@@ -14319,6 +14536,15 @@ fn run_command(
             if !drill.is_finite() || drill < 0.0 || drill >= a.diameter {
                 return Err(Error::Invalid(
                     "via drill must be smaller than its pad".into(),
+                ));
+            }
+            if drill <= 0.0
+                && via
+                    .covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a tented, plugged or filled via needs a drilled hole".into(),
                 ));
             }
             via.diameter = a.diameter;
@@ -22536,6 +22762,96 @@ mod tests {
         assert!((pin.y - 14.5).abs() < 1e-6);
         Ok(())
     }
+    #[test]
+    fn via_covering_commands_set_default_and_override_with_bounds() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("net id".into()))?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        s.execute(
+            "board.set_via_covering_default",
+            json!({"covering":"tented"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.via_covering_default,
+            pcbcraft_doc::ViaCovering::Tented
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"filled_capped"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.vias[0].covering,
+            Some(pcbcraft_doc::ViaCovering::FilledCapped)
+        );
+        s.execute("via.set_covering", json!({"id":via}), None)?;
+        assert_eq!(
+            s.project.board.vias[0].covering, None,
+            "omitted follows the default"
+        );
+        let before = s.inspect();
+        for (command, params) in [
+            ("via.set_covering", json!({"id":via,"covering":"glued"})),
+            ("via.set_covering", json!({"id":9999,"covering":"tented"})),
+            (
+                "board.set_via_covering_default",
+                json!({"covering":"glued"}),
+            ),
+            ("board.set_via_covering_default", json!({})),
+        ] {
+            assert!(
+                s.execute(command, params, None).is_err(),
+                "{command} must refuse"
+            );
+        }
+        assert_eq!(
+            s.inspect(),
+            before,
+            "refused commands leave the design untouched"
+        );
+        let blind = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":9.0,"y":5.0},"diameter":0.6,"drill":0.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        assert!(
+            s.execute(
+                "via.set_covering",
+                json!({"id":blind,"covering":"plugged"}),
+                None
+            )
+            .is_err(),
+            "a via with no drilled hole cannot be plugged"
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"plugged"}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "via.set_size",
+                json!({"id":via,"diameter":0.6,"drill":0.0}),
+                None
+            )
+            .is_err(),
+            "removing the hole of a plugged via is refused"
+        );
+        s.undo()?;
+        Ok(())
+    }
+
     #[test]
     fn failed_batch_is_atomic_and_stale_edits_reject() {
         let mut s = Session::default();
@@ -31015,6 +31331,176 @@ mod tests {
                 .is_err(),
             "clearing stack notes is refused while inner copper is in use"
         );
+        Ok(())
+    }
+    fn datum_id(s: &mut Session, params: Value) -> Result<u64, Error> {
+        s.execute("board.datum_add", params, None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)
+    }
+    #[test]
+    fn datums_are_added_moved_renamed_and_removed_with_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":6.0}}))?;
+        assert_eq!(s.project.board.datums.len(), 1);
+        s.execute(
+            "board.datum_move",
+            json!({"id":a,"position":{"x":7.0,"y":8.0}}),
+            None,
+        )?;
+        assert_eq!(s.project.board.datums[0].position, Point::new(7.0, 8.0));
+        s.execute("board.datum_rename", json!({"id":a,"name":"Mount-1"}), None)?;
+        assert_eq!(s.project.board.datums[0].name, "Mount-1");
+        s.undo()?;
+        assert_eq!(s.project.board.datums[0].name, "A");
+        s.execute("board.datum_remove", json!({"id":a}), None)?;
+        assert!(s.project.board.datums.is_empty());
+        s.undo()?;
+        assert_eq!(s.project.board.datums.len(), 1);
+        assert!(
+            s.execute("board.datum_remove", json!({"id":9_999}), None)
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn datum_names_are_unique_and_bounded() -> Result<(), Error> {
+        let mut s = Session::default();
+        datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":6.0}}))?;
+        let long = "x".repeat(33);
+        for bad in [
+            json!({"name":"a","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"","position":{"x":9.0,"y":6.0}}),
+            json!({"name":long,"position":{"x":9.0,"y":6.0}}),
+            json!({"name":"has space","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"it's","position":{"x":9.0,"y":6.0}}),
+            json!({"name":"B"}),
+            json!({"name":"B","position":{"x":9.0,"y":6.0},"hole":1}),
+        ] {
+            assert!(s.execute("board.datum_add", bad, None).is_err());
+        }
+        let b = datum_id(&mut s, json!({"name":"B","position":{"x":9.0,"y":6.0}}))?;
+        assert!(
+            s.execute("board.datum_rename", json!({"id":b,"name":"A"}), None)
+                .is_err()
+        );
+        assert!(
+            s.execute("board.datum_rename", json!({"id":b,"name":"B"}), None)
+                .is_ok()
+        );
+        for i in 0..62 {
+            datum_id(
+                &mut s,
+                json!({"name":format!("N{i}"),"position":{"x":10.0,"y":6.0}}),
+            )?;
+        }
+        assert_eq!(s.project.board.datums.len(), 64);
+        assert!(
+            s.execute(
+                "board.datum_add",
+                json!({"name":"Over","position":{"x":10.0,"y":6.0}}),
+                None
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn datums_outside_the_board_are_refused() -> Result<(), Error> {
+        let mut s = Session::default();
+        let w = s.project.board.width;
+        for bad in [
+            json!({"name":"A","position":{"x":-1.0,"y":5.0}}),
+            json!({"name":"A","position":{"x":w + 1.0,"y":5.0}}),
+        ] {
+            assert!(s.execute("board.datum_add", bad, None).is_err());
+        }
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":5.0}}))?;
+        assert!(
+            s.execute(
+                "board.datum_move",
+                json!({"id":a,"position":{"x":w + 5.0,"y":5.0}}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.project.board.datums[0].position, Point::new(5.0, 5.0));
+        Ok(())
+    }
+    #[test]
+    fn a_datum_tied_to_a_hole_follows_the_hole() -> Result<(), Error> {
+        let mut s = Session::default();
+        let hole = s.execute(
+            "board.hole_place",
+            json!({"position":{"x":4.0,"y":4.0},"diameter":3.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let d = datum_id(&mut s, json!({"name":"M1","hole":hole}))?;
+        assert_eq!(
+            s.project.datum_position(&s.project.board.datums[0]),
+            Point::new(4.0, 4.0)
+        );
+        s.execute(
+            "board.hole_move",
+            json!({"id":hole,"position":{"x":12.0,"y":9.0}}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.datum_position(&s.project.board.datums[0]),
+            Point::new(12.0, 9.0)
+        );
+        // Deleting the hole detaches the datum where the hole last was.
+        s.execute("object.delete", json!({"id":hole}), None)?;
+        let kept = s.project.board.datums.first().ok_or_else(missing)?;
+        assert_eq!(kept.id, d);
+        assert_eq!(kept.hole, None);
+        assert_eq!(s.project.datum_position(kept), Point::new(12.0, 9.0));
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn datum_ids_are_never_reused_after_save_and_open() -> Result<(), Error> {
+        let mut s = Session::default();
+        let a = datum_id(&mut s, json!({"name":"A","position":{"x":5.0,"y":5.0}}))?;
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let project: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut reopened = Session::default();
+        reopened.replace(project)?;
+        let b = datum_id(
+            &mut reopened,
+            json!({"name":"B","position":{"x":6.0,"y":5.0}}),
+        )?;
+        assert_ne!(a, b);
+        assert!(b > a);
+        Ok(())
+    }
+    #[test]
+    fn datums_write_into_the_mechanical_outputs_of_a_job() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        datum_id(&mut s, json!({"name":"DA","position":{"x":3.0,"y":3.0}}))?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-datum-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"mech","kinds":["step","svg","dxf"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"mech","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let step = std::fs::read_to_string(directory.join("board.step"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(step.contains("'DATUM_DA'"));
+        let svg = std::fs::read_to_string(directory.join("board.svg"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(svg.contains(">DA</text>"));
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 }
