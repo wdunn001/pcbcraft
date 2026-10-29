@@ -96,8 +96,21 @@ panel_anchor = next(
 out.insert(panel_anchor, "        self.shortcuts_settings_panel(ui);")
 out.insert(panel_anchor + 1, "        ui.add_space(10.0);")
 
-export_btn = next(x for x, l in enumerate(out) if '.button(t!("menu.file.export"))' in l)
-out[export_btn:export_btn] = feat[3856:3863] + [""]
+export_if = next(
+    x
+    for x, l in enumerate(out)
+    if l.strip() == "if ui" and x + 1 < len(out) and 'menu.file.export' in out[x + 2]
+)
+out[export_if:export_if] = [
+    "            if ui",
+    '                .button(t!("menu.file.compare"))',
+    '                .on_hover_text(t!("menu.file.compare.tip"))',
+    "                .clicked()",
+    "            {",
+    "                self.compare_open = true;",
+    "            }",
+    "",
+]
 
 show_shortcuts = next(x for x, l in enumerate(out) if "        self.shortcuts(&ctx);" in l)
 out.insert(show_shortcuts + 1, "        if self.compare_open {")

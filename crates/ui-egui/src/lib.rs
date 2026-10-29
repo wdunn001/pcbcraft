@@ -2832,14 +2832,13 @@ impl App {
             }
             ui.separator();
             if ui
-            if ui
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
             {
                 self.compare_open = true;
             }
-
+            if ui
                 .button(t!("menu.file.export"))
                 .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
