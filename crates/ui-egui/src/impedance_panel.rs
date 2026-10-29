@@ -181,7 +181,7 @@ impl App {
                     .speed(0.01)
                     .suffix(" mm"),
             )
-            .on_hover_text("How far from the target the result may land.");
+            .on_hover_text("Set how far the tuned result may land from the target, so tuning stops sooner. From 0.01 to 10 millimetres.");
         });
         ui.checkbox(&mut self.impedance_ui.tune_rounded, "Rounded bends")
             .on_hover_text(
