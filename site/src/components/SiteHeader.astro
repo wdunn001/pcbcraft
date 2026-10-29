@@ -4,7 +4,7 @@
 // Rules: wide screens show the links inline; below 64rem a disclosure menu lists them.
 // Do not: add links here without adding them to NAV in ../lib/site.ts.
 import Brand from './Brand.astro';
-import { NAV, url } from '../lib/site';
+import { NAV, MORE, url } from '../lib/site';
 
 interface Props {
   current?: string;
@@ -29,6 +29,12 @@ const isCurrent = (path: string) => current.startsWith(url(path));
       }
     </ul>
   </nav>
+  <details class="more">
+    <summary>More</summary>
+    <ul class="panel">
+      {MORE.map((item) => (<li><a href={url(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>{item.label}</a></li>))}
+    </ul>
+  </details>
   <div class="tools">
     <slot name="search" />
     <slot name="theme" />
@@ -40,7 +46,7 @@ const isCurrent = (path: string) => current.startsWith(url(path));
       </summary>
       <ul class="panel">
         {
-          NAV.map((item) => (
+          [...NAV, ...MORE].map((item) => (
             <li>
               <a href={url(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>
                 {item.label}
@@ -62,7 +68,7 @@ const isCurrent = (path: string) => current.startsWith(url(path));
     min-width: 0;
   }
   .nav {
-    flex: 1;
+    flex: 0 1 auto;
     min-width: 0;
   }
   .nav ul {
@@ -103,6 +109,30 @@ const isCurrent = (path: string) => current.startsWith(url(path));
     align-items: center;
     gap: 0.6rem;
     margin-inline-start: auto;
+  }
+  .more {
+    position: relative;
+  }
+  .more summary {
+    padding: 0.45rem 0.75rem;
+    color: var(--pc-muted);
+    font-size: 0.95rem;
+    cursor: pointer;
+    list-style: none;
+    border-radius: 4px;
+  }
+  .more summary::-webkit-details-marker {
+    display: none;
+  }
+  .more summary::after {
+    content: ' ▾';
+  }
+  .more summary:hover {
+    color: var(--pc-text);
+  }
+  .more .panel {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
   }
   .menu {
     position: relative;
@@ -150,7 +180,8 @@ const isCurrent = (path: string) => current.startsWith(url(path));
     color: var(--pc-copper);
   }
   @media (max-width: 63.99rem) {
-    .nav {
+    .nav,
+    .more {
       display: none;
     }
     .menu {

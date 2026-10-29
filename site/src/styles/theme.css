@@ -8,7 +8,8 @@
    Do not: hard-code a hex value outside this file; use `--pc-line` as the only border of a
    control (it is decoration, 1.6 to 1.9:1). */
 
-:root {
+:root,
+[data-theme-scope='dark'] {
   /* Dark tokens */
   --pc-bg: #0A1411;
   --pc-surface: #111F1A;
@@ -38,7 +39,8 @@
   color-scheme: dark;
 }
 
-:root[data-theme='light'] {
+:root[data-theme='light'],
+[data-theme-scope='light'] {
   /* Light tokens */
   --pc-bg: #F4F3EC;
   --pc-surface: #FFFFFF;
@@ -115,4 +117,10 @@
 
   --sl-content-width: 46rem;
   --sl-nav-height: 3.75rem;
+}
+
+/* A scoped block (brand page previews) shows the other theme inside the page. */
+[data-theme-scope] {
+  color: var(--pc-text);
+  background: var(--pc-bg);
 }

@@ -24,6 +24,13 @@ export const NAV: NavItem[] = [
   { label: 'Changelog', path: 'changelog/' },
 ];
 
+/** Secondary pages, shown in the header's More menu. */
+export const MORE: NavItem[] = [
+  { label: 'About', path: 'about/' },
+  { label: 'Brand', path: 'brand/' },
+  { label: 'License', path: 'license/' },
+];
+
 export const REPO_URL = 'https://github.com/tangency-labs/pcbcraft';
 
 export interface FooterColumn {
@@ -55,6 +62,7 @@ export function footerColumns(): FooterColumn[] {
       title: 'Project',
       links: [
         { label: 'About', href: url('about/') },
+        { label: 'Brand', href: url('brand/') },
         { label: 'License', href: url('license/') },
         { label: 'Source code', href: REPO_URL, external: true },
         { label: 'Issues', href: `${REPO_URL}/issues`, external: true },
