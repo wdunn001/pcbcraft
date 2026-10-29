@@ -16,6 +16,7 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+use pcbcraft_text::t;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::collections::BTreeMap;
@@ -403,11 +404,11 @@ enum PadLabels {
     Off,
 }
 impl PadLabels {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> String {
         match self {
-            Self::Number => "Pads: number",
-            Self::Net => "Pads: net",
-            Self::Off => "Pads: off",
+            Self::Number => t!("pad_labels.number"),
+            Self::Net => t!("pad_labels.net"),
+            Self::Off => t!("pad_labels.off"),
         }
     }
 }
@@ -437,6 +438,12 @@ struct Preferences {
     aside_lower_tab: u8,
     #[serde(default = "default_true")]
     library_dock_open: bool,
+    /// Language tag of the text catalog, or `system` to follow the computer.
+    #[serde(default = "default_language")]
+    language: String,
+}
+fn default_language() -> String {
+    pcbcraft_text::SYSTEM.into()
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -512,6 +519,7 @@ impl Default for Preferences {
             aside_split: default_aside_split(),
             aside_lower_tab: 0,
             library_dock_open: true,
+            language: default_language(),
         }
     }
 }
@@ -612,6 +620,8 @@ pub struct App {
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
     preferences: Preferences,
+    /// Text for the language chosen in Settings.
+    catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
@@ -980,6 +990,9 @@ impl App {
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
+            catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
+                &preferences.language,
+            )),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,
@@ -2901,19 +2914,14 @@ impl App {
                 ui.horizontal_centered(|ui| {
                     let brand = ui.add(
                         egui::Label::new(
-                            egui::RichText::new("PCBCraft")
+                            egui::RichText::new(t!("app.name"))
                                 .size(15.0)
                                 .strong()
                                 .color(self.accent()),
                         )
                         .sense(egui::Sense::click()),
                     );
-                    if brand
-                        .on_hover_text(
-                            "Back to the start screen, where you open or begin a design.",
-                        )
-                        .clicked()
-                    {
+                    if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
                     }
                     if self.library.editor.mode == 0 {
@@ -3333,27 +3341,25 @@ impl App {
     }
 
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("File", |ui| {
+        ui.menu_button(t!("menu.file"), |ui| {
             if ui
-                .button("New")
-                .on_hover_text("Start a fresh empty design.")
+                .button(t!("menu.file.new"))
+                .on_hover_text(t!("menu.file.new.tip"))
                 .clicked()
             {
                 self.tool_call("new_design", json!({}));
                 self.select(None);
             }
             if ui
-                .button("Open")
-                .on_hover_text(
-                    "Choose a design to open; your recent designs are listed on the screen that appears.",
-                )
+                .button(t!("menu.file.open"))
+                .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
                 self.home_open = true;
             }
             if ui
-                .button("Save")
-                .on_hover_text("Write the design to its file on disk. (Ctrl+S works too.)")
+                .button(t!("menu.file.save"))
+                .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
                 self.tool_call("save", json!({"path":self.path}));
@@ -3369,8 +3375,8 @@ impl App {
             }
             ui.separator();
             if ui
-                .button("Export")
-                .on_hover_text("Write the board out so other design tools can open it.")
+                .button(t!("menu.file.export"))
+                .on_hover_text(t!("menu.file.export.tip"))
                 .clicked()
             {
                 let path = std::path::Path::new(&self.path)
@@ -3380,8 +3386,8 @@ impl App {
                 self.tool_call("export", json!({"path":path,"format":"kicad_pcb"}));
             }
             if ui
-                .button("Copy picture")
-                .on_hover_text("Copy a PNG snapshot of the current view so it can be pasted into a document.")
+                .button(t!("menu.file.copy_picture"))
+                .on_hover_text(t!("menu.file.copy_picture.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
@@ -3389,55 +3395,55 @@ impl App {
             }
         })
         .response
-        .on_hover_text("Start, open, save, export and share this design.");
+        .on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Edit", |ui| {
+        ui.menu_button(t!("menu.edit"), |ui| {
             let (can_undo, can_redo) = self
                 .session
                 .lock()
                 .map(|s| (s.can_undo(), s.can_redo()))
                 .unwrap_or((false, false));
             if ui
-                .add_enabled(can_undo, egui::Button::new("Undo"))
+                .add_enabled(can_undo, egui::Button::new(t!("menu.edit.undo")))
                 .on_hover_text(if can_undo {
-                    "Step back one action; every edit here is one undoable step."
+                    t!("menu.edit.undo.tip")
                 } else {
-                    "Nothing to undo yet: make an edit first."
+                    t!("menu.edit.undo.none")
                 })
-                .on_disabled_hover_text("Nothing to undo yet: make an edit first.")
+                .on_disabled_hover_text(t!("menu.edit.undo.none"))
                 .clicked()
             {
                 self.tool_call("undo", json!({}));
             }
             if ui
-                .add_enabled(can_redo, egui::Button::new("Redo"))
-                .on_hover_text("Step forward to the action you undid.")
-                .on_disabled_hover_text("Nothing to redo: undo an action first.")
+                .add_enabled(can_redo, egui::Button::new(t!("menu.edit.redo")))
+                .on_hover_text(t!("menu.edit.redo.tip"))
+                .on_disabled_hover_text(t!("menu.edit.redo.none"))
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
             }
             ui.separator();
             if ui
-                .button("Copy  Ctrl+C")
-                .on_hover_text("Copy the selected objects as text; paste them here or in another window.")
+                .button(t!("menu.edit.copy"))
+                .on_hover_text(t!("menu.edit.copy.tip"))
                 .clicked()
             {
                 let ctx = ui.ctx().clone();
                 self.copy_selection(&ctx);
             }
             if ui
-                .button("Paste  Ctrl+V")
-                .on_hover_text("Paste the last copy a little to the side, with new reference numbers.")
+                .button(t!("menu.edit.paste"))
+                .on_hover_text(t!("menu.edit.paste.tip"))
                 .clicked()
             {
                 self.paste_last_copy();
             }
             if self.tab == Tab::Pcb
                 && ui
-                    .button("Clean up tracks")
-                    .on_hover_text("Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.")
+                    .button(t!("menu.edit.cleanup"))
+                    .on_hover_text(t!("menu.edit.cleanup.tip"))
                     .clicked()
             {
                 self.cleanup_tracks();
@@ -3445,8 +3451,8 @@ impl App {
             if !self.project.auto_sync {
                 ui.separator();
                 if ui
-                    .button("Update board from schematic")
-                    .on_hover_text(command_tip("board.sync"))
+                    .button(t!("menu.edit.sync"))
+                    .on_hover_text(t!("menu.edit.sync.tip"))
                     .clicked()
                 {
                     self.run("board.sync", json!({}));
@@ -3459,44 +3465,73 @@ impl App {
             {
                 let name = net.name.clone();
                 if ui
-                    .button(format!("Clear wiring on {name}"))
-                    .on_hover_text(
-                        "Lift every piece of copper drawn for the lit connection. The connection itself stays.",
-                    )
+                    .button(t!("menu.edit.clear_net", name = name))
+                    .on_hover_text(t!("menu.edit.clear_net.tip"))
                     .clicked()
                 {
                     self.run("net.unroute", json!({"net": lit}));
                 }
             }
             if ui
-                .button("Clear all wiring")
-                .on_hover_text(
-                    "Start the copper over on the whole board. Parts, connections and copper zones stay.",
-                )
+                .button(t!("menu.edit.clear_all"))
+                .on_hover_text(t!("menu.edit.clear_all.tip"))
                 .clicked()
             {
                 self.run("board.unroute", json!({}));
             }
         })
         .response
-        .on_hover_text(
-            "Step back and forward, apply schematic changes to the board when sync is off, and start the wiring over on one connection or the whole board.",
-        );
+        .on_hover_text(t!("menu.edit.tip"));
+    }
+    /// Switch the app's language; the next frame paints in it.
+    fn set_language(&mut self, tag: &str) {
+        self.preferences.language = tag.to_string();
+        self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
+        pcbcraft_text::activate(&self.catalog);
+    }
+    fn language_menu(&mut self, ui: &mut egui::Ui) {
+        let mut picked = None;
+        ui.menu_button(t!("menu.settings.language"), |ui| {
+            let current = self.preferences.language.clone();
+            if ui
+                .selectable_label(
+                    current == pcbcraft_text::SYSTEM,
+                    t!("menu.settings.language.system"),
+                )
+                .on_hover_text(t!("menu.settings.language.system.tip"))
+                .clicked()
+            {
+                picked = Some(pcbcraft_text::SYSTEM.to_string());
+            }
+            for language in pcbcraft_text::shipped_languages() {
+                if ui
+                    .selectable_label(current == language.tag, language.name)
+                    .on_hover_text(t!("menu.settings.language.pick.tip"))
+                    .clicked()
+                {
+                    picked = Some(language.tag);
+                }
+            }
+        })
+        .response
+        .on_hover_text(t!("menu.settings.language.tip"));
+        if let Some(tag) = picked {
+            self.set_language(&tag);
+            ui.ctx().request_repaint();
+        }
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button("Help", |ui| {
+        ui.menu_button(t!("menu.help"), |ui| {
             if ui
-                .button("Shortcuts")
-                .on_hover_text("Show every keyboard shortcut and mouse gesture in one list.")
+                .button(t!("menu.help.shortcuts"))
+                .on_hover_text(t!("menu.help.shortcuts.tip"))
                 .clicked()
             {
                 self.shortcuts_open = !self.shortcuts_open;
             }
             if ui
-                .button("Commands")
-                .on_hover_text(
-                    "Search every command by name and run it, with its parameters explained.",
-                )
+                .button(t!("menu.help.commands"))
+                .on_hover_text(t!("menu.help.commands.tip"))
                 .clicked()
             {
                 self.command_open = !self.command_open;
@@ -3505,8 +3540,8 @@ impl App {
             }
             ui.separator();
             if ui
-                .button("Report a bug")
-                .on_hover_text("Open a prefilled bug report with your version filled in.")
+                .button(t!("app.report_bug"))
+                .on_hover_text(t!("app.report_bug.tip"))
                 .clicked()
             {
                 let url = format!(
@@ -3516,14 +3551,14 @@ impl App {
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));
             }
             ui.label(
-                egui::RichText::new(format!("PCBCraft {}", env!("CARGO_PKG_VERSION")))
+                egui::RichText::new(t!("app.version", version = env!("CARGO_PKG_VERSION")))
                     .small()
                     .color(self.muted()),
             )
-            .on_hover_text("The version of PCBCraft you are running.");
+            .on_hover_text(t!("app.version.tip"));
         })
         .response
-        .on_hover_text("Shortcuts, the command search and bug reports.");
+        .on_hover_text(t!("menu.help.tip"));
     }
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
@@ -4446,6 +4481,7 @@ impl App {
         });
         ui.label("Accent color");
         ui.color_edit_button_srgb(&mut self.preferences.accent);
+        self.language_menu(ui);
         ui.label(
             egui::RichText::new("Appearance is saved automatically.")
                 .small()
@@ -7424,6 +7460,7 @@ impl App {
 
     fn show(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        pcbcraft_text::activate(&self.catalog);
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
