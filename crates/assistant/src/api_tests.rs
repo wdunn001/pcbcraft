@@ -546,3 +546,128 @@ fn to_wire_keeps_legal_names_and_clips_long_ones_the_same_way_each_time() {
     let other = format!("{}.tail2", "x".repeat(80));
     assert_ne!(once, to_wire(&other));
 }
+
+fn openai_stopped(text: &str, reason: &str) -> Value {
+    json!({"choices": [{"finish_reason": reason,
+        "message": {"role": "assistant", "content": text}}]})
+}
+
+fn notes_of(events: &[Event]) -> Vec<&str> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Note(n) if !n.starts_with("request ") => Some(n.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_openai_reply_cut_by_length_shows_a_note_and_ends_the_turn_with_that_reason()
+-> Result<(), String> {
+    let (http, _) = fake(|_| (200, openai_stopped("The board has", "length")));
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "describe");
+    let events = run_until(&mut b, ended)?;
+    let notes = notes_of(&events);
+    assert_eq!(notes.len(), 1);
+    assert!(notes[0].contains("length limit"));
+    assert!(matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "length"));
+    Ok(())
+}
+
+#[test]
+fn an_anthropic_reply_with_max_tokens_shows_a_note() -> Result<(), String> {
+    let (http, _) = fake(|_| {
+        (
+            200,
+            json!({"stop_reason": "max_tokens", "content": [{"type": "text", "text": "The"}]}),
+        )
+    });
+    let (ctx, _) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::Anthropic), ctx, http)?;
+    say(&mut b, "describe");
+    let events = run_until(&mut b, ended)?;
+    assert_eq!(notes_of(&events).len(), 1);
+    assert!(matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "max_tokens"));
+    Ok(())
+}
+
+#[test]
+fn a_content_filter_or_refusal_stop_shows_a_note() -> Result<(), String> {
+    for (protocol, reason) in [
+        (Protocol::OpenAi, "content_filter"),
+        (Protocol::Anthropic, "refusal"),
+    ] {
+        let (http, _) = fake(move |_| match protocol {
+            Protocol::OpenAi => (200, openai_stopped("", reason)),
+            Protocol::Anthropic => (200, json!({"stop_reason": reason, "content": []})),
+        });
+        let (ctx, _) = host("ok");
+        let mut b = ApiBackend::start(cfg(protocol), ctx, http)?;
+        say(&mut b, "go");
+        let events = run_until(&mut b, ended)?;
+        assert_eq!(notes_of(&events).len(), 1, "{reason}");
+        let ended_with =
+            matches!(events.last(), Some(Event::TurnEnded { reason: r }) if r == reason);
+        assert!(ended_with, "{reason}");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_normal_stop_ends_with_an_empty_reason_and_no_note() -> Result<(), String> {
+    for reply in [
+        openai_stopped("done", "stop"),
+        json!({"stop_reason": "end_turn", "content": [{"type": "text", "text": "done"}]}),
+        openai_text("done"),
+    ] {
+        let protocol = if reply.get("choices").is_some() {
+            Protocol::OpenAi
+        } else {
+            Protocol::Anthropic
+        };
+        let (http, _) = fake(move |_| (200, reply.clone()));
+        let (ctx, _) = host("ok");
+        let mut b = ApiBackend::start(cfg(protocol), ctx, http)?;
+        say(&mut b, "go");
+        let events = run_until(&mut b, ended)?;
+        assert!(notes_of(&events).is_empty());
+        assert!(matches!(events.last(), Some(Event::TurnEnded { reason }) if reason.is_empty()));
+    }
+    Ok(())
+}
+
+#[test]
+fn a_cut_reply_with_tool_calls_runs_none_of_them() -> Result<(), String> {
+    let name = first_tool_name()?;
+    let (http, log) = fake(move |n| {
+        if n == 1 {
+            let mut r = openai_call_of(&name, 2);
+            r["choices"][0]["finish_reason"] = json!("length");
+            (200, r)
+        } else {
+            (200, openai_text("ok then"))
+        }
+    });
+    let (ctx, names) = host("ok");
+    let mut b = ApiBackend::start(cfg(Protocol::OpenAi), ctx, http)?;
+    say(&mut b, "go");
+    let events = run_until(&mut b, ended)?;
+    assert!(lock(&names).is_empty());
+    assert_eq!(notes_of(&events).len(), 1);
+    assert!(matches!(events.last(), Some(Event::TurnEnded { reason }) if reason == "length"));
+    // The next message still works: the history holds no call without an answer.
+    say(&mut b, "smaller");
+    run_until(&mut b, ended)?;
+    let sent = posts(&log);
+    let second = sent.get(1).ok_or("no second request")?;
+    let dangling = second["messages"]
+        .as_array()
+        .ok_or("no messages")?
+        .iter()
+        .any(|m| m.get("tool_calls").is_some());
+    assert!(!dangling);
+    Ok(())
+}
