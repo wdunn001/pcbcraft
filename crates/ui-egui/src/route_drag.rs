@@ -46,7 +46,7 @@ impl State {
 /// - Chamfer off means right angles, whatever the shove preference says.
 ///
 /// # Dependencies
-/// - `Preferences` in `crates/ui-egui/src/lib.rs`.
+/// - `crates/ui-egui/src/lib.rs` Preferences chamfer and route_shove fields.
 ///
 /// # Do not
 /// - Read the preferences anywhere else to pick a mode.
@@ -271,7 +271,7 @@ impl App {
 /// so the box is disabled, and says why, while Chamfer corners is off.
 ///
 /// # Dependencies
-/// - `Preferences::route_shove` and `chamfer_corners` in `crates/ui-egui/src/lib.rs`.
+/// - `crates/ui-egui/src/lib.rs` route_shove and chamfer_corners on Preferences.
 ///
 /// # Do not
 /// - Add a second place that edits `route_shove`.

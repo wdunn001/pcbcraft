@@ -2,14 +2,14 @@
 # Lower the number in the same commit that removes warnings.
 [missing_docs]
 pcbcraft-geom = 25
-pcbcraft-doc = 272
+pcbcraft-doc = 271
 pcbcraft-library = 184
 pcbcraft-rules = 19
-pcbcraft-io = 262
-pcbcraft-engine = 54
+pcbcraft-io = 261
+pcbcraft-engine = 49
 pcbcraft-mcp = 11
 pcbcraft-ui-egui = 3
-pcbcraft-assistant = 128
+pcbcraft-assistant = 107
 
 # Traits and registries that do not have a contract block yet.
 # The doc pass for each one deletes its line.
