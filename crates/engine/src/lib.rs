@@ -2415,7 +2415,10 @@ fn render_kind(
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
         "assembly" => {
             for view in ["assembly-top", "assembly-bottom"] {
-                out.push((format!("{view}.pdf"), pcbcraft_io::pdf_document(p, view)?));
+                out.push((
+                    format!("{view}.pdf"),
+                    pcbcraft_io::pdf_document(p, view)?,
+                ));
                 out.push((
                     format!("{view}.svg"),
                     pcbcraft_io::drawing_svg(p, view)?.into_bytes(),
