@@ -1,0 +1,4 @@
+For docs-agent D451: update docs/ci.md Releases section to list, per linux-x86_64 and linux-aarch64:
+- pcbcraft-<tag>-linux-<arch>.AppImage and .AppImage.zsync
+- pcbcraft-<tag>-linux-<arch>.deb and .rpm
+Keep the existing .tar.gz line. Note packaging/linux/package.sh (CI: build-dist.yml Linux jobs on ubuntu-22.04) and that legacy flat tarballs still come from .github/scripts/package.sh.
