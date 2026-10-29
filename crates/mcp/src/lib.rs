@@ -2389,4 +2389,17 @@ mod tests {
             Some(&json!(false))
         );
     }
+
+    #[test]
+    fn tool_list_includes_help_glossary_and_help_term() {
+        let tools = tool_list();
+        let names: Vec<&str> = tools["tools"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        assert!(names.iter().any(|n| *n == "help.glossary"));
+        assert!(names.iter().any(|n| *n == "help.term"));
+    }
 }

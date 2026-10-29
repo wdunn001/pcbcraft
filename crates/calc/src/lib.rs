@@ -12,6 +12,7 @@ pub mod spacing;
 pub mod utilities;
 
 pub mod dispatch;
+pub mod glossary;
 
 mod catalog_generated {
     include!(concat!(env!("OUT_DIR"), "/catalog.rs"));
@@ -53,3 +54,4 @@ pub use spacing::{conductor_spacing_ipc2221, creepage_clearance_iec60664};
 pub use utilities::unit_converter;
 
 pub use catalog::CALCULATORS;
+pub use glossary::{search_glossary, term_by_id, GlossaryHit, Term, TERMS};

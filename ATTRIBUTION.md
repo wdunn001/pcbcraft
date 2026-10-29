@@ -8,6 +8,7 @@
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |
 | KiCad library fixtures | https://gitlab.com/kicad/libraries/kicad-symbols and https://gitlab.com/kicad/libraries/kicad-footprints | Ubuntu packages 10.0.6~ubuntu24.04.1; CC-BY-SA 4.0 + KiCad design-output exception | Extracted R/LED/LM2904/LM358 symbols and unmodified R_0805 footprint; community contributors; exact provenance/checksums and modifications in docs/kicad-libraries.md; original license in crates/library/tests/fixtures/LICENSE-kicad-libraries.md |
 | ee-thesaurus calculator catalog | pcbcraft-research `ee-thesaurus/` (maintainer copy) | 2026-10-29 laptop provisional via `crates/calc/data/generate_calculators_toml.py` pending upstream `calculators.toml` | Calculator metadata, formulas, and 119 golden vectors for `pcbcraft-calc`; replace with research tree when available |
+| ee-thesaurus glossary parts | pcbcraft-research `ee-thesaurus/` SCHEMA and `parts/` (maintainer copy) | 2026-10-29 laptop provisional via `crates/calc/data/generate_glossary_parts.py` pending upstream part files | Help reference glossary compiled into `pcbcraft-calc` TERMS; replace with research tree when available |
 
 KiCad's official PCB_POINT API/source documentation was consulted to distinguish
 non-manufactured reference-point metadata from copper/outline geometry; exact links

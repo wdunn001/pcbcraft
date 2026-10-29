@@ -1390,6 +1390,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"net":id_schema(),"target":{"type":"number"}}), &[]),
         ),
         (
+            "help.glossary",
+            "Search the electronics glossary and engine command list; read only and does not edit the design",
+            schema(
+                json!({"query":{"type":"string","minLength":1,"maxLength":128},"limit":{"type":"integer","minimum":1,"maximum":100,"default":20}}),
+                &["query"],
+            ),
+        ),
+        (
+            "help.term",
+            "Return one glossary entry by id; read only and does not edit the design",
+            schema(
+                json!({"id":{"type":"string","minLength":1,"maxLength":64}}),
+                &["id"],
+            ),
+        ),
+        (
             "board.bounds",
             "Report the bounding box in millimetres of the board outline and of placed objects, overall and per copper side, from object anchors, pad and via extents and zone outlines",
             schema(json!({}), &[]),
@@ -1993,6 +2009,151 @@ impl Session {
 
 fn parse<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, Error> {
     serde_json::from_value(v.clone()).map_err(|e| Error::Invalid(e.to_string()))
+}
+
+fn help_query_tokens(query: &str) -> Vec<String> {
+    query
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_ascii_lowercase())
+        .collect()
+}
+
+fn help_all_tokens_in(haystack: &str, toks: &[String]) -> bool {
+    let h = haystack.to_ascii_lowercase();
+    toks.iter().all(|t| h.contains(t.as_str()))
+}
+
+fn help_rank_command(query: &str, spec: &CommandSpec) -> Option<(&'static str, u8)> {
+    let q = query.trim();
+    if q.is_empty() {
+        return None;
+    }
+    let ql = q.to_ascii_lowercase();
+    let idl = spec.id.to_ascii_lowercase();
+    if idl == ql {
+        return Some(("id", 0));
+    }
+    if idl.starts_with(ql.as_str()) {
+        return Some(("id", 2));
+    }
+    let toks = help_query_tokens(q);
+    if toks.is_empty() {
+        return None;
+    }
+    if help_all_tokens_in(spec.id, &toks) {
+        return Some(("id", 4));
+    }
+    if help_all_tokens_in(spec.description, &toks) {
+        return Some(("description", 5));
+    }
+    None
+}
+
+fn help_glossary_json(query: &str, limit: usize) -> Value {
+    let specs = commands();
+    let mut rows: Vec<(u8, Value)> = Vec::new();
+    for hit in pcbcraft_calc::search_glossary(query, limit) {
+        let t = hit.term;
+        let calc = if t.calculator.is_empty() {
+            Value::Null
+        } else {
+            json!(t.calculator)
+        };
+        rows.push((
+            hit.rank,
+            json!({
+                "kind": "term",
+                "id": t.id,
+                "term": t.term,
+                "short": t.short,
+                "category": t.category,
+                "in_pcbcraft": t.in_pcbcraft,
+                "calculator": calc,
+                "matched_field": hit.matched_field,
+            }),
+        ));
+        for cmd in t.in_pcbcraft {
+            rows.push((
+                hit.rank.saturating_add(8),
+                json!({
+                    "kind": "command",
+                    "id": cmd,
+                    "term": cmd,
+                    "short": specs.iter().find(|s| s.id == cmd).map(|s| s.description).unwrap_or(""),
+                    "category": Value::Null,
+                    "in_pcbcraft": [],
+                    "calculator": Value::Null,
+                    "matched_field": "in_pcbcraft",
+                }),
+            ));
+        }
+    }
+    for spec in &specs {
+        if let Some((field, rank)) = help_rank_command(query, spec) {
+            rows.push((
+                rank,
+                json!({
+                    "kind": "command",
+                    "id": spec.id,
+                    "term": spec.id,
+                    "short": spec.description,
+                    "category": Value::Null,
+                    "in_pcbcraft": [],
+                    "calculator": Value::Null,
+                    "matched_field": field,
+                }),
+            ));
+        }
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| {
+        a.1["id"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b.1["id"].as_str().unwrap_or(""))
+    }));
+    let mut seen = std::collections::BTreeSet::new();
+    let mut hits: Vec<Value> = Vec::new();
+    for (_, row) in rows {
+        let key = format!(
+            "{}:{}",
+            row["kind"].as_str().unwrap_or(""),
+            row["id"].as_str().unwrap_or("")
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        hits.push(row);
+        if hits.len() >= limit {
+            break;
+        }
+    }
+    json!({"hits": hits, "count": hits.len()})
+}
+
+fn help_term_json(id: &str) -> Result<Value, Error> {
+    let Some(t) = pcbcraft_calc::term_by_id(id) else {
+        return Err(Error::Invalid(format!("unknown glossary id {id}")));
+    };
+    let calc = if t.calculator.is_empty() {
+        Value::Null
+    } else {
+        json!(t.calculator)
+    };
+    Ok(json!({
+        "id": t.id,
+        "term": t.term,
+        "category": t.category,
+        "short": t.short,
+        "long": t.long,
+        "synonyms": t.synonyms,
+        "related": t.related,
+        "units": t.units,
+        "in_pcbcraft": t.in_pcbcraft,
+        "search": t.search,
+        "calculator": calc,
+        "source": t.source,
+    }))
 }
 /// Approximate single-ended microstrip impedance in ohms, widths and heights
 /// in millimetres, assuming a standard 35 um copper thickness.
@@ -3334,6 +3495,21 @@ struct NetImpedanceParams {
     net: Option<Id>,
     #[serde(default)]
     target: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HelpGlossaryParams {
+    query: String,
+    #[serde(default = "default_help_glossary_limit")]
+    limit: u32,
+}
+fn default_help_glossary_limit() -> u32 {
+    20
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HelpTermParams {
+    id: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10163,6 +10339,27 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 current = (next.id, onward.number.clone());
             };
             Ok(json!({"steps": steps, "parts": steps.len(), "terminated": terminated}))
+        }
+        "help.glossary" => {
+            let a: HelpGlossaryParams = parse(params)?;
+            let q = a.query.trim();
+            if q.is_empty() || q.len() > 128 {
+                return Err(Error::Invalid(
+                    "query must be 1 to 128 non whitespace characters".into(),
+                ));
+            }
+            if !(1..=100).contains(&a.limit) {
+                return Err(Error::Invalid("limit must be 1 to 100".into()));
+            }
+            Ok(help_glossary_json(q, a.limit as usize))
+        }
+        "help.term" => {
+            let a: HelpTermParams = parse(params)?;
+            let id = a.id.trim();
+            if id.is_empty() || id.len() > 64 {
+                return Err(Error::Invalid("id must be 1 to 64 bytes".into()));
+            }
+            help_term_json(id)
         }
         "net.impedance" => {
             let a: NetImpedanceParams = parse(params)?;
@@ -28188,4 +28385,69 @@ mod tests {
         s.project.validate()?;
         Ok(())
     }
+
+    #[test]
+    fn help_glossary_thicker_track_includes_track_width_and_set_width_command() -> Result<(), Error> {
+        let s = Session::default();
+        let rev = s.revision;
+        let nets_before = s.project.nets.len();
+        let out = s.execute(
+            "help.glossary",
+            json!({"query": "thicker track", "limit": 40}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(s.revision, rev + 1);
+        assert_eq!(s.project.nets.len(), nets_before);
+        let hits = out["hits"].as_array().ok_or_else(|| Error::Invalid("hits".into()))?;
+        let ids: Vec<&str> = hits
+            .iter()
+            .filter_map(|h| h["id"].as_str())
+            .collect();
+        assert!(ids.iter().any(|id| *id == "track_width"));
+        assert!(ids.iter().any(|id| *id == "track.set_width"));
+        Ok(())
+    }
+
+    #[test]
+    fn help_term_unknown_id_returns_error() {
+        let mut s = Session::default();
+        let err = s.execute("help.term", json!({"id": "not_a_real_term_id"}), None);
+        assert!(err.is_err());
+        let msg = format!("{}", err.err().unwrap());
+        assert!(msg.contains("not_a_real_term_id"));
+    }
+
+    #[test]
+    fn help_glossary_rejects_limit_out_of_range() {
+        let mut s = Session::default();
+        assert!(s
+            .execute("help.glossary", json!({"query": "volt", "limit": 0}), None)
+            .is_err());
+        assert!(s
+            .execute(
+                "help.glossary",
+                json!({"query": "volt", "limit": 101}),
+                None,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn help_commands_listed_in_commands() {
+        let ids: Vec<&str> = commands().iter().map(|c| c.id).collect();
+        assert!(ids.iter().any(|id| *id == "help.glossary"));
+        assert!(ids.iter().any(|id| *id == "help.term"));
+    }
+
+    #[test]
+    fn in_pcbcraft_command_ids_exist() {
+        let ids: std::collections::HashSet<&str> = commands().iter().map(|c| c.id).collect();
+        for t in pcbcraft_calc::TERMS {
+            for cmd in t.in_pcbcraft {
+                assert!(ids.contains(cmd), "term {} lists unknown command {cmd}", t.id);
+            }
+        }
+    }
+
 }
