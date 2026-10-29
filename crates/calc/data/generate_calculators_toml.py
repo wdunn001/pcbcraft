@@ -1154,4 +1154,17 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import io
+    import sys
+    from pathlib import Path
+
+    buf = io.StringIO()
+    prev = sys.stdout
+    sys.stdout = buf
+    try:
+        main()
+    finally:
+        sys.stdout = prev
+    out_path = Path(__file__).with_name("calculators.toml")
+    out_path.write_text(buf.getvalue(), encoding="utf-8")
+    print(out_path, file=prev)
