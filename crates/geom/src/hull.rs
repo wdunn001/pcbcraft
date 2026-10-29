@@ -140,7 +140,13 @@ pub fn boundary_position(poly: &[Point], p: Point) -> (f64, f64) {
         };
         let d = crate::point_segment(p, *a, *b);
         if d < best.0 {
-            best = (d, walked + a.distance(p).min(a.distance(*b)));
+            let len = a.distance(*b);
+            let along = if len > 0.0 {
+                (((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / len).clamp(0.0, len)
+            } else {
+                0.0
+            };
+            best = (d, walked + along);
         }
         walked += a.distance(*b);
     }
@@ -186,6 +192,62 @@ pub fn boundary_vertices(poly: &[Point], from: f64, to: f64, ccw: bool) -> Vec<P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn square() -> Vec<Point> {
+        vec![
+            Point::new(0.0, 0.0),
+            Point::new(4.0, 0.0),
+            Point::new(4.0, 4.0),
+            Point::new(0.0, 4.0),
+        ]
+    }
+
+    #[test]
+    fn boundary_position_of_points_on_edges_is_arc_length() {
+        let sq = square();
+        let cases = [
+            ((0.0, 0.0), 0.0),
+            ((1.0, 0.0), 1.0),
+            ((3.0, 0.0), 3.0),
+            ((4.0, 2.0), 6.0),
+            ((1.0, 4.0), 11.0),
+            ((0.0, 3.0), 13.0),
+        ];
+        for ((x, y), expected) in cases {
+            let (s, total) = boundary_position(&sq, Point::new(x, y));
+            assert!(
+                (s - expected).abs() < 1e-9,
+                "({x},{y}) gave {s}, want {expected}"
+            );
+            assert!((total - 16.0).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn boundary_position_of_outside_point_uses_the_nearest_foot() {
+        let (s, _) = boundary_position(&square(), Point::new(3.0, -2.0));
+        assert!((s - 3.0).abs() < 1e-9, "{s}");
+    }
+
+    #[test]
+    fn boundary_vertices_walks_both_ways() {
+        let sq = square();
+        let ccw = boundary_vertices(&sq, 1.0, 9.0, true);
+        assert_eq!(ccw, vec![Point::new(4.0, 0.0), Point::new(4.0, 4.0)]);
+        let cw = boundary_vertices(&sq, 1.0, 9.0, false);
+        assert_eq!(cw, vec![Point::new(0.0, 0.0), Point::new(0.0, 4.0)]);
+        let wrap = boundary_vertices(&sq, 13.0, 1.0, true);
+        assert_eq!(wrap, vec![Point::new(0.0, 0.0)]);
+        let back = boundary_vertices(&sq, 9.0, 1.0, false);
+        assert_eq!(back, vec![Point::new(4.0, 4.0), Point::new(4.0, 0.0)]);
+    }
+
+    #[test]
+    fn boundary_vertices_with_no_vertex_between_is_empty() {
+        let sq = square();
+        assert!(boundary_vertices(&sq, 1.0, 3.0, true).is_empty());
+        assert!(boundary_vertices(&[], 0.0, 1.0, true).is_empty());
+    }
 
     #[test]
     fn octagon_around_a_point_has_only_legal_edges() {

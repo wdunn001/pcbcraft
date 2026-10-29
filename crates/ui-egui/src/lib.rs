@@ -1,12 +1,16 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
+mod board3d;
 mod canvas;
+mod datums;
 mod editing;
+mod impedance_panel;
 mod library;
 mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -617,6 +621,7 @@ pub struct App {
     tool: Tool,
     selected: Option<Id>,
     edit: editing::EditState,
+    view3d: board3d::View3d,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
@@ -641,11 +646,13 @@ pub struct App {
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
+    datum_ui: datums::DatumUi,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
     pair_a: Id,
     pair_b: Id,
@@ -834,6 +841,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.extend(via_span::via_span_rows(project, v));
         rows.push((
             "Protection".into(),
             via_covering::covering_name(v.effective_covering(&project.board)).into(),
@@ -958,6 +966,7 @@ impl App {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
+                Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -966,6 +975,7 @@ impl App {
             tool: Tool::Select,
             selected: None,
             edit: editing::EditState::default(),
+            view3d: board3d::View3d::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
@@ -990,11 +1000,13 @@ impl App {
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
+            datum_ui: datums::DatumUi::default(),
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
             pair_a: 0,
             pair_b: 0,
@@ -1902,7 +1914,11 @@ impl App {
             .default_open(true)
             .show(ui, |ui| {
             self.holes_section(ui);
+            self.datums_section(ui);
             self.fiducials_section(ui);
+            if self.tab == Tab::Pcb {
+                self.via_spans_section(ui);
+            }
             ui.add_space(16.0);
             let rows: &[&str] = match self.tab {
                 Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -2015,10 +2031,11 @@ impl App {
                 (
                     v.id,
                     format!(
-                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
+                        "Via at {}, {} · {} mm hole · {} · {}",
                         v.position.x.round(),
                         v.position.y.round(),
                         v.drill,
+                        via_span::via_tree_span(&self.project, v),
                         self.project.net_name(v.net)
                     ),
                 )
@@ -5591,7 +5608,9 @@ impl App {
                     .show(ui, |ui| {
                 self.draw_tool_options(ui);
                 self.section_heading(ui, "Details");
-                if let Some(id) = self.selected {
+                if let Some(id) = self.selected.filter(|id| datums::is_datum(&self.project, *id)) {
+                    self.datum_inspector(ui, id);
+                } else if let Some(id) = self.selected {
                     let c = self.project.component(id).cloned().or_else(|| {
                         self.project
                             .footprint(id)
@@ -5762,6 +5781,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_span_controls(ui, id);
                         self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
@@ -5882,6 +5902,7 @@ impl App {
                                     json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
                                 );
                             }
+                            self.impedance_section(ui, id, net);
                         }
                         if let Some(zone) =
                             self.project.board.zones.iter().find(|z| z.id == id)
@@ -6803,12 +6824,17 @@ impl App {
         });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
-        Self::margined(ui, |ui| {
-            ui.heading("3D view");
-            ui.label(
-                "A Rust-native 3D board viewer is on the way. Until then, use fabrication previews and mesh export from Settings.",
-            );
-        });
+        let env = board3d::Env {
+            project: &self.project,
+            revision: self.revision,
+            selected: self.selected,
+            dark: self.preferences.dark,
+            bg: self.surface(),
+            muted: self.muted(),
+        };
+        if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
+            self.select(Some(id));
+        }
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
@@ -6839,11 +6865,7 @@ impl App {
                                 .show(ui, |ui| Self::padded(ui, |ui| self.files_tab(ui)))
                                 .inner
                         }
-                        Tab::Board3d => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::padded(ui, |ui| self.board3d_tab(ui)))
-                                .inner
-                        }
+                        Tab::Board3d => self.board3d_tab(ui),
                         Tab::Libraries => {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))

@@ -32,6 +32,11 @@ fn a_newcomer_tents_one_via_and_the_fabrication_notes_say_so() -> Result<(), Str
         "a chosen via offers to say how it is protected: {}",
         app.message
     );
+    assert!(
+        scrolled_to(&ctx, &mut app, "Follow board")?,
+        "the protection picker is reachable: {}",
+        app.message
+    );
     authoring::tests::tap(&ctx, &mut app, "Follow board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Tented")?;
