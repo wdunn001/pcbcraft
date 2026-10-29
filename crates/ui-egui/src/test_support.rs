@@ -104,8 +104,8 @@ pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(),
     // Two quiet passes first: hit-testing always trails the painter by a
     // frame, and a scroll area only grows its scrollbar on the second
     // pass, which shifts every row a hair.
-    frame(ctx, app, vec![]);
-    frame(ctx, app, vec![]);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
+    frame(ctx, app, vec![], egui::Modifiers::NONE);
     // Where to park the pointer when a label sits off screen: the middle
     // page low and high, the settings column, and the left dock. A spot
     // that nothing moves under (a text field swallowing the wheel, or
@@ -153,7 +153,7 @@ pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(),
         for direction in [-60.0, 90.0] {
             let mut stills = 0;
             while stills < 2 {
-                let output = frame(ctx, app, vec![]);
+                let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
                 if let Some(pos) = find(&output) {
                     for pressed in [true, false] {
                         frame(
@@ -168,6 +168,7 @@ pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(),
                                     modifiers: egui::Modifiers::NONE,
                                 },
                             ],
+                            egui::Modifiers::NONE,
                         );
                     }
                     return Ok(());
@@ -179,7 +180,12 @@ pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(),
                     phase: egui::TouchPhase::Move,
                     modifiers: egui::Modifiers::NONE,
                 };
-                let after = frame(ctx, app, vec![egui::Event::PointerMoved(lane), wheel]);
+                let after = frame(
+                    ctx,
+                    app,
+                    vec![egui::Event::PointerMoved(lane), wheel],
+                    egui::Modifiers::NONE,
+                );
                 if witness(&after) == before {
                     stills += 1;
                 } else {
@@ -187,7 +193,7 @@ pub(crate) fn tap(ctx: &egui::Context, app: &mut App, label: &str) -> Result<(),
                 }
                 // A scrolled frame needs one more pass before its
                 // hit-testing matches what the painter just drew.
-                frame(ctx, app, vec![]);
+                frame(ctx, app, vec![], egui::Modifiers::NONE);
             }
         }
     }

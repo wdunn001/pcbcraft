@@ -3,7 +3,7 @@
 use crate::Tab;
 use egui::Key;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Stable action id stored in profiles and used for dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -912,11 +912,19 @@ mod tests {
     #[test]
     fn default_bindings_have_unique_chords_per_context() {
         let map = Keymap::default_bindings();
-        let mut seen: HashMap<(KeyChord, ShortcutContext), KeyAction> = HashMap::new();
+        let mut seen: BTreeMap<(String, bool, bool, bool, ShortcutContext), KeyAction> =
+            BTreeMap::new();
         for action in rebindable_actions() {
             for chord in map.chords_for(action) {
                 let ctx = action_context(action);
-                if let Some(other) = seen.insert((chord, ctx), action) {
+                let key = (
+                    storage_key_name(chord.key),
+                    chord.ctrl,
+                    chord.shift,
+                    chord.alt,
+                    ctx,
+                );
+                if let Some(other) = seen.insert(key, action) {
                     panic!(
                         "{:?} and {:?} both use {} in {:?}",
                         action,

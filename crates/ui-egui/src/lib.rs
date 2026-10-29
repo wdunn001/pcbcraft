@@ -8252,9 +8252,9 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
+        tap(&ctx, &mut app, "Draw shape")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New layer")?;
+        tap(&ctx, &mut app, "New layer")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert_eq!(
             app.project.board.user_layers.len(),
@@ -8262,7 +8262,7 @@ mod tests {
             "the new layer button should add a layer: {}",
             app.message
         );
-        authoring::tests::tap(&ctx, &mut app, "Line")?;
+        tap(&ctx, &mut app, "Line")?;
         let click = |p: egui::Pos2| {
             vec![
                 egui::Event::PointerMoved(p),
@@ -8301,7 +8301,7 @@ mod tests {
             app.message
         );
         app.art_text = "HELLO LASER".into();
-        authoring::tests::tap(&ctx, &mut app, "Words")?;
+        tap(&ctx, &mut app, "Words")?;
         frame(
             &ctx,
             &mut app,
@@ -8376,7 +8376,7 @@ mod tests {
         );
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
+        tap(&ctx, &mut app, "Checks")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
             paints_text(&ctx, &mut app, "Cut hits via")?,
@@ -8397,7 +8397,7 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
+        tap(&ctx, &mut app, "Rules")?;
         assert!(
             paints_text(&ctx, &mut app, "Design rules travel with the design")?,
             "the Rules tab explains what rules are for: {}",
@@ -8407,7 +8407,7 @@ mod tests {
             paints_text(&ctx, &mut app, "New class")?,
             "the Rules tab offers a way to add a rule set"
         );
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
+        tap(&ctx, &mut app, "Settings")?;
         assert!(
             paints_text(&ctx, &mut app, "APPEARANCE")?,
             "the Settings tab opens with the look of the app"
@@ -8420,7 +8420,7 @@ mod tests {
             paints_text(&ctx, &mut app, "Nothing selected")?,
             "the aside no longer holds the project settings"
         );
-        authoring::tests::tap(&ctx, &mut app, "Dark")?;
+        tap(&ctx, &mut app, "Dark")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(app.preferences.dark, "the theme switch on the tab works");
         Ok(())
