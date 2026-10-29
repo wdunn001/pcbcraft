@@ -1,9 +1,9 @@
 //! Manufacturing panel fabrication checks (enabled panel settings only).
 use crate::Finding;
 use pcbcraft_doc::{
-    panel_layout, panel_score_lines, PanelSeparation,
     PANEL_ASSEMBLER_MAX_EDGE_MM, PANEL_FIDUCIAL_MARK_COUNT, PANEL_SCORE_COMPONENT_CLEARANCE_MM,
-    PANEL_SCORE_COPPER_CLEARANCE_MM, PANEL_TAB_MIN_WIDTH_MM, Project,
+    PANEL_SCORE_COPPER_CLEARANCE_MM, PANEL_TAB_MIN_WIDTH_MM, PanelSeparation, Project,
+    panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 
@@ -462,7 +462,11 @@ mod tests {
                 layer: pcbcraft_doc::Layer::Front,
             });
         }
-        assert!(drc(&p).iter().any(|f| f.code == "panel_component_near_score"));
+        assert!(
+            drc(&p)
+                .iter()
+                .any(|f| f.code == "panel_component_near_score")
+        );
         Ok(())
     }
 
@@ -505,7 +509,11 @@ mod tests {
                 layer: pcbcraft_doc::Layer::Front,
             });
         }
-        assert!(!drc(&p).iter().any(|f| f.code == "panel_component_near_score"));
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "panel_component_near_score")
+        );
         Ok(())
     }
 }
