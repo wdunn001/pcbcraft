@@ -31,6 +31,7 @@ craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "1aa81a773aa
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
 png = "0.18.1"
 base64 = "0.22"
+getrandom = "0.3"
 tempfile = "3"
 
 [workspace.lints.rust]
