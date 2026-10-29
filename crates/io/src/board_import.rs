@@ -424,10 +424,10 @@ impl ImportCtx {
             .child("pts")
             .ok_or_else(|| line_error(&self.source, node.span.start, "outline missing points"))?;
         let mut outline = parse_pts(pts, &self.source)?;
-        if outline.first() != outline.last() {
-            if let Some(first) = outline.first().copied() {
-                outline.push(first);
-            }
+        if outline.first() != outline.last()
+            && let Some(first) = outline.first().copied()
+        {
+            outline.push(first);
         }
         let max_x = outline.iter().map(|p| p.x).fold(0.0, f64::max);
         let max_y = outline.iter().map(|p| p.y).fold(0.0, f64::max);
