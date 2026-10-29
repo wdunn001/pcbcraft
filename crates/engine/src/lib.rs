@@ -153,6 +153,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "project.import",
+            "Replace the open design from an interchange board file in one undo step",
+            schema(
+                json!({"format":{"type":"string","enum":["board"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
+                &["format", "path"],
+            ),
+        ),
+        (
             "component.add",
             "Place an original built-in symbol: resistor, capacitor, led or connector",
             schema(
@@ -3525,6 +3533,12 @@ struct ProjectSetAutoSyncParams {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchivePathParams {
+    path: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectImportParams {
+    format: String,
     path: String,
 }
 #[derive(Deserialize)]
@@ -6906,6 +6920,24 @@ fn write_bound_field(p: &mut Project, object: Id, field: Field, value: f64) -> R
     }
     Ok(())
 }
+
+fn count_preserved_nodes(p: &Project) -> usize {
+    let mut n = p.board.preserved.nodes.len();
+    for f in &p.board.footprints {
+        n += f.preserved.nodes.len();
+    }
+    for t in &p.board.tracks {
+        n += t.preserved.nodes.len();
+    }
+    for v in &p.board.vias {
+        n += v.preserved.nodes.len();
+    }
+    for z in &p.board.zones {
+        n += z.preserved.nodes.len();
+    }
+    n
+}
+
 /// Run one command with named parameters resolved, then record what it bound.
 /// A plain number written where a parameter could stand releases that field,
 /// so a later parameter change never overrides a deliberate edit.
@@ -7432,6 +7464,28 @@ fn run_command(
                 "name": imported.name,
                 "components": imported.components.len(),
                 "files": imported.files.len(),
+            });
+            *p = imported;
+            Ok(summary)
+        }
+        "project.import" => {
+            let a: ProjectImportParams = parse(params)?;
+            if a.format != "board" {
+                return Err(Error::Invalid("unsupported import format".into()));
+            }
+            let text =
+                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
+            let imported = pcbcraft_io::read_board_interchange(&text).map_err(Error::Invalid)?;
+            let preserved_nodes = count_preserved_nodes(&imported);
+            let summary = json!({
+                "format": "board",
+                "components": imported.components.len(),
+                "nets": imported.nets.len(),
+                "footprints": imported.board.footprints.len(),
+                "tracks": imported.board.tracks.len(),
+                "vias": imported.board.vias.len(),
+                "zones": imported.board.zones.len(),
+                "preserved_nodes": preserved_nodes,
             });
             *p = imported;
             Ok(summary)
@@ -11046,6 +11100,8 @@ fn run_command(
                     width,
                     layer,
                     arc: None,
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                 });
                 ids.push(id);
             }
@@ -12287,6 +12343,7 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 from_layer,
                 to_layer,
                 covering: None,
@@ -12430,6 +12487,7 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        preserved: pcbcraft_doc::PreservedSource::default(),
                         from_layer: None,
                         to_layer: None,
                         covering: None,
@@ -12455,6 +12513,7 @@ fn run_command(
                 cutouts: vec![],
                 filled: true,
                 kind: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 pour: None,
             });
             Ok(json!({"id":id}))
@@ -12849,6 +12908,7 @@ fn run_command(
                     cutouts: vec![],
                     filled: true,
                     kind: Some("teardrop".into()),
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                     pour: None,
                 });
                 added += 1;
@@ -16313,6 +16373,8 @@ fn run_command(
                 width,
                 layer,
                 arc: None,
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({"id":id, "width": width}))
         }
@@ -16340,6 +16402,8 @@ fn run_command(
                 width,
                 layer,
                 arc: Some(a.mid),
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({
                 "id": id,
@@ -16414,6 +16478,8 @@ fn run_command(
                 width,
                 layer,
                 arc: None,
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({"id":id,"kept":a.id}))
         }
@@ -16511,6 +16577,8 @@ fn run_command(
                 width,
                 layer,
                 arc: None,
+
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
@@ -16561,6 +16629,8 @@ fn run_command(
                         width,
                         layer,
                         arc: None,
+
+                        preserved: pcbcraft_doc::PreservedSource::default(),
                     });
                 }
             }
@@ -16638,6 +16708,8 @@ fn run_command(
                     width,
                     layer: a.layer,
                     arc: None,
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                 });
             }
             for (from, to) in segs_n {
@@ -16651,6 +16723,8 @@ fn run_command(
                     width,
                     layer: a.layer,
                     arc: None,
+
+                    preserved: pcbcraft_doc::PreservedSource::default(),
                 });
             }
             let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
@@ -22517,6 +22591,72 @@ mod tests {
         assert!(rejected.is_err(), "a plain text file is not an archive");
         assert_eq!(keeper.project, before, "a refused import changes nothing");
         std::fs::remove_file(&plain).ok();
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn project_import_board_replaces_session_undo_once() -> Result<(), Error> {
+        let fixture = include_str!("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-board-import-{}.kicad_pcb",
+            std::process::id()
+        ));
+        std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = path.to_string_lossy().to_string();
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"led","reference":"D9","value":"LED","position":{"x":1,"y":1}}),
+            None,
+        )?;
+        let before = s.project.clone();
+        let undo_depth = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
+        let summary = s.execute(
+            "project.import",
+            json!({"format":"board","path":path}),
+            None,
+        )?;
+        assert_eq!(summary["result"]["format"], "board");
+        assert!(
+            summary["result"]["footprints"]
+                .as_u64()
+                .is_some_and(|n| n > 0)
+        );
+        assert_ne!(s.project, before);
+        assert_eq!(
+            s.inspect()["history"]["undo"].as_u64().unwrap_or(0),
+            undo_depth + 1
+        );
+        s.undo()?;
+        assert_eq!(s.project, before);
+        std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn project_import_board_invalid_leaves_project_unchanged() -> Result<(), Error> {
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-board-bad-{}.kicad_pcb",
+            std::process::id()
+        ));
+        std::fs::write(&path, b"(kicad_pcb (segment (start 0 0) (end 1)))\n")
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = path.to_string_lossy().to_string();
+        let mut s = Session::default();
+        let before = s.project.clone();
+        let rejected = s.execute(
+            "project.import",
+            json!({"format":"board","path":path}),
+            None,
+        );
+        assert!(rejected.is_err(), "malformed board must be refused");
+        let msg = match rejected {
+            Err(e) => e.to_string(),
+            Ok(_) => return Err(Error::Invalid("expected import failure".into())),
+        };
+        assert!(msg.contains("line"), "error should name a line: {msg}");
+        assert_eq!(s.project, before);
         std::fs::remove_file(&path).ok();
         Ok(())
     }

@@ -27,6 +27,48 @@ mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+
+/// Verbatim interchange subtrees kept for export when the native model has no
+/// field for them yet. Bounds match epic import research caps.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct PreservedSource {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<String>,
+}
+
+impl PreservedSource {
+    pub const MAX_NODES: usize = 256;
+    pub const MAX_BYTES: usize = 1024 * 1024;
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub fn byte_len(&self) -> usize {
+        self.nodes.iter().map(String::len).sum()
+    }
+
+    pub fn push_span(&mut self, source: &str, span: std::ops::Range<usize>) -> Result<(), String> {
+        if self.nodes.len() >= Self::MAX_NODES {
+            return Err("preserved node limit reached for one object".into());
+        }
+        let slice = source
+            .get(span.clone())
+            .ok_or_else(|| "preserved span out of range".to_string())?;
+        if slice.len() + self.byte_len() > Self::MAX_BYTES {
+            return Err("preserved byte limit reached for one object".into());
+        }
+        self.nodes.push(slice.to_owned());
+        Ok(())
+    }
+
+    pub fn valid(&self) -> bool {
+        self.nodes.len() <= Self::MAX_NODES && self.byte_len() <= Self::MAX_BYTES
+    }
+}
+
+pub const MAX_PRESERVED_PROJECT_BYTES: usize = 8 * 1024 * 1024;
+
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -1062,6 +1104,8 @@ pub struct Footprint {
     /// the silk, mask and paste layers are derived from it, never stored per pad.
     pub side: Option<Layer>,
     pub pads: Vec<Pad>,
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
 }
 /// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
 /// A library pad as it sits when its part is mounted on the bottom: x offset,
@@ -1199,7 +1243,7 @@ impl Layer {
         }
     }
 
-    fn from_file_str(s: &str) -> Result<Self, String> {
+    pub fn from_file_str(s: &str) -> Result<Self, String> {
         let s = s.trim();
         if s.is_empty() {
             return Err("copper layer name is empty".into());
@@ -1270,6 +1314,8 @@ pub struct Track {
     /// straight segment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<Point>,
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
 }
 impl Track {
     /// The circular arc if the track stores a usable midpoint.
@@ -1296,6 +1342,8 @@ pub struct Via {
     pub diameter: f64,
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
     /// Upper end of the copper span; none means the top layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_layer: Option<Layer>,
@@ -1430,6 +1478,8 @@ pub struct CopperZone {
     /// hand-drawn zones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
     /// How the poured copper meets same-net copper inside the outline. Absent
     /// means the defaults: solid to vias, four spokes to plated pads, islands
     /// removed.
@@ -2771,6 +2821,8 @@ pub struct Board {
     /// Text labels drawn on the board.
     #[serde(default)]
     pub texts: Vec<BoardText>,
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
 }
 /// One extra bill-of-materials column defined by the project: which
 /// component property to read and the header to print for it.
@@ -3389,6 +3441,7 @@ impl Default for Project {
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
+                preserved: PreservedSource::default(),
             },
             auto_sync: true,
         }
@@ -5425,6 +5478,34 @@ impl Project {
                 return Err("board text is bound to an unknown component".into());
             }
         }
+        let mut preserved_bytes = b.preserved.byte_len();
+        for f in &b.footprints {
+            if !f.preserved.valid() {
+                return Err("footprint preserved data exceeds limits".into());
+            }
+            preserved_bytes += f.preserved.byte_len();
+        }
+        for t in &b.tracks {
+            if !t.preserved.valid() {
+                return Err("track preserved data exceeds limits".into());
+            }
+            preserved_bytes += t.preserved.byte_len();
+        }
+        for v in &b.vias {
+            if !v.preserved.valid() {
+                return Err("via preserved data exceeds limits".into());
+            }
+            preserved_bytes += v.preserved.byte_len();
+        }
+        for z in &b.zones {
+            if !z.preserved.valid() {
+                return Err("zone preserved data exceeds limits".into());
+            }
+            preserved_bytes += z.preserved.byte_len();
+        }
+        if !b.preserved.valid() || preserved_bytes > MAX_PRESERVED_PROJECT_BYTES {
+            return Err("board preserved data exceeds project limits".into());
+        }
         Ok(())
     }
 }
@@ -6191,6 +6272,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
+            preserved: PreservedSource::default(),
         };
         let json = serde_json::to_string(&track.layer).map_err(|e| e.to_string())?;
         assert_eq!(json, "\"F.Cu\"");
@@ -6245,6 +6327,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::from_index(1)?,
             arc: None,
+            preserved: PreservedSource::default(),
         });
         p.validate()?;
         Ok(())
@@ -6265,6 +6348,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::Back,
             arc: None,
+            preserved: PreservedSource::default(),
         });
         p.validate()?;
         p.board.tracks[0].layer = Layer::from_index(2)?;
@@ -6422,6 +6506,7 @@ mod drill_tests {
                     geometry: Some(peg),
                 },
             ],
+            preserved: PreservedSource::default(),
         });
         assert!(
             p.validate()
