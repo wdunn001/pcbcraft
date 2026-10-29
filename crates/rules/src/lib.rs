@@ -1070,8 +1070,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Component, Footprint, Label, LibraryFootprint, LibrarySymbol, Net, NoConnectFlag, Pad,
-        Pin, PinRef, Track, Via, component_template,
+        Component, Footprint, Label, LibraryFootprint, LibrarySymbol, Net, NoConnectFlag, Pad, Pin,
+        PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition};
 
@@ -1140,7 +1140,11 @@ mod tests {
         Ok(component)
     }
 
-    fn library_ic_with_footprint(id: Id, reference: &str, pins: Vec<Pin>) -> Result<Component, String> {
+    fn library_ic_with_footprint(
+        id: Id,
+        reference: &str,
+        pins: Vec<Pin>,
+    ) -> Result<Component, String> {
         let mut component = library_ic(id, reference, pins)?;
         let pad = ic_pad_definition();
         component.library_footprint = Some(LibraryFootprint {
@@ -1370,9 +1374,13 @@ mod tests {
             pin.net = Some(vdd);
         }
         p.components.push(cap);
-        p.board
-            .footprints
-            .push(placed_library_footprint(301, ic, Point::new(0.0, 0.0), &pad, vdd));
+        p.board.footprints.push(placed_library_footprint(
+            301,
+            ic,
+            Point::new(0.0, 0.0),
+            &pad,
+            vdd,
+        ));
         p.board.footprints.push(simple_footprint(
             302,
             cap_id,
