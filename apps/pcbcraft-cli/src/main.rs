@@ -206,12 +206,39 @@ fn run() -> Result<(), String> {
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             println!("{}", json!({"path":path,"view":view}));
         }
+        "diff" => {
+            let path_a = args
+                .get(1)
+                .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let path_b = args
+                .get(2)
+                .ok_or("usage: pcbcraft-cli diff PATH_A PATH_B [--format text|json]")?;
+            let format = option(&args, "--format").unwrap_or("text");
+            let left = pcbcraft_io::load(Path::new(path_a))?;
+            let right = pcbcraft_io::load(Path::new(path_b))?;
+            let diff = pcbcraft_io::project_diff(&left, &right);
+            match format {
+                "json" => println!("{}", diff.to_json()),
+                "text" => {
+                    if diff.is_empty() {
+                        println!("designs match");
+                    } else {
+                        println!("{}", diff.to_text());
+                    }
+                }
+                other => return Err(format!("unknown diff format: {other}")),
+            }
+            if !diff.is_empty() {
+                std::process::exit(1);
+            }
+        }
         "help" | "--help" | "-h" => println!(
             "PCBCraft — Rust EDA, MCP-first\n\n\
-commands | inspect | checks | new | init | sample | run | export | snapshot | tool | mcp\n\n\
+commands | inspect | checks | new | init | sample | run | export | snapshot | diff | tool | mcp\n\n\
 Common: --sample or --project FILE\n\
 new: pcbcraft-cli new --out design.pcbcraft [--name TITLE]\n\
 init: pcbcraft-cli init DIRECTORY [--name TITLE] [--force]\n\
+Diff: pcbcraft-cli diff FILE_A FILE_B [--format text|json] (exit 1 when designs differ)\n\
 Tool: pcbcraft-cli tool NAME --args JSON [--save FILE]\n\
 MCP: pcbcraft-cli mcp [--connect 127.0.0.1:7991 | --http 127.0.0.1:PORT [--token-file FILE]]\n\
 Desktop: pcbcraft --sample --control 127.0.0.1:7991\n\

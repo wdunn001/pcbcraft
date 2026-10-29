@@ -24,6 +24,49 @@ pub(super) enum CanvasMenuKind {
     Object(Id),
 }
 
+fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
+    if let Some(c) = project.component(id) {
+        let p = c.position;
+        let pad = 3.0;
+        return Some((
+            Point::new(p.x - pad, p.y - pad),
+            Point::new(p.x + pad, p.y + pad),
+        ));
+    }
+    if let Some(f) = project.footprint(id) {
+        let mut lo = f.position;
+        let mut hi = f.position;
+        for pad in &f.pads {
+            if let Some(pos) = f.pad_position(&pad.number) {
+                lo = Point::new(lo.x.min(pos.x), lo.y.min(pos.y));
+                hi = Point::new(hi.x.max(pos.x), hi.y.max(pos.y));
+            }
+        }
+        let pad = 1.0;
+        return Some((
+            Point::new(lo.x - pad, lo.y - pad),
+            Point::new(hi.x + pad, hi.y + pad),
+        ));
+    }
+    if let Some(track) = project.board.tracks.iter().find(|t| t.id == id) {
+        let lo = Point::new(
+            track.start.x.min(track.end.x),
+            track.start.y.min(track.end.y),
+        );
+        let hi = Point::new(
+            track.start.x.max(track.end.x),
+            track.start.y.max(track.end.y),
+        );
+        return Some((lo, hi));
+    }
+    if let Some(via) = project.board.vias.iter().find(|v| v.id == id) {
+        let r = via.diameter * 0.5;
+        let p = via.position;
+        return Some((Point::new(p.x - r, p.y - r), Point::new(p.x + r, p.y + r)));
+    }
+    None
+}
+
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
 fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
@@ -425,6 +468,23 @@ impl App {
             camera.turns = keep_turns;
             self.needs_fit = false;
             ui.ctx().data_mut(|d| d.insert_temp(fit_key, size));
+        }
+        if self.needs_zoom_selection
+            && rect.width() > 40.0
+            && rect.height() > 40.0
+            && let Some(id) = self.selected
+            && let Some((lo, hi)) = selection_bounds(&self.project, id)
+        {
+            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let panel = if keep_turns % 2 == 1 {
+                (rect.height(), rect.width())
+            } else {
+                (rect.width(), rect.height())
+            };
+            camera = fit_camera(lo, hi, panel);
+            camera.mirror = keep_mirror;
+            camera.turns = keep_turns;
+            self.needs_zoom_selection = false;
         }
         let held = crate::tool_modifiers::held_now(ui.ctx());
         if response.hovered() {
@@ -2121,7 +2181,13 @@ impl App {
     ) {
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
         let at = |p: Point| camera.screen(c.position.offset(p.rotate(-c.rotation)), rect);
-        let color = if ghost { self.accent() } else { sc.body };
+        let color = if let Some(kind) = self.compare_tint.get(&c.id).copied() {
+            self.compare_kind_color(kind)
+        } else if selected || ghost {
+            self.accent()
+        } else {
+            sc.body
+        };
         let text_colour = if ghost { self.accent() } else { sc.text };
         let stroke = Stroke::new(2.2, color);
         let is_connector = c.library_symbol.is_none() && c.kind == "connector";
@@ -2555,7 +2621,14 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let color = art.silk.linear_multiply(stack.silk_alpha(on_bottom));
+            let silk_fade = stack.silk_alpha(on_bottom);
+            let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
+                self.compare_kind_color(kind)
+            } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
+                self.compare_kind_color(kind)
+            } else {
+                art.silk.linear_multiply(silk_fade)
+            };
             let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
                 .component(f.component)

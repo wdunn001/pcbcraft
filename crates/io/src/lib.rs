@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod diff;
 mod drawn;
 mod fab_export;
 mod generate;
@@ -50,6 +51,7 @@ pub use cam_drill::{
     drill_gcode, drill_tools, outline_gcode,
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use diff::{DesignChange, DesignDiff, project_diff};
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
@@ -8681,6 +8683,48 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn gerber_files_round_trips_flash_and_draw_counts() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 8,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 3,
+            net: 8,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Back,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 4,
+            net: 8,
+            position: Point::new(30.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        for (name, text) in &files {
+            if !name.ends_with(".gbr") {
+                continue;
+            }
+            let (writer_flashes, writer_draws) = count_flashes_and_draws(text)?;
+            let layer = parse_gerber_layer(text, name)?;
+            assert_eq!(layer.flash_count, writer_flashes, "flash count for {name}");
+            assert_eq!(layer.draw_count, writer_draws, "draw count for {name}");
+        }
+        Ok(())
+    }
+
     #[test]
     fn oval_drills_export_as_spanned_slots_following_pad_rotation() -> Result<(), String> {
         let mut project = Project::default();

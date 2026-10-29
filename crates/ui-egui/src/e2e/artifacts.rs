@@ -418,6 +418,23 @@ fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, 
     Ok(files)
 }
 
+fn gbrjob_bytes_for_compare(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if !bytes.starts_with(b"{") {
+        return Ok(bytes.to_vec());
+    }
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    if let Some(header) = value
+        .get_mut("Header")
+        .and_then(|header| header.as_object_mut())
+    {
+        header.insert(
+            "CreationDate".into(),
+            serde_json::Value::String(String::new()),
+        );
+    }
+    serde_json::to_vec(&value).map_err(|e| e.to_string())
+}
+
 /// True when every file in `names` is in both sets and has the same bytes.
 fn same_files(
     english: &std::collections::BTreeMap<String, Vec<u8>>,
@@ -429,7 +446,15 @@ fn same_files(
         let other = german
             .get(name)
             .ok_or_else(|| format!("{name} is missing when the language is German"))?;
-        if other != bytes {
+        let (left, right) = if name.ends_with(".gbrjob") {
+            (
+                gbrjob_bytes_for_compare(bytes)?,
+                gbrjob_bytes_for_compare(other)?,
+            )
+        } else {
+            (bytes.clone(), other.clone())
+        };
+        if left != right {
             return Err(format!("{name} differs between English and German"));
         }
         compared += 1;
