@@ -7,14 +7,17 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
+#[cfg(test)]
 use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
 /// staring at a blank list.
+#[allow(dead_code)]
 const EMPTY_SYMBOLS: &str =
     "No symbols yet. Press A to open the symbol palette, or run component.add to add one.";
 const EMPTY_NETS: &str = "No nets yet. Nets form when pins are wired together, or import a netlist with netlist.import and board.sync will create the packages.";
+#[allow(dead_code)]
 const EMPTY_BOARD: &str =
     "No packages on the board yet. Run board.sync to place a package for every symbol.";
 const EMPTY_CHECKS: &str =
@@ -444,6 +447,7 @@ enum PadLabels {
     Off,
 }
 impl PadLabels {
+    #[allow(dead_code)]
     fn name(&self) -> &'static str {
         match self {
             Self::Number => "Pads: number",
@@ -585,6 +589,7 @@ pub struct App {
     recent_designs: Vec<String>,
     home_open: bool,
     home_path_focus: bool,
+    #[allow(dead_code)]
     left_tab: usize,
     tree_query: String,
     tree_hidden: Vec<String>,
@@ -2593,6 +2598,7 @@ impl App {
         egui::Frame::side_top_panel(style).inner_margin(egui::Margin::symmetric(16, 12))
     }
     const APP_BAR_HEIGHT: f32 = 34.0;
+    #[allow(dead_code)]
     const WORKBENCH_TAB_HEIGHT: f32 = 36.0;
     fn header(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("app-bar")
@@ -3000,6 +3006,7 @@ impl App {
             "Step back and forward, sync the board, and start the wiring over on one connection or the whole board.",
         );
     }
+    #[allow(dead_code)]
     fn settings_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Settings", |ui| {
             if ui
@@ -5453,6 +5460,7 @@ impl App {
             self.message = format!("{label} saved in {directory}");
         }
     }
+    #[allow(dead_code)]
     fn board_body(&mut self, ui: &mut egui::Ui) {
         if self.project.board.footprints.is_empty() {
             empty_state(ui, EMPTY_BOARD, self.muted());
@@ -6454,6 +6462,7 @@ impl App {
         }
     }
 
+    #[allow(unused_variables)]
     fn record_icon(&mut self, id: &str, rect: Rect) {
         #[cfg(test)]
         self.icon_rects.insert(id.to_owned(), rect);

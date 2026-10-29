@@ -998,6 +998,7 @@ pub(crate) mod tests {
     }
 
     /// Click a tool-strip icon registered under `id` on the last painted frame.
+    #[allow(dead_code)]
     pub(crate) fn tap_icon(ctx: &egui::Context, app: &mut App, id: &str) -> Result<(), String> {
         frame(ctx, app, vec![]);
         frame(ctx, app, vec![]);
