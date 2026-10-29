@@ -1780,6 +1780,7 @@ dependencies = [
 name = "pcbcraft-engine"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-calc",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-io",
