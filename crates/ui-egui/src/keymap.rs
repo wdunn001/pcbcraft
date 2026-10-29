@@ -842,12 +842,19 @@ fn contexts_overlap(a: ShortcutContext, b: ShortcutContext) -> bool {
     false
 }
 
-pub fn chord_from_input(key: Key, modifiers: egui::Modifiers) -> KeyChord {
+pub fn chord_from_input(key: Key, input: egui::Modifiers) -> KeyChord {
+    let egui::Modifiers {
+        ctrl,
+        shift,
+        alt,
+        command,
+        ..
+    } = input;
     KeyChord {
         key,
-        ctrl: modifiers.ctrl || modifiers.command,
-        shift: modifiers.shift,
-        alt: modifiers.alt,
+        ctrl: ctrl || command,
+        shift,
+        alt,
     }
 }
 
