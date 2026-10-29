@@ -1258,6 +1258,7 @@ impl App {
         if let Some(path) = path {
             self.path = path;
             self.saved_revision = self.session.lock().ok().map(|s| s.revision);
+            self.assistant_load();
         }
         self
     }
@@ -1587,13 +1588,16 @@ impl App {
                 .map_or_else(|| t!("dialogs.tool_call.operation_failed"), refusal_text)
         };
         self.refresh();
+        if success && name == "save" {
+            self.assistant_save();
+        }
         if success && (name == "save" || name == "open") {
             pcbcraft_engine::recents::record_recent_path(&self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
-            self.assistant_design_opened();
+            self.assistant_design_opened(name);
             self.needs_fit = true;
         }
         success
@@ -4399,7 +4403,7 @@ impl App {
             .small()
             .color(self.muted()),
         );
-        ui.add_space(16.0);
+        ui.add_space(8.0);
         assistant::settings::section(self, ui);
         ui.add_space(16.0);
         ui.label(
@@ -4972,7 +4976,6 @@ impl App {
             .color(self.muted()),
         );
     }
-
     fn rules_tab(&mut self, ui: &mut egui::Ui) {
         if self
             .rule_draft
@@ -6104,7 +6107,7 @@ impl App {
                             1,
                             assistant::tab_label(self.assistant.waiting()),
                         )
-                        .on_hover_text(assistant::TAB_TIP);
+                        .on_hover_text(assistant::tab_tip());
                     }
                 });
                 if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
@@ -7556,6 +7559,7 @@ impl eframe::App for App {
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
+        self.assistant_save();
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
             && text.len() <= pcbcraft_io_limit()
