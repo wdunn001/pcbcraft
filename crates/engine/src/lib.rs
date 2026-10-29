@@ -17452,6 +17452,7 @@ mod tests {
         )?;
         s.execute("board.sync", json!({}), None)?;
         let fp = s.project.board.footprints[0].id;
+        let anchor = s.project.board.footprints[0].position;
         let net = s.execute("net.create", json!({"name":"CLK"}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
@@ -17462,14 +17463,13 @@ mod tests {
                 "clearance":0.2,
                 "x":-2.0,"y":-2.0,"width":4.0,"height":4.0,
                 "forbid":"all_copper",
-                "footprint_ref":"Y1",
-                "layer":"F.Cu"
+                "footprint_ref":"Y1"
             }),
             None,
         )?;
         s.execute(
             "track.add",
-            json!({"net":net,"start":[20.0,20.0],"end":[22.0,20.0],"width":0.2}),
+            json!({"net":net,"start":[anchor.x, anchor.y],"end":[anchor.x + 2.0, anchor.y],"width":0.2}),
             None,
         )?;
         let keepout = |s: &Session| {
@@ -17486,7 +17486,7 @@ mod tests {
         );
         s.execute(
             "footprint.move",
-            json!({"id":fp,"position":[40.0,40.0]}),
+            json!({"id":fp,"position":[anchor.x + 20.0, anchor.y + 20.0]}),
             None,
         )?;
         assert!(
@@ -17495,7 +17495,7 @@ mod tests {
         );
         s.execute(
             "footprint.move",
-            json!({"id":fp,"position":[20.0,20.0]}),
+            json!({"id":fp,"position":[anchor.x, anchor.y]}),
             None,
         )?;
         assert!(

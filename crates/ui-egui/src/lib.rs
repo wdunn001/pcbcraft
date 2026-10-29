@@ -7,7 +7,6 @@ use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
-use std::collections::BTreeMap;
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -690,7 +689,7 @@ pub struct App {
     frames: u32,
     library: library::Browser,
     #[cfg(test)]
-    icon_rects: BTreeMap<String, Rect>,
+    icon_rects: std::collections::BTreeMap<String, Rect>,
 }
 impl App {
     /// One library part offered as a small card: its name to pick, and a
@@ -1032,7 +1031,7 @@ impl App {
             frames: 0,
             library,
             #[cfg(test)]
-            icon_rects: BTreeMap::new(),
+            icon_rects: std::collections::BTreeMap::new(),
         }
     }
     fn refresh(&mut self) {
@@ -6457,6 +6456,10 @@ impl App {
     fn record_icon(&mut self, id: &str, rect: Rect) {
         #[cfg(test)]
         self.icon_rects.insert(id.to_owned(), rect);
+        #[cfg(not(test))]
+        {
+            let _ = (id, rect);
+        }
     }
 
     fn icon_button_style(&self) -> IconButtonStyle {
