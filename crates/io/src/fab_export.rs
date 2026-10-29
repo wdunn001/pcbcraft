@@ -17,7 +17,7 @@ pub fn via_mask_opening(v: &Via) -> bool {
 }
 
 #[derive(Clone, Copy)]
-struct DrillHit {
+pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
