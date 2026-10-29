@@ -942,6 +942,8 @@ impl OutputJob {
                         | "stackup"
                         | "drill_chart"
                         | "stats"
+                        | "assembly"
+                        | "fabrication"
                 )
             })
     }

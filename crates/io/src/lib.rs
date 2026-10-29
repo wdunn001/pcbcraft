@@ -315,6 +315,800 @@ impl DrawPage for PdfPage {
 const PDF_MAX_OPS: usize = 20_000;
 const PDF_K: f64 = 72.0 / 25.4;
 
+mod drawing_strings {
+    pub const FABRICATION_TITLE: &str = "Fabrication drawing";
+    pub const ASSEMBLY_TOP_TITLE: &str = "Assembly drawing (top)";
+    pub const ASSEMBLY_BOTTOM_TITLE: &str = "Assembly drawing (bottom)";
+    pub const DRILL_TABLE_HEADER: &str = "Symbol,Finished diameter mm,Count,Plated";
+    pub const STACKUP_HEADER: &str = "Layer,Kind,Thickness mm";
+    pub const BOM_HEADER: &str = "References,Value";
+    pub const TITLE: &str = "Title";
+    pub const REVISION: &str = "Revision";
+    pub const COMPANY: &str = "Company";
+    pub const DATE: &str = "Date";
+    pub const BOARD_SIZE: &str = "Board size mm";
+    pub const FINISH: &str = "Finish";
+    pub const MASK_COLOR: &str = "Mask color";
+    pub const LEGEND_COLOR: &str = "Legend color";
+    pub const NOTES: &str = "Notes";
+}
+use drawing_strings as draw_lbl;
+
+fn drawing_views() -> [&'static str; 5] {
+    [
+        "pcb",
+        "schematic",
+        "assembly-top",
+        "assembly-bottom",
+        "fabrication",
+    ]
+}
+
+fn view_supported(view: &str) -> bool {
+    drawing_views().contains(&view)
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct AssemblyOptions {
+    bom_table: bool,
+    mirror: bool,
+}
+
+pub(crate) struct DrillTool {
+    pub diameter_mm: f64,
+    pub slot_mm: f64,
+    pub plated: bool,
+    pub count: usize,
+}
+
+pub(crate) fn drill_tools(p: &Project) -> Result<Vec<DrillTool>, String> {
+    p.validate()?;
+    const MAX_TOOLS: usize = 64;
+    const MAX_HITS: usize = 50_000;
+    let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
+    let add = |d: u64, span: u64, plated: bool, tools: &mut BTreeMap<(u64, u64, bool), usize>| {
+        *tools.entry((d, span, plated)).or_default() += 1;
+    };
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            add((v.drill * 1_000.0).round() as u64, 0, true, &mut tools);
+        }
+    }
+    for h in &p.board.holes {
+        add((h.diameter * 1_000.0).round() as u64, 0, false, &mut tools);
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let Some(drill) = g.drill.as_ref() else {
+                continue;
+            };
+            let (wide, narrow) = (
+                drill.size.x.max(drill.size.y),
+                drill.size.x.min(drill.size.y),
+            );
+            let d = (narrow * 1_000.0).round() as u64;
+            if d == 0 {
+                continue;
+            }
+            let span = ((wide - narrow) * 1_000.0).round() as u64;
+            add(d, span, g.pad_type == "thru_hole", &mut tools);
+        }
+    }
+    if tools.len() > MAX_TOOLS {
+        return Err("drill chart needs 64 or fewer distinct drill tools".into());
+    }
+    let total: usize = tools.values().sum();
+    if total > MAX_HITS {
+        return Err("drill chart exceeds the drill hit limit".into());
+    }
+    Ok(tools
+        .into_iter()
+        .map(|((d, span, plated), count)| DrillTool {
+            diameter_mm: d as f64 / 1_000.0,
+            slot_mm: span as f64 / 1_000.0,
+            plated,
+            count,
+        })
+        .collect())
+}
+
+fn board_outline_points(p: &Project) -> Vec<Point> {
+    match &p.board.outline {
+        Some(o) => o.clone(),
+        None => vec![
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, 0.0),
+            Point::new(p.board.width, p.board.height),
+            Point::new(0.0, p.board.height),
+        ],
+    }
+}
+
+fn board_bounds(p: &Project) -> (Point, Point) {
+    let outline = board_outline_points(p);
+    let mut min = Point::new(f64::INFINITY, f64::INFINITY);
+    let mut max = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for pt in outline {
+        min.x = min.x.min(pt.x);
+        min.y = min.y.min(pt.y);
+        max.x = max.x.max(pt.x);
+        max.y = max.y.max(pt.y);
+    }
+    if !min.x.is_finite() {
+        return (Point::default(), Point::new(p.board.width, p.board.height));
+    }
+    (min, max)
+}
+
+fn footprint_on_back(f: &pcbcraft_doc::Footprint) -> bool {
+    f.pads.iter().any(|pad| {
+        pad.geometry.as_ref().is_some_and(|g| {
+            g.pad_type == "smd"
+                && !g.layers.is_empty()
+                && !g.layers.iter().any(|l| l.starts_with("F."))
+        })
+    })
+}
+
+fn map_point(p: Point, mirror: bool, cx: f64) -> Point {
+    if mirror {
+        Point::new(2.0 * cx - p.x, p.y)
+    } else {
+        p
+    }
+}
+
+fn lib_graphic_layer(g: &pcbcraft_library::Graphic) -> &str {
+    match g {
+        pcbcraft_library::Graphic::Line { layer, .. }
+        | pcbcraft_library::Graphic::Rectangle { layer, .. }
+        | pcbcraft_library::Graphic::Circle { layer, .. }
+        | pcbcraft_library::Graphic::Arc { layer, .. }
+        | pcbcraft_library::Graphic::Polyline { layer, .. }
+        | pcbcraft_library::Graphic::Text { layer, .. } => layer,
+    }
+}
+
+fn footprint_outline_path(
+    p: &Project,
+    f: &pcbcraft_doc::Footprint,
+    map: impl Fn(Point) -> Point,
+) -> Vec<Point> {
+    if let Some(c) = p.component(f.component)
+        && let Some(lib) = c.library_footprint.as_ref()
+    {
+        let mut pts = Vec::new();
+        for g in &lib.definition.graphics {
+            if lib_graphic_layer(g).contains("CrtYd") {
+                for pt in g.path_points() {
+                    pts.push(map(
+                        f.position.offset(pt.rotate(-f.rotation)),
+                    ));
+                }
+            }
+        }
+        if pts.len() >= 3 {
+            return pts;
+        }
+    }
+    let mut min = Point::new(f64::INFINITY, f64::INFINITY);
+    let mut max = Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for pad in &f.pads {
+        let (hx, hy) = pad
+            .geometry
+            .as_ref()
+            .map(|g| (g.size.x / 2.0, g.size.y / 2.0))
+            .unwrap_or((pad.diameter / 2.0, pad.diameter / 2.0));
+        for corner in [
+            Point::new(-hx, -hy),
+            Point::new(hx, -hy),
+            Point::new(hx, hy),
+            Point::new(-hx, hy),
+        ] {
+            let w = map(f.position.offset(corner.rotate(-f.rotation)));
+            min.x = min.x.min(w.x);
+            min.y = min.y.min(w.y);
+            max.x = max.x.max(w.x);
+            max.y = max.y.max(w.y);
+        }
+    }
+    vec![
+        map(Point::new(min.x, min.y)),
+        map(Point::new(max.x, min.y)),
+        map(Point::new(max.x, max.y)),
+        map(Point::new(min.x, max.y)),
+    ]
+}
+
+fn pad_one_triangle(
+    f: &pcbcraft_doc::Footprint,
+    map: impl Fn(Point) -> Point,
+) -> Option<Vec<Point>> {
+    let pad = f.pads.iter().find(|p| p.number == "1")?;
+    let (hx, hy) = pad
+        .geometry
+        .as_ref()
+        .map(|g| (g.size.x / 2.0, g.size.y / 2.0))
+        .unwrap_or((pad.diameter / 2.0, pad.diameter / 2.0));
+    let centre = map(f.position.offset(pad.offset.rotate(-f.rotation)));
+    let s = hx.min(hy).max(0.2);
+    Some(vec![
+        map(centre.offset(Point::new(0.0, s))),
+        map(centre.offset(Point::new(-s * 0.866, -s * 0.5))),
+        map(centre.offset(Point::new(s * 0.866, -s * 0.5))),
+    ])
+}
+
+fn draw_fiducial_cross(
+    page: &mut impl DrawPage,
+    fid: &pcbcraft_doc::Fiducial,
+    map: impl Fn(Point) -> Point,
+    rgb: [f64; 3],
+) -> Result<(), String> {
+    let c = map(fid.position);
+    let r = fid.diameter / 2.0;
+    page.circle(c, r, rgb, 0.12, false)?;
+    let arm = r * 1.4;
+    page.path(
+        &[map(Point::new(c.x - arm, c.y)), map(Point::new(c.x + arm, c.y))],
+        rgb,
+        0.12,
+        false,
+    )?;
+    page.path(
+        &[map(Point::new(c.x, c.y - arm)), map(Point::new(c.x, c.y + arm))],
+        rgb,
+        0.12,
+        false,
+    )
+}
+
+fn meta_value(p: &Project, key: &str) -> String {
+    p.meta.get(key).cloned().unwrap_or_default()
+}
+
+fn simple_title_block(
+    page: &mut impl DrawPage,
+    p: &Project,
+    origin: Point,
+    title: &str,
+) -> Result<(), String> {
+    let ink = [0.05, 0.05, 0.05];
+    let w = 42.0;
+    let h = 28.0;
+    let rect = [
+        origin,
+        Point::new(origin.x + w, origin.y),
+        Point::new(origin.x + w, origin.y + h),
+        Point::new(origin.x, origin.y + h),
+    ];
+    page.path(&rect, ink, 0.15, false)?;
+    let design = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    let revision = meta_value(p, "revision");
+    let company = meta_value(p, "company");
+    let date = meta_value(p, "date");
+    let rows: [(&str, &str); 5] = [
+        (draw_lbl::TITLE, title),
+        (draw_lbl::REVISION, revision.as_str()),
+        (draw_lbl::COMPANY, company.as_str()),
+        (draw_lbl::DATE, date.as_str()),
+        ("Design", design),
+    ];
+    let mut y = origin.y + h - 3.0;
+    for (label, value) in rows {
+        page.text(
+            Point::new(origin.x + 1.5, y),
+            1.8,
+            ink,
+            &format!("{label}: {value}"),
+        )?;
+        y -= 4.5;
+    }
+    Ok(())
+}
+
+fn draw_drill_symbol(
+    page: &mut impl DrawPage,
+    index: usize,
+    at: Point,
+    size: f64,
+    rgb: [f64; 3],
+) -> Result<(), String> {
+    let r = size / 2.0;
+    match index % 12 {
+        0 => page.circle(at, r, rgb, 0.1, false),
+        1 => {
+            let h = r;
+            page.path(
+                &[
+                    Point::new(at.x - h, at.y - h),
+                    Point::new(at.x + h, at.y - h),
+                    Point::new(at.x + h, at.y + h),
+                    Point::new(at.x - h, at.y + h),
+                ],
+                rgb,
+                0.1,
+                false,
+            )
+        }
+        2 => page.path(
+            &[
+                Point::new(at.x, at.y + r),
+                Point::new(at.x - r, at.y - r),
+                Point::new(at.x + r, at.y - r),
+            ],
+            rgb,
+            0.1,
+            true,
+        ),
+        3 => {
+            page.path(
+                &[
+                    Point::new(at.x - r, at.y - r),
+                    Point::new(at.x + r, at.y + r),
+                ],
+                rgb,
+                0.1,
+                false,
+            )?;
+            page.path(
+                &[
+                    Point::new(at.x - r, at.y + r),
+                    Point::new(at.x + r, at.y - r),
+                ],
+                rgb,
+                0.1,
+                false,
+            )
+        }
+        4 => page.path(
+            &[
+                Point::new(at.x, at.y + r),
+                Point::new(at.x + r, at.y),
+                Point::new(at.x, at.y - r),
+                Point::new(at.x - r, at.y),
+            ],
+            rgb,
+            0.1,
+            false,
+        ),
+        5 => {
+            page.circle(at, r, rgb, 0.1, false)?;
+            page.path(
+                &[
+                    Point::new(at.x - r, at.y),
+                    Point::new(at.x + r, at.y),
+                ],
+                rgb,
+                0.08,
+                false,
+            )?;
+            page.path(
+                &[
+                    Point::new(at.x, at.y - r),
+                    Point::new(at.x, at.y + r),
+                ],
+                rgb,
+                0.08,
+                false,
+            )
+        }
+        6 => {
+            let mut pts = Vec::new();
+            for i in 0..6 {
+                let a = std::f64::consts::TAU * i as f64 / 6.0 - std::f64::consts::FRAC_PI_2;
+                pts.push(Point::new(at.x + r * a.cos(), at.y + r * a.sin()));
+            }
+            page.path(&pts, rgb, 0.1, false)
+        }
+        7 => page.circle(at, r * 0.55, rgb, 0.1, false),
+        8 => page.path(
+            &[
+                Point::new(at.x - r, at.y),
+                Point::new(at.x + r, at.y),
+            ],
+            rgb,
+            0.15,
+            false,
+        ),
+        9 => page.path(
+            &[
+                Point::new(at.x, at.y - r),
+                Point::new(at.x, at.y + r),
+            ],
+            rgb,
+            0.15,
+            false,
+        ),
+        10 => {
+            page.path(
+                &[
+                    Point::new(at.x - r, at.y - r),
+                    Point::new(at.x + r, at.y + r),
+                ],
+                rgb,
+                0.1,
+                false,
+            )?;
+            page.path(
+                &[
+                    Point::new(at.x - r, at.y + r),
+                    Point::new(at.x + r, at.y - r),
+                ],
+                rgb,
+                0.1,
+                false,
+            )
+        }
+        _ => {
+            page.circle(at, r, rgb, 0.1, false)?;
+            page.circle(at, r * 0.55, rgb, 0.08, false)
+        }
+    }
+}
+
+fn draw_assembly(
+    page: &mut impl DrawPage,
+    p: &Project,
+    back: bool,
+    options: &AssemblyOptions,
+) -> Result<(), String> {
+    const MAX_PLACED: usize = 5_000;
+    if p.board.footprints.len() > MAX_PLACED {
+        return Err("assembly drawing exceeds the placed-object limit".into());
+    }
+    let (bmin, bmax) = board_bounds(p);
+    let cx = (bmin.x + bmax.x) / 2.0;
+    let map = |pt: Point| map_point(pt, options.mirror, cx);
+    let ink = [0.05, 0.05, 0.05];
+    let outline = board_outline_points(p)
+        .into_iter()
+        .map(map)
+        .collect::<Vec<_>>();
+    page.path(&outline, ink, 0.2, false)?;
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    for f in &p.board.footprints {
+        if footprint_on_back(f) != back {
+            continue;
+        }
+        let outline = footprint_outline_path(p, f, map);
+        page.path(&outline, ink, 0.12, false)?;
+        if let Some(tri) = pad_one_triangle(f, map) {
+            page.path(&tri, ink, 0.05, true)?;
+        }
+        if let Some(c) = refs.get(&f.component) {
+            page.text(map(f.position), 1.6, ink, &c.reference)?;
+        }
+    }
+    for fid in &p.board.fiducials {
+        let on_back = fid.layer == pcbcraft_doc::Layer::Back;
+        if on_back == back {
+            draw_fiducial_cross(page, fid, map, ink)?;
+        }
+    }
+    if options.bom_table {
+        let table_x = bmax.x + 6.0;
+        let mut y = bmax.y;
+        page.text(
+            Point::new(table_x, y),
+            2.0,
+            ink,
+            draw_lbl::BOM_HEADER,
+        )?;
+        y -= 3.5;
+        let mut groups: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+        for c in &p.components {
+            groups
+                .entry((c.value.clone(), c.kind.clone()))
+                .or_default()
+                .push(c.reference.clone());
+        }
+        for ((value, _), mut refs) in groups {
+            refs.sort();
+            page.text(
+                Point::new(table_x, y),
+                1.5,
+                ink,
+                &format!("{},{}", refs.join(" "), value),
+            )?;
+            y -= 3.0;
+        }
+    }
+    let title = if back {
+        draw_lbl::ASSEMBLY_BOTTOM_TITLE
+    } else {
+        draw_lbl::ASSEMBLY_TOP_TITLE
+    };
+    simple_title_block(
+        page,
+        p,
+        Point::new(bmax.x + 6.0, bmin.y),
+        title,
+    )?;
+    Ok(())
+}
+
+fn draw_fabrication(page: &mut impl DrawPage, p: &Project) -> Result<(), String> {
+    let (bmin, bmax) = board_bounds(p);
+    let ink = [0.05, 0.05, 0.05];
+    let outline = board_outline_points(p);
+    page.path(&outline, ink, 0.25, false)?;
+    let off = 4.0;
+    page.path(
+        &[
+            Point::new(bmin.x, bmin.y - off),
+            Point::new(bmax.x, bmin.y - off),
+        ],
+        ink,
+        0.1,
+        false,
+    )?;
+    page.path(
+        &[
+            Point::new(bmin.x - off, bmin.y),
+            Point::new(bmin.x - off, bmax.y),
+        ],
+        ink,
+        0.1,
+        false,
+    )?;
+    page.text(
+        Point::new((bmin.x + bmax.x) / 2.0, bmin.y - off - 2.0),
+        1.8,
+        ink,
+        &format!(
+            "{}: {:.2} x {:.2}",
+            draw_lbl::BOARD_SIZE,
+            p.board.width,
+            p.board.height
+        ),
+    )?;
+    page.text(
+        Point::new(bmin.x - off - 2.0, (bmin.y + bmax.y) / 2.0),
+        1.8,
+        ink,
+        &format!("{:.2}", p.board.height),
+    )?;
+    let mut dim_count = 0usize;
+    for g in p.graphics.iter().filter(|g| g.layer == "board") {
+        if dim_count >= pcbcraft_doc::MAX_ITEMS {
+            break;
+        }
+        pdf_project_graphic(page, g)?;
+        dim_count += 1;
+    }
+    let tools = drill_tools(p)?;
+    let table_x = bmax.x + 8.0;
+    let mut y = bmax.y;
+    page.text(
+        Point::new(table_x, y),
+        2.0,
+        ink,
+        draw_lbl::DRILL_TABLE_HEADER,
+    )?;
+    y -= 3.5;
+    for (i, tool) in tools.iter().enumerate() {
+        draw_drill_symbol(page, i, Point::new(table_x, y - 1.0), 2.0, ink)?;
+        page.text(
+            Point::new(table_x + 4.0, y),
+            1.5,
+            ink,
+            &format!(
+                "T{}, {:.3}, {}, {}",
+                i + 1,
+                tool.diameter_mm,
+                tool.count,
+                if tool.plated { "yes" } else { "no" }
+            ),
+        )?;
+        y -= 4.0;
+    }
+    y -= 2.0;
+    page.text(
+        Point::new(table_x, y),
+        2.0,
+        ink,
+        draw_lbl::STACKUP_HEADER,
+    )?;
+    y -= 3.5;
+    for layer in &p.board.layer_records {
+        page.text(
+            Point::new(table_x, y),
+            1.5,
+            ink,
+            &format!("{},{}, {:.3}", layer.name, layer.kind, layer.thickness),
+        )?;
+        y -= 3.0;
+    }
+    page.text(
+        Point::new(table_x, y),
+        1.5,
+        ink,
+        &format!("{}: {}", draw_lbl::FINISH, p.board.finish),
+    )?;
+    y -= 3.0;
+    if let Some(mask) = p.meta.get("mask_color") {
+        page.text(
+            Point::new(table_x, y),
+            1.5,
+            ink,
+            &format!("{}: {mask}", draw_lbl::MASK_COLOR),
+        )?;
+        y -= 3.0;
+    }
+    if let Some(legend) = p.meta.get("legend_color") {
+        page.text(
+            Point::new(table_x, y),
+            1.5,
+            ink,
+            &format!("{}: {legend}", draw_lbl::LEGEND_COLOR),
+        )?;
+        y -= 3.0;
+    }
+    let notes = meta_value(p, "notes");
+    if !notes.is_empty() {
+        page.text(
+            Point::new(table_x, y),
+            1.5,
+            ink,
+            &format!("{}: {notes}", draw_lbl::NOTES),
+        )?;
+    }
+    simple_title_block(
+        page,
+        p,
+        Point::new(bmax.x + 8.0, bmin.y),
+        draw_lbl::FABRICATION_TITLE,
+    )?;
+    Ok(())
+}
+
+fn drawing_page_bounds(p: &Project, view: &str) -> (Point, Point) {
+    let (mut min, mut max) = board_bounds(p);
+    let margin = 8.0;
+    min.x -= margin;
+    min.y -= margin;
+    max.x += margin + 55.0;
+    max.y += margin + 10.0;
+    if view.starts_with("assembly") {
+        max.y += 10.0;
+    }
+    (min, max)
+}
+
+struct SvgPage {
+    body: String,
+    ops: usize,
+    min: Point,
+    max: Point,
+}
+
+impl SvgPage {
+    fn new() -> Self {
+        Self {
+            body: String::new(),
+            ops: 0,
+            min: Point::new(f64::INFINITY, f64::INFINITY),
+            max: Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
+        }
+    }
+    fn grow(&mut self, p: Point) {
+        self.min.x = self.min.x.min(p.x);
+        self.min.y = self.min.y.min(p.y);
+        self.max.x = self.max.x.max(p.x);
+        self.max.y = self.max.y.max(p.y);
+    }
+    fn rgb_hex(rgb: [f64; 3]) -> String {
+        format!(
+            "#{:02x}{:02x}{:02x}",
+            (rgb[0] * 255.0).round() as u8,
+            (rgb[1] * 255.0).round() as u8,
+            (rgb[2] * 255.0).round() as u8
+        )
+    }
+    fn finish(self, name: &str) -> Result<String, String> {
+        let (min, max) = if self.min.x.is_finite() {
+            (self.min, self.max)
+        } else {
+            (Point::new(-1.0, -1.0), Point::new(1.0, 1.0))
+        };
+        Ok(svg_document(name, min, max, self.body))
+    }
+}
+
+impl DrawPage for SvgPage {
+    fn path(
+        &mut self,
+        points: &[Point],
+        rgb: [f64; 3],
+        w: f64,
+        fill: bool,
+    ) -> Result<(), String> {
+        self.ops += 1;
+        if self.ops > PDF_MAX_OPS {
+            return Err("the drawing is too complex for one SVG page".into());
+        }
+        if points.len() < 2 {
+            return Ok(());
+        }
+        for p in points {
+            self.grow(*p);
+        }
+        let list = points
+            .iter()
+            .map(|p| format!("{},{}", svg_num(p.x), svg_num(p.y)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let color = Self::rgb_hex(rgb);
+        if fill && points.len() >= 3 {
+            self.body.push_str(&format!(
+                "<polygon points=\"{list}\" fill=\"{color}\" stroke=\"{color}\" stroke-width=\"{}\"/>\n",
+                svg_num(w.max(0.05))
+            ));
+        } else {
+            self.body.push_str(&format!(
+                "<polyline points=\"{list}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\"/>\n",
+                svg_num(w.max(0.05))
+            ));
+        }
+        Ok(())
+    }
+    fn circle(
+        &mut self,
+        center: Point,
+        radius: f64,
+        rgb: [f64; 3],
+        w: f64,
+        fill: bool,
+    ) -> Result<(), String> {
+        self.ops += 1;
+        if self.ops > PDF_MAX_OPS {
+            return Err("the drawing is too complex for one SVG page".into());
+        }
+        self.grow(Point::new(center.x - radius, center.y - radius));
+        self.grow(Point::new(center.x + radius, center.y + radius));
+        let color = Self::rgb_hex(rgb);
+        self.body.push_str(&format!(
+            "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"{}\"/>\n",
+            svg_num(center.x),
+            svg_num(center.y),
+            svg_num(radius),
+            if fill { color.as_str() } else { "none" },
+            color,
+            svg_num(w.max(0.05))
+        ));
+        Ok(())
+    }
+    fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String> {
+        if value.is_empty() {
+            return Ok(());
+        }
+        self.ops += 1;
+        if self.ops > PDF_MAX_OPS {
+            return Err("the drawing is too complex for one SVG page".into());
+        }
+        self.grow(at);
+        self.grow(Point::new(at.x + size * value.len() as f64 * 0.5, at.y + size));
+        let color = Self::rgb_hex(rgb);
+        self.body.push_str(&format!(
+            "<text x=\"{}\" y=\"{}\" font-size=\"{}\" fill=\"{color}\">{}</text>\n",
+            svg_num(at.x),
+            svg_num(at.y),
+            svg_num(size.max(0.5)),
+            lib_svg_escape(value)
+        ));
+        Ok(())
+    }
+}
+
 impl PdfPage {
     fn new() -> Self {
         PdfPage {
@@ -530,6 +1324,33 @@ fn pdf_project_graphic(page: &mut impl DrawPage, g: &pcbcraft_doc::Graphic) -> R
 
 /// Render one view of the design onto the page.
 fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), String> {
+    match view {
+        "assembly-top" => {
+            return draw_assembly(
+                page,
+                p,
+                false,
+                &AssemblyOptions {
+                    bom_table: false,
+                    mirror: false,
+                },
+            );
+        }
+        "assembly-bottom" => {
+            return draw_assembly(
+                page,
+                p,
+                true,
+                &AssemblyOptions {
+                    bom_table: false,
+                    mirror: true,
+                },
+            );
+        }
+        "fabrication" => return draw_fabrication(page, p),
+        "pcb" | "schematic" => {}
+        _ => return Err("view is not supported".into()),
+    }
     let front = [0.85, 0.25, 0.15];
     let back = [0.2, 0.45, 0.8];
     let copper_edge = [0.0, 0.0, 0.0];
@@ -747,10 +1568,14 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+    if !view_supported(view) {
+        return Err("view is not supported".into());
     }
-    let (min, max) = preview_bounds(p, view);
+    let (min, max) = if view == "pcb" || view == "schematic" {
+        preview_bounds(p, view)
+    } else {
+        drawing_page_bounds(p, view)
+    };
     let mut page = PdfPage::new();
     page.fit(min, max);
     page.color([1.0, 1.0, 1.0], false)?;
@@ -791,15 +1616,38 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     Ok(pdf)
 }
 
+/// Export assembly or fabrication drawings as a standalone SVG document.
+pub fn drawing_svg(p: &Project, view: &str) -> Result<String, String> {
+    p.validate()?;
+    if !matches!(
+        view,
+        "assembly-top" | "assembly-bottom" | "fabrication"
+    ) {
+        return Err("view is not a drawing view".into());
+    }
+    let mut page = SvgPage::new();
+    pdf_draw(&mut page, p, view)?;
+    let title = if p.name.trim().is_empty() {
+        "untitled board"
+    } else {
+        p.name.trim()
+    };
+    page.finish(&format!("{title} {view}"))
+}
+
 /// Draw one view as a standalone PostScript document: the same path, circle
 /// and text operations the PDF writer emits, wrapped in a PostScript header
 /// with a letter-size landscape page box and closed by showpage.
 pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+    if !view_supported(view) {
+        return Err("view is not supported".into());
     }
-    let (min, max) = preview_bounds(p, view);
+    let (min, max) = if view == "pcb" || view == "schematic" {
+        preview_bounds(p, view)
+    } else {
+        drawing_page_bounds(p, view)
+    };
     let mut page = PdfPage::new();
     page.pdf_font = false;
     page.fit_to(792.0, 612.0, 36.0, min, max);
@@ -911,10 +1759,14 @@ impl DrawPage for Hpgl {
 /// to pen moves.
 pub fn hpgl_plot(p: &Project, view: &str) -> Result<String, String> {
     p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+    if !view_supported(view) {
+        return Err("view is not supported".into());
     }
-    let (min, max) = preview_bounds(p, view);
+    let (min, max) = if view == "pcb" || view == "schematic" {
+        preview_bounds(p, view)
+    } else {
+        drawing_page_bounds(p, view)
+    };
     let mut page = Hpgl::new();
     page.fit(min, max);
     pdf_draw(&mut page, p, view)?;
@@ -2759,48 +3611,8 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 /// span listing plating and hit count, with a total row and the recorded
 /// drill tolerance, so a drill press operator can pick tools at a glance.
 pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
-    p.validate()?;
-    const MAX_TOOLS: usize = 64;
-    const MAX_HITS: usize = 50_000;
-    let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
-    let add = |d: u64, span: u64, plated: bool, tools: &mut BTreeMap<(u64, u64, bool), usize>| {
-        *tools.entry((d, span, plated)).or_default() += 1;
-    };
-    for v in &p.board.vias {
-        if v.drill > 0.0 {
-            add((v.drill * 1_000.0).round() as u64, 0, true, &mut tools);
-        }
-    }
-    for h in &p.board.holes {
-        add((h.diameter * 1_000.0).round() as u64, 0, false, &mut tools);
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let (wide, narrow) = (
-                drill.size.x.max(drill.size.y),
-                drill.size.x.min(drill.size.y),
-            );
-            let d = (narrow * 1_000.0).round() as u64;
-            if d == 0 {
-                continue;
-            }
-            let span = ((wide - narrow) * 1_000.0).round() as u64;
-            add(d, span, g.pad_type == "thru_hole", &mut tools);
-        }
-    }
-    if tools.len() > MAX_TOOLS {
-        return Err("drill chart needs 64 or fewer distinct drill tools".into());
-    }
-    let total: usize = tools.values().sum();
-    if total > MAX_HITS {
-        return Err("drill chart exceeds the drill hit limit".into());
-    }
+    let tools = drill_tools(p)?;
+    let total: usize = tools.iter().map(|t| t.count).sum();
     let title = if p.name.trim().is_empty() {
         "untitled board"
     } else {
@@ -2811,14 +3623,14 @@ pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
         out.push_str(&format!("# Drill tolerance +/-{t:.3} mm\n"));
     }
     out.push_str("TOOL,DIAMETER_MM,SLOT_MM,PLATED,HOLES\n");
-    for (n, ((d, span, plated), hits)) in tools.iter().enumerate() {
+    for (n, tool) in tools.iter().enumerate() {
         out.push_str(&format!(
             "T{},{:.3},{:.3},{},{}\n",
             n + 1,
-            *d as f64 / 1_000.0,
-            *span as f64 / 1_000.0,
-            if *plated { "yes" } else { "no" },
-            hits
+            tool.diameter_mm,
+            tool.slot_mm,
+            if tool.plated { "yes" } else { "no" },
+            tool.count
         ));
     }
     out.push_str(&format!("TOTAL,,,,{total}\n"));
@@ -6735,7 +7547,7 @@ mod tests {
             text: String::new(),
         });
         project.validate()?;
-        for view in ["pcb", "schematic"] {
+        for view in drawing_views() {
             let pdf = pdf_document(&project, view)?;
             assert!(pdf.starts_with(b"%PDF-1.4"), "a PDF names its version");
             assert!(pdf.windows(6).any(|w| w == b"%%EOF\n"));
@@ -6781,7 +7593,7 @@ mod tests {
                     text.contains("(GND \\(pour\\) 100%)"),
                     "board text lands on the page with brackets escaped"
                 );
-            } else {
+            } else if view == "schematic" {
                 assert!(
                     text.contains("({GND})"),
                     "the schematic page draws the global label"
@@ -6790,6 +7602,133 @@ mod tests {
         }
         assert!(pdf_document(&project, "layout").is_err());
         assert!(pdf_document(&Project::default(), "pcb")?.starts_with(b"%PDF-1.4"));
+        Ok(())
+    }
+
+    #[test]
+    fn assembly_svg_lists_every_top_reference_and_no_bottom_one() -> Result<(), String> {
+        let project = real_library_project()?;
+        let top = drawing_svg(&project, "assembly-top")?;
+        let bottom = drawing_svg(&project, "assembly-bottom")?;
+        assert!(top.contains(">R1<"), "top assembly lists the top-side reference");
+        assert!(
+            !bottom.contains(">R1<"),
+            "bottom assembly omits the top-side reference"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn assembly_bottom_mirrors_x_about_the_board_centre() -> Result<(), String> {
+        let project = real_library_project()?;
+        let cx = project.board.width / 2.0;
+        let mark = Point::new(10.0, 12.0);
+        let mirrored = map_point(mark, true, cx);
+        assert_eq!(mirrored.x, 2.0 * cx - mark.x);
+        assert_eq!(mirrored.y, mark.y);
+        let svg = drawing_svg(&project, "assembly-bottom")?;
+        assert!(
+            svg.contains(draw_lbl::ASSEMBLY_BOTTOM_TITLE),
+            "the bottom assembly title is present"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn fabrication_drawing_prints_board_size_and_one_drill_row_per_tool() -> Result<(), String> {
+        let mut project = real_library_project()?;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 100,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 200,
+            net: 100,
+            position: Point::new(15.0, 15.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        project.validate()?;
+        let svg = drawing_svg(&project, "fabrication")?;
+        assert!(
+            svg.contains("60.00 x 40.00") || svg.contains(draw_lbl::BOARD_SIZE),
+            "fabrication drawing states the board size"
+        );
+        assert!(
+            svg.contains(draw_lbl::DRILL_TABLE_HEADER),
+            "fabrication drawing carries the drill table header"
+        );
+        assert!(svg.contains("T1,"), "one drill tool row is drawn");
+        Ok(())
+    }
+
+    #[test]
+    fn fabrication_drawing_reads_title_and_revision_from_meta() -> Result<(), String> {
+        let mut project = Project::default();
+        project
+            .meta
+            .insert("revision".into(), "Rev B".into());
+        project.validate()?;
+        let svg = drawing_svg(&project, "fabrication")?;
+        assert!(
+            svg.contains("Rev B"),
+            "revision metadata reaches the title block"
+        );
+        assert!(
+            svg.contains(draw_lbl::FABRICATION_TITLE),
+            "the fabrication title is printed"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drawing_views_render_in_pdf_svg_ps_and_hpgl() -> Result<(), String> {
+        let project = real_library_project()?;
+        for view in drawing_views() {
+            let pdf = pdf_document(&project, view)?;
+            assert!(pdf.starts_with(b"%PDF-1.4"), "{view} PDF");
+            let ps = postscript(&project, view)?;
+            assert!(ps.starts_with("%!PS-Adobe"), "{view} PostScript");
+            let hpgl = hpgl_plot(&project, view)?;
+            assert!(hpgl.starts_with("IN;SP1;"), "{view} HP-GL");
+            if matches!(view, "assembly-top" | "assembly-bottom" | "fabrication") {
+                let svg = drawing_svg(&project, view)?;
+                assert!(svg.contains("<svg "), "{view} SVG");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn drill_tools_matches_drill_chart_csv_counts() -> Result<(), String> {
+        let mut project = real_library_project()?;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 100,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 201,
+            net: 100,
+            position: Point::new(12.0, 12.0),
+            diameter: 0.7,
+            drill: 0.35,
+        });
+        project.validate()?;
+        let tools = drill_tools(&project)?;
+        let csv = drill_chart_csv(&project)?;
+        for (index, tool) in tools.iter().enumerate() {
+            let row = format!(
+                "T{},{:.3},{:.3},{},{}\n",
+                index + 1,
+                tool.diameter_mm,
+                tool.slot_mm,
+                if tool.plated { "yes" } else { "no" },
+                tool.count
+            );
+            assert!(csv.contains(&row), "drill chart row matches drill_tools");
+        }
         Ok(())
     }
 

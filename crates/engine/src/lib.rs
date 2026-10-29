@@ -1568,7 +1568,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.add",
             "Record a named fabrication output recipe listing export kinds (gerbers, netlist, bom, placement, dxf, cmp, idf, vrml, step, pdf, svg, ipc2581, dsn, ipc356, gencad, hyperlynx, plot, report, ps, odb, hpgl, stackup, drill chart, board statistics) that can be re-run after any edit",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats","assembly","fabrication"]},"minItems":1,"maxItems":24}}),
                 &["name", "kinds"],
             ),
         ),
@@ -10892,6 +10892,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             | "stackup"
                             | "drill_chart"
                             | "stats"
+                            | "assembly"
+                            | "fabrication"
                     )
                 })
             {
@@ -11100,6 +11102,33 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         )
                         .map_err(Error::Invalid)?;
                         written.push("board-stats.csv".into());
+                    }
+                    "assembly" => {
+                        for view in ["assembly-top", "assembly-bottom"] {
+                            let bytes = pcbcraft_io::pdf_document(p, view)?;
+                            let pdf_name = format!("{view}.pdf");
+                            pcbcraft_io::atomic_write(&directory.join(&pdf_name), &bytes)
+                                .map_err(Error::Invalid)?;
+                            written.push(pdf_name);
+                            let svg = pcbcraft_io::drawing_svg(p, view)?;
+                            let svg_name = format!("{view}.svg");
+                            pcbcraft_io::atomic_write(&directory.join(&svg_name), svg.as_bytes())
+                                .map_err(Error::Invalid)?;
+                            written.push(svg_name);
+                        }
+                    }
+                    "fabrication" => {
+                        let bytes = pcbcraft_io::pdf_document(p, "fabrication")?;
+                        pcbcraft_io::atomic_write(&directory.join("fabrication.pdf"), &bytes)
+                            .map_err(Error::Invalid)?;
+                        written.push("fabrication.pdf".into());
+                        let svg = pcbcraft_io::drawing_svg(p, "fabrication")?;
+                        pcbcraft_io::atomic_write(
+                            &directory.join("fabrication.svg"),
+                            svg.as_bytes(),
+                        )
+                        .map_err(Error::Invalid)?;
+                        written.push("fabrication.svg".into());
                     }
                     other => {
                         return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -23253,6 +23282,39 @@ mod tests {
         let _ = std::fs::remove_file(&wrong);
         let _ = std::fs::remove_file(&odd);
         let _ = std::fs::remove_file(&joined);
+        Ok(())
+    }
+
+    #[test]
+    fn assembly_and_fabrication_kinds_run_as_output_jobs() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-job-drawings-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"drawings","kinds":["assembly","fabrication"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"drawings","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in [
+            "assembly-top.pdf",
+            "assembly-top.svg",
+            "assembly-bottom.pdf",
+            "assembly-bottom.svg",
+            "fabrication.pdf",
+            "fabrication.svg",
+        ] {
+            assert!(
+                directory.join(name).exists(),
+                "{name} should have been written"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }
 
