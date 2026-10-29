@@ -5,10 +5,12 @@ mod board3d;
 mod canvas;
 mod datums;
 mod editing;
+mod footprint_wizard;
 mod impedance_panel;
 mod library;
 mod library_quality;
 mod plot_viewer;
+mod reference_panel;
 mod sources;
 mod via_covering;
 mod via_span;
@@ -4264,6 +4266,8 @@ impl App {
             );
         });
         field_help(ui, FIELD_HELP_CUTOUT, self.muted());
+        ui.add_space(12.0);
+        self.reference_image_section(ui);
         ui.add_space(12.0);
         ui.label(egui::RichText::new("CHECKS").size(10.0).color(self.muted()));
         let erc = self

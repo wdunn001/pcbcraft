@@ -22,7 +22,7 @@ mod plot_read;
 mod raster;
 pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
-    decode_embedded_png, decode_png, embedded_bytes,
+    decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
