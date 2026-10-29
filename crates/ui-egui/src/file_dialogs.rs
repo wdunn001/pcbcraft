@@ -19,7 +19,7 @@
 //!
 //! # Do not
 //! - Add a File menu item for one format; mark the registry row `common` instead.
-//! - Invent packages; `packages()` is the hook a later change fills.
+//! - Invent packages; `packages()` reads the bundled records from the io crate.
 use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
@@ -90,15 +90,39 @@ pub(crate) struct Recents {
 
 /// A named bundle of several formats, such as the files one fab house asks for.
 pub(crate) struct Package {
-    pub label: &'static str,
+    pub id: String,
+    pub label: String,
+    /// Who it is for, then why it cannot run when it cannot.
+    pub tip: String,
+    pub available: bool,
 }
 
 /// The packages the Export dialog lists.
 ///
-/// Why: the hook for named multi-format bundles. A research task is defining which ones
-/// ship; until then there are none and the dialog says so.
-pub(crate) fn packages() -> &'static [Package] {
-    &[]
+/// Why: the hook for named multi-format bundles. The records are data in
+/// `crates/io/data/packages.json` (issue #224); a package whose writer is not written yet
+/// is listed disabled with the reason and the issue that tracks it, never hidden.
+///
+/// # Do not
+/// - Run a package here; `package.export` in `crates/engine/src/packages.rs` does.
+pub(crate) fn packages() -> Vec<Package> {
+    pcbcraft_io::bundled_packages()
+        .iter()
+        .filter_map(|d| {
+            let a = pcbcraft_io::availability(d).ok()?;
+            let mut tip = d.audience.clone();
+            if !a.available {
+                tip.push_str("\nNot available yet: ");
+                tip.push_str(&a.reasons.join("; "));
+            }
+            Some(Package {
+                id: d.id.clone(),
+                label: d.name.clone(),
+                tip,
+                available: a.available,
+            })
+        })
+        .collect()
 }
 
 /// What the open dialog remembers between frames.
@@ -108,6 +132,8 @@ pub(crate) struct DialogState {
     pub mode: Mode,
     /// Id of the chosen format, empty for none.
     pub format: String,
+    /// Package the user clicked this frame; it is exported then cleared.
+    pub package: String,
     pub values: BTreeMap<String, String>,
     /// File to read or write for Import and Save as.
     pub path: String,
@@ -443,6 +469,12 @@ impl App {
                 });
                 ui.add_space(6.0);
             });
+        if !d.package.is_empty() {
+            let id = std::mem::take(&mut d.package);
+            if self.tool_call("package.export", json!({"id": id, "directory": make_dir})) {
+                close = true;
+            }
+        }
         if go {
             let ok = self.run_dialog(ctx, &d);
             if ok {
@@ -795,9 +827,21 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
                 );
         }
         for p in packages() {
-            let _ = ui
-                .selectable_label(false, p.label)
-                .on_hover_text("A named bundle of formats.");
+            let tip = if p.available {
+                format!("{}\nClick to write it into the make folder.", p.tip)
+            } else {
+                p.tip.clone()
+            };
+            let r = ui
+                .add_enabled_ui(p.available, |ui| {
+                    ui.selectable_label(false, p.label.as_str())
+                })
+                .inner
+                .on_disabled_hover_text(tip.as_str())
+                .on_hover_text(tip.as_str());
+            if r.clicked() {
+                d.package = p.id.clone();
+            }
         }
     }
 }
