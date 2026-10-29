@@ -6748,6 +6748,17 @@ impl App {
         if self.frames == 3 && self.capture_sheet {
             self.open_sheet(bottom_sheet::SheetTab::Findings);
         }
+        // A numeric reference names a via by id, so an image can show its protection.
+        if self.frames == 3
+            && let Some(via) = self
+                .capture_select
+                .as_deref()
+                .and_then(|r| r.parse::<Id>().ok())
+                .filter(|id| self.project.board.vias.iter().any(|v| v.id == *id))
+        {
+            self.capture_select = None;
+            self.select(Some(via));
+        }
         if self.frames == 3
             && let Some(reference) = self.capture_select.take()
             && let Some(component) = self
