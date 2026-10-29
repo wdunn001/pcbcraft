@@ -92,6 +92,7 @@ fn a_newcomer_hides_and_locks_a_layer_from_the_tree() -> Result<(), String> {
         "Space shows it again"
     );
     app.project.board.tracks.push(pcbcraft_doc::Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 9_999,
         net: app.project.nets[0].id,
         start: Point::new(10.0, 10.0),

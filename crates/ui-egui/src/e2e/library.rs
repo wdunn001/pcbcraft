@@ -233,6 +233,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
     });
     p.components.push(part);
     p.board.footprints.push(Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 4,
         component: 2,
         position: Point::new(30.0, 20.0),
@@ -252,6 +253,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
             .collect(),
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 5,
         net: 1,
         start: Point::new(20.0, 20.0),

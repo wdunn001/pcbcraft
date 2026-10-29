@@ -3565,6 +3565,7 @@ mod tests {
 
     fn span_via(p: &mut Project, id: Id, from: Option<u8>, to: Option<u8>) {
         p.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             position: Point::new(12.1, 10.0),
@@ -3577,6 +3578,7 @@ mod tests {
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {
         p.board.tracks.push(Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net: 1,
             start: Point::new(11.0, 10.0),
@@ -3675,6 +3677,7 @@ mod pour_tests {
             });
         }
         p.board.zones.push(CopperZone {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 10,
             net: 1,
             layer: Layer::Front,
@@ -3727,6 +3730,7 @@ mod pour_tests {
             p.components.push(c);
         }
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 20,
             component: 4,
             position: at,
@@ -3745,6 +3749,7 @@ mod pour_tests {
     }
     fn track(id: Id, net: Id, layer: Layer, a: (f64, f64), b: (f64, f64), width: f64) -> Track {
         Track {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id,
             net,
             start: Point::new(a.0, a.1),
@@ -3766,6 +3771,7 @@ mod pour_tests {
     fn foreign_via_inside_a_filled_zone_is_no_longer_a_short() -> Result<(), String> {
         let mut p = board();
         p.board.vias.push(Via {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 30,
             net: 2,
             position: Point::new(20.0, 20.0),

@@ -22,6 +22,9 @@ use std::fmt;
 
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
+/// Most objects of every kind one project may hold; real multilayer boards
+/// carry several thousand tracks and vias.
+pub const MAX_OBJECTS: usize = 16384;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
@@ -32,22 +35,28 @@ pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember}
 /// field for them yet. Bounds match epic import research caps.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct PreservedSource {
+    /// The kept subtrees, each the exact source text of one node.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nodes: Vec<String>,
 }
 
 impl PreservedSource {
+    /// Most subtrees one object keeps.
     pub const MAX_NODES: usize = 256;
+    /// Most bytes of kept text one object holds.
     pub const MAX_BYTES: usize = 1024 * 1024;
 
+    /// True when nothing is kept.
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
+    /// Total bytes of kept text.
     pub fn byte_len(&self) -> usize {
         self.nodes.iter().map(String::len).sum()
     }
 
+    /// Keep the source text in `span`; errors when a per-object limit is hit.
     pub fn push_span(&mut self, source: &str, span: std::ops::Range<usize>) -> Result<(), String> {
         if self.nodes.len() >= Self::MAX_NODES {
             return Err("preserved node limit reached for one object".into());
@@ -62,11 +71,13 @@ impl PreservedSource {
         Ok(())
     }
 
+    /// True when both per-object limits hold.
     pub fn valid(&self) -> bool {
         self.nodes.len() <= Self::MAX_NODES && self.byte_len() <= Self::MAX_BYTES
     }
 }
 
+/// Most bytes of kept source text one project holds in total.
 pub const MAX_PRESERVED_PROJECT_BYTES: usize = 8 * 1024 * 1024;
 
 pub mod fill;
@@ -1110,6 +1121,8 @@ pub struct Footprint {
     /// the silk, mask and paste layers are derived from it, never stored per pad.
     pub side: Option<Layer>,
     pub pads: Vec<Pad>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
 }
@@ -1249,6 +1262,9 @@ impl Layer {
         }
     }
 
+    /// Read a copper layer from a file name: `F.Cu`, `B.Cu`, `L3` or `In2.Cu`.
+    /// Inner and bottom names depend on the stackup, so importers prefer
+    /// `Project::resolve_copper_layer`.
     pub fn from_file_str(s: &str) -> Result<Self, String> {
         let s = s.trim();
         if s.is_empty() {
@@ -1320,6 +1336,8 @@ pub struct Track {
     /// straight segment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<Point>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
 }
@@ -1348,6 +1366,8 @@ pub struct Via {
     pub diameter: f64,
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
     /// Upper end of the copper span; none means the top layer.
@@ -1484,6 +1504,8 @@ pub struct CopperZone {
     /// hand-drawn zones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
     /// How the poured copper meets same-net copper inside the outline. Absent
@@ -2827,6 +2849,8 @@ pub struct Board {
     /// Text labels drawn on the board.
     #[serde(default)]
     pub texts: Vec<BoardText>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
     #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
     pub preserved: PreservedSource,
 }
@@ -4536,8 +4560,8 @@ impl Project {
                 return Err("sheet entry position is out of range".into());
             }
         }
-        if self.ids().count() > MAX_ITEMS {
-            return Err("project object limit reached (2048)".into());
+        if self.ids().count() > MAX_OBJECTS {
+            return Err("project object limit reached (16384)".into());
         }
         let mut ids = BTreeSet::new();
         for id in self.ids() {
@@ -4552,9 +4576,9 @@ impl Project {
                 .iter()
                 .map(|f| f.pads.len())
                 .sum::<usize>()
-            > 4096
+            > 32768
         {
-            return Err("copper item limit reached (4096)".into());
+            return Err("copper item limit reached (32768)".into());
         }
         let nets: BTreeSet<_> = self.nets.iter().map(|n| n.id).collect();
         let mut names = BTreeSet::new();
@@ -5057,7 +5081,7 @@ impl Project {
                     return Err("embedded footprint pad numbers do not match symbol pins".into());
                 }
             }
-            if c.pins.is_empty() || c.pins.len() > 64 {
+            if c.pins.is_empty() || c.pins.len() > 256 {
                 return Err("invalid pin count".into());
             }
             let mut numbers = BTreeSet::new();
@@ -5306,7 +5330,7 @@ impl Project {
                 || !f.rotation.is_finite()
                 || f.rotation.abs() > 360_000.0
                 || f.pads.is_empty()
-                || f.pads.len() > 64
+                || f.pads.len() > 256
             {
                 return Err("invalid footprint".into());
             }
@@ -6673,6 +6697,7 @@ mod via_covering_tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill,
+            preserved: PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering,

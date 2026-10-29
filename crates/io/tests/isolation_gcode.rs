@@ -71,6 +71,7 @@ fn sample_two_pads_track() -> Project {
         sheet: 0,
     });
     let fp1 = Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 10,
         component: 201,
         position: Point::new(5.0, 10.0),
@@ -94,6 +95,7 @@ fn sample_two_pads_track() -> Project {
     p.board.footprints.push(fp1);
     p.board.footprints.push(fp2);
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 20,
         net: 101,
         start: Point::new(6.0, 10.0),
@@ -103,6 +105,7 @@ fn sample_two_pads_track() -> Project {
         arc: None,
     });
     p.board.tracks.push(Track {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id: 21,
         net: 101,
         start: Point::new(8.0, 12.0),

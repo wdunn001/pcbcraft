@@ -3336,6 +3336,7 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
             staging_index += 1;
             let id = allocate(next)?;
             p.board.footprints.push(Footprint {
+                preserved: pcbcraft_doc::PreservedSource::default(),
                 id,
                 component: c.id,
                 position: Point::new(staging_x + col as f64 * 12.0, 10.0 + row as f64 * 8.0),
@@ -7474,8 +7475,8 @@ fn run_command(
             let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
             let (imported, summary) = match a.format.as_str() {
                 "board" => {
-                    let (imported, report) =
-                        pcbcraft_io::read_board_interchange_report(&text).map_err(Error::Invalid)?;
+                    let (imported, report) = pcbcraft_io::read_board_interchange_report(&text)
+                        .map_err(Error::Invalid)?;
                     let preserved_nodes = count_preserved_nodes(&imported);
                     let summary = json!({
                         "format": "board",
@@ -10523,6 +10524,7 @@ fn run_command(
             }
             let id = allocate(next)?;
             p.sheets.push(Sheet {
+                interchange_uuid: None,
                 id,
                 name: a.name,
                 parent: None,
@@ -10846,6 +10848,7 @@ fn run_command(
             }
             let sheet = allocate(next)?;
             p.sheets.push(Sheet {
+                interchange_uuid: None,
                 id: sheet,
                 name: name.clone(),
                 parent: None,
@@ -22674,7 +22677,7 @@ mod tests {
             "pcbcraft-board-bad-{}.kicad_pcb",
             std::process::id()
         ));
-        std::fs::write(&path, b"(kicad_pcb (segment (start 0 0) (end 1)))\n")
+        std::fs::write(&path, b"(kicad_pcb (segment (start 0 0)\n")
             .map_err(|e| Error::Invalid(e.to_string()))?;
         let path = path.to_string_lossy().to_string();
         let mut s = Session::default();
