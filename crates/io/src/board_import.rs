@@ -727,7 +727,11 @@ impl ImportCtx {
                 }
             }
         }
-        for (c, e) in self.edge_circles.iter().filter(|_| self.outline_src.is_empty()) {
+        for (c, e) in self
+            .edge_circles
+            .iter()
+            .filter(|_| self.outline_src.is_empty())
+        {
             let r = c.distance(*e);
             grow(Point::new(c.x + r - self.origin.x, c.y + r - self.origin.y));
         }
@@ -1667,7 +1671,10 @@ impl ImportCtx {
             }
         }
         if layers.is_empty() {
-            self.notice("zones and keepouts on no copper layer were skipped", &names.join(" "));
+            self.notice(
+                "zones and keepouts on no copper layer were skipped",
+                &names.join(" "),
+            );
             return;
         }
         let polygon = node.child("polygon");

@@ -170,14 +170,20 @@ fn corpus_mutations_never_panic() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
     let files = board_files(Path::new(&root));
-    let Some(path) = files.iter().find(|p| p.to_string_lossy().contains("OpenRX-Lite.kicad_pcb"))
+    let Some(path) = files
+        .iter()
+        .find(|p| p.to_string_lossy().contains("OpenRX-Lite.kicad_pcb"))
     else {
         return;
     };
-    let Ok(base) = std::fs::read(path) else { return };
+    let Ok(base) = std::fs::read(path) else {
+        return;
+    };
     let mut state: u64 = 0x1234_5678;
     let mut next = move || {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (state >> 33) as usize
     };
     for _ in 0..rounds {
