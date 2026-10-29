@@ -82,6 +82,7 @@ pub fn read_board_interchange(text: &str) -> Result<Project, String> {
     }
 
     ctx.finish_nets(net_names, &mut board)?;
+    sync_footprint_pin_nets(&mut ctx.components, &board.footprints);
     let project = Project {
         name: "Imported board".into(),
         unit: "mm".into(),
@@ -491,6 +492,23 @@ fn is_graphic(name: &str) -> bool {
     )
 }
 
+fn sync_footprint_pin_nets(components: &mut [Component], footprints: &[Footprint]) {
+    for footprint in footprints {
+        let Some(component) = components.iter_mut().find(|c| c.id == footprint.component) else {
+            continue;
+        };
+        for pad in &footprint.pads {
+            if let Some(pin) = component
+                .pins
+                .iter_mut()
+                .find(|pin| pin.number == pad.number)
+            {
+                pin.net = pad.net;
+            }
+        }
+    }
+}
+
 fn template_pins(kind: &str) -> Vec<Pin> {
     let count = match kind {
         "connector" => 2,
@@ -643,7 +661,9 @@ mod tests {
     #[test]
     fn malformed_board_reports_line_number() {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
-        let err = read_board_interchange(text).unwrap_err();
-        assert!(err.contains("line"), "expected a line number in {err:?}");
+        match read_board_interchange(text) {
+            Err(err) => assert!(err.contains("line"), "expected a line number in {err:?}"),
+            Ok(_) => panic!("expected malformed board import to fail"),
+        }
     }
 }

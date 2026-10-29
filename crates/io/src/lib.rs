@@ -1781,13 +1781,13 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             Some(mid) => {
                 s.push_str(&format!(
                     " (arc (start {} {}) (mid {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
-                    f64s(t.start.x),
-                    f64s(t.start.y),
-                    f64s(mid.x),
-                    f64s(mid.y),
-                    f64s(t.end.x),
-                    f64s(t.end.y),
-                    f64s(t.width),
+                    t.start.x,
+                    t.start.y,
+                    mid.x,
+                    mid.y,
+                    t.end.x,
+                    t.end.y,
+                    t.width,
                     quote(&p.layer_name(t.layer)),
                     ordinal(Some(t.net)),
                     uuid(t.id, 1)
@@ -1797,11 +1797,11 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             None => {
                 s.push_str(&format!(
                     " (segment (start {} {}) (end {} {}) (width {}) (layer {}) (net {}) (uuid {}))\n",
-                    f64s(t.start.x),
-                    f64s(t.start.y),
-                    f64s(t.end.x),
-                    f64s(t.end.y),
-                    f64s(t.width),
+                    t.start.x,
+                    t.start.y,
+                    t.end.x,
+                    t.end.y,
+                    t.width,
                     quote(&p.layer_name(t.layer)),
                     ordinal(Some(t.net)),
                     uuid(t.id, 1)
@@ -1813,10 +1813,10 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
     for v in &b.vias {
         s.push_str(&format!(
             " (via (at {} {}) (size {}) (drill {}) (layers \"F.Cu\" \"B.Cu\") (net {}) (uuid {}))\n",
-            f64s(v.position.x),
-            f64s(v.position.y),
-            f64s(v.diameter),
-            f64s(v.drill),
+            v.position.x,
+            v.position.y,
+            v.diameter,
+            v.drill,
             ordinal(Some(v.net)),
             uuid(v.id, 1)
         ));
@@ -1832,7 +1832,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
             if z.filled { "yes" } else { "no" }
         ));
         for pt in z.outline.iter().take(z.outline.len().saturating_sub(1)) {
-            s.push_str(&format!(" (xy {} {})", f64s(pt.x), f64s(pt.y)));
+            s.push_str(&format!(" (xy {} {})", pt.x, pt.y));
         }
         s.push_str("))\n )\n");
         write_preserved(&mut s, &z.preserved);
@@ -9946,8 +9946,10 @@ mod tests {
     #[test]
     fn board_import_malformed_refuses_with_line_number() -> Result<(), String> {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
-        let err = read_board_interchange(text).unwrap_err();
-        assert!(err.contains("line"), "expected a line number in {err:?}");
+        match read_board_interchange(text) {
+            Err(err) => assert!(err.contains("line"), "expected a line number in {err:?}"),
+            Ok(_) => panic!("expected malformed board import to fail"),
+        }
         Ok(())
     }
 
