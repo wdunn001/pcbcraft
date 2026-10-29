@@ -1385,9 +1385,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "track.route_pair",
-            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled orthogonal L geometry at the pair gap",
+            "Route both nets of a declared differential pair between two pad pairs on the chosen copper layer with coupled geometry at the pair gap; corners are cut at 45 degrees by default, mode orthogonal keeps right angles",
             schema(
-                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"from_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"from_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_p":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"to_n":schema(json!({"footprint":id_schema(),"pad":{"type":"string"}}),&["footprint","pad"]),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["octilinear","orthogonal"]}}),
                 &["from_p", "from_n", "to_p", "to_n"],
             ),
         ),
@@ -5161,6 +5161,13 @@ struct RoutePairParams {
     width: Option<f64>,
     #[serde(default = "front")]
     layer: Layer,
+    /// `octilinear` (default) chamfers the corner at 45 degrees; `orthogonal`
+    /// keeps the right-angle corner.
+    #[serde(default = "pair_mode")]
+    mode: route::Mode,
+}
+fn pair_mode() -> route::Mode {
+    route::Mode::Octilinear
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5536,6 +5543,112 @@ fn diff_pair_for_nets(p: &Project, a: Id, b: Id) -> Option<&DiffPair> {
         .diff_pairs
         .iter()
         .find(|pair| pair.net_p == a && pair.net_n == b || pair.net_p == b && pair.net_n == a)
+}
+/// Track segments for the positive and negative side of a pair.
+type PairSegments = (Vec<(Point, Point)>, Vec<(Point, Point)>);
+/// Both sides of a pair with their corners cut at 45 degrees. The positive
+/// side takes the straight-diagonal-straight path; the negative side keeps its
+/// diagonal exactly `spacing` (centre to centre) from it, so the pair stays
+/// coupled through the bend.
+fn coupled_chamfer_segments(
+    start_p: Point,
+    end_p: Point,
+    start_n: Point,
+    end_n: Point,
+    spacing: f64,
+) -> Result<PairSegments, Error> {
+    let too_tight =
+        || Error::Invalid("there is not enough room to bend the pair at 45 degrees".into());
+    let dx = end_p.x - start_p.x;
+    let dy = end_p.y - start_p.y;
+    // Work in a frame whose first axis is the longer run.
+    let swap = dy.abs() > dx.abs();
+    let to = |q: Point| if swap { (q.y, q.x) } else { (q.x, q.y) };
+    let from = |m: f64, n: f64| {
+        if swap {
+            Point::new(n, m)
+        } else {
+            Point::new(m, n)
+        }
+    };
+    let (pm0, pn0) = to(start_p);
+    let (pm1, pn1) = to(end_p);
+    let (nm0, nn0) = to(start_n);
+    let (nm1, nn1) = to(end_n);
+    let (dm, dn) = (pm1 - pm0, pn1 - pn0);
+    let chain = |pts: Vec<Point>| {
+        let mut out = vec![];
+        for pair in pts.windows(2) {
+            if pair[0].distance(pair[1]) > 1e-6 {
+                out.push((pair[0], pair[1]));
+            }
+        }
+        out
+    };
+    if dn.abs() < 1e-6 {
+        return Ok((chain(vec![start_p, end_p]), chain(vec![start_n, end_n])));
+    }
+    let (sm, sn) = (dm.signum(), dn.signum());
+    let run = (dm.abs() - dn.abs()) / 2.0;
+    let pa = (pm0 + sm * run, pn0);
+    let pb = (pm0 + sm * (run + dn.abs()), pn1);
+    let root = std::f64::consts::SQRT_2;
+    let (wm, wn) = (-sn / root, sm / root);
+    let side = (wm * (nm0 - pm0) + wn * (nn0 - pn0)).signum();
+    if side == 0.0 {
+        return Err(too_tight());
+    }
+    let c = wm * pa.0 + wn * pa.1 + side * spacing;
+    let ma = (c - wn * nn0) / wm;
+    let mb = (c - wn * nn1) / wm;
+    if sm * (ma - nm0) < -1e-9 || sm * (mb - ma) < -1e-9 || sm * (nm1 - mb) < -1e-9 {
+        return Err(too_tight());
+    }
+    let seg_p = chain(vec![start_p, from(pa.0, pa.1), from(pb.0, pb.1), end_p]);
+    let seg_n = chain(vec![start_n, from(ma, nn0), from(mb, nn1), end_n]);
+    Ok((seg_p, seg_n))
+}
+/// Both sides of a pair with right-angle corners. The negative side nests
+/// round the positive side's corner at `spacing` (centre to centre).
+fn coupled_right_angle_segments(
+    start_p: Point,
+    end_p: Point,
+    start_n: Point,
+    end_n: Point,
+    spacing: f64,
+) -> PairSegments {
+    let chain = |pts: Vec<Point>| {
+        let mut out = vec![];
+        for pair in pts.windows(2) {
+            if pair[0].distance(pair[1]) > 1e-6 {
+                out.push((pair[0], pair[1]));
+            }
+        }
+        out
+    };
+    let seg_p = orthogonal_route_segments(start_p, end_p);
+    let dx = end_p.x - start_p.x;
+    let dy = end_p.y - start_p.y;
+    let offset = start_n.y - start_p.y;
+    if dx.abs() < 1e-6 || dy.abs() < 1e-6 || offset.abs() < 1e-6 {
+        return (seg_p, orthogonal_route_segments(start_n, end_n));
+    }
+    let inner = offset.signum() == dy.signum();
+    // Turn straight at the far pad's column when it already keeps the
+    // spacing, so the run clears the other side's pad.
+    let way = if inner { -dx.signum() } else { dx.signum() };
+    let x = if (end_n.x - end_p.x) * way >= spacing - 1e-9 {
+        end_n.x
+    } else {
+        end_p.x + way * spacing
+    };
+    let seg_n = chain(vec![
+        start_n,
+        Point::new(x, start_n.y),
+        Point::new(x, end_n.y),
+        end_n,
+    ]);
+    (seg_p, seg_n)
 }
 fn orthogonal_route_segments(start: Point, end: Point) -> Vec<(Point, Point)> {
     let bend = Point::new(end.x, start.y);
@@ -14532,11 +14645,27 @@ fn run_command(
                         return Err(Error::Invalid("pad position is out of range".into()));
                     }
                 }
-                let segs_p = orthogonal_route_segments(start_p, end_p);
-                let segs_n = orthogonal_route_segments(start_n, end_n);
+                let (segs_p, segs_n) = match a.mode {
+                    route::Mode::Orthogonal => coupled_right_angle_segments(
+                        start_p,
+                        end_p,
+                        start_n,
+                        end_n,
+                        pair.gap + width,
+                    ),
+                    route::Mode::Octilinear => {
+                        coupled_chamfer_segments(start_p, end_p, start_n, end_n, pair.gap + width)?
+                    }
+                    route::Mode::OctilinearShove => {
+                        return Err(Error::Invalid(
+                            "a pair routes with chamfered or right-angle corners only".into(),
+                        ));
+                    }
+                };
                 validate_pair_coupling(p, pair, a.layer, width, width, &segs_p, &segs_n)?;
                 (width, pair.gap, segs_p, segs_n)
             };
+            let before = route::errors(p);
             let mut ids_p = vec![];
             let mut ids_n = vec![];
             for (from, to) in segs_p {
@@ -14565,7 +14694,18 @@ fn run_command(
                     arc: None,
                 });
             }
+            let touched: Vec<Id> = ids_p.iter().chain(ids_n.iter()).copied().collect();
+            let after = route::errors(p);
+            if let Some((code, objects)) = after.difference(&before).find(|(code, objects)| {
+                matches!(*code, "clearance" | "copper_short" | "board_edge")
+                    && objects.iter().any(|id| touched.contains(id))
+            }) {
+                return Err(Error::Invalid(format!(
+                    "the pair route would break the {code} check on object(s) {objects:?}; nothing was changed"
+                )));
+            }
             Ok(json!({
+                "mode": if a.mode == route::Mode::Orthogonal { "orthogonal" } else { "octilinear" },
                 "ids_p": ids_p,
                 "ids_n": ids_n,
                 "net_p": net_p,
@@ -26066,6 +26206,48 @@ mod tests {
             (min_gap - gap).abs() < 1e-3,
             "minimum edge gap should match the pair gap, got {min_gap}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn route_pair_bends_at_45_degrees_by_default_and_at_right_angles_on_request()
+    -> Result<(), Error> {
+        let (gap, width) = (0.3, 0.2);
+        for (mode, want_diagonal) in [(None, true), (Some("octilinear"), true)] {
+            let mut s = Session::default();
+            let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+            s.execute(
+                "footprint.move",
+                json!({"id":fp_j2,"position":{"x":50.0,"y":30.0}}),
+                None,
+            )?;
+            let mut params = json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            });
+            if let Some(m) = mode {
+                params["mode"] = json!(m);
+            }
+            let result = s.execute("track.route_pair", params, None);
+            assert!(want_diagonal);
+            result?;
+            let diagonal = |t: &pcbcraft_doc::Track| {
+                let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+                dx > 1e-6 && (dx - dy).abs() < 1e-6
+            };
+            assert!(
+                s.project.board.tracks.iter().any(diagonal),
+                "a 45 degree run exists"
+            );
+            assert!(s.project.board.tracks.iter().all(|t| {
+                let (dx, dy) = ((t.end.x - t.start.x).abs(), (t.end.y - t.start.y).abs());
+                dx < 1e-6 || dy < 1e-6 || diagonal(t)
+            }));
+            assert!(!drc_codes(&mut s)?.contains(&"diffpair_gap".to_string()));
+        }
         Ok(())
     }
 

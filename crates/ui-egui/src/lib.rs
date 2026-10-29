@@ -447,6 +447,9 @@ struct Preferences {
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
+    /// Cut routed corners at 45 degrees; off allows right-angle corners.
+    #[serde(default = "default_true")]
+    chamfer_corners: bool,
 }
 fn default_language() -> String {
     pcbcraft_text::SYSTEM.into()
@@ -530,8 +533,52 @@ impl Default for Preferences {
             library_dock_open: true,
             language: default_language(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
+            chamfer_corners: true,
         }
     }
+}
+/// Pair name, coupling gap, both routed lengths and their skew for a net that
+/// belongs to a declared differential pair; nothing for any other net.
+fn pair_rows(project: &Project, net: Id) -> Vec<(String, String)> {
+    let Some(pair) = project
+        .board
+        .diff_pairs
+        .iter()
+        .find(|d| d.net_p == net || d.net_n == net)
+    else {
+        return vec![];
+    };
+    let length = |n: Id| -> f64 {
+        project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == n)
+            .map(track_length)
+            .sum()
+    };
+    let (lp, ln) = (length(pair.net_p), length(pair.net_n));
+    vec![
+        ("Pair".into(), format!("{} · routed together", pair.name)),
+        (
+            "Pair gap".into(),
+            format!("{:.3} mm between the two sides", pair.gap),
+        ),
+        (
+            "Pair lengths".into(),
+            format!(
+                "{} {:.2} mm · {} {:.2} mm",
+                project.net_name(pair.net_p),
+                lp,
+                project.net_name(pair.net_n),
+                ln
+            ),
+        ),
+        (
+            "Pair skew".into(),
+            format!("{:.2} mm apart", (lp - ln).abs()),
+        ),
+    ]
 }
 /// The copper length of a track segment in millimetres, following the bow
 /// of an arc when the segment carries one.
@@ -849,6 +896,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         };
         rows.push(("Width".into(), width_note));
         clearance_rows(t.net, &mut rows);
+        rows.extend(pair_rows(project, t.net));
         rows.push((
             "From".into(),
             format!("{:.2}, {:.2} mm", t.start.x, t.start.y),
@@ -4535,6 +4583,16 @@ impl App {
         {
             let _ = self.run("project.set_auto_sync", json!({"auto_sync": sync_on}));
         }
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("ROUTING")
+                .size(10.0)
+                .color(self.muted()),
+        );
+        ui.checkbox(&mut self.preferences.chamfer_corners, "Chamfer corners")
+            .on_hover_text(
+                "On by default: routed corners are cut at 45 degrees, because right angles hurt signal quality and add emissions. Turn it off to allow right-angle corners.",
+            );
         ui.add_space(16.0);
         ui.label(
             egui::RichText::new("BOARD GEOMETRY")
