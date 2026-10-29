@@ -2729,6 +2729,7 @@ mod tests {
         );
         Ok(())
     }
+
     fn four_layer_stack(p: &mut Project) -> Result<(), String> {
         p.board.layer_records = vec![
             LayerRecord {
@@ -2863,6 +2864,7 @@ mod tests {
         );
         Ok(())
     }
+
     /// A project with one drawn layer holding a single figure, for the drawn
     /// layer checks.
     fn drawn_layer(kind: ArtKind, shape: ArtShape) -> Project {
