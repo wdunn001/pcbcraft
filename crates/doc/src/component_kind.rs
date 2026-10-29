@@ -247,7 +247,10 @@ mod tests {
             .ok_or("template")?;
         c.kind.clear();
         p.components.push(c);
-        let err = p.validate().expect_err("empty kind must fail validation");
+        let err = match p.validate() {
+            Ok(()) => return Err("empty kind must fail validation".into()),
+            Err(e) => e,
+        };
         assert!(err.contains("allowed"));
         Ok(())
     }
