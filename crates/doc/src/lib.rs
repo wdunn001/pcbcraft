@@ -1202,6 +1202,30 @@ impl NetTie {
             && self.net_a != self.net_b
     }
 }
+/// A named reference point on the board, usually a mounting hole centre, that
+/// is written into the mechanical outputs so an enclosure can be aligned to it.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Datum {
+    pub id: Id,
+    pub name: String,
+    /// Position in millimetres; ignored while `hole` is set, because the
+    /// datum then sits at the centre of that hole.
+    pub position: Point,
+    /// Hole whose centre this datum follows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hole: Option<Id>,
+}
+impl Datum {
+    /// Most datums one board carries.
+    pub const MAX: usize = 64;
+    /// A datum name is 1 to 32 characters from letters, digits, `_` and `-`.
+    pub fn name_valid(name: &str) -> bool {
+        (1..=32).contains(&name.len())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    }
+}
 /// An optical assembly mark: a bare copper circle, usually 1 mm, that the
 /// pick-and-place camera uses to locate and orient the board.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1687,6 +1711,9 @@ pub struct Board {
     /// no copper and belong to no net.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub holes: Vec<Hole>,
+    /// Named mounting datums an enclosure tool can consume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub datums: Vec<Datum>,
     /// Layers the designer draws for machines: cuts, perforations, custom
     /// silk and mask art, plotted alongside the copper.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2196,6 +2223,7 @@ impl Default for Project {
                 tracks: vec![],
                 vias: vec![],
                 holes: vec![],
+                datums: vec![],
                 fiducials: vec![],
                 netties: vec![],
                 zones: vec![],
@@ -2630,6 +2658,26 @@ impl Project {
                 })
             })
     }
+    /// Where a datum sits now: the centre of its hole when tied to one that
+    /// still exists, otherwise its own position.
+    pub fn datum_position(&self, datum: &Datum) -> Point {
+        datum
+            .hole
+            .and_then(|id| self.board.holes.iter().find(|h| h.id == id))
+            .map_or(datum.position, Hole::center)
+    }
+    /// True when the point lies inside the board outline or rectangle.
+    pub fn board_contains(&self, point: Point) -> bool {
+        match &self.board.outline {
+            Some(ring) => pcbcraft_geom::point_in_polygon(point, ring),
+            None => {
+                point.x >= 0.0
+                    && point.y >= 0.0
+                    && point.x <= self.board.width
+                    && point.y <= self.board.height
+            }
+        }
+    }
     /// The position that represents a design object for region tests: track
     /// midpoints, via and footprint anchors, zone centroids, cutout centres.
     pub fn object_position(&self, id: Id) -> Option<Point> {
@@ -2642,6 +2690,9 @@ impl Project {
         }
         if let Some(v) = b.vias.iter().find(|v| v.id == id) {
             return Some(v.position);
+        }
+        if let Some(d) = b.datums.iter().find(|d| d.id == id) {
+            return Some(self.datum_position(d));
         }
         if let Some(z) = b.zones.iter().find(|z| z.id == id) {
             let n = z.outline.len().saturating_sub(1);
@@ -2758,6 +2809,7 @@ impl Project {
             .chain(self.board.zones.iter().map(|x| x.id))
             .chain(self.board.cutouts.iter().map(|x| x.id))
             .chain(self.board.holes.iter().map(|x| x.id))
+            .chain(self.board.datums.iter().map(|x| x.id))
             .chain(self.board.fiducials.iter().map(|x| x.id))
             .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.diff_pairs.iter().map(|x| x.id))
@@ -3003,6 +3055,30 @@ impl Project {
                 if !fits(h.start()) || !fits(h.finish()) {
                     return Err("a slot must fit inside the board".into());
                 }
+            }
+        }
+        if self.board.datums.len() > Datum::MAX {
+            return Err("a board carries at most 64 datums".into());
+        }
+        for (i, d) in self.board.datums.iter().enumerate() {
+            if !Datum::name_valid(&d.name) || !d.position.valid() {
+                return Err(
+                    "datum names are 1 to 32 letters, digits, underscores or hyphens".into(),
+                );
+            }
+            if self.board.datums[..i]
+                .iter()
+                .any(|o| o.name.eq_ignore_ascii_case(&d.name))
+            {
+                return Err("datum names must be unique".into());
+            }
+            if d.hole
+                .is_some_and(|h| !self.board.holes.iter().any(|x| x.id == h))
+            {
+                return Err("a datum names a hole that does not exist".into());
+            }
+            if !self.board_contains(self.datum_position(d)) {
+                return Err("a datum must lie inside the board".into());
             }
         }
         if self.board.fiducials.len() > 128 {
