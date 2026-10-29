@@ -4525,9 +4525,7 @@ fn pad_touches_track_point(p: &Project, point: Point, net: Id, layer: Layer) -> 
             if !on_layer {
                 continue;
             }
-            let anchor = footprint
-                .pad_position(&pad.number)
-                .unwrap_or(pad.offset);
+            let anchor = footprint.pad_position(&pad.number).unwrap_or(pad.offset);
             if point.distance(anchor) <= pad.bounding_radius() + TRACK_ENDPOINT_EPS {
                 return true;
             }
@@ -4538,8 +4536,7 @@ fn pad_touches_track_point(p: &Project, point: Point, net: Id, layer: Layer) -> 
 
 fn via_touches_track_point(p: &Project, point: Point, net: Id) -> bool {
     p.board.vias.iter().any(|via| {
-        via.net == net
-            && point.distance(via.position) <= via.diameter / 2.0 + TRACK_ENDPOINT_EPS
+        via.net == net && point.distance(via.position) <= via.diameter / 2.0 + TRACK_ENDPOINT_EPS
     })
 }
 
@@ -4577,10 +4574,9 @@ fn collinear_track_merge_endpoints(a: &Track, b: &Track) -> Option<(Point, Point
     {
         return None;
     }
-    let endpoints = [a.start, a.end];
-    let shared = *endpoints
-        .iter()
-        .find(|p| track_endpoints_near(**p, b.start) || track_endpoints_near(**p, b.end))?;
+    let shared = [a.start, a.end]
+        .into_iter()
+        .find(|p| track_endpoints_near(*p, b.start) || track_endpoints_near(*p, b.end))?;
     let far = |track: &Track| -> Option<Point> {
         if track_endpoints_near(track.start, shared) {
             Some(track.end)
@@ -20162,9 +20158,12 @@ mod tests {
         assert_eq!(s.project.board.tracks.len(), 3);
         let report = s.execute("track.cleanup", json!({}), None)?["result"].clone();
         assert_eq!(report["removed"], 1, "the dangling stub goes");
-        assert_eq!(report["merged"], 1, "the collinear pair becomes one segment");
         assert_eq!(
-            report["removed"].as_u64().ok_or_else(missing)? as u64
+            report["merged"], 1,
+            "the collinear pair becomes one segment"
+        );
+        assert_eq!(
+            report["removed"].as_u64().ok_or_else(missing)?
                 + report["merged"].as_u64().ok_or_else(missing)?,
             2,
             "two changes in total"
@@ -20247,7 +20246,10 @@ mod tests {
         }
         assert_eq!(s.project.board.tracks.len(), 4);
         let report = s.execute("track.cleanup", json!({}), None)?["result"].clone();
-        assert_eq!(report["merged"], 2, "each net merges its own collinear pair");
+        assert_eq!(
+            report["merged"], 2,
+            "each net merges its own collinear pair"
+        );
         assert_eq!(report["removed"], 0);
         assert_eq!(s.project.board.tracks.len(), 2);
         let nets: std::collections::BTreeSet<_> =
