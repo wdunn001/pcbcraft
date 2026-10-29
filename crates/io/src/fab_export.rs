@@ -23,6 +23,8 @@ pub fn via_mask_opening(v: &Via, board: &Board) -> bool {
 
 #[derive(Clone, Copy)]
 pub(crate) struct DrillHit {
+    /// Copper span (upper, lower layer index) of a blind or buried via.
+    pub via_span: Option<(u8, u8)>,
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
@@ -32,6 +34,20 @@ pub(crate) struct DrillHit {
     pub y: f64,
     pub ux: f64,
     pub uy: f64,
+}
+
+/// The span of a via that does not run top to bottom, as layer indices.
+pub(crate) fn partial_via_span(p: &Project, v: &Via) -> Option<(u8, u8)> {
+    let (a, b) = p.via_span(v);
+    let last = p.copper_layer_count().saturating_sub(1);
+    (a.index() != 0 || b.index() < last).then_some((a.index(), b.index()))
+}
+
+/// Whether a via has copper on the top and on the bottom layer.
+pub(crate) fn via_reaches_outer(p: &Project, v: &Via) -> (bool, bool) {
+    let (a, b) = p.via_span(v);
+    let last = p.copper_layer_count().saturating_sub(1);
+    (a.index() == 0, b.index() >= last)
 }
 
 pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
@@ -45,6 +61,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
             push(
                 &mut hits,
                 DrillHit {
+                    via_span: partial_via_span(p, v),
                     d_um: (v.drill * 1_000.0).round() as u64,
                     span_um: 0,
                     plated: true,
@@ -77,6 +94,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
         push(
             &mut hits,
             DrillHit {
+                via_span: None,
                 d_um,
                 span_um,
                 plated: false,
@@ -121,6 +139,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
             push(
                 &mut hits,
                 DrillHit {
+                    via_span: None,
                     d_um,
                     span_um,
                     plated: g.pad_type == "thru_hole",
@@ -850,13 +869,18 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let ap = Ap::Circle(d.max(1));
         let front_code = front.code(ap.clone())?;
         let back_code = back.code(ap)?;
-        front.push_attrs(net_name(p, v.net), None);
-        front.flash(front_code, v.position.x, v.position.y)?;
-        let (x, y) = mirror(v.position.x, v.position.y, true);
-        back.push_attrs(net_name(p, v.net), None);
-        back.flash(back_code, x, y)?;
+        let (reaches_top, reaches_bottom) = via_reaches_outer(p, v);
+        if reaches_top {
+            front.push_attrs(net_name(p, v.net), None);
+            front.flash(front_code, v.position.x, v.position.y)?;
+        }
+        if reaches_bottom {
+            let (x, y) = mirror(v.position.x, v.position.y, true);
+            back.push_attrs(net_name(p, v.net), None);
+            back.flash(back_code, x, y)?;
+        }
 
-        if via_mask_opening(v, &p.board) {
+        if via_mask_opening(v, &p.board) && (reaches_top || reaches_bottom) {
             let margin = DEFAULT_MASK_MARGIN_MM;
             let r = v.drill / 2.0 + margin;
             let n = 16usize;
@@ -865,12 +889,16 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 let a = std::f64::consts::TAU * i as f64 / n as f64;
                 ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
             }
-            let code_f = mask_front.code(Ap::Circle(1))?;
-            mask_front.fill(code_f, &outline_ring(&ring))?;
-            let mirrored: Vec<(f64, f64)> =
-                ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
-            let code_b = mask_back.code(Ap::Circle(1))?;
-            mask_back.fill(code_b, &outline_ring(&mirrored))?;
+            if reaches_top {
+                let code_f = mask_front.code(Ap::Circle(1))?;
+                mask_front.fill(code_f, &outline_ring(&ring))?;
+            }
+            if reaches_bottom {
+                let mirrored: Vec<(f64, f64)> =
+                    ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
+                let code_b = mask_back.code(Ap::Circle(1))?;
+                mask_back.fill(code_b, &outline_ring(&mirrored))?;
+            }
         }
     }
 
@@ -895,7 +923,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let hits = collect_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let plated: Vec<DrillHit> = hits.iter().copied().filter(|h| h.plated).collect();
+    let plated: Vec<DrillHit> = hits
+        .iter()
+        .copied()
+        .filter(|h| h.plated && h.via_span.is_none())
+        .collect();
     let unplated: Vec<DrillHit> = hits.iter().copied().filter(|h| !h.plated).collect();
 
     let edge_plated = p
@@ -978,6 +1010,31 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         files.insert(
             "pcb-NPTH.drl".into(),
             write_excellon(&unplated, "NonPlated,1,2,NPTH", scale, origin, inch)?,
+        );
+    }
+    // Blind and buried vias drill in their own passes: one file per span.
+    let last = p.copper_layer_count().saturating_sub(1);
+    let mut spans: BTreeMap<(u8, u8), Vec<DrillHit>> = BTreeMap::new();
+    for hit in hits.iter().filter(|h| h.plated) {
+        if let Some(span) = hit.via_span {
+            spans.entry(span).or_default().push(*hit);
+        }
+    }
+    for ((a, b), span_hits) in spans {
+        let kind = if a == 0 || b >= last {
+            "Blind"
+        } else {
+            "Buried"
+        };
+        files.insert(
+            format!("pcb-Drill-L{}-L{}.drl", a + 1, b + 1),
+            write_excellon(
+                &span_hits,
+                &format!("Plated,{},{},{kind}", a + 1, b + 1),
+                scale,
+                origin,
+                inch,
+            )?,
         );
     }
     let rout = write_rout(&hits, scale, origin, inch)?;

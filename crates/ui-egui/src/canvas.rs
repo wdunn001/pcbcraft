@@ -2,6 +2,7 @@ use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer};
 use pcbcraft_geom::point_segment;
+mod underlay;
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, everything drawn on the schematic tab, falling back to the
@@ -167,6 +168,82 @@ pub(crate) fn polygon_contains(points: &[Point], pos: Point) -> bool {
     }
     inside
 }
+/// The small pictures drawn on the floating canvas controls.
+#[derive(Clone, Copy)]
+enum CanvasIcon {
+    Fit,
+    Move,
+    Rotate,
+}
+impl App {
+    /// One square icon button over the canvas. Its rectangle is published for
+    /// the tests under `id`.
+    fn canvas_icon(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        icon: CanvasIcon,
+        tip: &str,
+    ) -> egui::Response {
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::click());
+        let response = response.on_hover_text(tip);
+        self.record_icon(id, rect);
+        let ink = if response.hovered() {
+            self.accent()
+        } else {
+            self.ink()
+        };
+        let fill = if self.preferences.dark {
+            Color32::from_rgb(28, 40, 56)
+        } else {
+            Color32::from_rgb(236, 240, 246)
+        };
+        let painter = ui.painter();
+        painter.rect_filled(rect, 6.0, fill);
+        painter.rect_stroke(
+            rect,
+            6.0,
+            Stroke::new(1.0, self.ink().gamma_multiply(0.35)),
+            egui::StrokeKind::Inside,
+        );
+        let stroke = Stroke::new(1.6, ink);
+        let c = rect.center();
+        let at = |x: f32, y: f32| egui::pos2(c.x + x, c.y + y);
+        match icon {
+            CanvasIcon::Fit => {
+                // A frame: four corner brackets.
+                for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+                    let corner = at(sx * 7.0, sy * 7.0);
+                    painter.line_segment([corner, at(sx * 7.0, sy * 3.0)], stroke);
+                    painter.line_segment([corner, at(sx * 3.0, sy * 7.0)], stroke);
+                }
+            }
+            CanvasIcon::Move => {
+                painter.line_segment([at(-7.0, 0.0), at(7.0, 0.0)], stroke);
+                painter.line_segment([at(0.0, -7.0), at(0.0, 7.0)], stroke);
+                for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                    let tip = at(dx * 7.0, dy * 7.0);
+                    let back =
+                        |a: f32, b: f32| at(dx * (7.0 - a) + dy * b, dy * (7.0 - a) + dx * b);
+                    painter.line_segment([tip, back(3.0, 2.5)], stroke);
+                    painter.line_segment([tip, back(3.0, -2.5)], stroke);
+                }
+            }
+            CanvasIcon::Rotate => {
+                let mut points = Vec::new();
+                for step in 0..=10 {
+                    let a = -0.3 + step as f32 * 0.5;
+                    points.push(at(7.0 * a.cos(), 7.0 * a.sin()));
+                }
+                painter.add(egui::Shape::line(points, stroke));
+                let tip = at(7.0 * (-0.3_f32).cos(), 7.0 * (-0.3_f32).sin());
+                painter.line_segment([tip, tip + Vec2::new(-4.0, -1.0)], stroke);
+                painter.line_segment([tip, tip + Vec2::new(1.0, 4.5)], stroke);
+            }
+        }
+        response
+    }
+}
 impl App {
     /// Copper colour for one net under the current spotlight: the lit net
     /// glows in the accent colour, other copper fades away.
@@ -177,7 +254,7 @@ impl App {
 
 impl App {
     pub(super) fn select_at(&mut self, pos: Point, zoom: f32) {
-        let id = self.pick_object(pos, zoom);
+        let id = self.pick_filtered(pos, zoom);
         self.select(id);
         if self.tab == Tab::Schematic
             && let Some(c) = id.and_then(|id| self.project.component(id))
@@ -383,6 +460,7 @@ impl App {
         } else {
             self.paint_board(&painter, rect, camera, &visible);
         }
+        self.paint_edit_overlay(&painter, rect, camera);
         let text = match &self.tool {
             Tool::Select => "SELECT",
             Tool::Place(_) => "PLACE SYMBOL · CLICK TO COMMIT",
@@ -399,6 +477,7 @@ impl App {
             Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
             Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
             Tool::DrawLayer => "DRAW SHAPE · PICK THE LAYER IN THE PANEL",
+            Tool::Measure => "MEASURE · CLICK TWO POINTS",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -564,9 +643,15 @@ impl App {
             && matches!(self.tool, Tool::Select)
             && let Some(pos) = cursor
         {
-            self.select_at(pos, camera.zoom);
+            let shift = ui.input(|i| i.modifiers.shift);
+            match self.pick_filtered(pos, camera.zoom) {
+                Some(hit) if self.promote_member(hit) => {}
+                Some(_) => self.select_at(pos, camera.zoom),
+                None => self.begin_box(pos, shift),
+            }
             let id = self.selected;
-            if let Some(id) = id
+            if self.edit.box_from.is_none()
+                && let Some(id) = id
                 && (self.project.component(id).is_some() || self.project.footprint(id).is_some())
             {
                 let original = self
@@ -580,6 +665,15 @@ impl App {
             }
         }
         if response.dragged_by(egui::PointerButton::Primary)
+            && self.edit.box_from.is_some()
+            && let Some(pos) = cursor
+        {
+            self.edit.box_to = Some(pos);
+        }
+        if response.drag_stopped_by(egui::PointerButton::Primary) && self.edit.box_from.is_some() {
+            self.finish_box();
+        }
+        if response.dragged_by(egui::PointerButton::Primary)
             && let (Some((id, _)), Some(pos)) = (self.drag, cursor)
         {
             self.drag = Some((id, snap(pos.offset(self.drag_offset))));
@@ -587,18 +681,24 @@ impl App {
         if response.drag_stopped_by(egui::PointerButton::Primary)
             && let Some((id, pos)) = self.drag.take()
         {
-            let mut params = json!({"id":id,"position":pos});
-            if self.project.component(id).is_some() {
-                params["unit"] = json!(self.selected_unit);
+            if self.selection().len() > 1
+                && let Some(origin) = self.drag_origin(id)
+            {
+                self.move_selection(pos.x - origin.x, pos.y - origin.y);
+            } else {
+                let mut params = json!({"id":id,"position":pos});
+                if self.project.component(id).is_some() {
+                    params["unit"] = json!(self.selected_unit);
+                }
+                self.run(
+                    if self.project.footprint(id).is_some() {
+                        "footprint.move"
+                    } else {
+                        "component.move"
+                    },
+                    params,
+                );
             }
-            self.run(
-                if self.project.footprint(id).is_some() {
-                    "footprint.move"
-                } else {
-                    "component.move"
-                },
-                params,
-            );
         }
         if ui.input(|i| i.key_pressed(egui::Key::Enter))
             && matches!(self.tool, Tool::DrawLayer)
@@ -612,7 +712,11 @@ impl App {
         if response.clicked()
             && let Some(pos) = cursor
         {
-            self.canvas_click(pos, camera.zoom);
+            if matches!(self.tool, Tool::Select) && ui.input(|i| i.modifiers.shift) {
+                self.shift_click(pos, camera.zoom);
+            } else {
+                self.canvas_click(pos, camera.zoom);
+            }
         }
         // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
         egui::Area::new(egui::Id::new("fit-fab"))
@@ -622,9 +726,13 @@ impl App {
             .order(egui::Order::Foreground)
             .show(ui.ctx(), |ui| {
                 ui.horizontal(|ui| {
-                    if ui
-                        .button("Fit")
-                        .on_hover_text("Zoom the view so the whole design fits.")
+                    if self
+                        .canvas_icon(
+                            ui,
+                            "canvas-fit",
+                            CanvasIcon::Fit,
+                            "Fit: zoom the view so the whole design fits.",
+                        )
                         .clicked()
                     {
                         self.needs_fit = true;
@@ -679,18 +787,24 @@ impl App {
                         .order(egui::Order::Foreground)
                         .show(ui.ctx(), |ui| {
                             ui.horizontal(|ui| {
-                                if ui
-                                    .small_button("\u{2725}")
-                                    .on_hover_text(
+                                if self
+                                    .canvas_icon(
+                                        ui,
+                                        "handle-move",
+                                        CanvasIcon::Move,
                                         "Move: drop the selected object where you click next.",
                                     )
                                     .clicked()
                                 {
                                     self.tool = Tool::Move;
                                 }
-                                if ui
-                                    .small_button("Rotate")
-                                    .on_hover_text(command_tip("component.rotate"))
+                                if self
+                                    .canvas_icon(
+                                        ui,
+                                        "handle-rotate",
+                                        CanvasIcon::Rotate,
+                                        &command_tip("component.rotate"),
+                                    )
                                     .clicked()
                                 {
                                     self.rotate();
@@ -844,7 +958,7 @@ impl App {
         );
     }
 
-    fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
+    pub(super) fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
             self.project
                 .components
@@ -1008,6 +1122,7 @@ impl App {
                         "Wire picked: change its width or straighten it in the inspector".into();
                 }
             }
+            Tool::Measure => self.measure_click(pos, zoom),
             Tool::Place(kind) => {
                 self.run("component.add", json!({"kind":kind,"position":snap(pos)}))
             }
@@ -1186,6 +1301,7 @@ impl App {
     }
     fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         let shown = |name: &str| self.layer_shown(name);
+        underlay::paint(painter, rect, camera, p, "schematic");
         for w in p.wires.iter().filter(|_| shown("Wires")) {
             if let Some(path) = p.wire_path(w) {
                 painter.add(egui::Shape::line(
@@ -1527,6 +1643,7 @@ impl App {
                 Color32::from_rgb(205, 233, 222)
             },
         );
+        underlay::paint(painter, rect, camera, p, "pcb");
         painter.rect_stroke(
             board,
             0.0,
@@ -1657,16 +1774,19 @@ impl App {
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
-            painter.circle_filled(
-                at,
-                radius,
-                if self.selected == Some(v.id) {
-                    self.accent()
-                } else {
-                    self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
-                },
-            );
-            if v.drill > 0.0 {
+            let base = if self.selected == Some(v.id) {
+                self.accent()
+            } else {
+                self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
+            };
+            if via_on_layer(p, v, self.route_layer) {
+                painter.circle_filled(at, radius, base);
+            } else {
+                // The via has no copper on the active layer: show a faint ring
+                // so it is still found, without looking like copper here.
+                painter.circle_stroke(at, radius, Stroke::new(1.0, base.linear_multiply(0.35)));
+            }
+            if v.drill > 0.0 && via_on_layer(p, v, self.route_layer) {
                 painter.circle_filled(
                     at,
                     (v.drill as f32 / 2.0 * camera.zoom).max(1.0),
@@ -1878,6 +1998,23 @@ fn pad_shape(mut outline: Vec<Pos2>, convex: bool, color: Color32) -> egui::Shap
         }
     }
     egui::Shape::convex_polygon(outline, color, Stroke::NONE)
+}
+
+/// Whether a via has copper on the layer being worked on. The "Bottom" choice
+/// always means the last copper layer of the board.
+pub(crate) fn via_on_layer(
+    p: &pcbcraft_doc::Project,
+    v: &pcbcraft_doc::Via,
+    active: pcbcraft_doc::Layer,
+) -> bool {
+    let last = p.copper_layer_count().saturating_sub(1);
+    let index = if active == Layer::Back {
+        last
+    } else {
+        active.index()
+    };
+    let (a, b) = p.via_span(v);
+    (a.index()..=b.index()).contains(&index)
 }
 
 #[cfg(test)]

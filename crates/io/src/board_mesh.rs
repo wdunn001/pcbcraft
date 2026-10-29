@@ -1750,6 +1750,8 @@ mod tests {
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         let mesh = board_mesh(&p, slab_only())?;

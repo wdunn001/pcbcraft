@@ -660,6 +660,8 @@ mod tests {
             position: Point::new(30.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            from_layer: None,
+            to_layer: None,
             covering: None,
         });
         let pad = pcbcraft_doc::Pad {
