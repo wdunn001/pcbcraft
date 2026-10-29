@@ -5,6 +5,7 @@ mod footprint_pad_outline;
 mod paths;
 mod reader;
 mod sexpr;
+pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};

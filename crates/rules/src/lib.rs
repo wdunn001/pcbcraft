@@ -2,10 +2,10 @@
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Footprint, Id, Layer, PANEL_ASSEMBLER_MAX_MM,
     PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM,
-    PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, Via, board_vscore_segments,
-    panel_layout, panel_score_lines,
+    PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, Via, ViaKind,
+    board_vscore_segments, panel_layout, panel_score_lines,
 };
-use pcbcraft_geom::{Point, point_segment, segment_distance};
+use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use pcbcraft_library::Graphic;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,6 +53,27 @@ struct Hole {
     radius: f64,
 }
 
+/// Filled copper of one zone as (outer ring, holes, anchor). A zone whose fill
+/// refuses, because the board is beyond the pour bounds, is reported inside
+/// `drc` and checked by its bare outline here.
+/// One poured piece: outer ring, hole rings, anchor point.
+type ZonePiece = (Vec<Point>, Vec<Vec<Point>>, Point);
+fn zone_pieces(
+    project: &Project,
+    zone: &pcbcraft_doc::CopperZone,
+) -> Result<Vec<ZonePiece>, String> {
+    let fill = pcbcraft_doc::zone_fill(project, zone)?;
+    Ok(fill
+        .pieces
+        .iter()
+        .filter_map(|piece| {
+            let mut rings = piece.iter();
+            let outer = rings.next()?.clone();
+            let anchor = outer.first().copied().unwrap_or_default();
+            Some((outer, rings.cloned().collect(), anchor))
+        })
+        .collect())
+}
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
@@ -244,10 +265,12 @@ fn copper(project: &Project) -> Vec<Copper> {
             hole,
             cutouts: vec![],
         };
-        let mut back = item.clone();
-        back.layer = Layer::Back;
-        result.push(back);
-        result.push(item);
+        // One pad per copper layer in the via's span; it conducts nowhere else.
+        for layer in project.via_span_layers(v) {
+            let mut pad = item.clone();
+            pad.layer = layer;
+            result.push(pad);
+        }
     }
     for h in &project.board.holes {
         // An unplated drill is a keep-out shape on every layer: copper may
@@ -280,29 +303,130 @@ fn copper(project: &Project) -> Vec<Copper> {
         if !z.filled {
             continue;
         }
-        let Some(&first) = z.outline.first() else {
-            continue;
+        // Real poured copper: the fill already knocked clearance holes around
+        // foreign copper, so what the checks see is what a fab plots.
+        let pieces = match zone_pieces(project, z) {
+            Ok(pieces) => pieces,
+            Err(_) => {
+                let Some(&first) = z.outline.first() else {
+                    continue;
+                };
+                vec![(z.outline.clone(), z.cutouts.clone(), first)]
+            }
         };
-        result.push(Copper {
-            id: z.id,
-            net: z.net,
-            start: first,
-            end: first,
-            radius: 0.0,
-            contact_radius: 0.0,
-            conservative: false,
-            outline: Some(z.outline.clone()),
-            outline_error: 0.0,
-            layer: z.layer,
-            pad: false,
-            clearance: None,
-            bridge: None,
-            hole: None,
-            cutouts: z.cutouts.clone(),
-        });
+        for (outline, cutouts, first) in pieces {
+            result.push(Copper {
+                id: z.id,
+                net: z.net,
+                start: first,
+                end: first,
+                radius: 0.0,
+                contact_radius: 0.0,
+                conservative: false,
+                outline: Some(outline),
+                outline_error: 0.0,
+                layer: z.layer,
+                pad: false,
+                clearance: None,
+                bridge: None,
+                hole: None,
+                cutouts,
+            });
+        }
     }
     result
 }
+
+const LASER_OBJECT_CAP: usize = 4096;
+
+/// One closed copper outline on a layer, grouped by net for laser export.
+#[derive(Clone, Debug, Serialize)]
+pub struct LaserCopperOutline {
+    pub net: Id,
+    pub ring: Vec<Point>,
+}
+
+fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point> {
+    if start.distance(end) < 1e-9 {
+        return hull::octagon(&[start], half_width);
+    }
+    hull::octagon(&[start, end], half_width)
+}
+
+fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
+    if ring.len() >= 2
+        && let (Some(first), Some(last)) = (ring.first(), ring.last())
+        && first.distance(*last) < 1e-9
+    {
+        ring.pop();
+    }
+    ring
+}
+
+fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
+    if let Some(outline) = &item.outline {
+        return Some(open_ring(outline.clone()));
+    }
+    if item.start.distance(item.end) < 1e-9 {
+        return Some(hull::octagon(&[item.start], item.radius));
+    }
+    Some(track_capsule_outline(item.start, item.end, item.radius))
+}
+
+/// Copper outlines on one layer, grouped by net, using the same geometry as DRC.
+pub fn laser_copper_outlines(
+    project: &Project,
+    layer: Layer,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    let mut out = Vec::new();
+    for item in copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer && c.net != 0)
+    {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser copper outline limit reached (4096)".into());
+        }
+        let ring = copper_item_ring(&item)
+            .ok_or_else(|| "copper outline could not be built".to_string())?;
+        if !polygon_is_simple(&ring) {
+            return Err("a copper outline is not a simple closed ring".into());
+        }
+        out.push(LaserCopperOutline {
+            net: item.net,
+            ring,
+        });
+    }
+    Ok(out)
+}
+
+/// Isolation rings offset outward from each net's copper on one layer.
+pub fn isolation_cut_polygons(
+    project: &Project,
+    layer: Layer,
+    isolation_width_mm: f64,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    if !isolation_width_mm.is_finite() || isolation_width_mm <= 0.0 {
+        return Err("isolation width must be a positive millimetre value".into());
+    }
+    let outlines = laser_copper_outlines(project, layer)?;
+    let mut by_net: BTreeMap<Id, Vec<Point>> = BTreeMap::new();
+    for item in outlines {
+        by_net.entry(item.net).or_default().extend(item.ring);
+    }
+    let mut out = Vec::new();
+    for (net, points) in by_net {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser isolation outline limit reached (4096)".into());
+        }
+        let ring = hull::octagon(&points, isolation_width_mm);
+        if ring.len() < 3 || !polygon_is_simple(&ring) {
+            return Err("an isolation ring is not a simple closed polygon".into());
+        }
+        out.push(LaserCopperOutline { net, ring });
+    }
+    Ok(out)
+}
+
 /// Copper a new track must keep clear of, seen exactly as the checks see it.
 #[derive(Clone, Debug)]
 pub struct Obstacle {
@@ -815,12 +939,21 @@ fn panel_findings(project: &Project) -> Vec<Finding> {
     result
 }
 
-pub fn drc(project: &Project) -> Vec<Finding> {
+/// Clearance, board edge and cutout findings for the copper in `items`. When
+/// `only` is set, just the findings that involve one of those object ids.
+fn copper_findings(
+    project: &Project,
+    items: &[Copper],
+    only: Option<&BTreeSet<Id>>,
+) -> Vec<Finding> {
     let mut result = vec![];
-    let items = copper(project);
     let board = &project.board;
+    let wanted = |id: Id| only.is_none_or(|set| set.contains(&id));
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
+            if !wanted(a.id) && !wanted(b.id) {
+                continue;
+            }
             if a.bridge.is_some() && a.bridge == b.bridge {
                 // A declared net tie's own pads touch on purpose; the pair is
                 // the bridge, never a short.
@@ -862,6 +995,9 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 }
             }
         }
+        if !wanted(a.id) {
+            continue;
+        }
         let edge = if let Some(points) = &a.outline {
             points
                 .iter()
@@ -899,6 +1035,22 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    result
+}
+/// Copper findings (clearance, short, board edge, cutout) that involve any of
+/// the given track, via, pad or zone ids, without running the other checks.
+/// Used to test a proposed edit before committing it.
+pub fn copper_conflicts(project: &Project, ids: &[Id]) -> Vec<Finding> {
+    let only: BTreeSet<Id> = ids.iter().copied().collect();
+    let mut found = copper_findings(project, &copper(project), Some(&only));
+    found.retain(|f| !project.rule_disabled(f.code));
+    found
+}
+pub fn drc(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    let items = copper(project);
+    let board = &project.board;
+    result.extend(copper_findings(project, &items, None));
     for track in &board.tracks {
         if let Some(class) = project.net_class(track.net) {
             if let Some(min) = class.min_width.filter(|min| track.width < *min) {
@@ -1015,6 +1167,39 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![pair.net_p, pair.net_n],
         });
     }
+    for group in &board.length_groups {
+        let routed: Vec<(Id, f64)> = group
+            .nets
+            .iter()
+            .filter_map(|n| lengths.get(n).map(|l| (*n, *l)))
+            .collect();
+        if routed.len() < 2 {
+            continue;
+        }
+        let longest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 > a.1 { *b } else { a });
+        let shortest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 < a.1 { *b } else { a });
+        let spread = longest.1 - shortest.1;
+        if spread <= group.tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "length_group_skew",
+            severity: project.rule_severity("length_group_skew", "error"),
+            message: format!(
+                "{}: {} is {:.3} mm longer than {}, at most {:.3} mm allowed",
+                group.name,
+                project.net_name(longest.0),
+                spread,
+                project.net_name(shortest.0),
+                group.tolerance
+            ),
+            objects: vec![longest.0, shortest.0],
+        });
+    }
     let classified: BTreeSet<Id> = project
         .net_classes
         .iter()
@@ -1079,6 +1264,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(panel_findings(project));
+    result.extend(via_findings(project));
     result.extend(fab_findings(project, board));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
@@ -1202,6 +1388,87 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 }
             }
         }
+    }
+    for zone in &board.zones {
+        if !zone.filled {
+            continue;
+        }
+        let fill = match pcbcraft_doc::zone_fill(project, zone) {
+            Ok(fill) => fill,
+            Err(message) => {
+                result.push(Finding {
+                    code: "pour_fill",
+                    severity: project.rule_severity("pour_fill", "error"),
+                    message,
+                    objects: vec![zone.id],
+                });
+                continue;
+            }
+        };
+        if !fill.starved.is_empty() {
+            let mut objects = vec![zone.id];
+            objects.extend(fill.starved.iter().copied());
+            result.push(Finding {
+                code: "thermal_starved",
+                severity: project.rule_severity("thermal_starved", "warning"),
+                message: format!(
+                    "{}: {} copper inside zone {} has fewer than two thermal spokes, so it is barely joined to the pour",
+                    project.net_name(zone.net),
+                    fill.starved.len(),
+                    zone.id
+                ),
+                objects,
+            });
+        }
+        if fill.unconnected {
+            result.push(Finding {
+                code: "zone_unconnected",
+                severity: project.rule_severity("zone_unconnected", "info"),
+                message: format!(
+                    "{}: zone {} touches no copper of its net and is kept whole as a shield",
+                    project.net_name(zone.net),
+                    zone.id
+                ),
+                objects: vec![zone.id],
+            });
+        } else if fill.islands > 0 {
+            result.push(Finding {
+                code: "zone_island",
+                severity: project.rule_severity("zone_island", "warning"),
+                message: format!(
+                    "{}: zone {} has {} detached piece(s), {} removed by the pour settings",
+                    project.net_name(zone.net),
+                    zone.id,
+                    fill.islands,
+                    fill.removed
+                ),
+                objects: vec![zone.id],
+            });
+        }
+    }
+    match pcbcraft_doc::keepout_hits(project) {
+        Ok(hits) => {
+            for hit in hits {
+                result.push(Finding {
+                    code: "keepout",
+                    severity: project.rule_severity("keepout", "error"),
+                    message: format!(
+                        "{} {} {} enters keepout area {}",
+                        project.net_name(hit.net),
+                        hit.kind.label(),
+                        hit.object,
+                        hit.area
+                    ),
+                    objects: vec![hit.object, hit.area],
+                });
+            }
+        }
+        Err(message) => result.push(Finding {
+            code: "pour_fill",
+            severity: project.rule_severity("pour_fill", "error"),
+            message,
+            objects: vec![],
+        }),
     }
     result.retain(|f| {
         !project.rule_disabled(f.code)
@@ -1476,6 +1743,89 @@ fn pad_mask_opening_radius(pad: &Pad) -> Option<f64> {
         return None;
     }
     Some(pad.contact_radius())
+}
+
+/// Deepest hole, as a ratio of span depth to drill, a mechanical drill makes.
+const MECHANICAL_ASPECT_LIMIT: f64 = 8.0;
+
+/// Plain-language warning when a via is too deep for its drill to plate well;
+/// none when the ratio is fine or a laser-drilled micro via is exempt.
+pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
+    let board = &project.board;
+    let depth = if project.via_kind(via) == ViaKind::Through && board.layer_records.is_empty() {
+        Some(board.thickness)
+    } else {
+        project.via_depth(via)
+    };
+    let depth = depth?;
+    if via.drill > 0.0
+        && project.via_kind(via) != ViaKind::Micro
+        && depth / via.drill > MECHANICAL_ASPECT_LIMIT + 1e-9
+    {
+        return Some(format!(
+            "Via at {:.2}, {:.2} is {:.2} mm deep with a {:.2} mm drill; a ratio above {MECHANICAL_ASPECT_LIMIT:.0} to 1 is hard to plate",
+            via.position.x, via.position.y, depth, via.drill
+        ));
+    }
+    None
+}
+/// Checks on where each via starts and ends in the stack.
+fn via_findings(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    let allowed = project.allowed_via_spans();
+    let board = &project.board;
+    for via in &board.vias {
+        let span = project.via_span(via);
+        let (upper, lower) = span;
+        if !allowed.contains(&span) {
+            result.push(Finding {
+                code: "via_span_not_allowed",
+                severity: project.rule_severity("via_span_not_allowed", "error"),
+                message: format!(
+                    "Via at {:.2}, {:.2} runs from {} to {}, which this board does not allow",
+                    via.position.x,
+                    via.position.y,
+                    project.layer_name(upper),
+                    project.layer_name(lower)
+                ),
+                objects: vec![via.id],
+            });
+        }
+        if let Some(message) = via_aspect_warning(project, via) {
+            result.push(Finding {
+                code: "via_aspect_ratio",
+                severity: project.rule_severity("via_aspect_ratio", "warning"),
+                message,
+                objects: vec![via.id],
+            });
+        }
+    }
+    for (i, a) in board.vias.iter().enumerate() {
+        if project.via_kind(a) != ViaKind::Micro {
+            continue;
+        }
+        for b in board.vias.iter().skip(i + 1) {
+            if project.via_kind(b) != ViaKind::Micro
+                || a.position.distance(b.position) > a.diameter.max(b.diameter) / 2.0
+            {
+                continue;
+            }
+            let (a_up, a_low) = project.via_span(a);
+            let (b_up, b_low) = project.via_span(b);
+            if a_low == b_up || b_low == a_up {
+                result.push(Finding {
+                    code: "stacked_microvia",
+                    severity: project.rule_severity("stacked_microvia", "info"),
+                    message: format!(
+                        "Two micro vias are stacked at {:.2}, {:.2}; stacked micro vias are a known reliability risk",
+                        a.position.x, a.position.y
+                    ),
+                    objects: vec![a.id, b.id],
+                });
+            }
+        }
+    }
+    result
 }
 
 fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
@@ -2036,6 +2386,9 @@ mod tests {
             position: Point::new(12.1, 10.0),
             diameter: 1.4,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -2098,6 +2451,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         p.board.tracks.push(Track {
             id: 5,
@@ -2222,6 +2577,9 @@ mod tests {
                 position: Point::new(12.0 + column as f64 * 0.5, 10.0),
                 diameter: 1.4,
                 drill: 0.4,
+                from_layer: None,
+                to_layer: None,
+                covering: None,
             });
         }
         p.validate()?;
@@ -3061,6 +3419,9 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -3130,6 +3491,9 @@ mod tests {
             position: Point::new(20.0, 20.0),
             diameter: 0.8,
             drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
@@ -3477,5 +3841,419 @@ mod tests {
             codes(&p).contains(&"cut_hits_via"),
             "a region elsewhere leaves the finding alone"
         );
+    }
+
+    fn six_layer_project() -> Project {
+        let mut p = Project::default();
+        for i in 1..=6 {
+            p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                name: format!("L{i}"),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+            });
+            if i < 6 {
+                p.board.layer_records.push(pcbcraft_doc::LayerRecord {
+                    name: format!("P{i}"),
+                    kind: "prepreg".into(),
+                    thickness: 0.2,
+                    copper_role: None,
+                });
+            }
+        }
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        p
+    }
+
+    fn span_via(p: &mut Project, id: Id, from: Option<u8>, to: Option<u8>) {
+        p.board.vias.push(Via {
+            id,
+            net: 1,
+            position: Point::new(12.1, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+            from_layer: from.and_then(|i| Layer::from_index(i).ok()),
+            to_layer: to.and_then(|i| Layer::from_index(i).ok()),
+            covering: None,
+        });
+    }
+    fn span_track(p: &mut Project, id: Id, layer: u8) {
+        p.board.tracks.push(Track {
+            id,
+            net: 1,
+            start: Point::new(11.0, 10.0),
+            end: Point::new(13.0, 10.0),
+            width: 0.25,
+            layer: Layer::from_index(layer).unwrap_or(Layer::Front),
+            arc: None,
+        });
+    }
+    #[test]
+    fn blind_via_connects_top_and_inner_not_bottom() -> Result<(), String> {
+        let mut p = six_layer_project();
+        span_via(&mut p, 4, None, Some(1));
+        span_track(&mut p, 5, 0);
+        span_track(&mut p, 6, 1);
+        span_track(&mut p, 7, 5);
+        p.validate()?;
+        let items = copper(&p);
+        let on = |layer: u8| items.iter().find(|c| c.id == 4 && c.layer.index() == layer);
+        assert!(on(0).is_some() && on(1).is_some());
+        assert!(
+            on(2).is_none() && on(5).is_none(),
+            "no copper below its span"
+        );
+        let via_top = on(0).ok_or("top via pad missing")?;
+        let top_track = items
+            .iter()
+            .find(|c| c.id == 5)
+            .ok_or("top track missing")?;
+        let inner_track = items
+            .iter()
+            .find(|c| c.id == 6)
+            .ok_or("inner track missing")?;
+        let bottom_track = items
+            .iter()
+            .find(|c| c.id == 7)
+            .ok_or("bottom track missing")?;
+        assert!(touching(via_top, top_track));
+        let via_inner = on(1).ok_or("inner via pad missing")?;
+        assert!(touching(via_inner, inner_track));
+        assert!(
+            !items
+                .iter()
+                .filter(|c| c.id == 4)
+                .any(|v| touching(v, bottom_track)),
+            "a blind via does not reach the bottom layer"
+        );
+        Ok(())
+    }
+    #[test]
+    fn via_findings_report_forbidden_span_and_stacked_microvias() -> Result<(), String> {
+        let mut p = six_layer_project();
+        span_via(&mut p, 4, Some(2), Some(3));
+        p.validate()?;
+        assert!(codes(&p).contains(&"via_span_not_allowed"));
+        p.board.via_spans.push((2, 3));
+        assert!(!codes(&p).contains(&"via_span_not_allowed"));
+        // Two shallow blind vias end to end at one spot are stacked.
+        p.board.vias.clear();
+        p.board.via_spans.push((1, 2));
+        span_via(&mut p, 8, None, Some(1));
+        span_via(&mut p, 9, Some(1), Some(2));
+        assert!(codes(&p).contains(&"stacked_microvia"));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod pour_tests {
+    use super::*;
+    use pcbcraft_doc::{
+        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
+        ZonePour, component_template,
+    };
+    use pcbcraft_library::{Drill, FootprintPad};
+
+    fn square(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Point> {
+        vec![
+            Point::new(x0, y0),
+            Point::new(x1, y0),
+            Point::new(x1, y1),
+            Point::new(x0, y1),
+            Point::new(x0, y0),
+        ]
+    }
+    /// A ground pour over a 40 by 40 mm board with one other net.
+    fn board() -> Project {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        for (id, name) in [(1, "GND"), (2, "SIG")] {
+            p.nets.push(Net {
+                id,
+                name: name.into(),
+                ..Default::default()
+            });
+        }
+        p.board.zones.push(CopperZone {
+            id: 10,
+            net: 1,
+            layer: Layer::Front,
+            outline: square(5.0, 5.0, 35.0, 35.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p
+    }
+    /// A plated through-hole pad on ground at the given spot.
+    fn plated_pad(p: &mut Project, at: Point) {
+        let g = FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(mut c) = component_template("resistor", 4, "R4".into(), at) {
+            c.pins.truncate(1);
+            for pin in &mut c.pins {
+                pin.net = Some(1);
+            }
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "PTH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![g.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+            p.components.push(c);
+        }
+        p.board.footprints.push(Footprint {
+            id: 20,
+            component: 4,
+            position: at,
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+        });
+    }
+    fn track(id: Id, net: Id, layer: Layer, a: (f64, f64), b: (f64, f64), width: f64) -> Track {
+        Track {
+            id,
+            net,
+            start: Point::new(a.0, a.1),
+            end: Point::new(b.0, b.1),
+            width,
+            layer,
+            arc: None,
+        }
+    }
+    fn codes(p: &Project) -> Vec<&'static str> {
+        drc(p).iter().map(|f| f.code).collect()
+    }
+    fn fill(p: &Project) -> Result<pcbcraft_doc::ZoneFill, String> {
+        let zone = p.board.zones.first().ok_or("no zone")?;
+        pcbcraft_doc::zone_fill(p, zone)
+    }
+
+    #[test]
+    fn foreign_via_inside_a_filled_zone_is_no_longer_a_short() -> Result<(), String> {
+        let mut p = board();
+        p.board.vias.push(Via {
+            id: 30,
+            net: 2,
+            position: Point::new(20.0, 20.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        p.validate()?;
+        let findings = drc(&p);
+        assert!(
+            !findings.iter().any(|f| f.code == "copper_short"
+                && f.objects.contains(&10)
+                && f.objects.contains(&30)),
+            "the pour leaves a clearance hole round the foreign via"
+        );
+        assert!(!fill(&p)?.contains(Point::new(20.2, 20.0)));
+        assert!(fill(&p)?.contains(Point::new(25.0, 25.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn tht_pad_in_zone_gets_four_spokes() -> Result<(), String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(20.0, 20.0));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert_eq!(f.spokes, 4);
+        assert!(f.starved.is_empty());
+        assert!(!f.unconnected);
+        // The gap ring is empty copper between two spokes, the pad edge is joined.
+        assert!(!f.contains(Point::new(20.0 + 0.8 + 0.15, 20.0)));
+        Ok(())
+    }
+
+    #[test]
+    fn blocked_spokes_report_thermal_starved() -> Result<(), String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(20.0, 20.0));
+        // Two cutouts take away the right half and the upper half beside the pad,
+        // leaving a single spoke that reaches copper.
+        p.board.zones[0].cutouts.push(square(20.3, 5.0, 35.0, 35.0));
+        p.board.zones[0].cutouts.push(square(5.0, 20.3, 20.3, 35.0));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert!(f.spokes < 2, "got {} spokes", f.spokes);
+        assert_eq!(f.starved, vec![20]);
+        assert!(codes(&p).contains(&"thermal_starved"));
+        Ok(())
+    }
+
+    /// A foreign wall that splits the pour into a pad half and a lonely half.
+    fn walled() -> Result<Project, String> {
+        let mut p = board();
+        plated_pad(&mut p, Point::new(12.0, 20.0));
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Front, (25.0, 4.0), (25.0, 36.0), 1.0));
+        p.validate()?;
+        Ok(p)
+    }
+
+    #[test]
+    fn detached_fill_region_is_reported_as_an_island() -> Result<(), String> {
+        let mut p = walled()?;
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::Keep,
+            ..ZonePour::default()
+        });
+        assert_eq!(fill(&p)?.islands, 1);
+        assert!(codes(&p).contains(&"zone_island"));
+        Ok(())
+    }
+
+    #[test]
+    fn remove_islands_drops_it_from_the_fill() -> Result<(), String> {
+        let mut p = walled()?;
+        let lonely = Point::new(30.0, 20.0);
+        let f = fill(&p)?;
+        assert_eq!(f.removed, 1);
+        assert!(!f.contains(lonely), "the default drops detached copper");
+        assert!(f.contains(Point::new(18.0, 20.0)));
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::Keep,
+            ..ZonePour::default()
+        });
+        assert!(fill(&p)?.contains(lonely), "keep leaves it in");
+        p.board.zones[0].pour = Some(ZonePour {
+            islands: ZoneIslands::RemoveBelow(10.0),
+            ..ZonePour::default()
+        });
+        assert!(
+            fill(&p)?.contains(lonely),
+            "a piece larger than the limit stays"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn zone_touching_nothing_is_kept_whole_and_reported_once() -> Result<(), String> {
+        let p = board();
+        let f = fill(&p)?;
+        assert!(f.unconnected);
+        assert!(f.contains(Point::new(20.0, 20.0)));
+        let list = codes(&p);
+        assert!(list.contains(&"zone_unconnected"));
+        assert!(!list.contains(&"zone_island"));
+        Ok(())
+    }
+
+    fn keepout(layer: Option<Layer>) -> RuleArea {
+        RuleArea {
+            id: 40,
+            name: None,
+            net: None,
+            layer,
+            clearance: 0.2,
+            keepout: Some(Keepout::default()),
+            max_height: None,
+            region: RuleRegion {
+                x: 15.0,
+                y: 18.0,
+                width: 10.0,
+                height: 4.0,
+            },
+            profile: None,
+        }
+    }
+
+    #[test]
+    fn track_crossing_a_keepout_with_both_ends_outside_is_a_finding() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Front, (5.0, 20.0), (35.0, 20.0), 0.25));
+        p.board.rule_areas.push(keepout(None));
+        p.validate()?;
+        assert!(codes(&p).contains(&"keepout"));
+        p.board.tracks[0] = track(31, 2, Layer::Front, (5.0, 30.0), (35.0, 30.0), 0.25);
+        assert!(
+            !codes(&p).contains(&"keepout"),
+            "a track clear of it is fine"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn keepout_layer_filter_lets_the_other_layer_through() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board
+            .tracks
+            .push(track(31, 2, Layer::Back, (5.0, 20.0), (35.0, 20.0), 0.25));
+        p.board.rule_areas.push(keepout(Some(Layer::Front)));
+        p.validate()?;
+        assert!(!codes(&p).contains(&"keepout"));
+        p.board.rule_areas[0].layer = Some(Layer::Back);
+        assert!(codes(&p).contains(&"keepout"));
+        Ok(())
+    }
+
+    #[test]
+    fn pour_leaves_a_keepout_empty() -> Result<(), String> {
+        let mut p = board();
+        p.board.rule_areas.push(keepout(None));
+        p.validate()?;
+        let f = fill(&p)?;
+        assert!(!f.contains(Point::new(20.0, 20.0)));
+        assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
     }
 }

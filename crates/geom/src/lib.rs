@@ -1,7 +1,10 @@
 //! Small, bounded planar geometry. Units are millimetres.
+pub mod impedance;
+pub mod meander;
 use serde::{Deserialize, Serialize};
 
 pub mod hull;
+pub mod poly;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -297,9 +300,318 @@ pub fn triangulate(points: &[Point]) -> Vec<[usize; 3]> {
     triangles
 }
 
+/// Parallel hatch segments filling a simple closed polygon. Caps output at 8192
+/// segments.
+pub fn hatch_fill_polygon(
+    points: &[Point],
+    line_interval_mm: f64,
+    hatch_angle_deg: f64,
+    angle_increment_deg: f64,
+) -> Vec<(Point, Point)> {
+    if !polygon_is_simple(points)
+        || !line_interval_mm.is_finite()
+        || line_interval_mm <= 0.0
+        || !hatch_angle_deg.is_finite()
+        || !angle_increment_deg.is_finite()
+    {
+        return vec![];
+    }
+    let mut segments = Vec::new();
+    let mut angle = hatch_angle_deg;
+    for _ in 0..8 {
+        segments.extend(hatch_at_angle(points, line_interval_mm, angle));
+        if segments.len() >= 8192 {
+            return segments.into_iter().take(8192).collect();
+        }
+        angle += angle_increment_deg;
+    }
+    segments.into_iter().take(8192).collect()
+}
+
+fn hatch_at_angle(points: &[Point], spacing: f64, angle_deg: f64) -> Vec<(Point, Point)> {
+    let (sin, cos) = angle_deg.to_radians().sin_cos();
+    let (mut min_s, mut max_s) = (f64::INFINITY, f64::NEG_INFINITY);
+    let mut min_t = f64::INFINITY;
+    let mut max_t = f64::NEG_INFINITY;
+    for p in points {
+        let s = p.x * cos + p.y * sin;
+        let t = -p.x * sin + p.y * cos;
+        min_s = min_s.min(s);
+        max_s = max_s.max(s);
+        min_t = min_t.min(t);
+        max_t = max_t.max(t);
+    }
+    if !min_s.is_finite() || max_s - min_s < 1e-9 {
+        return vec![];
+    }
+    let mut out = Vec::new();
+    let mut offset = min_s;
+    while offset <= max_s + 1e-9 {
+        let line = clip_hatch_line(points, offset, cos, sin, min_t, max_t);
+        if let Some((a, b)) = line {
+            out.push((a, b));
+        }
+        offset += spacing;
+        if out.len() >= 8192 {
+            break;
+        }
+    }
+    out
+}
+
+fn clip_hatch_line(
+    points: &[Point],
+    offset: f64,
+    cos: f64,
+    sin: f64,
+    min_t: f64,
+    max_t: f64,
+) -> Option<(Point, Point)> {
+    let mut hits = Vec::new();
+    for (a, b) in polygon_edges(points) {
+        let sa = a.x * cos + a.y * sin - offset;
+        let sb = b.x * cos + b.y * sin - offset;
+        if sa.abs() < 1e-12 {
+            hits.push(-a.x * sin + a.y * cos);
+        }
+        if sb.abs() < 1e-12 {
+            hits.push(-b.x * sin + b.y * cos);
+        }
+        if sa * sb < 0.0 {
+            let t = sa / (sa - sb);
+            let px = a.x + (b.x - a.x) * t;
+            let py = a.y + (b.y - a.y) * t;
+            hits.push(-px * sin + py * cos);
+        }
+    }
+    hits.sort_by(|x, y| x.total_cmp(y));
+    hits.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    if hits.len() < 2 {
+        return None;
+    }
+    let t0 = hits.first()?.clamp(min_t, max_t);
+    let t1 = hits.last()?.clamp(min_t, max_t);
+    let p0 = Point::new(offset * cos - t0 * sin, offset * sin + t0 * cos);
+    let p1 = Point::new(offset * cos - t1 * sin, offset * sin + t1 * cos);
+    if p0.distance(p1) < 1e-9 {
+        None
+    } else {
+        Some((p0, p1))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fixed-seed generator so property runs are reproducible.
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> f64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 11) as f64) / ((1u64 << 53) as f64)
+        }
+        fn range(&mut self, lo: f64, hi: f64) -> f64 {
+            lo + (hi - lo) * self.next()
+        }
+    }
+    fn near(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-9
+    }
+    fn near_pt(a: Point, b: Point) -> bool {
+        near(a.x, b.x) && near(a.y, b.y)
+    }
+
+    #[test]
+    fn offset_adds_components() {
+        let r = Point::new(1.5, -2.0).offset(Point::new(0.5, 7.0));
+        assert_eq!(r, Point::new(2.0, 5.0));
+        let mut g = Lcg(1);
+        for _ in 0..200 {
+            let a = Point::new(g.range(-50.0, 50.0), g.range(-50.0, 50.0));
+            let b = Point::new(g.range(-50.0, 50.0), g.range(-50.0, 50.0));
+            assert_eq!(a.offset(b), b.offset(a));
+        }
+    }
+
+    #[test]
+    fn rotate_quarter_turn_maps_x_axis_to_y_axis() {
+        assert!(near_pt(
+            Point::new(1.0, 0.0).rotate(90.0),
+            Point::new(0.0, 1.0)
+        ));
+        assert!(near_pt(
+            Point::new(0.0, 1.0).rotate(90.0),
+            Point::new(-1.0, 0.0)
+        ));
+    }
+
+    #[test]
+    fn rotate_half_turn_negates() {
+        assert!(near_pt(
+            Point::new(3.0, 4.0).rotate(180.0),
+            Point::new(-3.0, -4.0)
+        ));
+    }
+
+    #[test]
+    fn rotate_preserves_length_and_inverts() {
+        let mut g = Lcg(2);
+        for _ in 0..200 {
+            let p = Point::new(g.range(-100.0, 100.0), g.range(-100.0, 100.0));
+            let a = g.range(-720.0, 720.0);
+            let r = p.rotate(a);
+            assert!(near(
+                r.distance(Point::default()),
+                p.distance(Point::default())
+            ));
+            assert!(near_pt(r.rotate(-a), p));
+        }
+    }
+
+    #[test]
+    fn positive_accepts_only_finite_values_up_to_10000() {
+        for v in [1e-9, 0.1, 1.0, 10_000.0] {
+            assert!(positive(v), "{v}");
+        }
+        for v in [
+            0.0,
+            -0.0,
+            -1.0,
+            10_000.5,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            assert!(!positive(v), "{v}");
+        }
+    }
+
+    #[test]
+    fn arc_point_at_hits_start_mid_and_end() {
+        let arc = Arc {
+            center: Point::new(1.0, 1.0),
+            radius: 2.0,
+            start_angle: 0.0,
+            sweep: std::f64::consts::FRAC_PI_2,
+        };
+        assert!(near_pt(arc.point_at(0.0), Point::new(3.0, 1.0)));
+        assert!(near_pt(arc.point_at(1.0), Point::new(1.0, 3.0)));
+        let r = 2.0 * std::f64::consts::FRAC_1_SQRT_2;
+        assert!(near_pt(arc.point_at(0.5), Point::new(1.0 + r, 1.0 + r)));
+    }
+
+    #[test]
+    fn arc_length_is_radius_times_abs_sweep() {
+        let mut arc = Arc {
+            center: Point::default(),
+            radius: 3.0,
+            start_angle: 0.3,
+            sweep: std::f64::consts::PI,
+        };
+        assert!(near(arc.length(), 3.0 * std::f64::consts::PI));
+        arc.sweep = -std::f64::consts::FRAC_PI_2;
+        assert!(near(arc.length(), 1.5 * std::f64::consts::PI));
+    }
+
+    #[test]
+    fn arc_through_unit_circle_half_turn() {
+        let (a, m, b) = (
+            Point::new(1.0, 0.0),
+            Point::new(0.0, 1.0),
+            Point::new(-1.0, 0.0),
+        );
+        let ccw = arc_through(a, m, b);
+        assert!(ccw.is_some());
+        let ccw = ccw.unwrap_or(Arc {
+            center: a,
+            radius: 0.0,
+            start_angle: 0.0,
+            sweep: 0.0,
+        });
+        assert!(near_pt(ccw.center, Point::default()) && near(ccw.radius, 1.0));
+        assert!(near(ccw.start_angle, 0.0) && near(ccw.sweep, std::f64::consts::PI));
+        let cw = arc_through(b, m, a);
+        assert!(cw.is_some_and(|c| near(c.sweep, -std::f64::consts::PI)));
+    }
+
+    #[test]
+    fn arc_through_collinear_or_repeated_is_none() {
+        let o = Point::new(0.0, 0.0);
+        let x = Point::new(1.0, 1.0);
+        assert!(arc_through(o, x, Point::new(2.0, 2.0)).is_none());
+        assert!(arc_through(o, o, x).is_none());
+        assert!(arc_through(o, o, o).is_none());
+    }
+
+    #[test]
+    fn arc_through_recovers_a_random_circle() {
+        let mut g = Lcg(3);
+        for _ in 0..200 {
+            let c = Point::new(g.range(-20.0, 20.0), g.range(-20.0, 20.0));
+            let r = g.range(0.5, 30.0);
+            let a0 = g.range(-3.0, 3.0);
+            let s1 = g.range(0.3, 1.5);
+            let s2 = s1 + g.range(0.3, 1.5);
+            let on = |a: f64| Point::new(c.x + r * a.cos(), c.y + r * a.sin());
+            let (p0, p1, p2) = (on(a0), on(a0 + s1), on(a0 + s2));
+            let arc = arc_through(p0, p1, p2);
+            assert!(arc.is_some());
+            let Some(arc) = arc else { continue };
+            assert!(near_pt(arc.center, c) && near(arc.radius, r), "{arc:?}");
+            assert!(near(arc.sweep, s2));
+            assert!(near_pt(arc.point_at(0.0), p0));
+            assert!(near_pt(arc.point_at(1.0), p2));
+            assert!(near_pt(arc.point_at(s1 / s2), p1));
+        }
+    }
+
+    #[test]
+    fn point_segment_perpendicular_and_end_cases() {
+        let (a, b) = (Point::new(0.0, 0.0), Point::new(4.0, 0.0));
+        assert!(near(point_segment(Point::new(2.0, 3.0), a, b), 3.0));
+        assert!(near(point_segment(Point::new(-3.0, 4.0), a, b), 5.0));
+        assert!(near(point_segment(Point::new(7.0, 4.0), a, b), 5.0));
+        assert!(near(point_segment(Point::new(2.0, 0.0), a, b), 0.0));
+        assert!(near(point_segment(Point::new(3.0, 4.0), a, a), 5.0));
+    }
+
+    #[test]
+    fn point_segment_matches_dense_sampling() {
+        let mut g = Lcg(4);
+        for _ in 0..100 {
+            let mut pt = || Point::new(g.range(-10.0, 10.0), g.range(-10.0, 10.0));
+            let (p, a, b) = (pt(), pt(), pt());
+            let reference = (0..=2000)
+                .map(|i| {
+                    let t = i as f64 / 2000.0;
+                    p.distance(Point::new(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)))
+                })
+                .fold(f64::INFINITY, f64::min);
+            let got = point_segment(p, a, b);
+            assert!(got <= reference + 1e-9, "{got} > {reference}");
+            assert!(reference - got < 0.02, "{got} vs {reference}");
+        }
+    }
+
+    #[test]
+    fn polygon_edges_close_the_loop() {
+        let sq = [
+            Point::new(0.0, 0.0),
+            Point::new(2.0, 0.0),
+            Point::new(2.0, 2.0),
+            Point::new(0.0, 2.0),
+        ];
+        let edges: Vec<_> = polygon_edges(&sq).collect();
+        assert_eq!(edges.len(), 4);
+        assert_eq!(edges[0], (sq[3], sq[0]));
+        assert_eq!(edges[1], (sq[0], sq[1]));
+        assert_eq!(edges[3], (sq[2], sq[3]));
+        assert_eq!(polygon_edges(&[]).count(), 0);
+    }
     fn l_shape() -> Vec<Point> {
         vec![
             Point::new(0.0, 0.0),
