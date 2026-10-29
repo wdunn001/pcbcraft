@@ -147,7 +147,6 @@ fn new_symbol() -> SymbolDefinition {
             body_style: 1,
             primitive: rectangle(""),
         }],
-        retained: vec![],
     }
 }
 fn new_pin(number: &str, unit: u32, position: Point, angle: f64) -> SymbolPin {
@@ -194,7 +193,6 @@ fn new_footprint() -> FootprintDefinition {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
-        retained: vec![],
     }
 }
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
