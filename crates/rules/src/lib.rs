@@ -1,12 +1,13 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
     Board, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
-    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, PanelSeparation, Project, panel_layout,
-    panel_score_lines,
+    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, PanelSeparation, Project, Track,
+    panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, point_segment, segment_distance};
 use serde::Serialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -529,16 +530,474 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     result
 }
 
+const DECOUPLING_EXCLUDED_KINDS: &[&str] = &["resistor", "capacitor", "connector", "led"];
+
+fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
+    project
+        .no_connects
+        .iter()
+        .any(|f| f.pin.component == component && f.pin.pin == pin)
+}
+
+fn net_has_power_driver(project: &Project, net: Id) -> bool {
+    if project
+        .labels
+        .iter()
+        .any(|l| l.net == net && l.kind == "power")
+    {
+        return true;
+    }
+    project.components.iter().any(|c| {
+        if c.kind == "connector" && c.pins.iter().any(|p| p.net == Some(net)) {
+            return true;
+        }
+        c.pins
+            .iter()
+            .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
+    })
+}
+
+fn is_ic_like(component: &pcbcraft_doc::Component) -> bool {
+    !DECOUPLING_EXCLUDED_KINDS.contains(&component.kind.as_str())
+        && component
+            .pins
+            .iter()
+            .any(|p| p.electrical_type == "power_in")
+}
+
+fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
+    project.components.iter().any(|c| {
+        let acts_as_passive =
+            c.kind == "resistor" || c.pins.iter().any(|p| p.electrical_type == "passive");
+        if !acts_as_passive {
+            return false;
+        }
+        let touches_bus = c.pins.iter().any(|p| p.net == Some(net));
+        if !touches_bus {
+            return false;
+        }
+        c.pins.iter().any(|p| {
+            p.net
+                .filter(|n| *n != net)
+                .is_some_and(|other| net_has_power_driver(project, other))
+        })
+    })
+}
+
+fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
+    if project.wires.iter().any(|w| w.net == net) {
+        return true;
+    }
+    if project.drawn_wires.iter().any(|w| w.net == Some(net)) {
+        return true;
+    }
+    if project
+        .components
+        .iter()
+        .flat_map(|c| &c.pins)
+        .any(|p| p.net == Some(net))
+    {
+        return true;
+    }
+    project.ports.iter().any(|p| p.net == net)
+}
+
+fn capacitor_on_net(project: &Project, net: Id) -> bool {
+    project
+        .components
+        .iter()
+        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
+}
+
+fn is_ground_net(project: &Project, net: Id) -> bool {
+    if project
+        .nets
+        .iter()
+        .find(|n| n.id == net)
+        .is_some_and(|n| n.name.eq_ignore_ascii_case("GND"))
+    {
+        return true;
+    }
+    if project
+        .labels
+        .iter()
+        .any(|l| l.net == net && l.kind == "power")
+    {
+        return true;
+    }
+    project.components.iter().any(|c| {
+        c.pins
+            .iter()
+            .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
+    })
+}
+
+fn is_decoupling_cap(project: &Project, c: &pcbcraft_doc::Component, rail: Id) -> bool {
+    if c.kind != "capacitor" || c.pins.len() != 2 {
+        return false;
+    }
+    let nets: BTreeSet<Id> = c.pins.iter().filter_map(|p| p.net).collect();
+    if !nets.contains(&rail) || nets.len() != 2 {
+        return false;
+    }
+    let other = nets.into_iter().find(|n| *n != rail);
+    other.is_some_and(|n| is_ground_net(project, n))
+}
+
+fn decoupling_copper_limit_mm(project: &Project) -> f64 {
+    project
+        .design_limits
+        .decoupling_distance_mm
+        .unwrap_or(2.0)
+}
+
+fn decoupling_ground_via_limit_mm(project: &Project) -> f64 {
+    project
+        .design_limits
+        .decoupling_ground_via_mm
+        .unwrap_or(1.0)
+}
+
+fn along_track_from_start(track: &Track, point: Point) -> f64 {
+    let len = track.length();
+    if len <= 1e-9 {
+        return 0.0;
+    }
+    if let Some(arc) = track.curve() {
+        let half = arc.point_at(0.5);
+        let to_start = point_segment(point, track.start, half);
+        let to_end = point_segment(point, half, track.end);
+        return to_start.min(len).min(to_start + to_end);
+    }
+    let dx = track.end.x - track.start.x;
+    let dy = track.end.y - track.start.y;
+    let denom = dx * dx + dy * dy;
+    if denom <= 1e-18 {
+        return 0.0;
+    }
+    let t = ((point.x - track.start.x) * dx + (point.y - track.start.y) * dy) / denom;
+    t.clamp(0.0, 1.0) * len
+}
+
+fn path_cost_micros(w: f64) -> u64 {
+    if !w.is_finite() || w < 0.0 {
+        return u64::MAX;
+    }
+    (w * 1_000_000.0).round() as u64
+}
+
+fn build_copper_path_adjacency(project: &Project, items: &[Copper]) -> Vec<Vec<(usize, f64)>> {
+    let track_count = project.board.tracks.len();
+    let n_items = items.len();
+    let nodes = n_items + track_count * 2;
+    let track_aux = |ti: usize| n_items + ti * 2;
+    let mut adj = vec![vec![]; nodes];
+    let mut link = |a: usize, b: usize, w: f64| {
+        if a >= nodes || b >= nodes || !w.is_finite() || w < 0.0 {
+            return;
+        }
+        adj[a].push((b, w));
+        adj[b].push((a, w));
+    };
+    for (ti, track) in project.board.tracks.iter().enumerate() {
+        let ts = track_aux(ti);
+        let te = ts + 1;
+        link(ts, te, track.length());
+        let len = track.length();
+        for (i, c) in items.iter().enumerate() {
+            if c.id == track.id {
+                link(i, ts, 0.0);
+                link(i, te, 0.0);
+            }
+            if !c.pad || c.net != track.net {
+                continue;
+            }
+            for t in items.iter() {
+                if t.id != track.id || t.pad {
+                    continue;
+                }
+                if touching(c, t) {
+                    let along = along_track_from_start(track, c.start);
+                    link(i, ts, along);
+                    link(i, te, (len - along).max(0.0));
+                    break;
+                }
+            }
+        }
+    }
+    for (i, a) in items.iter().enumerate() {
+        for (j, b) in items.iter().enumerate().skip(i + 1) {
+            if !touching(a, b) {
+                continue;
+            }
+            if a.bridge.is_some() && a.bridge == b.bridge {
+                link(i, j, project.board.thickness);
+            } else {
+                link(i, j, 0.0);
+            }
+        }
+    }
+    adj
+}
+
+fn shortest_copper_path_micros(
+    adj: &[Vec<(usize, f64)>],
+    starts: &[usize],
+    goals: &BTreeSet<usize>,
+) -> Option<u64> {
+    if starts.iter().any(|s| goals.contains(s)) {
+        return Some(0);
+    }
+    let mut dist = vec![u64::MAX; adj.len()];
+    let mut heap = BinaryHeap::new();
+    for &start in starts {
+        dist[start] = 0;
+        heap.push(Reverse((0u64, start)));
+    }
+    while let Some(Reverse((cost, u))) = heap.pop() {
+        if cost > dist[u] {
+            continue;
+        }
+        if goals.contains(&u) {
+            return Some(cost);
+        }
+        for &(v, w) in &adj[u] {
+            let step = path_cost_micros(w);
+            if step == u64::MAX {
+                continue;
+            }
+            let next = cost.saturating_add(step);
+            if next < dist[v] {
+                dist[v] = next;
+                heap.push(Reverse((next, v)));
+            }
+        }
+    }
+    None
+}
+
+fn pad_copper_indices(items: &[Copper], net: Id, point: Point) -> Vec<usize> {
+    items
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| {
+            c.pad
+                && c.net == net
+                && c.start.distance(point) <= 1e-6 + c.contact_radius
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+fn shortest_copper_path_mm(
+    project: &Project,
+    from: Point,
+    to: Point,
+    net: Id,
+) -> Option<f64> {
+    let items = copper(project);
+    let adj = build_copper_path_adjacency(project, &items);
+    let starts = pad_copper_indices(&items, net, from);
+    let ends = pad_copper_indices(&items, net, to);
+    if starts.is_empty() || ends.is_empty() {
+        return None;
+    }
+    let goals: BTreeSet<usize> = ends.into_iter().collect();
+    shortest_copper_path_micros(&adj, &starts, &goals).map(|micros| micros as f64 / 1_000_000.0)
+}
+
+fn nearest_decoupling_cap_path(
+    project: &Project,
+    ic: Id,
+    pin: &pcbcraft_doc::Pin,
+) -> Option<(Id, f64)> {
+    let rail = pin.net?;
+    let ic_fp = project.board.footprints.iter().find(|f| f.component == ic)?;
+    let from = ic_fp.pad_position(&pin.number)?;
+    let mut best: Option<(Id, f64)> = None;
+    for c in &project.components {
+        if !is_decoupling_cap(project, c, rail) {
+            continue;
+        }
+        if !project.board.footprints.iter().any(|f| f.component == c.id) {
+            continue;
+        }
+        let Some(cap_fp) = project.board.footprints.iter().find(|f| f.component == c.id) else {
+            continue;
+        };
+        for p in &c.pins {
+            if p.net != Some(rail) {
+                continue;
+            }
+            let Some(to) = cap_fp.pad_position(&p.number) else {
+                continue;
+            };
+            let Some(len) = shortest_copper_path_mm(project, from, to, rail) else {
+                continue;
+            };
+            if best.as_ref().is_none_or(|(_, d)| len < *d) {
+                best = Some((c.id, len));
+            }
+        }
+    }
+    best
+}
+
+fn copper_reachable_within(
+    project: &Project,
+    from: Point,
+    net: Id,
+    limit_mm: f64,
+    accept: impl Fn(&Copper) -> bool,
+) -> bool {
+    let items = copper(project);
+    let adj = build_copper_path_adjacency(project, &items);
+    let starts = pad_copper_indices(&items, net, from);
+    if starts.is_empty() {
+        return false;
+    }
+    let limit = path_cost_micros(limit_mm);
+    let mut dist = vec![u64::MAX; adj.len()];
+    let mut heap = BinaryHeap::new();
+    for s in starts {
+        dist[s] = 0;
+        heap.push(Reverse((0u64, s)));
+    }
+    while let Some(Reverse((cost, u))) = heap.pop() {
+        if cost > dist[u] {
+            continue;
+        }
+        if u < items.len() && accept(&items[u]) {
+            return true;
+        }
+        for &(v, w) in &adj[u] {
+            let step = path_cost_micros(w);
+            if step == u64::MAX {
+                continue;
+            }
+            let next = cost.saturating_add(step);
+            if next > limit {
+                continue;
+            }
+            if next < dist[v] {
+                dist[v] = next;
+                heap.push(Reverse((next, v)));
+            }
+        }
+    }
+    false
+}
+
+fn decoupling_drc_findings(project: &Project) -> Vec<Finding> {
+    let mut result = Vec::new();
+    let distance_limit = decoupling_copper_limit_mm(project);
+    let via_limit = decoupling_ground_via_limit_mm(project);
+    for c in &project.components {
+        if !is_ic_like(c) {
+            continue;
+        }
+        if !project.board.footprints.iter().any(|f| f.component == c.id) {
+            continue;
+        }
+        for p in &c.pins {
+            if p.electrical_type != "power_in" {
+                continue;
+            }
+            let Some(rail) = p.net else {
+                continue;
+            };
+            if pin_flagged_no_connect(project, c.id, &p.number) {
+                continue;
+            }
+            if !project.components.iter().any(|cap| is_decoupling_cap(project, cap, rail))
+            {
+                continue;
+            }
+            let Some((cap_id, path_mm)) = nearest_decoupling_cap_path(project, c.id, p) else {
+                continue;
+            };
+            if path_mm > distance_limit + 1e-6 {
+                let cap_ref = project
+                    .component(cap_id)
+                    .map(|x| x.reference.as_str())
+                    .unwrap_or("capacitor");
+                result.push(Finding {
+                    code: "decoupling_distance",
+                    severity: project.rule_severity("decoupling_distance", "warning"),
+                    message: format!(
+                        "{} pin {} ({}): nearest capacitor {} is {:.1} mm of copper away, at most {:.1} mm; move {} next to the pin or add a capacitor",
+                        c.reference,
+                        p.number,
+                        project.net_name(rail),
+                        cap_ref,
+                        path_mm,
+                        distance_limit,
+                        cap_ref
+                    ),
+                    objects: vec![c.id, cap_id],
+                });
+            }
+        }
+    }
+    for c in &project.components {
+        if c.kind != "capacitor" {
+            continue;
+        }
+        let Some(cap_fp) = project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c.id)
+        else {
+            continue;
+        };
+        let Some(rail) = c
+            .pins
+            .iter()
+            .filter_map(|p| p.net)
+            .find(|net| is_decoupling_cap(project, c, *net))
+        else {
+            continue;
+        };
+        let Some(gnd_pin) = c.pins.iter().find(|p| p.net.is_some_and(|n| n != rail)) else {
+            continue;
+        };
+        let Some(gnd_net) = gnd_pin.net else {
+            continue;
+        };
+        let Some(gnd_pad) = cap_fp.pad_position(&gnd_pin.number) else {
+            continue;
+        };
+        let has_near = copper_reachable_within(project, gnd_pad, gnd_net, via_limit, |item| {
+            if item.net != gnd_net {
+                return false;
+            }
+            if item.pad && item.bridge.as_ref().is_some_and(|(_, tag)| tag == "via") {
+                return true;
+            }
+            item.outline.is_some()
+        });
+        if !has_near {
+            result.push(Finding {
+                code: "decoupling_ground_via",
+                severity: project.rule_severity("decoupling_ground_via", "warning"),
+                message: format!(
+                    "{} ground pad needs a ground via or pour within {:.1} mm of copper",
+                    c.reference,
+                    via_limit
+                ),
+                objects: vec![c.id, cap_fp.id],
+            });
+        }
+    }
+    result
+}
+
 pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for c in &project.components {
         for p in &c.pins {
-            if p.net.is_none()
-                && !project
-                    .no_connects
-                    .iter()
-                    .any(|f| f.pin.component == c.id && f.pin.pin == p.number)
-            {
+            if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {
                 result.push(Finding {
                     code: "unassigned_pin",
                     severity: project.rule_severity("unassigned_pin", "warning"),
@@ -561,6 +1020,104 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("single_pin_net", "warning"),
                 message: format!("{} has {pins} connected pins", net.name),
                 objects: vec![net.id],
+            });
+        }
+    }
+    for net in &project.nets {
+        let undriven = project.components.iter().any(|c| {
+            c.pins.iter().any(|p| {
+                p.net == Some(net.id)
+                    && p.electrical_type == "power_in"
+                    && !pin_flagged_no_connect(project, c.id, &p.number)
+            })
+        });
+        if undriven && !net_has_power_driver(project, net.id) {
+            result.push(Finding {
+                code: "power_not_driven",
+                severity: project.rule_severity("power_not_driven", "warning"),
+                message: format!(
+                    "{} has a power input but no power source; drive it from a power output, \
+                     a power label or a connector pin",
+                    net.name
+                ),
+                objects: vec![net.id],
+            });
+        }
+    }
+    for c in &project.components {
+        if !is_ic_like(c) {
+            continue;
+        }
+        for p in &c.pins {
+            if p.electrical_type != "power_in" {
+                continue;
+            }
+            let Some(net) = p.net else {
+                continue;
+            };
+            if pin_flagged_no_connect(project, c.id, &p.number) {
+                continue;
+            }
+            if !capacitor_on_net(project, net) {
+                result.push(Finding {
+                    code: "missing_decoupling",
+                    severity: project.rule_severity("missing_decoupling", "warning"),
+                    message: format!(
+                        "{} pin {} on {} needs a decoupling capacitor on the same net",
+                        c.reference,
+                        p.number,
+                        project.net_name(net)
+                    ),
+                    objects: vec![c.id],
+                });
+            }
+        }
+    }
+    for net in &project.nets {
+        let open_count = project
+            .components
+            .iter()
+            .flat_map(|c| &c.pins)
+            .filter(|p| {
+                p.net == Some(net.id)
+                    && matches!(
+                        p.electrical_type.as_str(),
+                        "open_collector" | "open_emitter"
+                    )
+            })
+            .count();
+        let passive_on_net = project
+            .components
+            .iter()
+            .flat_map(|c| &c.pins)
+            .any(|p| p.net == Some(net.id) && p.electrical_type == "passive");
+        let needs_pullup = open_count >= 2 || (open_count >= 1 && !passive_on_net);
+        if needs_pullup && !net_has_pullup_to_power(project, net.id) {
+            result.push(Finding {
+                code: "missing_pullup",
+                severity: project.rule_severity("missing_pullup", "warning"),
+                message: format!(
+                    "{} has open-drain pins without a pull-up to a power net; add a resistor \
+                     to a driven power rail",
+                    net.name
+                ),
+                objects: vec![net.id],
+            });
+        }
+    }
+    for label in &project.labels {
+        if label.kind == "junction" || label.kind == "bus" {
+            continue;
+        }
+        if !net_has_schematic_wiring(project, label.net) {
+            result.push(Finding {
+                code: "dangling_label",
+                severity: project.rule_severity("dangling_label", "warning"),
+                message: format!(
+                    "Label on {} is not wired to anything; connect it or remove it",
+                    project.net_name(label.net)
+                ),
+                objects: vec![label.id],
             });
         }
     }
@@ -862,6 +1419,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![wire.from_object, wire.to_object],
         });
     }
+    result.extend(decoupling_drc_findings(project));
     for c in &project.components {
         if !board.footprints.iter().any(|f| f.component == c.id) {
             result.push(Finding {
@@ -1011,8 +1569,141 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        Component, Footprint, Label, LibraryFootprint, LibrarySymbol, Net, NoConnectFlag, Pad, Pin,
+        PinRef, Track, Via, component_template,
     };
+    use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition};
+
+    fn ic_pad_definition() -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
+    fn library_ic(id: Id, reference: &str, pins: Vec<Pin>) -> Result<Component, String> {
+        let sym_pins: Vec<pcbcraft_library::SymbolPin> = pins
+            .iter()
+            .map(|p| pcbcraft_library::SymbolPin {
+                number: p.number.clone(),
+                name: p.name.clone(),
+                position: p.offset,
+                angle: p.direction.unwrap_or(0.0),
+                length: 2.5,
+                electrical_type: p.electrical_type.clone(),
+                unit: p.unit,
+                body_style: 0,
+            })
+            .collect();
+        let component = Component {
+            id,
+            reference: reference.into(),
+            value: "MCU".into(),
+            kind: "library".into(),
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            pins,
+            units: vec![],
+            library_symbol: Some(LibrarySymbol {
+                library: "test".into(),
+                unit: 1,
+                definition: SymbolDefinition {
+                    name: "TestIC".into(),
+                    reference: "U".into(),
+                    value: "MCU".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    footprint: String::new(),
+                    set: String::new(),
+                    pins: sym_pins,
+                    graphics: vec![],
+                    extends: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
+        };
+        Ok(component)
+    }
+
+    fn library_ic_with_footprint(
+        id: Id,
+        reference: &str,
+        pins: Vec<Pin>,
+    ) -> Result<Component, String> {
+        let mut component = library_ic(id, reference, pins)?;
+        let pad = ic_pad_definition();
+        component.library_footprint = Some(LibraryFootprint {
+            library: "test".into(),
+            definition: FootprintDefinition {
+                name: "U1".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![pad.clone()],
+                graphics: vec![],
+                rules: None,
+                model: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            },
+        });
+        Ok(component)
+    }
+
+    fn placed_library_footprint(
+        id: Id,
+        component: Id,
+        position: Point,
+        def_pad: &FootprintPad,
+        net: Id,
+    ) -> Footprint {
+        Footprint {
+            id,
+            component,
+            position,
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: def_pad.number.clone(),
+                offset: def_pad.position,
+                diameter: def_pad.size.x.min(def_pad.size.y),
+                net: Some(net),
+                castellated: None,
+                geometry: Some(def_pad.clone()),
+            }],
+        }
+    }
+
+    fn simple_footprint(id: Id, component: Id, position: Point, pad_net: Id) -> Footprint {
+        Footprint {
+            id,
+            component,
+            position,
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.0,
+                net: Some(pad_net),
+                castellated: None,
+                geometry: None,
+            }],
+        }
+    }
     fn fixture() -> Project {
         let mut p = Project::default();
         p.nets.push(Net {
@@ -1090,6 +1781,494 @@ mod tests {
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_missing_decoupling_without_cap_on_power_net() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+            }],
+        )?);
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_missing_decoupling_when_capacitor_shares_the_net() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+            }],
+        )?);
+        let mut cap = component_template("capacitor", 3, "C1".into(), Point::new(30.0, 20.0))
+            .ok_or("capacitor template missing")?;
+        for pin in &mut cap.pins {
+            pin.net = Some(1);
+        }
+        p.components.push(cap);
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "missing_decoupling"));
+        Ok(())
+    }
+    fn decoupling_cap(id: Id, reference: &str, vdd: Id, gnd: Id) -> Result<Component, String> {
+        let mut cap = component_template("capacitor", id, reference.into(), Point::default())
+            .ok_or("capacitor template missing")?;
+        cap.pins[0].net = Some(vdd);
+        cap.pins[1].net = Some(gnd);
+        Ok(cap)
+    }
+
+    fn two_pad_footprint(
+        id: Id,
+        component: Id,
+        position: Point,
+        net_a: Id,
+        net_b: Id,
+        spacing: f64,
+    ) -> Footprint {
+        Footprint {
+            id,
+            component,
+            position,
+            rotation: 0.0,
+            locked: None,
+            pads: vec![
+                Pad {
+                    number: "1".into(),
+                    offset: Point::new(-spacing / 2.0, 0.0),
+                    diameter: 1.0,
+                    net: Some(net_a),
+                    castellated: None,
+                    geometry: None,
+                },
+                Pad {
+                    number: "2".into(),
+                    offset: Point::new(spacing / 2.0, 0.0),
+                    diameter: 1.0,
+                    net: Some(net_b),
+                    castellated: None,
+                    geometry: None,
+                },
+            ],
+        }
+    }
+
+    fn routed_decoupling_fixture(cap_x: f64) -> Result<Project, String> {
+        let vdd = 101;
+        let gnd = 102;
+        let ic = 201;
+        let cap_id = 202;
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: vdd,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: gnd,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let pad = ic_pad_definition();
+        p.components.push(library_ic_with_footprint(
+            ic,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(vdd),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+            }],
+        )?);
+        p.components.push(decoupling_cap(cap_id, "C1", vdd, gnd)?);
+        p.board.footprints.push(placed_library_footprint(
+            301,
+            ic,
+            Point::new(0.0, 0.0),
+            &pad,
+            vdd,
+        ));
+        p.board.footprints.push(two_pad_footprint(
+            302,
+            cap_id,
+            Point::new(cap_x, 0.0),
+            vdd,
+            gnd,
+            1.0,
+        ));
+        let vdd_pad_x = cap_x - 0.5;
+        let gnd_pad_x = cap_x + 0.5;
+        p.board.tracks.push(Track {
+            id: 401,
+            net: vdd,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(vdd_pad_x, 0.0),
+            width: 0.6,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.vias.push(Via {
+            id: 501,
+            net: gnd,
+            position: Point::new(gnd_pad_x, 0.0),
+            diameter: 1.0,
+            drill: 0.3,
+        });
+        p.validate()?;
+        Ok(p)
+    }
+
+    #[test]
+    fn decoupling_distance_clean_when_cap_one_mm_by_track() -> Result<(), String> {
+        let p = routed_decoupling_fixture(1.0)?;
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_distance")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decoupling_distance_reports_at_five_mm_with_both_objects() -> Result<(), String> {
+        let p = routed_decoupling_fixture(5.0)?;
+        let hit = drc(&p)
+            .iter()
+            .find(|f| f.code == "decoupling_distance")
+            .ok_or("expected decoupling_distance")?;
+        assert_eq!(hit.objects, vec![201, 202]);
+        Ok(())
+    }
+
+    #[test]
+    fn decoupling_distance_clears_when_cap_moves_back() -> Result<(), String> {
+        let mut p = routed_decoupling_fixture(5.0)?;
+        assert!(drc(&p).iter().any(|f| f.code == "decoupling_distance"));
+        p.board.footprints[1].position = Point::new(1.0, 0.0);
+        p.board.tracks[0].end = Point::new(0.5, 0.0);
+        p.validate()?;
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_distance")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decoupling_distance_nearest_of_two_caps_wins() -> Result<(), String> {
+        let mut p = routed_decoupling_fixture(5.0)?;
+        let cap_near = 203;
+        p.components
+            .push(decoupling_cap(cap_near, "C2", 101, 102)?);
+        p.board.footprints.push(two_pad_footprint(
+            303,
+            cap_near,
+            Point::new(0.5, 1.5),
+            101,
+            102,
+            1.0,
+        ));
+        p.board.tracks.push(Track {
+            id: 403,
+            net: 101,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(0.0, 1.5),
+            width: 0.6,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.vias.push(Via {
+            id: 502,
+            net: 102,
+            position: Point::new(1.0, 1.5),
+            diameter: 1.0,
+            drill: 0.3,
+        });
+        p.validate()?;
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_distance")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn cap_on_net_but_no_copper_path_is_unrouted_not_distance() -> Result<(), String> {
+        let vdd = 101;
+        let gnd = 102;
+        let ic = 201;
+        let cap_id = 202;
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: vdd,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: gnd,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let pad = ic_pad_definition();
+        p.components.push(library_ic_with_footprint(
+            ic,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(vdd),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+            }],
+        )?);
+        p.components.push(decoupling_cap(cap_id, "C1", vdd, gnd)?);
+        p.board.footprints.push(placed_library_footprint(
+            301,
+            ic,
+            Point::new(0.0, 0.0),
+            &pad,
+            vdd,
+        ));
+        p.board.footprints.push(two_pad_footprint(
+            302,
+            cap_id,
+            Point::new(10.0, 0.0),
+            vdd,
+            gnd,
+            1.0,
+        ));
+        p.validate()?;
+        assert!(drc(&p).iter().any(|f| f.code == "unrouted"));
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_distance")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decoupling_ground_via_missing_without_near_via_or_zone() -> Result<(), String> {
+        let mut p = routed_decoupling_fixture(1.0)?;
+        p.board.vias.clear();
+        p.board.tracks.pop();
+        p.validate()?;
+        assert!(drc(&p).iter().any(|f| f.code == "decoupling_ground_via"));
+        Ok(())
+    }
+
+    #[test]
+    fn decoupling_ground_via_clears_when_via_added() -> Result<(), String> {
+        let p = routed_decoupling_fixture(1.0)?;
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_ground_via")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rule_severity_off_and_rule_exclusions_suppress_decoupling_codes() -> Result<(), String> {
+        let mut p = routed_decoupling_fixture(5.0)?;
+        p.rule_severity
+            .insert("decoupling_distance".into(), "off".into());
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_distance")
+        );
+        p.rule_severity.clear();
+        p.rule_exclusions
+            .insert("decoupling_distance".into(), vec![201, 202]);
+        assert!(
+            !drc(&p)
+                .iter()
+                .any(|f| f.code == "decoupling_distance")
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_missing_pullup_for_two_open_collectors() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SDA".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![
+                Pin {
+                    number: "1".into(),
+                    name: "SDA".into(),
+                    offset: Point::new(-5.0, 0.0),
+                    net: Some(1),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                },
+                Pin {
+                    number: "2".into(),
+                    name: "SCL".into(),
+                    offset: Point::new(5.0, 0.0),
+                    net: Some(1),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                },
+            ],
+        )?);
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "missing_pullup"));
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_missing_pullup_when_resistor_reaches_power_net() -> Result<(), String> {
+        let mut p = Project::default();
+        let sda = 101;
+        let vcc = 102;
+        p.nets.push(Net {
+            id: sda,
+            name: "SDA".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: vcc,
+            name: "VCC".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            201,
+            "U1",
+            vec![
+                Pin {
+                    number: "1".into(),
+                    name: "SDA".into(),
+                    offset: Point::new(-5.0, 0.0),
+                    net: Some(sda),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                },
+                Pin {
+                    number: "2".into(),
+                    name: "SCL".into(),
+                    offset: Point::new(5.0, 0.0),
+                    net: Some(sda),
+                    electrical_type: "open_collector".into(),
+                    direction: Some(0.0),
+                    unit: 1,
+                },
+            ],
+        )?);
+        let mut pull = component_template("resistor", 202, "R1".into(), Point::new(40.0, 20.0))
+            .ok_or("resistor template missing")?;
+        pull.pins[0].net = Some(sda);
+        pull.pins[1].net = Some(vcc);
+        p.components.push(pull);
+        p.labels.push(Label {
+            id: 203,
+            kind: "power".into(),
+            net: vcc,
+            position: Point::new(50.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+        });
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "missing_pullup"));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_power_not_driven_until_power_label_or_output() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VDD".into(),
+            ..Default::default()
+        });
+        p.components.push(library_ic(
+            2,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "VDD".into(),
+                offset: Point::default(),
+                net: Some(1),
+                electrical_type: "power_in".into(),
+                direction: Some(0.0),
+                unit: 1,
+            }],
+        )?);
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "power_not_driven"));
+        p.labels.push(Label {
+            id: 3,
+            kind: "power".into(),
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+        });
+        p.validate()?;
+        assert!(!erc(&p).iter().any(|f| f.code == "power_not_driven"));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_dangling_label_with_no_wires_or_pins() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "CLK".into(),
+            ..Default::default()
+        });
+        p.labels.push(Label {
+            id: 2,
+            kind: "label".into(),
+            net: 1,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            text: String::new(),
+        });
+        p.validate()?;
+        assert!(erc(&p).iter().any(|f| f.code == "dangling_label"));
         Ok(())
     }
     #[test]

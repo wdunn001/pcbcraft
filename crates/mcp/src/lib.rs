@@ -443,13 +443,15 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 6] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
+                    "decoupling_distance",
+                    "decoupling_ground_via",
                 ];
                 let keep = |key: &str| {
                     report[key]
