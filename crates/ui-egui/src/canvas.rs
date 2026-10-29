@@ -1073,6 +1073,51 @@ impl App {
         }
         None
     }
+    /// When both clicked pads sit on the same net of a declared differential
+    /// pair, the pad each of those footprints has on the partner net, so one
+    /// drag routes both sides. None when the net is not paired or a footprint
+    /// has no single partner pad.
+    fn pair_mates(
+        &self,
+        from: Id,
+        from_pad: &str,
+        to: Id,
+        to_pad: &str,
+    ) -> Option<(String, String)> {
+        let net_of = |fp: Id, number: &str| {
+            self.project
+                .footprint(fp)?
+                .pads
+                .iter()
+                .find(|p| p.number == number)?
+                .net
+        };
+        let net = net_of(from, from_pad)?;
+        if net_of(to, to_pad)? != net {
+            return None;
+        }
+        let pair = self
+            .project
+            .board
+            .diff_pairs
+            .iter()
+            .find(|d| d.net_p == net || d.net_n == net)?;
+        let partner = if pair.net_p == net {
+            pair.net_n
+        } else {
+            pair.net_p
+        };
+        let mate = |fp: Id| {
+            let f = self.project.footprint(fp)?;
+            let mut on_partner = f.pads.iter().filter(|p| p.net == Some(partner));
+            let first = on_partner.next()?;
+            if on_partner.next().is_some() {
+                return None;
+            }
+            Some(first.number.clone())
+        };
+        Some((mate(from)?, mate(to)?))
+    }
     fn pick_pad(&self, pos: Point, zoom: f32) -> Option<(Id, String)> {
         for f in &self.project.board.footprints {
             for pad in &f.pads {
@@ -1175,7 +1220,28 @@ impl App {
             Tool::Route(start) => {
                 if let Some((id, pad)) = self.pick_pad(pos, zoom) {
                     if let Some((from, from_pad)) = start {
-                        self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer}));
+                        let mode = if self.preferences.chamfer_corners {
+                            "octilinear"
+                        } else {
+                            "orthogonal"
+                        };
+                        if let Some((mate_from, mate_to)) =
+                            self.pair_mates(from, &from_pad, id, &pad)
+                        {
+                            self.run(
+                                "track.route_pair",
+                                json!({
+                                    "from_p":{"footprint":from,"pad":from_pad},
+                                    "from_n":{"footprint":from,"pad":mate_from},
+                                    "to_p":{"footprint":id,"pad":pad},
+                                    "to_n":{"footprint":id,"pad":mate_to},
+                                    "layer":self.route_layer,
+                                    "mode":mode,
+                                }),
+                            );
+                        } else {
+                            self.run("track.route",json!({"from":{"footprint":from,"pad":from_pad},"to":{"footprint":id,"pad":pad},"layer":self.route_layer,"mode":mode}));
+                        }
                         self.tool = Tool::Select;
                     } else {
                         self.tool = Tool::Route(Some((id, pad)));
