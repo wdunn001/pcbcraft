@@ -1955,6 +1955,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 })
                 .collect(),
             units: vec![],

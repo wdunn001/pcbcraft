@@ -2950,6 +2950,7 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
             pins.push(PinRef {
                 component: component.id,
                 pin: listed.pin.clone(),
+                unit: None,
             });
         }
         plan.push((&entry.name, pins));
@@ -8467,6 +8468,7 @@ fn run_command(
                     pin: PinRef {
                         component: a.component,
                         pin: number,
+                        unit: None,
                     },
                 });
                 flagged += 1;
@@ -20395,11 +20397,8 @@ mod tests {
             None,
         )?;
         let text = std::fs::read_to_string(&file).map_err(|e| Error::Invalid(e.to_string()))?;
-        std::fs::write(
-            &file,
-            text.replace("V+", "VCC"),
-        )
-        .map_err(|e| Error::Invalid(e.to_string()))?;
+        std::fs::write(&file, text.replace("V+", "VCC"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
         let refreshed = s.execute(
             "symbol.refresh",
             json!({"path":"parts/parts.kicad_sym","symbol":"DualCommon"}),
@@ -20415,7 +20414,10 @@ mod tests {
             .find(|p| p.number == "4")
             .ok_or_else(|| Error::Invalid("missing collapsed supply pin".into()))?;
         assert_eq!(supply.net, Some(net), "net binding survives refresh");
-        assert_eq!(supply.name, "VCC", "refreshed pin name comes from the library");
+        assert_eq!(
+            supply.name, "VCC",
+            "refreshed pin name comes from the library"
+        );
         assert_eq!(supply.appearances.len(), 1);
         std::fs::remove_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(())

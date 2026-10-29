@@ -1963,7 +1963,11 @@ mod tests {
         assert!(erc(&p).iter().any(|f| f.code == "unassigned_pin"));
         p.no_connects.push(NoConnectFlag {
             id: 9,
-            pin: PinRef { component, pin },
+            pin: PinRef {
+                component,
+                pin,
+                unit: None,
+            },
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
