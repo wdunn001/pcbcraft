@@ -1824,6 +1824,7 @@ dependencies = [
 name = "pcbcraft-engine"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-io",
@@ -1849,6 +1850,7 @@ dependencies = [
 name = "pcbcraft-io"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "image",
  "pcbcraft-doc",
  "pcbcraft-geom",
@@ -1897,6 +1899,7 @@ dependencies = [
 name = "pcbcraft-ui-egui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "craft-ui",
  "eframe",
  "egui",

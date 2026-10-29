@@ -546,7 +546,14 @@ pub struct Graphic {
     pub width: f64,
     /// Text content for the text shape, empty for every other shape.
     pub text: String,
+    /// Fabrication sublayer for a board graphic: `F.SilkS`, `B.SilkS`,
+    /// `F.Mask` or `B.Mask`. Empty keeps the legacy behaviour (front
+    /// artwork only, no mask meaning).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sublayer: String,
 }
+/// Fabrication sublayer names a board graphic may carry.
+pub const GRAPHIC_SUBLAYERS: [&str; 4] = ["F.SilkS", "B.SilkS", "F.Mask", "B.Mask"];
 impl Graphic {
     /// Required vertex count for each shape, or none for an unknown shape.
     pub fn vertex_rule(shape: &str) -> Option<(usize, usize)> {
@@ -1035,8 +1042,10 @@ impl Track {
             .map_or_else(|| self.start.distance(self.end), |arc| arc.length())
     }
 }
-/// A plated through-hole via joining the front and back copper layers. A via
-/// is one physical pad plated through the board, so it conducts on both layers.
+/// A plated via. With no span it joins the top and bottom copper layers; a
+/// span limits it to the copper layers from `from_layer` down to `to_layer`
+/// (blind when one end is an outer layer, buried when neither is). It
+/// conducts only on the layers in its span.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Via {
     pub id: Id,
@@ -1047,6 +1056,12 @@ pub struct Via {
     pub diameter: f64,
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
+    /// Upper end of the copper span; none means the top layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_layer: Option<Layer>,
+    /// Lower end of the copper span; none means the bottom layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_layer: Option<Layer>,
     /// How this via is protected from the board face, or `None` to follow the
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1125,6 +1140,31 @@ impl Via {
         self.covering.unwrap_or(board.via_covering_default)
     }
 }
+/// What a via is, derived from its span and the stackup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViaKind {
+    /// Top to bottom.
+    Through,
+    /// One end on an outer layer.
+    Blind,
+    /// Both ends on inner layers.
+    Buried,
+    /// A short, shallow blind or buried via that a laser can drill.
+    Micro,
+}
+impl ViaKind {
+    /// Plain-language name.
+    pub fn label(self) -> &'static str {
+        match self {
+            ViaKind::Through => "Through",
+            ViaKind::Blind => "Blind",
+            ViaKind::Buried => "Buried",
+            ViaKind::Micro => "Micro",
+        }
+    }
+}
+/// Deepest span a via can have and still count as a micro via, in millimetres.
+pub const MICRO_VIA_MAX_DEPTH: f64 = 0.25;
 /// A solid copper region on one layer, bounded by a closed polygon and
 /// belonging to a net. Same-net copper that falls inside the outline conducts
 /// to the zone; the zone keeps its clearance from copper of other nets.
@@ -1941,6 +1981,10 @@ pub struct Board {
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
+    /// Extra via spans (upper, lower copper layer index) the build allows
+    /// beyond the generic ones, for example a buried span.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub via_spans: Vec<(u8, u8)>,
     /// Machining notes for fabrication, absent when none were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machining: Option<MachiningNotes>,
@@ -2016,10 +2060,60 @@ impl BomField {
 pub struct EmbeddedFile {
     pub name: String,
     pub data: String,
+    /// `text` (the default) or `base64` for binary attachments such as PNG
+    /// images, stored as standard base64 text.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub encoding: String,
 }
+/// Largest base64 text held for one binary attachment (about 2 MiB decoded).
+pub const MAX_BINARY_ATTACHMENT_BASE64: usize = 2_796_204;
+/// Binary attachments a project may carry.
+pub const MAX_BINARY_ATTACHMENTS: usize = 8;
 impl EmbeddedFile {
+    /// True when the file holds base64 text for a binary payload.
+    pub fn is_binary(&self) -> bool {
+        self.encoding == "base64"
+    }
     fn valid(&self) -> bool {
-        !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= 262_144
+        let cap = match self.encoding.as_str() {
+            "" | "text" => 262_144,
+            "base64" => MAX_BINARY_ATTACHMENT_BASE64,
+            _ => return false,
+        };
+        !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= cap
+    }
+}
+/// A picture shown under the schematic or the board for tracing. It points at
+/// a base64 PNG attachment and never reaches any fabrication or image export.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReferenceImage {
+    pub id: Id,
+    /// Name of the attached PNG file.
+    pub file: String,
+    /// `schematic` or `pcb`.
+    pub view: String,
+    /// Top-left corner of the picture, in millimetres; the picture extends
+    /// right and down like the canvas does.
+    pub x: f64,
+    pub y: f64,
+    /// Millimetres per image pixel.
+    pub scale: f64,
+    /// Paint opacity from 0 (invisible) to 1.
+    pub opacity: f64,
+    pub visible: bool,
+}
+impl ReferenceImage {
+    fn valid(&self) -> bool {
+        (self.view == "schematic" || self.view == "pcb")
+            && !self.file.is_empty()
+            && self.x.is_finite()
+            && self.y.is_finite()
+            && self.x.abs() <= 100_000.0
+            && self.y.abs() <= 100_000.0
+            && self.scale.is_finite()
+            && (0.001..=100.0).contains(&self.scale)
+            && self.opacity.is_finite()
+            && (0.0..=1.0).contains(&self.opacity)
     }
 }
 /// A set of drawn graphics that translate together as one unit, so a
@@ -2297,6 +2391,9 @@ pub struct Project {
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
+    /// Reference pictures under the canvases, ordered by id; editor-only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reference_images: Vec<ReferenceImage>,
     /// Assembly variants, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<Variant>,
@@ -2460,6 +2557,7 @@ impl Default for Project {
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
+            reference_images: vec![],
             meta: Default::default(),
             parameters: Default::default(),
             bindings: vec![],
@@ -2482,6 +2580,7 @@ impl Default for Project {
                 drill_origin: board_origin(),
                 via_covering_default: ViaCovering::Open,
                 layer_records: vec![],
+                via_spans: vec![],
                 machining: None,
                 pair_rules: vec![],
                 diff_pairs: vec![],
@@ -2724,6 +2823,94 @@ impl Project {
         } else {
             n as u8
         }
+    }
+    /// The copper span of a via as (upper, lower) layers; an unset end is the
+    /// outer layer on that side of this board.
+    pub fn via_span(&self, via: &Via) -> (Layer, Layer) {
+        let last = self.copper_layer_count().saturating_sub(1);
+        (
+            via.from_layer.unwrap_or(Layer::Front),
+            via.to_layer
+                .or_else(|| Layer::from_index(last).ok())
+                .unwrap_or(Layer::Back),
+        )
+    }
+    /// Every copper layer a via conducts on, top to bottom.
+    pub fn via_span_layers(&self, via: &Via) -> Vec<Layer> {
+        let (a, b) = self.via_span(via);
+        (a.index()..=b.index())
+            .filter_map(|i| Layer::from_index(i).ok())
+            .collect()
+    }
+    /// Distance in millimetres from the upper to the lower span layer, taken
+    /// from the stackup records; none when the stackup carries no such rows.
+    pub fn via_depth(&self, via: &Via) -> Option<f64> {
+        let (a, b) = self.via_span(via);
+        let mut copper = 0usize;
+        let mut inside = false;
+        let mut depth = 0.0;
+        for rec in &self.board.layer_records {
+            if rec.kind == "copper" {
+                if inside && copper == b.index() as usize {
+                    return Some(depth);
+                }
+                if copper == a.index() as usize {
+                    inside = true;
+                }
+                copper += 1;
+            }
+            if inside {
+                depth += rec.thickness;
+            }
+        }
+        None
+    }
+    /// Kind of a via, derived from its span (never stored).
+    pub fn via_kind(&self, via: &Via) -> ViaKind {
+        let (a, b) = self.via_span(via);
+        let last = self.copper_layer_count().saturating_sub(1);
+        let outer_top = a.index() == 0;
+        let outer_bottom = b.index() >= last;
+        if outer_top && outer_bottom {
+            return ViaKind::Through;
+        }
+        let micro = via.drill > 0.0
+            && self
+                .via_depth(via)
+                .is_some_and(|d| d <= MICRO_VIA_MAX_DEPTH + 1e-9 && d / via.drill <= 1.0 + 1e-9);
+        if micro {
+            ViaKind::Micro
+        } else if outer_top || outer_bottom {
+            ViaKind::Blind
+        } else {
+            ViaKind::Buried
+        }
+    }
+    /// Spans a via may use when no fabrication profile narrows them: top to
+    /// bottom, and one layer deep from either outer layer.
+    pub fn allowed_via_spans(&self) -> Vec<(Layer, Layer)> {
+        let last = self.copper_layer_count().saturating_sub(1);
+        let mut spans = vec![];
+        if let (Ok(top), Ok(bottom)) = (Layer::from_index(0), Layer::from_index(last)) {
+            spans.push((top, bottom));
+            if last >= 2
+                && let (Ok(second), Ok(before_last)) =
+                    (Layer::from_index(1), Layer::from_index(last - 1))
+            {
+                spans.push((top, second));
+                spans.push((before_last, bottom));
+            }
+        }
+        for &(a, b) in &self.board.via_spans {
+            if a < b
+                && b <= last
+                && let (Ok(a), Ok(b)) = (Layer::from_index(a), Layer::from_index(b))
+                && !spans.contains(&(a, b))
+            {
+                spans.push((a, b));
+            }
+        }
+        spans
     }
     /// Ordered copper layer indices from top (0) to bottom.
     pub fn copper_layers(&self) -> Vec<Layer> {
@@ -3046,6 +3233,7 @@ impl Project {
             .chain(self.wires.iter().map(|x| x.id))
             .chain(self.drawn_wires.iter().map(|x| x.id))
             .chain(self.graphics.iter().map(|x| x.id))
+            .chain(self.reference_images.iter().map(|x| x.id))
             .chain(self.labels.iter().map(|x| x.id))
             .chain(self.no_connects.iter().map(|x| x.id))
             .chain(self.board.footprints.iter().map(|x| x.id))
@@ -3432,6 +3620,23 @@ impl Project {
                 return Err("attached files need unique short names and 256 KiB or less".into());
             }
         }
+        if self.files.iter().filter(|f| f.is_binary()).count() > MAX_BINARY_ATTACHMENTS {
+            return Err("a project attaches at most 8 binary files".into());
+        }
+        if self.reference_images.len() > 16 {
+            return Err("a project holds at most 16 reference images".into());
+        }
+        for r in &self.reference_images {
+            if !r.valid() {
+                return Err(
+                    "reference images need a view, a position, a scale and an opacity in range"
+                        .into(),
+                );
+            }
+            if !self.files.iter().any(|f| f.name == r.file && f.is_binary()) {
+                return Err("a reference image points at an attached binary file".into());
+            }
+        }
         if self.graphic_groups.len() > 256 {
             return Err("a project defines at most 256 graphic groups".into());
         }
@@ -3678,6 +3883,11 @@ impl Project {
             }
             if !positive(g.width) {
                 return Err("graphic width, radius or text size must be positive".into());
+            }
+            if !g.sublayer.is_empty()
+                && (g.layer != "board" || !GRAPHIC_SUBLAYERS.contains(&g.sublayer.as_str()))
+            {
+                return Err("graphic sublayer must be F.SilkS, B.SilkS, F.Mask or B.Mask on a board graphic".into());
             }
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
@@ -3962,6 +4172,13 @@ impl Project {
                 || v.drill >= v.diameter
             {
                 return Err("invalid via geometry or net".into());
+            }
+            let count = self.copper_layer_count();
+            let (a, b) = self.via_span(v);
+            if (v.from_layer.is_some() || v.to_layer.is_some())
+                && (a.index() >= count || b.index() >= count || a.index() >= b.index())
+            {
+                return Err("via span must run from an upper to a lower copper layer".into());
             }
             if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
                 return Err(
@@ -5101,6 +5318,8 @@ mod via_covering_tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill,
+            from_layer: None,
+            to_layer: None,
             covering,
         });
         p

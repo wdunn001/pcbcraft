@@ -1,9 +1,11 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
+mod images;
 pub mod library;
 pub mod profiles;
 pub mod recents;
 mod route;
+mod selection_clip;
 mod tuning;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -972,9 +974,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "via.place",
-            "Place a plated through-hole via joining front and back copper on an existing net; size defaults from the net class when omitted",
+            "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
-                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"}}),
+                json!({"net":id_schema(),"position":point_schema(),"diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},"drill":{"type":"number","minimum":0,"maximum":100,"description":"drilled hole diameter, millimetres"},"from_layer":{"type":"string","description":"upper copper layer of the span, for example F.Cu or In1.Cu; default is the top layer"},"to_layer":{"type":"string","description":"lower copper layer of the span; default is the bottom layer"}}),
                 &["net", "position"],
             ),
         ),
@@ -1329,11 +1331,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "via.set_span",
+            "Change which copper layers an existing via joins, making it through, blind or buried; the span must be one the board allows",
+            schema(
+                json!({"id":id_schema(),"from_layer":{"type":"string","description":"upper copper layer of the span; keeps the current one when omitted"},"to_layer":{"type":"string","description":"lower copper layer of the span; keeps the current one when omitted"}}),
+                &["id"],
+            ),
+        ),
+        (
             "via.set_covering",
             "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
             schema(
                 json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
                 &["id"],
+            ),
+        ),
+        (
+            "via.allow_span",
+            "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
+            schema(
+                json!({"from_layer":{"type":"string"},"to_layer":{"type":"string"},"allow":{"type":"boolean"}}),
+                &["from_layer", "to_layer", "allow"],
             ),
         ),
         (
@@ -1947,6 +1965,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "selection.copy_text",
+            "Serialize a bounded selection to the versioned text clipboard form",
+            schema(
+                json!({"ids":{"type":"array","minItems":1,"maxItems":64,"items":id_schema()},"context":{"type":"string","enum":["board","schematic"]}}),
+                &["ids"],
+            ),
+        ),
+        (
+            "selection.paste",
+            "Paste a text clipboard selection at an offset, renumbering references when asked and matching nets by name",
+            schema(
+                json!({"text":{"type":"string","minLength":1,"maxLength":524288},"offset":point_schema(),"renumber":{"type":"boolean","default":true}}),
+                &["text", "offset"],
+            ),
+        ),
+        (
             "object.delete",
             "Delete a component, wire, track, via, zone, footprint, cutout or unused net by stable ID",
             schema(json!({"id":id_schema()}), &["id"]),
@@ -2005,6 +2039,7 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(authoring::commands())
+        .chain(images::commands())
         .chain(tuning::commands())
         .collect()
 }
@@ -2555,7 +2590,7 @@ fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Resul
     }
     Ok(json!({"nets": a.nets.len(), "created": created, "pins": assigned}))
 }
-fn allocate(next: &mut Id) -> Result<Id, Error> {
+pub(crate) fn allocate(next: &mut Id) -> Result<Id, Error> {
     let id = *next;
     if id == 0 || id > u32::MAX as u64 {
         return Err(Error::Invalid("object ID space exhausted".into()));
@@ -3246,6 +3281,65 @@ struct ViaParams {
     diameter: Option<f64>,
     #[serde(default)]
     drill: Option<f64>,
+    #[serde(default)]
+    from_layer: Option<String>,
+    #[serde(default)]
+    to_layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaSpanParams {
+    id: Id,
+    #[serde(default)]
+    from_layer: Option<String>,
+    #[serde(default)]
+    to_layer: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaAllowSpanParams {
+    from_layer: String,
+    to_layer: String,
+    allow: bool,
+}
+/// Resolve a requested via span against the board. Ends at the outer layers
+/// are stored as unset so old files and default vias stay identical.
+fn resolve_via_span(
+    p: &Project,
+    from: Option<&str>,
+    to: Option<&str>,
+    current: (Option<pcbcraft_doc::Layer>, Option<pcbcraft_doc::Layer>),
+) -> Result<(Option<pcbcraft_doc::Layer>, Option<pcbcraft_doc::Layer>), Error> {
+    let last = p.copper_layer_count().saturating_sub(1);
+    let top = pcbcraft_doc::Layer::Front;
+    let resolve = |s: &str| p.resolve_copper_layer(s).map_err(Error::Invalid);
+    let a = match from {
+        Some(s) => resolve(s)?,
+        None => current.0.unwrap_or(top),
+    };
+    let b = match to {
+        Some(s) => resolve(s)?,
+        None => match current.1 {
+            Some(l) => l,
+            None => pcbcraft_doc::Layer::from_index(last).map_err(Error::Invalid)?,
+        },
+    };
+    if a.index() >= b.index() {
+        return Err(Error::Invalid(
+            "a via span must run from an upper to a lower copper layer".into(),
+        ));
+    }
+    if !p.allowed_via_spans().contains(&(a, b)) {
+        return Err(Error::Invalid(format!(
+            "via_span_not_allowed: this board does not allow a via from {} to {}",
+            p.layer_name(a),
+            p.layer_name(b)
+        )));
+    }
+    Ok((
+        (a.index() != 0).then_some(a),
+        (b.index() != last).then_some(b),
+    ))
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4628,6 +4722,24 @@ struct DuplicateParams {
     ids: Vec<Id>,
     offset: Point,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionCopyParams {
+    ids: Vec<Id>,
+    #[serde(default)]
+    context: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionPasteParams {
+    text: String,
+    offset: Point,
+    #[serde(default = "selection_paste_renumber_default")]
+    renumber: bool,
+}
+fn selection_paste_renumber_default() -> bool {
+    true
+}
 /// A reference label that no component in the project already carries.
 fn unique_reference(p: &Project, base: &str) -> String {
     let base: String = base.chars().take(50).collect();
@@ -5699,6 +5811,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = images::run(p, next, command, params) {
         return result;
     }
     match command {
@@ -7851,6 +7966,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -7868,6 +7984,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -7898,6 +8015,7 @@ fn run_command(
                                     points: vec![c],
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -7916,6 +8034,7 @@ fn run_command(
                                     points,
                                     width: *radius,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -7938,6 +8057,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -7951,6 +8071,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -7976,6 +8097,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8121,6 +8243,7 @@ fn run_command(
                             points: vec![shift(*start)?, shift(*end)?],
                             width: stroke,
                             text: String::new(),
+                            sublayer: String::new(),
                         },
                         p,
                     ),
@@ -8138,6 +8261,7 @@ fn run_command(
                                 points: vec![shift(*center)?],
                                 width: *radius,
                                 text: String::new(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8159,6 +8283,7 @@ fn run_command(
                                     points: vertices?,
                                     width: stroke,
                                     text: String::new(),
+                                    sublayer: String::new(),
                                 },
                                 p,
                             );
@@ -8172,6 +8297,7 @@ fn run_command(
                                         points: vec![shift(pair[0])?, shift(pair[1])?],
                                         width: stroke,
                                         text: String::new(),
+                                        sublayer: String::new(),
                                     },
                                     p,
                                 );
@@ -8195,6 +8321,7 @@ fn run_command(
                                 points: vec![shift(*at)?],
                                 width: *height,
                                 text: value.clone(),
+                                sublayer: String::new(),
                             },
                             p,
                         );
@@ -8536,6 +8663,7 @@ fn run_command(
                 points: a.points,
                 width: a.width,
                 text: a.text,
+                sublayer: String::new(),
             });
             Ok(json!({"id":id}))
         }
@@ -8758,6 +8886,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -8835,6 +8964,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 ids.push(id);
             }
@@ -9488,6 +9618,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
             }
             Ok(
@@ -9635,6 +9766,7 @@ fn run_command(
                     ],
                     width: w,
                     text: String::new(),
+                    sublayer: String::new(),
                 });
                 count += 1;
             }
@@ -9709,6 +9841,7 @@ fn run_command(
                     points,
                     width,
                     text,
+                    sublayer: String::new(),
                 });
                 Ok(())
             };
@@ -10634,6 +10767,12 @@ fn run_command(
                     "via drill must be smaller than its pad".into(),
                 ));
             }
+            let (from_layer, to_layer) = resolve_via_span(
+                p,
+                a.from_layer.as_deref(),
+                a.to_layer.as_deref(),
+                (None, None),
+            )?;
             let id = allocate(next)?;
             p.board.vias.push(pcbcraft_doc::Via {
                 id,
@@ -10641,6 +10780,8 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                from_layer,
+                to_layer,
                 covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
@@ -10658,6 +10799,71 @@ fn run_command(
                 .ok_or_else(missing)?;
             via.position = a.position;
             Ok(json!({"id": a.id}))
+        }
+        "via.set_span" => {
+            let a: ViaSpanParams = parse(params)?;
+            let current = p
+                .board
+                .vias
+                .iter()
+                .find(|v| v.id == a.id)
+                .map(|v| (v.from_layer, v.to_layer))
+                .ok_or_else(missing)?;
+            let (from_layer, to_layer) =
+                resolve_via_span(p, a.from_layer.as_deref(), a.to_layer.as_deref(), current)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            via.from_layer = from_layer;
+            via.to_layer = to_layer;
+            let via = via.clone();
+            let (x, y) = p.via_span(&via);
+            Ok(json!({
+                "id": a.id,
+                "from_layer": p.layer_name(x),
+                "to_layer": p.layer_name(y),
+                "kind": p.via_kind(&via).label(),
+            }))
+        }
+        "via.allow_span" => {
+            let a: ViaAllowSpanParams = parse(params)?;
+            let x = p
+                .resolve_copper_layer(&a.from_layer)
+                .map_err(Error::Invalid)?;
+            let y = p
+                .resolve_copper_layer(&a.to_layer)
+                .map_err(Error::Invalid)?;
+            let last = p.copper_layer_count().saturating_sub(1);
+            if x.index() >= y.index() || y.index() > last {
+                return Err(Error::Invalid(
+                    "a via span must run from an upper to a lower copper layer".into(),
+                ));
+            }
+            let key = (x.index(), y.index());
+            if a.allow {
+                if p.allowed_via_spans().contains(&(x, y)) {
+                    return Err(Error::Invalid("that span is already allowed".into()));
+                }
+                p.board.via_spans.push(key);
+            } else {
+                if !p.board.via_spans.contains(&key) {
+                    return Err(Error::Invalid(
+                        "that span is not one of the extra allowed spans".into(),
+                    ));
+                }
+                let in_use = p.board.vias.iter().any(|v| {
+                    let (s, e) = p.via_span(v);
+                    (s.index(), e.index()) == key
+                });
+                if in_use {
+                    return Err(Error::Invalid("a via still uses that span".into()));
+                }
+                p.board.via_spans.retain(|k| *k != key);
+            }
+            Ok(json!({"from_layer":a.from_layer,"to_layer":a.to_layer,"allow":a.allow}))
         }
         "via.stitch" => {
             let a: StitchParams = parse(params)?;
@@ -10717,6 +10923,8 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        from_layer: None,
+                        to_layer: None,
                         covering: None,
                     });
                     ids.push(id);
@@ -13027,6 +13235,7 @@ fn run_command(
             let files = &mut p.files;
             if let Some(existing) = files.iter_mut().find(|f| f.name == name) {
                 existing.data = a.data;
+                existing.encoding = String::new();
             } else {
                 if files.len() >= 32 {
                     return Err(Error::Invalid("a project attaches at most 32 files".into()));
@@ -13034,6 +13243,7 @@ fn run_command(
                 files.push(pcbcraft_doc::EmbeddedFile {
                     name: name.clone(),
                     data: a.data,
+                    encoding: String::new(),
                 });
                 files.sort_by(|x, y| x.name.cmp(&y.name));
             }
@@ -13042,6 +13252,11 @@ fn run_command(
         "file.remove" => {
             let a: FileParams = parse(params)?;
             let name = a.name.trim();
+            if p.reference_images.iter().any(|r| r.file == name) {
+                return Err(Error::Invalid(
+                    "a reference image still shows this file; remove it first".into(),
+                ));
+            }
             let files = &mut p.files;
             let Some(index) = files.iter().position(|f| f.name == name) else {
                 return Err(Error::Invalid(format!("no attached file named {name}")));
@@ -14675,6 +14890,24 @@ fn run_command(
             }
             Ok(json!({"count": duplicates.len(), "duplicates": duplicates}))
         }
+        "selection.copy_text" => {
+            let a: SelectionCopyParams = parse(params)?;
+            let text = selection_clip::copy_text(p, &a.ids, a.context.as_deref())?;
+            Ok(json!({"text": text}))
+        }
+        "selection.paste" => {
+            let a: SelectionPasteParams = parse(params)?;
+            if a.text.is_empty() || a.text.len() > 524_288 {
+                return Err(Error::Invalid("paste text length is out of range".into()));
+            }
+            let (count, id_map) =
+                selection_clip::paste(p, next, &a.text, a.offset, a.renumber, unique_reference)?;
+            let map = id_map
+                .iter()
+                .map(|(from, to)| (from.to_string(), json!(*to)))
+                .collect::<serde_json::Map<String, Value>>();
+            Ok(json!({"count": count, "ids": Value::Object(map)}))
+        }
         "object.delete" => {
             let a: Object = parse(params)?;
             if !p.ids().any(|id| id == a.id) {
@@ -15904,6 +16137,163 @@ mod tests {
         s.undo()?;
         assert_eq!(s.project.components.len(), 3);
         assert_eq!(s.project.board.footprints.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_paste_renumbers_and_preserves_nets_by_name() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let mut parts = vec![];
+        for (reference, x) in [("R1", 10.0), ("R2", 30.0), ("R3", 50.0)] {
+            let id = s.execute(
+                "component.add",
+                json!({"kind":"resistor","position":{"x":x,"y":10.0},"reference":reference}),
+                None,
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            s.execute(
+                "net.connect",
+                json!({"net":gnd,"pins":[{"component":id,"pin":"1"}]}),
+                None,
+            )?;
+            parts.push(id);
+        }
+        s.execute("board.sync", json!({}), None)?;
+        let mut tracks = vec![];
+        for x in [15.0, 35.0, 55.0] {
+            let tid = s.execute(
+                "track.add",
+                json!({"net":gnd,"start":{"x":x,"y":8.0},"end":{"x":x,"y":12.0},"width":0.25,"layer":"F.Cu"}),
+                None,
+            )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            tracks.push(tid);
+        }
+        let mut ids = parts.clone();
+        ids.extend(tracks.iter().copied());
+        let text = s.execute("selection.copy_text", json!({"ids":ids}), None)?["result"]["text"]
+            .as_str()
+            .ok_or_else(missing)?
+            .to_string();
+        let before_project = s.project.clone();
+        let pasted = s.execute(
+            "selection.paste",
+            json!({"text": text, "offset":{"x":0.0,"y":20.0}, "renumber": true}),
+            None,
+        )?;
+        assert_eq!(pasted["result"]["count"], 9);
+        assert_eq!(s.project.components.len(), 6);
+        assert_eq!(s.project.board.tracks.len(), 6);
+        assert!(
+            s.project
+                .components
+                .iter()
+                .any(|c| c.reference == "R1 copy"),
+            "paste renumbers references"
+        );
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.net == gnd),
+            "pasted copper keeps nets matched by name"
+        );
+        assert_eq!(s.project.nets.iter().filter(|n| n.name == "GND").count(), 1);
+        let pasted_ids: Vec<Id> = pasted["result"]["ids"]
+            .as_object()
+            .ok_or_else(missing)?
+            .values()
+            .filter_map(|v| v.as_u64())
+            .collect();
+        let saved = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: Project =
+            serde_json::from_str(&saved).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        for id in pasted_ids {
+            assert!(
+                loaded.ids().any(|existing| existing == id),
+                "pasted ids stay stable after save and load within the session"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project, before_project);
+        assert_eq!(s.project.components.len(), 3);
+        assert_eq!(s.project.board.tracks.len(), 3);
+        Ok(())
+    }
+    #[test]
+    fn selection_paste_rejects_malformed_or_oversized_clipboard() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect();
+        for params in [
+            json!({"text":"not a clipboard","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":format!("PCBCRAFT selection/1\n{}", "x".repeat(524_288)),"offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":2}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":1}","offset":{"x":0.0,"y":0.0}}),
+            json!({"text":"PCBCRAFT selection/1\n{\"version\":1}","offset":{"x":1e6,"y":0.0}}),
+        ] {
+            assert!(
+                s.execute("selection.paste", params, None).is_err(),
+                "invalid paste must fail"
+            );
+        }
+        assert_eq!(s.inspect(), before);
+        assert_eq!(s.project.components.len(), 1);
+        assert_eq!(s.project.component(r1).ok_or_else(missing)?.reference, "R1");
+        Ok(())
+    }
+    #[test]
+    fn selection_copy_includes_tracks_when_selected() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let track = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":10.0},"end":{"x":8.0,"y":10.0},"width":0.25,"layer":"F.Cu"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let copy = s.execute("selection.copy_text", json!({"ids":[r1, track]}), None)?;
+        let text = copy["result"]["text"].as_str().ok_or_else(missing)?;
+        assert!(
+            text.contains("\"tracks\""),
+            "copy text carries selected tracks"
+        );
+        s.execute(
+            "selection.paste",
+            json!({"text": text, "offset":{"x":10.0,"y":0.0}, "renumber": true}),
+            None,
+        )?;
+        assert_eq!(s.project.components.len(), 2);
+        assert_eq!(s.project.board.tracks.len(), 2);
+        assert!(
+            s.project
+                .board
+                .tracks
+                .iter()
+                .any(|t| t.start.x >= 14.0 && t.net == net),
+            "pasted track keeps the net and offset"
+        );
         Ok(())
     }
     #[test]
@@ -31997,6 +32387,84 @@ mod tests {
             assert!(s.execute("zone.pour", params, None).is_err());
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    fn six_layer_session() -> Result<(Session, u64), Error> {
+        let mut s = Session::default();
+        for i in 1..=6 {
+            s.project
+                .board
+                .layer_records
+                .push(pcbcraft_doc::LayerRecord {
+                    name: format!("L{i}"),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    copper_role: None,
+                });
+            if i < 6 {
+                s.project
+                    .board
+                    .layer_records
+                    .push(pcbcraft_doc::LayerRecord {
+                        name: format!("P{i}"),
+                        kind: "prepreg".into(),
+                        thickness: 0.4,
+                        copper_role: None,
+                    });
+            }
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, net))
+    }
+    #[test]
+    fn via_place_refuses_forbidden_span() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let at = json!({"x":10.0,"y":10.0});
+        let buried = json!({"net":net,"position":at,"diameter":0.6,"drill":0.3,"from_layer":"L3","to_layer":"L4"});
+        assert!(s.execute("via.place", buried.clone(), None).is_err());
+        assert!(s.project.board.vias.is_empty(), "a refusal changes nothing");
+        let backwards =
+            json!({"net":net,"position":at,"diameter":0.6,"from_layer":"L4","to_layer":"L2"});
+        assert!(s.execute("via.place", backwards, None).is_err());
+        let blind = json!({"net":net,"position":at,"diameter":0.6,"drill":0.3,"to_layer":"L2"});
+        s.execute("via.place", blind, None)?;
+        assert_eq!(s.project.board.vias.len(), 1);
+        s.execute(
+            "via.allow_span",
+            json!({"from_layer":"L3","to_layer":"L4","allow":true}),
+            None,
+        )?;
+        s.execute("via.place", buried, None)?;
+        assert_eq!(s.project.board.vias.len(), 2);
+        Ok(())
+    }
+    #[test]
+    fn via_set_span_updates_range() -> Result<(), Error> {
+        let (mut s, net) = six_layer_session()?;
+        let id = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":10.0,"y":10.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("via.set_span", json!({"id":id,"to_layer":"L2"}), None)?;
+        assert_eq!(out["result"]["kind"], "Blind");
+        assert_eq!(out["result"]["to_layer"], "L2");
+        assert_eq!(s.project.board.vias[0].to_layer.map(|l| l.index()), Some(1));
+        assert!(
+            s.execute("via.set_span", json!({"id":id,"to_layer":"L4"}), None)
+                .is_err()
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.vias[0].to_layer, None,
+            "undo restores the span"
+        );
+        let back = s.execute("via.set_span", json!({"id":id,"to_layer":"B.Cu"}), None);
+        assert!(back.is_ok(), "bottom layer is the through span");
         Ok(())
     }
 }
