@@ -8553,6 +8553,7 @@ mod tests {
             max_width: None,
             target_length: None,
             length_tolerance: None,
+            max_vias: None,
             nets: vec![5],
         });
         let component =

@@ -646,6 +646,37 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    let mut vias_per_net: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+    for via in &board.vias {
+        if via.net == 0 {
+            continue;
+        }
+        vias_per_net.entry(via.net).or_default().push(via.id);
+    }
+    for class in &project.net_classes {
+        let Some(limit) = class.max_vias else {
+            continue;
+        };
+        for net in &class.nets {
+            let via_ids = vias_per_net.get(net).cloned().unwrap_or_default();
+            let count = via_ids.len() as u32;
+            if count <= limit {
+                continue;
+            }
+            result.push(Finding {
+                code: "via_count",
+                severity: project.rule_severity("via_count", "error"),
+                message: format!(
+                    "{} has {} vias, {} allows at most {}",
+                    project.net_name(*net),
+                    count,
+                    class.name,
+                    limit
+                ),
+                objects: via_ids,
+            });
+        }
+    }
     for wire in airwires(project) {
         result.push(Finding {
             code: "unrouted",
@@ -729,6 +760,31 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             ),
             objects: vec![pair.net_p, pair.net_n],
         });
+        if pair.equal_vias {
+            let count_p = vias_per_net.get(&pair.net_p).map_or(0, |v| v.len());
+            let count_n = vias_per_net.get(&pair.net_n).map_or(0, |v| v.len());
+            if count_p != count_n {
+                let heavier = if count_p > count_n {
+                    pair.net_p
+                } else {
+                    pair.net_n
+                };
+                let objects = vias_per_net.get(&heavier).cloned().unwrap_or_default();
+                result.push(Finding {
+                    code: "diffpair_via_count",
+                    severity: project.rule_severity("diffpair_via_count", "error"),
+                    message: format!(
+                        "{}: {} has {} vias, {} has {} vias",
+                        pair.name,
+                        project.net_name(pair.net_p),
+                        count_p,
+                        project.net_name(pair.net_n),
+                        count_n,
+                    ),
+                    objects,
+                });
+            }
+        }
     }
     let classified: BTreeSet<Id> = project
         .net_classes
@@ -805,7 +861,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        DiffPair, Footprint, Net, NetClass, NoConnectFlag, Pad, PinRef, Track, Via,
+        component_template,
     };
     fn fixture() -> Project {
         let mut p = Project::default();
@@ -1546,5 +1603,172 @@ mod tests {
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
+    }
+
+    fn via_on_net(id: Id, net: Id, x: f64) -> Via {
+        Via {
+            id,
+            net,
+            position: Point::new(x, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+        }
+    }
+
+    #[test]
+    fn a_class_with_max_vias_zero_reports_via_count_until_the_via_is_removed() -> Result<(), String>
+    {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.net_classes.push(NetClass {
+            id: 2,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_vias: Some(0),
+            nets: vec![1],
+        });
+        p.board.vias.push(via_on_net(3, 1, 10.0));
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "via_count")
+            .collect();
+        assert_eq!(findings.len(), 1, "one via breaches a zero limit");
+        assert!(findings[0].message.contains("SIG") && findings[0].message.contains("USB"));
+        assert_eq!(findings[0].objects, vec![3]);
+        p.board.vias.clear();
+        p.validate()?;
+        assert!(
+            drc(&p).iter().all(|f| f.code != "via_count"),
+            "removing the via clears the finding"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.net_classes.push(NetClass {
+            id: 2,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_vias: Some(4),
+            nets: vec![1],
+        });
+        for (i, x) in (3_u64..=6).zip([10.0, 11.0, 12.0, 13.0]) {
+            p.board.vias.push(via_on_net(i, 1, x));
+        }
+        p.validate()?;
+        assert!(
+            drc(&p).iter().all(|f| f.code != "via_count"),
+            "four vias stay within the limit"
+        );
+        p.board.vias.push(via_on_net(7, 1, 14.0));
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "via_count")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("5 vias"));
+        assert_eq!(findings[0].objects.len(), 5);
+        Ok(())
+    }
+
+    #[test]
+    fn a_pair_with_equal_vias_reports_diffpair_via_count_until_counts_match() -> Result<(), String>
+    {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "P".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "N".into(),
+            ..Default::default()
+        });
+        p.board.diff_pairs.push(DiffPair {
+            id: 10,
+            name: "PAIR".into(),
+            net_p: 1,
+            net_n: 2,
+            gap: 0.2,
+            length_tolerance: None,
+            equal_vias: true,
+        });
+        p.board.vias.push(via_on_net(3, 1, 10.0));
+        p.board.vias.push(via_on_net(4, 1, 11.0));
+        p.board.vias.push(via_on_net(5, 2, 12.0));
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "diffpair_via_count")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("PAIR"));
+        assert_eq!(findings[0].objects, vec![3, 4]);
+        p.board.vias.push(via_on_net(6, 2, 13.0));
+        p.validate()?;
+        assert!(
+            drc(&p).iter().all(|f| f.code != "diffpair_via_count"),
+            "matching counts clear the finding"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn vias_on_a_net_outside_any_class_never_report_via_count() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "OTHER".into(),
+            ..Default::default()
+        });
+        p.net_classes.push(NetClass {
+            id: 3,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_vias: Some(0),
+            nets: vec![1],
+        });
+        p.board.vias.push(via_on_net(4, 2, 10.0));
+        p.validate()?;
+        let codes: Vec<_> = drc(&p).iter().map(|f| f.code).collect();
+        assert!(
+            !codes.contains(&"via_count"),
+            "an unclassified net is not capped"
+        );
+        Ok(())
     }
 }

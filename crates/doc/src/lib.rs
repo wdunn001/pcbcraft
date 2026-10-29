@@ -227,6 +227,10 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Maximum plated vias each member net may carry. Vias above this limit
+    /// report a design rule finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_vias: Option<u32>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -269,6 +273,9 @@ pub struct DiffPair {
     /// means length matching is not checked for this pair.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// When set, the two sides must carry the same number of plated vias.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub equal_vias: bool,
 }
 impl DiffPair {
     fn valid(&self) -> bool {
@@ -2028,6 +2035,7 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || c.max_vias.is_some_and(|n| n > 1024)
             {
                 return Err("invalid net class".into());
             }
