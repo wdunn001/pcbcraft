@@ -1,0 +1,33 @@
+schema = 1
+
+[profile]
+id = "usb2"
+name = "USB 2.0 full speed"
+category = "usb"
+summary = "Differential pair, class and pair clearance for USB 2.0 data."
+
+[[net_class]]
+name = "USB"
+clearance = 0.15
+width = 0.2
+patterns = ["USB_*"]
+
+[[pair]]
+name = "USB"
+net_p = "USB_D+"
+net_n = "USB_D-"
+gap = 0.2
+length_tolerance = 0.25
+
+[[pair_rule]]
+net_a = "USB_D+"
+net_b = "USB_D-"
+clearance = 0.15
+
+[[value_source]]
+field = "net_class.width"
+source = "usb2_default_track"
+
+[[value_source]]
+field = "pair.gap"
+source = "usb2_coupling_gap"

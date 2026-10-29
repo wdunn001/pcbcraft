@@ -17,6 +17,10 @@ pcbcraft-io.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 tempfile.workspace = true
+pcbcraft-io.workspace = true
+toml.workspace = true
