@@ -165,7 +165,13 @@ pub(crate) fn file_function(name: &str, text: &str, copper: usize) -> (String, S
         // the same names as `; #@! TF.Name,value` comments.
         let line = line.strip_prefix("; #@! ").unwrap_or(line);
         let line = line.strip_prefix('%').unwrap_or(line);
-        if let Some(value) = line.strip_prefix("TF.FileFunction,") {
+        if name.ends_with(".drl")
+            && function.is_none()
+            && (line.starts_with("Plated,") || line.starts_with("NonPlated,"))
+        {
+            // A drill file may name its plating on a bare header line.
+            function = Some(line.trim().to_owned());
+        } else if let Some(value) = line.strip_prefix("TF.FileFunction,") {
             function = Some(attribute_value(value));
         } else if let Some(value) = line.strip_prefix("TF.FilePolarity,") {
             polarity = Some(attribute_value(value));
@@ -288,6 +294,7 @@ mod tests {
             position: Point::new(40.0, 10.0),
             diameter: 0.6,
             drill: 0.3,
+            covering: None,
         });
         project
     }
@@ -303,8 +310,8 @@ mod tests {
             .ok_or("FilesAttributes must be an array")?;
         assert_eq!(
             listed.len(),
-            files.len() - 1,
-            "every file but the manifest itself is listed"
+            files.len() - 2,
+            "every file but the manifest and the readme is listed"
         );
         for entry in listed {
             let path = entry["Path"].as_str().ok_or("every entry has a Path")?;
