@@ -29,7 +29,7 @@ fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
         );
     }
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
-    scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
+    scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
@@ -63,7 +63,7 @@ fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "Pour copper", 700.0)?,
         "the board geometry section should offer a copper pour: {}",
         app.message
     );
@@ -167,7 +167,7 @@ fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 700.0)?,
         "the make files should include a drill map: {}",
         app.message
     );
@@ -212,7 +212,7 @@ fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
     }
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 700.0)?,
         "the factory folder section should also offer a 3D look: {}",
         app.message
     );
@@ -264,7 +264,7 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
     }
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 700.0)?,
         "the factory folder section should also plan panels: {}",
         app.message
     );
@@ -286,5 +286,50 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
         app.project.board.width, width,
         "planning a panel never touches the design"
     );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let directory = std::env::temp_dir().join(format!("pcbcraft-fab-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    app.make_dir = directory.to_string_lossy().into_owned();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Plot files")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.plot_viewer.folder_path = directory.to_string_lossy().into_owned();
+    authoring::tests::tap(&ctx, &mut app, "Load")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "pcb-F.Cu.gbr")?,
+        "front copper should appear in the layer list: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "pcb-B.Cu.gbr")?,
+        "back copper should appear in the layer list: {}",
+        app.message
+    );
+    let visible_before = app.plot_viewer.visible_layer_count();
+    assert!(visible_before >= 2, "at least two layers should show");
+    authoring::tests::tap(&ctx, &mut app, "pcb-F.Cu.gbr")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "pcb-F.Cu.gbr (hidden)")?,
+        "turning a layer off should mark it hidden in the list"
+    );
+    assert!(
+        app.plot_viewer.visible_layer_count() < visible_before,
+        "one fewer layer should be visible on the canvas"
+    );
+    let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }
