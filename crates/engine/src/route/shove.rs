@@ -274,9 +274,9 @@ pub fn apply(p: &mut Project, next: &mut Id, line: &Line, layer: Layer) -> Resul
                     end: *end,
                     width: line.width,
                     layer,
-                    arc: None,,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
-                });
+                    arc: None,
+                
+                preserved: pcbcraft_doc::PreservedSource::default(),});
                 used.push(id);
             }
         }

@@ -1749,9 +1749,9 @@ mod tests {
             net: 1,
             position: Point::new(20.0, 15.0),
             diameter: 0.8,
-            drill: 0.4,,
-            preserved: pcbcraft_doc::PreservedSource::default(),
-        });
+            drill: 0.4,
+        
+        preserved: pcbcraft_doc::PreservedSource::default(),});
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;
         // Cutout r2.0 -> 36 segments, hole r1.6 -> 24, via r0.2 -> 12.
@@ -1830,8 +1830,7 @@ mod tests {
             rotation: 0.0,
             locked: None,
             pads,
-        },
-        preserved: pcbcraft_doc::PreservedSource::default(),
+        }
     }
     fn body_of(pads: Vec<Pad>) -> Result<Body, String> {
         default_body(&footprint(pads), None).ok_or_else(|| "no body".to_string())
@@ -1878,8 +1877,7 @@ mod tests {
             library_symbol: None,
             library_footprint: Some(pcbcraft_doc::LibraryFootprint {
                 library: "test".into(),
-                definition,,
-                preserved: pcbcraft_doc::PreservedSource::default(),
+                definition,
             }),
             fields: vec![],
             sheet: 0,
@@ -2135,9 +2133,9 @@ mod tests {
             end: Point::new(15.0, 5.0),
             width: 0.5,
             layer: Layer::Front,
-            arc: None,,
-            preserved: pcbcraft_doc::PreservedSource::default(),
-        });
+            arc: None,
+        
+        preserved: pcbcraft_doc::PreservedSource::default(),});
         p.board.tracks.push(Track {
             id: 3,
             net: 1,
@@ -2145,9 +2143,9 @@ mod tests {
             end: Point::new(15.0, 10.0),
             width: 0.5,
             layer: Layer::Back,
-            arc: Some(Point::new(10.0, 12.0)),,
-            preserved: pcbcraft_doc::PreservedSource::default(),
-        });
+            arc: Some(Point::new(10.0, 12.0)),
+        
+        preserved: pcbcraft_doc::PreservedSource::default(),});
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
         assert_eq!(top.positions.len(), 24, "one straight strip");
@@ -2172,9 +2170,9 @@ mod tests {
             outline: outline.clone(),
             cutouts: vec![cut],
             filled: true,
-            kind: None,,
-            preserved: pcbcraft_doc::PreservedSource::default(),
-        });
+            kind: None,
+        
+        preserved: pcbcraft_doc::PreservedSource::default(),});
         p.board.zones.push(CopperZone {
             id: 3,
             net: 1,
@@ -2182,9 +2180,9 @@ mod tests {
             outline,
             cutouts: vec![],
             filled: false,
-            kind: None,,
-            preserved: pcbcraft_doc::PreservedSource::default(),
-        });
+            kind: None,
+        
+        preserved: pcbcraft_doc::PreservedSource::default(),});
         let mesh = board_mesh(&p, MeshLayers::default())?;
         let top = part(&mesh, PartKind::CopperTop)?;
         assert!(

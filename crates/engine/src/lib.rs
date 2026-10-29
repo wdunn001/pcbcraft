@@ -2387,8 +2387,7 @@ fn footprint_locked(project: &pcbcraft_doc::Project, id: Id) -> bool {
 #[serde(deny_unknown_fields)]
 struct AssignFootprint {
     id: Id,
-    path: String,,
-    preserved: pcbcraft_doc::PreservedSource::default(),
+    path: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2635,8 +2634,7 @@ fn assign_to(
     }
     c.library_footprint = Some(LibraryFootprint {
         library,
-        definition: definition.clone(),,
-        preserved: pcbcraft_doc::PreservedSource::default(),
+        definition: definition.clone(),
     });
     Some(())
 }
@@ -5600,8 +5598,7 @@ fn run_command(
                 }
                 c.library_footprint = Some(LibraryFootprint {
                     library: library_name.clone(),
-                    definition: definition.clone(),,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
+                    definition: definition.clone(),
                 });
                 if let Some(f) = p.board.footprints.iter_mut().find(|f| f.component == id) {
                     f.pads = component_pads(c);
@@ -8834,9 +8831,9 @@ fn run_command(
                     end: pair[1],
                     width,
                     layer,
-                    arc: None,,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
-                });
+                    arc: None,
+                
+                preserved: pcbcraft_doc::PreservedSource::default(),});
                 ids.push(id);
             }
             p.graphics.remove(index);
@@ -9992,9 +9989,9 @@ fn run_command(
                 net: a.net,
                 position: a.position,
                 diameter,
-                drill,,
-                preserved: pcbcraft_doc::PreservedSource::default(),
-            });
+                drill,
+            
+            preserved: pcbcraft_doc::PreservedSource::default(),});
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
         "via.move" => {
@@ -10068,9 +10065,9 @@ fn run_command(
                         net: a.net,
                         position,
                         diameter: a.diameter,
-                        drill: a.drill,,
-                        preserved: pcbcraft_doc::PreservedSource::default(),
-                    });
+                        drill: a.drill,
+                    
+                    preserved: pcbcraft_doc::PreservedSource::default(),});
                     ids.push(id);
                 }
             }
@@ -10091,9 +10088,9 @@ fn run_command(
                 outline: a.outline,
                 cutouts: vec![],
                 filled: true,
-                kind: None,,
-                preserved: pcbcraft_doc::PreservedSource::default(),
-            });
+                kind: None,
+            
+            preserved: pcbcraft_doc::PreservedSource::default(),});
             Ok(json!({"id":id}))
         }
         "zone.move" => {
@@ -10396,9 +10393,9 @@ fn run_command(
                     outline,
                     cutouts: vec![],
                     filled: true,
-                    kind: Some("teardrop".into()),,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
-                });
+                    kind: Some("teardrop".into()),
+                
+                preserved: pcbcraft_doc::PreservedSource::default(),});
                 added += 1;
             }
             Ok(json!({"added": added, "junctions": total}))
@@ -12883,9 +12880,9 @@ fn run_command(
                         ),
                         rotation: 0.0,
                         locked: None,
-                        pads: component_pads(c),,
-                        preserved: pcbcraft_doc::PreservedSource::default(),
-                    });
+                        pads: component_pads(c),
+                    
+                    preserved: pcbcraft_doc::PreservedSource::default(),});
                 }
             }
             Ok(
@@ -13304,9 +13301,9 @@ fn run_command(
                 end: a.end,
                 width,
                 layer,
-                arc: None,,
-                preserved: pcbcraft_doc::PreservedSource::default(),
-            });
+                arc: None,
+            
+            preserved: pcbcraft_doc::PreservedSource::default(),});
             Ok(json!({"id":id, "width": width}))
         }
         "track.add_arc" => {
@@ -13332,9 +13329,9 @@ fn run_command(
                 end: a.end,
                 width,
                 layer,
-                arc: Some(a.mid),,
-                preserved: pcbcraft_doc::PreservedSource::default(),
-            });
+                arc: Some(a.mid),
+            
+            preserved: pcbcraft_doc::PreservedSource::default(),});
             Ok(json!({
                 "id": id,
                 "length": (arc.length() * 1000.0).round() / 1000.0,
@@ -13407,9 +13404,9 @@ fn run_command(
                 end,
                 width,
                 layer,
-                arc: None,,
-                preserved: pcbcraft_doc::PreservedSource::default(),
-            });
+                arc: None,
+            
+            preserved: pcbcraft_doc::PreservedSource::default(),});
             Ok(json!({"id":id,"kept":a.id}))
         }
         "track.chamfer" => {
@@ -13505,9 +13502,9 @@ fn run_command(
                 end: p2,
                 width,
                 layer,
-                arc: None,,
-                preserved: pcbcraft_doc::PreservedSource::default(),
-            });
+                arc: None,
+            
+            preserved: pcbcraft_doc::PreservedSource::default(),});
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
         "track.move" => {
@@ -13556,9 +13553,9 @@ fn run_command(
                         end: to,
                         width,
                         layer,
-                        arc: None,,
-                        preserved: pcbcraft_doc::PreservedSource::default(),
-                    });
+                        arc: None,
+                    
+                    preserved: pcbcraft_doc::PreservedSource::default(),});
                 }
             }
             Ok(json!({"ids":ids,"net":net,"width":width}))
@@ -13618,9 +13615,9 @@ fn run_command(
                     end: to,
                     width,
                     layer: a.layer,
-                    arc: None,,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
-                });
+                    arc: None,
+                
+                preserved: pcbcraft_doc::PreservedSource::default(),});
             }
             for (from, to) in segs_n {
                 let id = allocate(next)?;
@@ -13632,9 +13629,9 @@ fn run_command(
                     end: to,
                     width,
                     layer: a.layer,
-                    arc: None,,
-                    preserved: pcbcraft_doc::PreservedSource::default(),
-                });
+                    arc: None,
+                
+                preserved: pcbcraft_doc::PreservedSource::default(),});
             }
             Ok(json!({
                 "ids_p": ids_p,
