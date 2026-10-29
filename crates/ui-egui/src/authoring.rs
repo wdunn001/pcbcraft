@@ -66,6 +66,7 @@ impl Default for Editor {
             camera: Camera {
                 mirror: false,
                 turns: 0,
+                up: false,
                 center: Point::default(),
                 zoom: 18.0,
             },

@@ -1264,6 +1264,7 @@ impl App {
                     .clamp(0.01, 40.0),
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             library::paint_library_paths(&painter, picture, camera, paths, accent);
         } else if want_symbol
@@ -1276,6 +1277,7 @@ impl App {
                 zoom: 3.6,
                 mirror: false,
                 turns: 0,
+                up: false,
             };
             for view in part.schematic_views() {
                 self.symbol(
@@ -1347,6 +1349,7 @@ impl App {
                                 .clamp(0.01, 40.0),
                             mirror: false,
                             turns: 0,
+                            up: false,
                         };
                         library::paint_library_paths(&painter, spot, camera, &paths, accent);
                     } else {
