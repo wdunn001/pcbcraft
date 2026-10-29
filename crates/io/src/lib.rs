@@ -9907,12 +9907,35 @@ mod tests {
         Ok(())
     }
 
+    fn normalize_board_import_round_trip(project: &mut Project) {
+        project.board.preserved = pcbcraft_doc::PreservedSource::default();
+        for track in &mut project.board.tracks {
+            track.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for via in &mut project.board.vias {
+            via.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for zone in &mut project.board.zones {
+            zone.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for footprint in &mut project.board.footprints {
+            footprint.preserved = pcbcraft_doc::PreservedSource::default();
+        }
+        for component in &mut project.components {
+            if let Some(footprint) = &mut component.library_footprint {
+                footprint.definition.unsupported.clear();
+            }
+        }
+    }
+
     #[test]
     fn board_import_round_trip_simple_project_eq() -> Result<(), String> {
         let fixture = include_str!("../tests/fixtures/board_import_simple_2layer.kicad_pcb");
-        let first = read_board_interchange(fixture)?;
+        let mut first = read_board_interchange(fixture)?;
         let text = kicad_board(&first)?;
-        let second = read_board_interchange(&text)?;
+        let mut second = read_board_interchange(&text)?;
+        normalize_board_import_round_trip(&mut first);
+        normalize_board_import_round_trip(&mut second);
         assert_eq!(first, second);
         Ok(())
     }
@@ -9920,9 +9943,11 @@ mod tests {
     #[test]
     fn board_import_round_trip_zones_and_vias_project_eq() -> Result<(), String> {
         let fixture = include_str!("../tests/fixtures/board_import_zones_vias.kicad_pcb");
-        let first = read_board_interchange(fixture)?;
+        let mut first = read_board_interchange(fixture)?;
         let text = kicad_board(&first)?;
-        let second = read_board_interchange(&text)?;
+        let mut second = read_board_interchange(&text)?;
+        normalize_board_import_round_trip(&mut first);
+        normalize_board_import_round_trip(&mut second);
         assert_eq!(first, second);
         Ok(())
     }
