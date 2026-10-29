@@ -42,6 +42,7 @@ mod showcase;
 mod sources;
 mod stack_view;
 mod sync_notice;
+mod sourcing_panel;
 #[cfg(test)]
 mod target_size;
 mod targets;

@@ -2560,6 +2560,7 @@ mod library_render_tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "ZZ8".into(),
