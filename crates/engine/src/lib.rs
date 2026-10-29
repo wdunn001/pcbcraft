@@ -1056,6 +1056,19 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "zone.fill",
+            "Report the copper a zone actually pours on its layer: area, connected pieces, thermal spokes that reach the fill, pads left starved, detached islands and how many the settings removed, with knockouts round foreign copper, keepouts and the board edge already applied",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
+            "zone.pour",
+            "Set how a zone pours: whether plated pads and vias join solid, through thermal spokes or not at all, the relief gap, spoke width and count, the narrowest copper it keeps, and whether detached copper is kept or dropped",
+            schema(
+                json!({"id":id_schema(),"pad_connect":{"type":"string","enum":["solid","relief","none"],"description":"how plated pads inside the zone join the pour"},"via_connect":{"type":"string","enum":["solid","relief","none"],"description":"how vias inside the zone join the pour"},"relief_gap":{"type":"number","minimum":0.05,"maximum":2,"description":"gap round a relieved pad in millimetres"},"spoke_width":{"type":"number","minimum":0.05,"maximum":5,"description":"width of each thermal spoke in millimetres"},"spokes":{"type":"integer","enum":[2,4],"description":"spokes per pad, aligned to the pad rotation"},"min_width":{"type":["number","null"],"minimum":0.05,"maximum":5,"description":"narrowest copper the pour keeps in millimetres; null follows the narrowest track on the board"},"islands":{"type":"string","enum":["keep","remove","remove_below"],"description":"what happens to copper that touches nothing of its net"},"island_area":{"type":"number","minimum":0,"maximum":10000,"description":"with remove_below, the area in square millimetres at or above which a detached piece is kept"}}),
+                &["id"],
+            ),
+        ),
+        (
             "zone.cutout",
             "Add a closed cutout outline that removes copper from an existing zone",
             schema(
@@ -1637,7 +1650,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_add",
             "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it; optionally narrowed to one net and one copper layer, which apply when either side of a pair matches",
             schema(
-                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
+                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"},"keepout":{"type":"boolean","description":"true keeps all copper and tracks at least the clearance away from the rectangle"}}),
                 &["clearance", "x", "y", "width", "height"],
             ),
         ),
@@ -3731,6 +3744,10 @@ struct RuleAreaParams {
     height: f64,
     #[serde(default)]
     max_height: Option<f64>,
+    /// True turns the area into a keepout: nothing of any copper kind may
+    /// come within the clearance of the rectangle.
+    #[serde(default)]
+    keepout: Option<bool>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4224,6 +4241,32 @@ struct ZoneRemoveParams {
 struct ZoneFillParams {
     id: Id,
     filled: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZonePourParams {
+    id: Id,
+    #[serde(default)]
+    pad_connect: Option<String>,
+    #[serde(default)]
+    via_connect: Option<String>,
+    #[serde(default)]
+    relief_gap: Option<f64>,
+    #[serde(default)]
+    spoke_width: Option<f64>,
+    #[serde(default)]
+    spokes: Option<u8>,
+    #[serde(default)]
+    min_width: Option<f64>,
+    #[serde(default)]
+    islands: Option<String>,
+    #[serde(default)]
+    island_area: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ZoneFillQuery {
+    id: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10625,6 +10668,7 @@ fn run_command(
                 cutouts: vec![],
                 filled: true,
                 kind: None,
+                pour: None,
             });
             Ok(json!({"id":id}))
         }
@@ -10812,6 +10856,95 @@ fn run_command(
             zone.filled = a.filled;
             Ok(json!({"id": a.id, "filled": a.filled}))
         }
+        "zone.fill" => {
+            let a: ZoneFillQuery = parse(params)?;
+            let zone = p
+                .board
+                .zones
+                .iter()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?
+                .clone();
+            let fill = pcbcraft_doc::zone_fill(p, &zone).map_err(Error::Invalid)?;
+            Ok(json!({
+                "id": a.id,
+                "net": zone.net,
+                "layer": zone.layer,
+                "filled": zone.filled,
+                "area": (fill.area() * 1e6).round() / 1e6,
+                "pieces": fill.pieces.len(),
+                "holes": fill.pieces.iter().map(|piece| piece.len().saturating_sub(1)).sum::<usize>(),
+                "islands": fill.islands,
+                "removed": fill.removed,
+                "unconnected": fill.unconnected,
+                "spokes": fill.spokes,
+                "starved": fill.starved,
+                "min_width": fill.min_width,
+            }))
+        }
+        "zone.pour" => {
+            let a: ZonePourParams = parse(params)?;
+            let connect = |value: &Option<String>| match value.as_deref() {
+                None => Ok(None),
+                Some("solid") => Ok(Some(pcbcraft_doc::ZoneConnect::Solid)),
+                Some("relief") => Ok(Some(pcbcraft_doc::ZoneConnect::Relief)),
+                Some("none") => Ok(Some(pcbcraft_doc::ZoneConnect::None)),
+                Some(_) => Err(Error::Invalid(
+                    "connection must be solid, relief or none".into(),
+                )),
+            };
+            let pad_connect = connect(&a.pad_connect)?;
+            let via_connect = connect(&a.via_connect)?;
+            let islands = match a.islands.as_deref() {
+                None => None,
+                Some("keep") => Some(pcbcraft_doc::ZoneIslands::Keep),
+                Some("remove") => Some(pcbcraft_doc::ZoneIslands::Remove),
+                Some("remove_below") => Some(pcbcraft_doc::ZoneIslands::RemoveBelow(
+                    a.island_area.unwrap_or(1.0),
+                )),
+                Some(_) => {
+                    return Err(Error::Invalid(
+                        "islands must be keep, remove or remove_below".into(),
+                    ));
+                }
+            };
+            let zone = p
+                .board
+                .zones
+                .iter_mut()
+                .find(|z| z.id == a.id)
+                .ok_or_else(missing)?;
+            let mut pour = zone.pour_settings();
+            if let Some(value) = pad_connect {
+                pour.pad_connect = value;
+            }
+            if let Some(value) = via_connect {
+                pour.via_connect = value;
+            }
+            if let Some(value) = a.relief_gap {
+                pour.relief_gap = value;
+            }
+            if let Some(value) = a.spoke_width {
+                pour.spoke_width = value;
+            }
+            if let Some(value) = a.spokes {
+                pour.spokes = value;
+            }
+            if a.min_width.is_some() {
+                pour.min_width = a.min_width;
+            }
+            if let Some(value) = islands {
+                pour.islands = value;
+            }
+            if !pour.valid() {
+                return Err(Error::Invalid(
+                    "pour settings need a 0.05 to 2 mm relief gap, a 0.05 to 5 mm spoke, two or four spokes and a bounded minimum width"
+                        .into(),
+                ));
+            }
+            zone.pour = Some(pour);
+            Ok(json!({"id": a.id, "pour": pour}))
+        }
         "zone.cutout" => {
             let a: ZoneCutoutParams = parse(params)?;
             let zone = p
@@ -10929,6 +11062,7 @@ fn run_command(
                     cutouts: vec![],
                     filled: true,
                     kind: Some("teardrop".into()),
+                    pour: None,
                 });
                 added += 1;
             }
@@ -12294,6 +12428,10 @@ fn run_command(
                 net: a.net,
                 layer,
                 clearance: a.clearance,
+                keepout: a
+                    .keepout
+                    .filter(|keepout| *keepout)
+                    .map(|_| pcbcraft_doc::Keepout::default()),
                 max_height: a.max_height,
                 region: pcbcraft_doc::RuleRegion {
                     x: a.x,
@@ -24141,9 +24279,18 @@ mod tests {
         };
         assert_eq!(
             touching(&s),
-            1,
-            "a signal track crossing a ground zone on the same layer shorts"
+            0,
+            "the pour clears a signal track crossing it, so nothing shorts"
         );
+        let probe = |s: &Session| -> bool {
+            s.project
+                .board
+                .zones
+                .first()
+                .and_then(|z| pcbcraft_doc::zone_fill(&s.project, z).ok())
+                .is_some_and(|fill| fill.contains(Point::new(40.0, 15.25)))
+        };
+        assert!(!probe(&s), "the pour keeps its distance from the track");
         let out = s.execute("zone.set_layer", json!({"id":zone,"layer":"B.Cu"}), None)?;
         assert_eq!(out["result"]["layer"], json!("B.Cu"));
         assert_eq!(
@@ -24167,6 +24314,10 @@ mod tests {
             0,
             "copper on opposite sides no longer touches"
         );
+        assert!(
+            probe(&s),
+            "on the other side the pour runs over the track's place"
+        );
         for params in [
             json!({"id":zone,"layer":"C.Cu"}),
             json!({"id":zone,"layer":"B.Cu"}),
@@ -24183,7 +24334,7 @@ mod tests {
             pcbcraft_doc::Layer::Front,
             "undo pours the zone back on the front"
         );
-        assert_eq!(touching(&s), 1, "and the short reappears");
+        assert!(!probe(&s), "and the pour clears the track again");
         Ok(())
     }
     #[test]
@@ -24504,7 +24655,10 @@ mod tests {
                 .unwrap_or_default()
                 .iter()
                 .filter(|f| {
-                    f["objects"]
+                    !matches!(
+                        f["code"].as_str(),
+                        Some("zone_unconnected" | "zone_island" | "thermal_starved")
+                    ) && f["objects"]
                         .as_array()
                         .is_some_and(|o| o.contains(&json!(zone)))
                 })
@@ -24512,8 +24666,8 @@ mod tests {
         };
         assert_eq!(
             touching(&s),
-            1,
-            "the track runs along the zone's lower edge and touches it"
+            0,
+            "the pour pulls back from the track along its lower edge, so it does not touch"
         );
         s.execute(
             "zone.set_point",
@@ -24531,7 +24685,7 @@ mod tests {
             "lifting both lower corners off the track clears the finding"
         );
         s.undo()?;
-        assert_eq!(touching(&s), 1, "and undo brings it back");
+        assert_eq!(touching(&s), 0, "and undo leaves it clear");
         assert!(s.project.validate().is_ok());
         let before = s.inspect();
         for params in [
@@ -24785,12 +24939,22 @@ mod tests {
                 })
                 .count()
         };
-        assert!(pairs(&s) >= 1, "the track rides the filled zone edge");
+        let area = |s: &Session| -> f64 {
+            s.project
+                .board
+                .zones
+                .first()
+                .and_then(|z| pcbcraft_doc::zone_fill(&s.project, z).ok())
+                .map_or(-1.0, |fill| fill.area())
+        };
+        assert_eq!(pairs(&s), 0, "the pour clears the track riding its edge");
+        assert!(area(&s) > 300.0, "a filled zone carries copper");
         s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
         assert_eq!(pairs(&s), 0, "an unfilled zone carries no copper");
+        assert!(area(&s).abs() < 1e-9);
         assert!(!s.project.board.zones[0].filled);
         s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
-        assert!(pairs(&s) >= 1, "pouring it back restores the finding");
+        assert!(area(&s) > 300.0, "pouring it back restores the copper");
         s.execute("zone.set_fill", json!({"id":zone,"filled":false}), None)?;
         let before = s.inspect();
         for params in [
@@ -24808,13 +24972,13 @@ mod tests {
         }
         assert_eq!(s.inspect(), before, "rejections change nothing");
         s.execute("zone.set_fill", json!({"id":zone,"filled":true}), None)?;
-        assert!(pairs(&s) >= 1);
+        assert!(area(&s) > 300.0);
         s.undo()?;
         assert!(
             !s.project.board.zones[0].filled,
             "undo takes the copper out again"
         );
-        assert_eq!(pairs(&s), 0, "and the finding falls silent");
+        assert!(area(&s).abs() < 1e-9, "and the copper is gone");
         Ok(())
     }
     #[test]
@@ -31616,6 +31780,39 @@ mod tests {
             .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(svg.contains(">DA</text>"));
         let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+    #[test]
+    fn zone_pour_settings_are_bounded_and_zone_fill_reports_the_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        let gnd = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let zone = s.execute(
+            "zone.place",
+            json!({"net":gnd,"outline":[{"x":10.0,"y":10.0},{"x":30.0,"y":10.0},{"x":30.0,"y":30.0},{"x":10.0,"y":30.0},{"x":10.0,"y":10.0}]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let out = s.execute("zone.fill", json!({"id":zone}), None)?;
+        assert!(out["result"]["area"].as_f64().unwrap_or(0.0) > 300.0);
+        s.execute(
+            "zone.pour",
+            json!({"id":zone,"pad_connect":"solid","spokes":2,"islands":"keep"}),
+            None,
+        )?;
+        let before = s.inspect();
+        for params in [
+            json!({"id":zone,"relief_gap":0.0}),
+            json!({"id":zone,"spokes":3}),
+            json!({"id":zone,"islands":"maybe"}),
+            json!({"id":zone,"pad_connect":"loose"}),
+            json!({"id":zone,"spoke_width":99.0}),
+        ] {
+            assert!(s.execute("zone.pour", params, None).is_err());
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
         Ok(())
     }
 }

@@ -652,6 +652,7 @@ mod tests {
             cutouts: vec![],
             filled: true,
             kind: None,
+            pour: None,
         });
         project.board.vias.push(Via {
             id: 4,
