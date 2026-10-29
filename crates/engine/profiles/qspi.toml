@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "qspi"
+name = "QSPI flash"
+category = "interface"
+summary = "QSPI flash rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "qspi_default"

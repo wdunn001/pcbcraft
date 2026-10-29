@@ -1,6 +1,7 @@
 use super::*;
 use pcbcraft_library::{
-    FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+    FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
+    SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -22,6 +23,8 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
         ("library.footprint.generate_courtyard","Generate a courtyard rectangle on a project-library footprint: the outline of its pads and artwork grown by a margin, replacing any courtyard the footprint already carries",schema(json!({"name":{"type":"string"},"margin":{"type":"number","minimum":0,"maximum":5,"description":"ring beyond the outermost copper and artwork, millimetres"}}),&["name","margin"])),
+        ("library.footprint.generate","Build an IPC-style land pattern from a bounded family name and package parameters, then create or replace that footprint in the project library",schema(json!({"family":{"type":"string","enum":["chip_2terminal","sot","soic","qfp","qfn","bga","dip","header_single","header_double","radial","axial"]},"density":{"type":"string","enum":["A","B","C"],"default":"B"},"name":{"type":"string","minLength":1,"maxLength":128},"description":{"type":"string"},"keywords":{"type":"string"},"pitch":{"type":"number"},"pin_count":{"type":"integer","minimum":1,"maximum":256},"body_x":{"type":"number"},"body_y":{"type":"number"},"body_z":{"type":"number"},"rows":{"type":"integer","minimum":2,"maximum":50},"cols":{"type":"integer","minimum":2,"maximum":50},"row_spacing":{"type":"number"},"terminal_width":{"type":"number"},"thermal":{"type":"boolean"}}),&["family","name"])),
+        ("library.footprint.check","Read-only library-quality check on a project-library footprint by name or on an inline definition; returns structured findings",schema(json!({"name":{"type":"string"},"definition":{"type":"object"}}),&[])),
         ("library.footprint.pad_set","Add or replace one pad on a project-library footprint by its number, so custom packages gain exposed pads, thermal vias or extra terminals without rewriting the whole definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"object","description":"a full pad: number, shape, size, position, layers and optional drill, as library readers emit them"}}),&["name","pad"])),
         ("library.footprint.pad_remove","Remove one pad from a project-library footprint by its number; the footprint keeps at least one pad, and placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"}}),&["name","pad"])),
         ("library.footprint.pad_move","Slide one pad of a project-library footprint by an offset, as one undoable step, moving its copper and its drill together while size, shape and layers stay put, so a single pad landing in the wrong place can be nudged into position without rewriting the package; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"pad":{"type":"string","description":"pad number, exactly as stored"},"delta":point_schema()}),&["name","pad","delta"])),
@@ -92,6 +95,74 @@ struct RenumberParams {
 struct CourtyardParams {
     name: String,
     margin: f64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FootprintCheckParams {
+    name: Option<String>,
+    definition: Option<FootprintDefinition>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenerateFootprintCommandParams {
+    family: String,
+    #[serde(default = "default_density")]
+    density: String,
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    keywords: String,
+    #[serde(default)]
+    pitch: f64,
+    #[serde(default)]
+    pin_count: u32,
+    #[serde(default)]
+    body_x: f64,
+    #[serde(default)]
+    body_y: f64,
+    #[serde(default)]
+    body_z: f64,
+    #[serde(default)]
+    rows: u32,
+    #[serde(default)]
+    cols: u32,
+    #[serde(default)]
+    row_spacing: f64,
+    #[serde(default)]
+    terminal_width: f64,
+    #[serde(default)]
+    thermal: bool,
+}
+
+fn default_density() -> String {
+    "B".into()
+}
+
+fn land_pattern_params_from_command(a: &GenerateFootprintCommandParams) -> LandPatternParams {
+    let mut params = LandPatternParams {
+        name: a.name.clone(),
+        description: a.description.clone(),
+        keywords: a.keywords.clone(),
+        pitch: a.pitch,
+        pin_count: a.pin_count,
+        body_length: a.body_x,
+        body_width: a.body_y,
+        row_spacing: a.row_spacing,
+        lead_width: a.terminal_width,
+        lead_diameter: 0.0,
+        grid_rows: a.rows,
+        grid_cols: a.cols,
+        thermal_size: if a.thermal {
+            a.body_x.min(a.body_y) * 0.4
+        } else {
+            0.0
+        },
+    };
+    if params.body_length <= 0.0 && a.body_z > 0.0 {
+        params.body_length = a.body_z;
+    }
+    params
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -515,6 +586,42 @@ pub(super) fn run(
             def.rules = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
+        }
+        "library.footprint.generate" => {
+            let a: GenerateFootprintCommandParams = parse(params)?;
+            let density = LandPatternDensity::parse(&a.density).ok_or_else(|| {
+                Error::Invalid("density must be A, B or C (most, nominal or least)".into())
+            })?;
+            let lp = land_pattern_params_from_command(&a);
+            let definition = generate_footprint(&a.family, density, &lp).map_err(Error::Invalid)?;
+            let name = definition.name.clone();
+            if let Some(def) = p.library.footprints.iter_mut().find(|s| s.name == name) {
+                *def = definition;
+            } else {
+                p.library.footprints.push(definition);
+            }
+            p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(json!({"name": name}))
+        }
+        "library.footprint.check" => {
+            let a: FootprintCheckParams = parse(params)?;
+            let def = if let Some(def) = a.definition {
+                def
+            } else if let Some(name) = a.name {
+                p.library
+                    .footprints
+                    .iter()
+                    .find(|s| s.name == name)
+                    .cloned()
+                    .ok_or_else(missing)?
+            } else {
+                return Err(Error::Invalid(
+                    "give a footprint name or an inline definition".into(),
+                ));
+            };
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            let findings = pcbcraft_library::check_footprint(&def);
+            Ok(json!({"findings": findings}))
         }
         "library.footprint.generate_courtyard" => {
             let a: CourtyardParams = parse(params)?;

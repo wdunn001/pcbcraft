@@ -121,6 +121,30 @@ jobs:
       - run: cargo xtask clippy
       - run: cargo xtask docs
 
+  docs-check:
+    name: Documentation standard
+    needs: changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: docs-check
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask docs check
+
   test:
     name: Tests
     needs: changes
@@ -378,7 +402,7 @@ jobs:
   result:
     name: CI result
     # The single check to mark as required in branch protection.
-    needs: [changes, policy, lint, test, wasm, msrv, deny, screenshots, build]
+    needs: [changes, policy, lint, docs-check, test, wasm, msrv, deny, screenshots, build]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}

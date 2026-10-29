@@ -466,9 +466,13 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     "pad {number} shape {shape} requires unsupported geometry"
                 ));
             }
+            let pad_type = match child.value(2) {
+                "np_thru_hole" => "unplated".into(),
+                token => token.to_owned(),
+            };
             s.pads.push(FootprintPad {
                 number,
-                pad_type: child.value(2).to_owned(),
+                pad_type,
                 shape,
                 position: point(child, "at", false)?,
                 rotation: angle(child)?,
