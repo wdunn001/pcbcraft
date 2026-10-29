@@ -1789,6 +1789,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "toml",
 ]
 
 [[package]]
@@ -1807,6 +1808,7 @@ dependencies = [
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-library",
+ "png",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
@@ -1818,6 +1820,7 @@ version = "0.1.0"
 dependencies = [
  "pcbcraft-geom",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
