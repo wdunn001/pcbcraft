@@ -121,7 +121,7 @@ fn main() -> eframe::Result {
 /// - Never raises a limit; capable adapters get exactly eframe's stock request.
 ///
 /// # Dependencies
-/// - eframe's `WgpuConfiguration` (egui-wgpu `setup.rs`).
+/// - `apps/pcbcraft/src/main.rs` builds the eframe `WgpuConfiguration` (egui-wgpu `setup.rs`).
 ///
 /// # Do not
 /// - Hard-code limits here; they must come from the adapter.
