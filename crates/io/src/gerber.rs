@@ -156,9 +156,12 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
         }
     }
-    let (index, side) = match layer {
-        Layer::Front => (1, "Top"),
-        Layer::Back => (2, "Bot"),
+    let idx = layer.index();
+    let index = idx + 1;
+    let side = match idx {
+        0 => "Top",
+        1 => "Bot",
+        _ => "Inr",
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
