@@ -7,6 +7,7 @@ mod artifacts;
 mod board;
 mod builds;
 mod checks;
+mod editing;
 mod layers;
 mod layout;
 mod library;

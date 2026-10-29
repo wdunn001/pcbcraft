@@ -546,7 +546,14 @@ pub struct Graphic {
     pub width: f64,
     /// Text content for the text shape, empty for every other shape.
     pub text: String,
+    /// Fabrication sublayer for a board graphic: `F.SilkS`, `B.SilkS`,
+    /// `F.Mask` or `B.Mask`. Empty keeps the legacy behaviour (front
+    /// artwork only, no mask meaning).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sublayer: String,
 }
+/// Fabrication sublayer names a board graphic may carry.
+pub const GRAPHIC_SUBLAYERS: [&str; 4] = ["F.SilkS", "B.SilkS", "F.Mask", "B.Mask"];
 impl Graphic {
     /// Required vertex count for each shape, or none for an unknown shape.
     pub fn vertex_rule(shape: &str) -> Option<(usize, usize)> {
@@ -2016,10 +2023,60 @@ impl BomField {
 pub struct EmbeddedFile {
     pub name: String,
     pub data: String,
+    /// `text` (the default) or `base64` for binary attachments such as PNG
+    /// images, stored as standard base64 text.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub encoding: String,
 }
+/// Largest base64 text held for one binary attachment (about 2 MiB decoded).
+pub const MAX_BINARY_ATTACHMENT_BASE64: usize = 2_796_204;
+/// Binary attachments a project may carry.
+pub const MAX_BINARY_ATTACHMENTS: usize = 8;
 impl EmbeddedFile {
+    /// True when the file holds base64 text for a binary payload.
+    pub fn is_binary(&self) -> bool {
+        self.encoding == "base64"
+    }
     fn valid(&self) -> bool {
-        !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= 262_144
+        let cap = match self.encoding.as_str() {
+            "" | "text" => 262_144,
+            "base64" => MAX_BINARY_ATTACHMENT_BASE64,
+            _ => return false,
+        };
+        !self.name.trim().is_empty() && self.name.len() <= 128 && self.data.len() <= cap
+    }
+}
+/// A picture shown under the schematic or the board for tracing. It points at
+/// a base64 PNG attachment and never reaches any fabrication or image export.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ReferenceImage {
+    pub id: Id,
+    /// Name of the attached PNG file.
+    pub file: String,
+    /// `schematic` or `pcb`.
+    pub view: String,
+    /// Top-left corner of the picture, in millimetres; the picture extends
+    /// right and down like the canvas does.
+    pub x: f64,
+    pub y: f64,
+    /// Millimetres per image pixel.
+    pub scale: f64,
+    /// Paint opacity from 0 (invisible) to 1.
+    pub opacity: f64,
+    pub visible: bool,
+}
+impl ReferenceImage {
+    fn valid(&self) -> bool {
+        (self.view == "schematic" || self.view == "pcb")
+            && !self.file.is_empty()
+            && self.x.is_finite()
+            && self.y.is_finite()
+            && self.x.abs() <= 100_000.0
+            && self.y.abs() <= 100_000.0
+            && self.scale.is_finite()
+            && (0.001..=100.0).contains(&self.scale)
+            && self.opacity.is_finite()
+            && (0.0..=1.0).contains(&self.opacity)
     }
 }
 /// A set of drawn graphics that translate together as one unit, so a
@@ -2297,6 +2354,9 @@ pub struct Project {
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
+    /// Reference pictures under the canvases, ordered by id; editor-only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reference_images: Vec<ReferenceImage>,
     /// Assembly variants, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<Variant>,
@@ -2460,6 +2520,7 @@ impl Default for Project {
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
+            reference_images: vec![],
             meta: Default::default(),
             parameters: Default::default(),
             bindings: vec![],
@@ -3046,6 +3107,7 @@ impl Project {
             .chain(self.wires.iter().map(|x| x.id))
             .chain(self.drawn_wires.iter().map(|x| x.id))
             .chain(self.graphics.iter().map(|x| x.id))
+            .chain(self.reference_images.iter().map(|x| x.id))
             .chain(self.labels.iter().map(|x| x.id))
             .chain(self.no_connects.iter().map(|x| x.id))
             .chain(self.board.footprints.iter().map(|x| x.id))
@@ -3432,6 +3494,23 @@ impl Project {
                 return Err("attached files need unique short names and 256 KiB or less".into());
             }
         }
+        if self.files.iter().filter(|f| f.is_binary()).count() > MAX_BINARY_ATTACHMENTS {
+            return Err("a project attaches at most 8 binary files".into());
+        }
+        if self.reference_images.len() > 16 {
+            return Err("a project holds at most 16 reference images".into());
+        }
+        for r in &self.reference_images {
+            if !r.valid() {
+                return Err(
+                    "reference images need a view, a position, a scale and an opacity in range"
+                        .into(),
+                );
+            }
+            if !self.files.iter().any(|f| f.name == r.file && f.is_binary()) {
+                return Err("a reference image points at an attached binary file".into());
+            }
+        }
         if self.graphic_groups.len() > 256 {
             return Err("a project defines at most 256 graphic groups".into());
         }
@@ -3678,6 +3757,11 @@ impl Project {
             }
             if !positive(g.width) {
                 return Err("graphic width, radius or text size must be positive".into());
+            }
+            if !g.sublayer.is_empty()
+                && (g.layer != "board" || !GRAPHIC_SUBLAYERS.contains(&g.sublayer.as_str()))
+            {
+                return Err("graphic sublayer must be F.SilkS, B.SilkS, F.Mask or B.Mask on a board graphic".into());
             }
             if g.text.len() > 1024 {
                 return Err("graphic text is too long".into());
