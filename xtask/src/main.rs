@@ -13,6 +13,7 @@
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
+mod e2e;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -32,6 +33,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   deny         cargo-deny licenses, advisories, bans and sources
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
+  strings      extract | check: list text catalog keys, or fail on a bad catalog
+  e2e          full a_newcomer suite plus the tooltip and story coverage gate
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -144,6 +147,65 @@ fn test() -> Result<(), String> {
     }
 }
 
+/// Run every `a_newcomer_*` story and walk the whole UI, then fail on any
+/// control without a tooltip, a story or an id that is not exempted.
+fn e2e() -> Result<(), String> {
+    let root = root()?;
+    let dir = root.join("target").join("e2e");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let touch = dir.join("touched.log");
+    let walk = dir.join("walk.log");
+    let _ = std::fs::remove_file(&touch);
+    let _ = std::fs::remove_file(&walk);
+    // A failing story still leaves its touches in the log, so the gap report
+    // below is printed either way and the run fails on both.
+    let stories = run_env(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "pcbcraft-ui-egui",
+            "--locked",
+            "--",
+            "a_newcomer_",
+            "e2e_audit_walk",
+        ],
+        &[
+            ("PCBCRAFT_E2E_TOUCH_LOG", &touch.to_string_lossy()),
+            ("PCBCRAFT_E2E_WALK_LOG", &walk.to_string_lossy()),
+        ],
+    );
+    let walk_text = std::fs::read_to_string(&walk)
+        .map_err(|e| format!("the UI walk wrote no log ({}): {e}", walk.display()))?;
+    let touch_text = std::fs::read_to_string(&touch).unwrap_or_default();
+    let exempt_path = root.join("e2e-exemptions.txt");
+    let exemptions = match std::fs::read_to_string(&exempt_path) {
+        Ok(text) => e2e::Exemptions::parse(&text)?,
+        Err(_) => e2e::Exemptions::default(),
+    };
+    let report = e2e::diff(&walk_text, &touch_text, &exemptions);
+    let lines = report.lines();
+    let summary = dir.join("report.txt");
+    let _ = std::fs::write(&summary, lines.join("\n"));
+    println!(
+        "e2e gate: {} controls painted, {} gaps (report: {})",
+        report.painted,
+        lines.len(),
+        summary.display()
+    );
+    for line in &lines {
+        eprintln!("{line}");
+    }
+    stories?;
+    if report.is_clean() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} controls lack a tooltip, a story or an id; fix them or add a reviewed entry to e2e-exemptions.txt",
+        lines.len()
+    ))
+}
+
 /// Checks the wasm packages for the wasm32 target.
 fn wasm() -> Result<(), String> {
     let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
@@ -233,7 +295,7 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" => Some(0),
+            "pcbcraft-geom" | "pcbcraft-text" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
@@ -456,6 +518,7 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "e2e" => e2e()?,
         "wasm" => wasm()?,
         "docs" if args.get(1).map(String::as_str) == Some("check") => {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
@@ -463,6 +526,7 @@ fn run() -> Result<(), String> {
         "docs" => docs()?,
         "deny" => deny()?,
         "msrv" => msrv()?,
+        "strings" => strings(args.get(1).map(String::as_str))?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
         "bless-parity" => run_env(
             "cargo",
@@ -471,6 +535,85 @@ fn run() -> Result<(), String> {
         )?,
         "help" | "--help" | "-h" => println!("{USAGE}"),
         _ => return Err(USAGE.into()),
+    }
+    Ok(())
+}
+
+/// `strings extract` prints every catalog key with its English text.
+/// `strings check` fails on a malformed or duplicated key in en.txt, a
+/// translation file with unknown keys or changed placeholders, a `t!("key")`
+/// in ui-egui that en.txt lacks, or a string literal inside a function that
+/// strings/converted-fns.txt lists as converted.
+fn strings(mode: Option<&str>) -> Result<(), String> {
+    use pcbcraft_text::{ENGLISH, parse, placeholders, scan};
+    let (english, errors) = parse(ENGLISH);
+    match mode {
+        Some("extract") => {
+            for (key, value) in &english {
+                println!("{key} = {value}");
+            }
+            Ok(())
+        }
+        Some("check") => {
+            let mut problems: Vec<String> = errors.iter().map(|e| format!("en.txt {e}")).collect();
+            let mut seen = std::collections::BTreeMap::new();
+            for (key, value) in &english {
+                if seen.insert(key.clone(), value.clone()).is_some() {
+                    problems.push(format!("en.txt: duplicate key `{key}`"));
+                }
+            }
+            let strings_dir = root()?.join("crates/text/strings");
+            let entries = std::fs::read_dir(&strings_dir).map_err(|e| e.to_string())?;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name == "en.txt" || !name.ends_with(".txt") || name == "converted-fns.txt" {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                let (lines, errors) = parse(&text);
+                problems.extend(errors.iter().map(|e| format!("{name} {e}")));
+                for (key, value) in lines {
+                    match seen.get(&key) {
+                        None => problems.push(format!("{name}: key `{key}` is not in en.txt")),
+                        Some(base) if placeholders(base) != placeholders(&value) => {
+                            problems.push(format!("{name}: `{key}` changes the placeholders"));
+                        }
+                        Some(_) => {}
+                    }
+                }
+            }
+            let mut files = Vec::new();
+            let src = root()?.join("crates/ui-egui/src");
+            collect_rs(&src, &src, &mut files)?;
+            problems.extend(scan::problems(&files));
+            if problems.is_empty() {
+                println!("strings check: {} keys, catalog clean", english.len());
+                Ok(())
+            } else {
+                Err(problems.join("\n"))
+            }
+        }
+        _ => Err("usage: cargo xtask strings extract|check".into()),
+    }
+}
+
+fn collect_rs(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> Result<(), String> {
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs(base, &path, out)?;
+        } else if path.extension().is_some_and(|x| x == "rs") {
+            let name = path
+                .strip_prefix(base)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .into_owned();
+            out.push((
+                name,
+                std::fs::read_to_string(&path).map_err(|e| e.to_string())?,
+            ));
+        }
     }
     Ok(())
 }
