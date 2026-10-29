@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), String> {
@@ -13,12 +12,12 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     assert!(
         scrolled_to(&ctx, &mut app, "New net")?,
         "the layers tree offers a way to add a connection"
     );
-    tap(&ctx, &mut app, "New net")?;
+    authoring::tests::tap(&ctx, &mut app, "New net")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
     assert!(
@@ -41,11 +40,11 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
             .count()
     };
     assert_eq!(on_net(&app), 0, "the resistor starts unconnected");
-    tap(&ctx, &mut app, "choose a spare pin")?;
+    authoring::tests::tap(&ctx, &mut app, "choose a spare pin")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "R1 pin 1")?;
+    authoring::tests::tap(&ctx, &mut app, "R1 pin 1")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Connect")?;
+    authoring::tests::tap(&ctx, &mut app, "Connect")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         on_net(&app),
@@ -57,7 +56,7 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
         paints_text(&ctx, &mut app, "R1 pin 1")?,
         "the pin is listed on the connection"
     );
-    tap(&ctx, &mut app, "\u{d7}")?;
+    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         on_net(&app),
@@ -67,7 +66,6 @@ fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), S
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -94,13 +92,13 @@ fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Resu
     app.highlight_net = Some(vcc);
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Edit")?;
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Clear wiring on VCC")?,
         "the lit connection gets its own clear item"
     );
-    tap(&ctx, &mut app, "Clear wiring on VCC")?;
+    authoring::tests::tap(&ctx, &mut app, "Clear wiring on VCC")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.board.tracks.len() < routed,
@@ -116,9 +114,9 @@ fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Resu
         routed > 0,
         "the copper should be back for the whole-board clear"
     );
-    tap(&ctx, &mut app, "Edit")?;
+    authoring::tests::tap(&ctx, &mut app, "Edit")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Clear all wiring")?;
+    authoring::tests::tap(&ctx, &mut app, "Clear all wiring")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.tracks.len(),
@@ -129,7 +127,6 @@ fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Resu
     assert_eq!(app.project.nets.len(), 3, "the connections themselves stay");
     Ok(())
 }
-
 #[test]
 fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -168,7 +165,7 @@ fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
         "the picked wire's width is editable in the inspector: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Set width")?;
+    authoring::tests::tap(&ctx, &mut app, "Set width")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -182,7 +179,6 @@ fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -210,9 +206,9 @@ fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Harden junctions")?;
+    authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -220,7 +216,7 @@ fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
         "one click grows teardrop copper at every joint: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Remove teardrops")?;
+    authoring::tests::tap(&ctx, &mut app, "Remove teardrops")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -231,7 +227,6 @@ fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_learns_where_a_wire_s_size_comes_from() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -321,7 +316,6 @@ fn a_newcomer_learns_where_a_wire_s_size_comes_from() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -330,13 +324,13 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     for _ in 0..18 {
         frame(
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -353,7 +347,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
         app.message
     );
     app.dp_gap = 0.3;
-    tap(&ctx, &mut app, "Declare pair")?;
+    authoring::tests::tap(&ctx, &mut app, "Declare pair")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -370,7 +364,7 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
         "the pair is listed so it can be taken away: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Remove")?;
+    authoring::tests::tap(&ctx, &mut app, "Remove")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -380,7 +374,6 @@ fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -393,13 +386,13 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     for _ in 0..14 {
         frame(
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -416,7 +409,7 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
         app.message
     );
     app.pair_clearance = 0.9;
-    tap(&ctx, &mut app, "Set spacing")?;
+    authoring::tests::tap(&ctx, &mut app, "Set spacing")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -433,7 +426,7 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
         "the rule is listed in plain words: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Clear")?;
+    authoring::tests::tap(&ctx, &mut app, "Clear")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -443,7 +436,6 @@ fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -483,7 +475,7 @@ fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
         "the inspector offers to widen the entire run, not just the picked leg: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Thicken whole connection")?;
+    authoring::tests::tap(&ctx, &mut app, "Thicken whole connection")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let legs: Vec<f64> = app
@@ -501,7 +493,6 @@ fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -533,7 +524,7 @@ fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
         "a chosen wire offers to be cut in half: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Cut in half")?;
+    authoring::tests::tap(&ctx, &mut app, "Cut in half")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -553,7 +544,48 @@ fn a_newcomer_cuts_a_wire_in_half() -> Result<(), String> {
     );
     Ok(())
 }
-
+#[test]
+fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","reference":"R7","value":"1 k","position":{"x":50.0,"y":40.0}}),
+    );
+    app.run(
+        "component.add",
+        json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Preview")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "R7  →  R3")?,
+        "the plan spells out a new number before anything changes: {}",
+        app.message
+    );
+    let untouched = app.project.components.iter().any(|c| c.reference == "R9");
+    assert!(untouched, "a preview never touches the design");
+    authoring::tests::tap(&ctx, &mut app, "Renumber")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let mut references: Vec<String> = app
+        .project
+        .components
+        .iter()
+        .map(|c| c.reference.clone())
+        .collect();
+    references.sort();
+    assert_eq!(
+        references,
+        ["D1", "J1", "R1", "R2", "R3"],
+        "the numbers follow placement order: {}",
+        app.message
+    );
+    Ok(())
+}
 #[test]
 fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -568,7 +600,7 @@ fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
     app.tab = Tab::Schematic;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "No connect")?;
+    authoring::tests::tap(&ctx, &mut app, "No connect")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let spare = app
         .project
@@ -612,49 +644,6 @@ fn a_newcomer_marks_an_unused_pin_so_no_one_asks_again() -> Result<(), String> {
         app.project.no_connects.len(),
         before + 1,
         "the tool stays ready for the next unused pin: {}",
-        app.message
-    );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_renumbers_a_messy_pile_of_parts_in_one_step() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    app.tool_call("sample_design", json!({}));
-    app.run(
-        "component.add",
-        json!({"kind":"resistor","reference":"R7","value":"1 k","position":{"x":50.0,"y":40.0}}),
-    );
-    app.run(
-        "component.add",
-        json!({"kind":"resistor","reference":"R9","value":"10 k","position":{"x":10.0,"y":40.0}}),
-    );
-    let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Preview")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "R7  →  R3")?,
-        "the plan spells out a new number before anything changes: {}",
-        app.message
-    );
-    let untouched = app.project.components.iter().any(|c| c.reference == "R9");
-    assert!(untouched, "a preview never touches the design");
-    tap(&ctx, &mut app, "Renumber")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let mut references: Vec<String> = app
-        .project
-        .components
-        .iter()
-        .map(|c| c.reference.clone())
-        .collect();
-    references.sort();
-    assert_eq!(
-        references,
-        ["D1", "J1", "R1", "R2", "R3"],
-        "the numbers follow placement order: {}",
         app.message
     );
     Ok(())

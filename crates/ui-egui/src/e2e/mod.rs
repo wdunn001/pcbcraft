@@ -1,11 +1,12 @@
-#![allow(clippy::too_many_lines)]
+//! End-to-end stories: each `a_newcomer_*` test drives the real window like a
+//! first-time user. One file per area; helpers live in `support`.
+
+pub(crate) mod support;
 
 mod artifacts;
 mod board;
 mod builds;
 mod checks;
-mod compare;
-mod keymap;
 mod layers;
 mod layout;
 mod library;

@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
@@ -10,14 +9,16 @@ fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Builds")?;
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Builds")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "No extra builds")?,
         "a plain design says so: {}",
         app.message
     );
-    tap(&ctx, &mut app, "New build")?;
+    authoring::tests::tap(&ctx, &mut app, "New build")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.variants.len(),
@@ -25,11 +26,11 @@ fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
         "one click adds one build: {}",
         app.message
     );
-    tap(&ctx, &mut app, "choose a part to leave off")?;
+    authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "R1")?;
+    authoring::tests::tap(&ctx, &mut app, "R1")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Leave off")?;
+    authoring::tests::tap(&ctx, &mut app, "Leave off")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let r1 = app
         .project
@@ -47,11 +48,11 @@ fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
         paints_text(&ctx, &mut app, "1 left off")?,
         "the row counts what it skips"
     );
-    tap(&ctx, &mut app, "Note")?;
+    authoring::tests::tap(&ctx, &mut app, "Note")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Save note")?;
+    authoring::tests::tap(&ctx, &mut app, "Save note")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.variants[0].note.as_deref(),
@@ -63,14 +64,14 @@ fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
         paints_text(&ctx, &mut app, "no blue LED")?,
         "the reminder shows on the row"
     );
-    tap(&ctx, &mut app, "\u{d7}")?;
+    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.variants[0].dnp.is_empty(),
         "the part is back on the build: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Remove")?;
+    authoring::tests::tap(&ctx, &mut app, "Remove")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.variants.is_empty(),
@@ -79,7 +80,6 @@ fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -88,17 +88,19 @@ fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Builds")?;
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "New build")?;
+    authoring::tests::tap(&ctx, &mut app, "Builds")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "choose a part to swap")?;
+    authoring::tests::tap(&ctx, &mut app, "New build")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "R1")?;
+    authoring::tests::tap(&ctx, &mut app, "choose a part to swap")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "R1")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.swap_name = "0603".into();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Swap package")?;
+    authoring::tests::tap(&ctx, &mut app, "Swap package")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let r1 = app
         .project
@@ -125,7 +127,7 @@ fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), Strin
         paints_text(&ctx, &mut app, "R1 fits 0603")?,
         "the swap is spelled out in plain words"
     );
-    tap(&ctx, &mut app, "\u{d7}")?;
+    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.variants[0].footprints.is_empty(),

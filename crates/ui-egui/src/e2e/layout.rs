@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
@@ -30,7 +29,7 @@ fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
         "a chosen part offers to be copied: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Duplicate")?;
+    authoring::tests::tap(&ctx, &mut app, "Duplicate")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let after: Vec<String> = app
@@ -51,13 +50,13 @@ fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
+    app.change_tab(Tab::Pcb);
     app.select(Some(10));
     app.refresh();
     let ctx = egui::Context::default();
@@ -67,7 +66,7 @@ fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
         "a chosen footprint offers to be frozen: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Lock in place")?;
+    authoring::tests::tap(&ctx, &mut app, "Lock in place")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let frozen = |app: &App| {
@@ -88,7 +87,7 @@ fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
         "a frozen part refuses to be shoved: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Unlock")?;
+    authoring::tests::tap(&ctx, &mut app, "Unlock")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -98,7 +97,6 @@ fn a_newcomer_freezes_a_part_so_nothing_moves_it() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -122,7 +120,7 @@ fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
         "a chosen footprint offers to sit flush to an edge: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Dock left")?;
+    authoring::tests::tap(&ctx, &mut app, "Dock left")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let after = app
@@ -139,7 +137,6 @@ fn a_newcomer_docks_a_part_flush_to_the_board_edge() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -178,7 +175,7 @@ fn a_newcomer_smooths_a_corner_for_the_etcher() -> Result<(), String> {
         "a wire that meets another offers a corner cut: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Cut corner")?;
+    authoring::tests::tap(&ctx, &mut app, "Cut corner")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(

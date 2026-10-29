@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
@@ -12,7 +11,11 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert!(
+        scrolled_to(&ctx, &mut app, "This board")?,
+        "the tree still exposes the board root header"
+    );
     assert!(
         paints_text(&ctx, &mut app, "This board")?,
         "the tree starts at the board itself: {}",
@@ -33,14 +36,14 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
         "the copper layers are rows of the tree: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Top copper wires")?;
+    authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "Fade others")?,
         "a copper layer offers a way to fade the rest: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Fade others")?;
+    authoring::tests::tap(&ctx, &mut app, "Fade others")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.focus_layer.as_deref(),
@@ -53,7 +56,7 @@ fn a_newcomer_finds_anything_through_one_tree() -> Result<(), String> {
         "the drawing says what is focused: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Stop fading")?;
+    authoring::tests::tap(&ctx, &mut app, "Stop fading")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.focus_layer, None,

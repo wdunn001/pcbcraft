@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
@@ -46,7 +45,7 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
         "the status strip should count the warnings ({mind_label}): {}",
         app.message
     );
-    tap(&ctx, &mut app, &mind_label)?;
+    authoring::tests::tap(&ctx, &mut app, &mind_label)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.tab,
@@ -56,7 +55,6 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -66,7 +64,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Assembly mark")?;
+    authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-27.0, -17.0), 1.0);
     assert_eq!(
@@ -94,18 +92,18 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
         "the marks are listed with their size and side"
     );
     let last = app.project.board.fiducials[1].id;
-    tap(&ctx, &mut app, "Tune")?;
+    authoring::tests::tap(&ctx, &mut app, "Tune")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.fiducial_edit = Some((last, 1.2, false));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Apply")?;
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.board.fiducials.iter().any(|fid| {
@@ -116,7 +114,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
         "the mark is resized and moved to the bottom: {}",
         app.message
     );
-    tap(&ctx, &mut app, "\u{d7}")?;
+    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.fiducials.len(),
@@ -126,39 +124,41 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
-fn a_newcomer_opens_rules_and_settings_from_the_top() -> Result<(), String> {
+fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
     assert!(
-        paints_text(&ctx, &mut app, "Design rules travel with the design")?,
-        "the Rules tab explains what rules are for: {}",
+        paints_text(&ctx, &mut app, "Library")?,
+        "the left dock is the library browser: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "New class")?,
-        "the Rules tab offers a way to add a rule set"
-    );
-    tap(&ctx, &mut app, "Settings")?;
-    assert!(
-        paints_text(&ctx, &mut app, "APPEARANCE")?,
-        "the Settings tab opens with the look of the app"
+        paints_text(&ctx, &mut app, "Layers")?,
+        "the right dock leads with the layers tree: {}",
+        app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "BOARD GEOMETRY")?,
-        "the board settings that used to crowd the aside now live on the Settings tab"
+        paints_text(&ctx, &mut app, "Properties")?,
+        "object details sit in the lower right tab: {}",
+        app.message
     );
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
     assert!(
-        paints_text(&ctx, &mut app, "Nothing selected")?,
-        "the aside no longer holds the project settings"
+        paints_text(&ctx, &mut app, "Project files")?,
+        "build outputs moved under Files: {}",
+        app.message
     );
-    tap(&ctx, &mut app, "Dark")?;
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(app.preferences.dark, "the theme switch on the tab works");
+    assert!(
+        paints_text(&ctx, &mut app, "Mounting hole")?,
+        "board tools sit in the strip under the tabs: {}",
+        app.message
+    );
     Ok(())
 }

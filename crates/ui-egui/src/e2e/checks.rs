@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
@@ -34,7 +33,7 @@ fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
     let (code, count) = best.ok_or("the practice board should have findings")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
     let words = code.replace('_', " ");
     let mut chars = words.chars();
     let human = match chars.next() {
@@ -80,7 +79,6 @@ fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -89,14 +87,14 @@ fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for _ in 0..2 {
         frame(
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -112,7 +110,7 @@ fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
         "the rules dock should also say how loud each check is: {}",
         app.message
     );
-    tap(&ctx, &mut app, "off")?;
+    authoring::tests::tap(&ctx, &mut app, "off")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -120,7 +118,7 @@ fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
         "the bottom check is silenced by one click: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Auto")?;
+    authoring::tests::tap(&ctx, &mut app, "Auto")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -130,7 +128,6 @@ fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -156,14 +153,14 @@ fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
     );
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Quiet this area")?,
         "every finding offers to quiet its corner of the board: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Quiet this area")?;
+    authoring::tests::tap(&ctx, &mut app, "Quiet this area")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let code = app
@@ -183,7 +180,7 @@ fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
         "the quiet zones are listed so they can be cleared: {}",
         app.message
     );
-    tap(&ctx, &mut app, &format!("Clear {code} zones"))?;
+    authoring::tests::tap(&ctx, &mut app, &format!("Clear {code} zones"))?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -196,7 +193,6 @@ fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -242,14 +238,14 @@ fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
     let before = total(&app);
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Hide this")?,
         "every finding offers to be hidden: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Hide this")?;
+    authoring::tests::tap(&ctx, &mut app, "Hide this")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -270,7 +266,7 @@ fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
         "the app keeps a way back for everything hidden: {}",
         app.message
     );
-    tap(&ctx, &mut app, &label)?;
+    authoring::tests::tap(&ctx, &mut app, &label)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -281,7 +277,6 @@ fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -290,14 +285,14 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for _ in 0..1 {
         frame(
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -318,7 +313,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
     app.custom_limit = 2.0;
     app.custom_loud = true;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Add this check")?;
+    authoring::tests::tap(&ctx, &mut app, "Add this check")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(
@@ -329,7 +324,7 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         "the check is written into the design: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Checks")?;
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Your check: keep it small · 1 place")?,
@@ -341,9 +336,9 @@ fn a_newcomer_writes_their_own_check() -> Result<(), String> {
         "a breach of a must-fix check lands in the footer count: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     scrolled_to_at(&ctx, &mut app, "Remove this check", 300.0)?;
-    tap(&ctx, &mut app, "Remove this check")?;
+    authoring::tests::tap(&ctx, &mut app, "Remove this check")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert!(

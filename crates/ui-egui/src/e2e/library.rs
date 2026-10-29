@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), String> {
@@ -10,13 +9,13 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Add part")?;
+    authoring::tests::tap(&ctx, &mut app, "Add part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Search parts by name")?,
         "the part search opens with a box that says what to type"
     );
-    tap(&ctx, &mut app, "Search parts by name")?;
+    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
     for letter in "resistor".chars() {
         frame(
             &ctx,
@@ -38,7 +37,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
         !paints_text(&ctx, &mut app, "Capacitor")?,
         "parts that do not match the search disappear from the list"
     );
-    tap(&ctx, &mut app, "Resistor")?;
+    authoring::tests::tap(&ctx, &mut app, "Resistor")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(&app.tool, Tool::Place(kind) if kind == "resistor"),
@@ -52,7 +51,6 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -96,7 +94,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         "a part row says what the part is and where it came from: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Add part")?;
+    authoring::tests::tap(&ctx, &mut app, "Add part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "Power bits (1 part)")?,
@@ -113,14 +111,14 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         "the part itself is offered under its set: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Power bits (1 part)")?;
+    authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         !paints_text(&ctx, &mut app, "SetR")?,
         "unticking the set hides every part inside it: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Power bits (1 part)")?;
+    authoring::tests::tap(&ctx, &mut app, "Power bits (1 part)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "SetR")?,

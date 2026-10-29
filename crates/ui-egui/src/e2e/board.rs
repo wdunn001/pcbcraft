@@ -1,6 +1,5 @@
-use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+﻿use super::super::*;
+use super::support::*;
 
 #[test]
 fn a_newcomer_adds_a_part_and_finds_it_on_the_board() -> Result<(), String> {
@@ -43,15 +42,15 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "HASL")?,
         "the board shows the finish it ships with"
     );
-    tap(&ctx, &mut app, "HASL")?;
+    authoring::tests::tap(&ctx, &mut app, "HASL")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "ENIG")?;
+    authoring::tests::tap(&ctx, &mut app, "ENIG")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.finish, "ENIG",
@@ -61,9 +60,9 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     app.notes_thick = 1.2;
     app.notes_er = 4.2;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Set thickness")?;
+    authoring::tests::tap(&ctx, &mut app, "Set thickness")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Set substrate")?;
+    authoring::tests::tap(&ctx, &mut app, "Set substrate")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         (app.project.board.thickness - 1.2).abs() < 1e-9
@@ -73,7 +72,7 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
         app.project.board.er,
         app.message
     );
-    tap(&ctx, &mut app, "Plated board edge")?;
+    authoring::tests::tap(&ctx, &mut app, "Plated board edge")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project
@@ -87,7 +86,6 @@ fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), Stri
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -96,7 +94,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
@@ -105,7 +103,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     );
     app.stack_name = "Core".into();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Add layer")?;
+    authoring::tests::tap(&ctx, &mut app, "Add layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.layer_records.len(),
@@ -117,7 +115,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     app.stack_kind = "copper".into();
     app.stack_thickness = 0.035;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Add layer")?;
+    authoring::tests::tap(&ctx, &mut app, "Add layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.layer_records.len(),
@@ -130,11 +128,11 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
         "the sheet totals the board: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Tune")?;
+    authoring::tests::tap(&ctx, &mut app, "Tune")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.stack_edit = Some(("L2".into(), "copper".into(), 0.05));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Apply")?;
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let l2 = app
         .project
@@ -150,7 +148,7 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
         l2.thickness,
         app.message
     );
-    tap(&ctx, &mut app, "Back to a plain two-layer board")?;
+    authoring::tests::tap(&ctx, &mut app, "Back to a plain two-layer board")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.board.layer_records.is_empty(),
@@ -159,7 +157,6 @@ fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -168,7 +165,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     let mut shown = false;
     for _ in 0..8 {
         if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
@@ -179,7 +176,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -195,7 +192,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
         "the layers dock should offer ready-made board shapes: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Four layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Four layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let names: Vec<String> = self_names(&app);
     assert_eq!(
@@ -207,7 +204,7 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
         names.iter().any(|n| n == "Inner 1"),
         "the four-layer shape should add inner copper planes: {names:?}"
     );
-    tap(&ctx, &mut app, "Two layers · 1.6 mm")?;
+    authoring::tests::tap(&ctx, &mut app, "Two layers · 1.6 mm")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let names = self_names(&app);
     assert_eq!(
@@ -217,7 +214,6 @@ fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -250,7 +246,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         .ok_or("routing should leave a wire on the top layer")?;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     let mut shown = false;
     for _ in 0..14 {
         if paints_text(&ctx, &mut app, "BOARD ANATOMY")? {
@@ -261,7 +257,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -287,7 +283,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -303,7 +299,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         "the anatomy list should show the top copper wires layer: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Top copper wires")?;
+    authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
     let mut row = false;
     for _ in 0..18 {
         if paints_text(&ctx, &mut app, &label)? {
@@ -314,7 +310,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -330,7 +326,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         "the top copper layer should show the drawn wire {label}: {}",
         app.message
     );
-    tap(&ctx, &mut app, &label)?;
+    authoring::tests::tap(&ctx, &mut app, &label)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.selected,
@@ -345,7 +341,6 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -355,7 +350,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     let before = app.project.board.texts.len();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
         "the board panel should offer printed words: {}",
@@ -367,7 +362,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     app.label_size = 1.2;
     app.label_front = false;
     scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
-    tap(&ctx, &mut app, "Add label")?;
+    authoring::tests::tap(&ctx, &mut app, "Add label")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -410,7 +405,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
         "the printed words are listed so they can be wiped: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Erase")?;
+    authoring::tests::tap(&ctx, &mut app, "Erase")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -421,7 +416,6 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -431,13 +425,13 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
     let before = app.project.board.rule_areas.len();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Rules")?;
+    authoring::tests::tap(&ctx, &mut app, "Rules")?;
     for _ in 0..22 {
         frame(
             &ctx,
             &mut app,
             vec![
-                egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
+                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
                 egui::Event::MouseWheel {
                     unit: egui::MouseWheelUnit::Line,
                     delta: egui::vec2(0.0, -4.0),
@@ -460,7 +454,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
     app.area_gap = 0.5;
     app.area_limited = true;
     app.area_height = 3.0;
-    tap(&ctx, &mut app, "Add area")?;
+    authoring::tests::tap(&ctx, &mut app, "Add area")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -484,7 +478,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
         "the area is listed so it can be erased: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Erase area")?;
+    authoring::tests::tap(&ctx, &mut app, "Erase area")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -495,7 +489,6 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -504,7 +497,7 @@ fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
         paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
         "the board geometry section should offer a hole: {}",
@@ -514,7 +507,7 @@ fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     app.cut_x = 25.0;
     app.cut_y = 20.0;
     app.cut_r = 1.5;
-    tap(&ctx, &mut app, "Add hole")?;
+    authoring::tests::tap(&ctx, &mut app, "Add hole")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -536,7 +529,49 @@ fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
     );
     Ok(())
 }
-
+#[test]
+fn a_newcomer_drills_a_slot_and_reads_how_long_it_is() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    app.tool_call(
+        "hole.slot",
+        json!({"start":{"x":12.0,"y":8.0},"end":{"x":18.0,"y":8.0},"width":1.5}),
+    );
+    let slot = app
+        .project
+        .board
+        .holes
+        .iter()
+        .find(|h| h.is_slot())
+        .map(|h| h.id)
+        .ok_or("the slot should be on the board")?;
+    app.change_tab(Tab::Pcb);
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert!(
+        scrolled_to(&ctx, &mut app, "MOUNTING HOLES")?,
+        "the hole list is the place a slot is read: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "1.50 mm slot 7.50 mm long")?,
+        "a slot reads as its width and its overall length: {}",
+        app.message
+    );
+    // The canvas paints the slot without complaint; the drawing is the
+    // only place a capsule outline shows up.
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.select(Some(slot));
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.project.board.holes.iter().any(|h| h.id == slot),
+        "looking at the slot leaves it on the board"
+    );
+    Ok(())
+}
 #[test]
 fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -546,7 +581,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Mounting hole")?;
+    authoring::tests::tap(&ctx, &mut app, "Mounting hole")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-25.0, -17.0), 1.0);
     assert_eq!(
@@ -574,18 +609,18 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Layers")?;
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "3.20 mm")?,
         "the holes are listed with their drill size"
     );
     let id = app.project.board.holes[0].id;
-    tap(&ctx, &mut app, "Tune")?;
+    authoring::tests::tap(&ctx, &mut app, "Tune")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.hole_edit = Some((id, 3.0));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Apply")?;
+    authoring::tests::tap(&ctx, &mut app, "Apply")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project
@@ -596,7 +631,7 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
         "the hole is resized: {}",
         app.message
     );
-    tap(&ctx, &mut app, "\u{d7}")?;
+    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.holes.len(),
@@ -606,7 +641,6 @@ fn a_newcomer_drills_mounting_holes_into_the_board() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -617,9 +651,9 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Draw shape")?;
+    authoring::tests::tap(&ctx, &mut app, "Draw shape")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "New layer")?;
+    authoring::tests::tap(&ctx, &mut app, "New layer")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.user_layers.len(),
@@ -627,7 +661,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
         "the new layer button should add a layer: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Line")?;
+    authoring::tests::tap(&ctx, &mut app, "Line")?;
     let click = |p: egui::Pos2| {
         vec![
             egui::Event::PointerMoved(p),
@@ -666,7 +700,7 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
         app.message
     );
     app.art_text = "HELLO LASER".into();
-    tap(&ctx, &mut app, "Words")?;
+    authoring::tests::tap(&ctx, &mut app, "Words")?;
     frame(
         &ctx,
         &mut app,
@@ -688,6 +722,70 @@ fn a_newcomer_draws_a_cut_line_for_their_laser() -> Result<(), String> {
             pcbcraft_doc::ArtShape::Text { text, .. } if text == "HELLO LASER"
         )),
         "the printed words should be exactly what was typed"
+    );
+    Ok(())
+}
+#[test]
+fn a_newcomer_sees_their_cut_line_conflict_with_a_via() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    // The sample board has no vias, so the story places one in the middle
+    // of the board and then draws a cut line straight across it.
+    app.tool_call(
+        "via.place",
+        json!({"net":4,"position":{"x":20.0,"y":30.0},"diameter":0.8,"drill":0.4}),
+    );
+    assert_eq!(
+        app.project.board.vias.len(),
+        1,
+        "the via should be placed: {}",
+        app.message
+    );
+    app.tool_call(
+        "board.layer_add",
+        json!({"name":"Card Outline","kind":"cut"}),
+    );
+    let layer = app
+        .project
+        .board
+        .user_layers
+        .iter()
+        .find(|l| l.name == "Card Outline")
+        .map(|l| l.id)
+        .ok_or("the cut layer should be added")?;
+    app.tool_call(
+        "board.layer_line_add",
+        json!({"layer":layer,"x1":18.0,"y1":30.0,"x2":22.0,"y2":30.0}),
+    );
+    app.refresh();
+    let conflict = app
+        .checks
+        .get("drc")
+        .and_then(Value::as_array)
+        .is_some_and(|rows| {
+            rows.iter()
+                .any(|r| r.get("code").and_then(Value::as_str) == Some("cut_hits_via"))
+        });
+    assert!(
+        conflict,
+        "the cut across the via is reported: {}",
+        app.message
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Cut hits via")?,
+        "the review names the conflict in plain words: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "1 to fix")?,
+        "a cut through a via lands in the footer count: {}",
+        app.message
     );
     Ok(())
 }

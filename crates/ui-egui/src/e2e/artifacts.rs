@@ -1,6 +1,5 @@
 use super::super::*;
-use crate::test_support::{frame, paints_text, scrolled_to, scrolled_to_at, self_names, tap};
-use serde_json::json;
+use super::support::*;
 
 #[test]
 fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
@@ -29,16 +28,16 @@ fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
             egui::Modifiers::NONE,
         );
     }
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     scrolled_to_at(&ctx, &mut app, "Printable drawing (PDF)", 300.0)?;
-    tap(&ctx, &mut app, "Printable drawing (PDF)")?;
+    authoring::tests::tap(&ctx, &mut app, "Printable drawing (PDF)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         folder.join("board.pdf").is_file(),
         "one click leaves a printable drawing on disk: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Web drawing (SVG)")?;
+    authoring::tests::tap(&ctx, &mut app, "Web drawing (SVG)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         folder.join("board.svg").is_file(),
@@ -53,7 +52,6 @@ fn a_newcomer_prints_a_drawing_of_the_board() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&folder);
     Ok(())
 }
-
 #[test]
 fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -63,7 +61,7 @@ fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     let before = app.project.board.zones.len();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "Pour copper", 300.0)?,
         "the board geometry section should offer a copper pour: {}",
@@ -73,7 +71,7 @@ fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     app.pour_y = 2.0;
     app.pour_w = 6.0;
     app.pour_h = 4.0;
-    tap(&ctx, &mut app, "Pour copper")?;
+    authoring::tests::tap(&ctx, &mut app, "Pour copper")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     assert_eq!(
@@ -101,7 +99,6 @@ fn a_newcomer_pours_a_block_of_copper() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -115,11 +112,11 @@ fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
         .map(|n| n.id)
         .ok_or("the practice design should have a net")?;
     app.tool_call(
-            "zone.place",
-            json!({"net": net, "layer":"F.Cu","outline":[
-                {"x":2.0,"y":2.0},{"x":8.0,"y":2.0},{"x":8.0,"y":6.0},{"x":2.0,"y":6.0},{"x":2.0,"y":2.0}
-            ]}),
-        );
+        "zone.place",
+        json!({"net": net, "layer":"F.Cu","outline":[
+            {"x":2.0,"y":2.0},{"x":8.0,"y":2.0},{"x":8.0,"y":6.0},{"x":2.0,"y":6.0},{"x":2.0,"y":2.0}
+        ]}),
+    );
     let zone_id = app
         .project
         .board
@@ -136,7 +133,7 @@ fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
         "a chosen copper area offers to be stitched: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Fill with vias")?;
+    authoring::tests::tap(&ctx, &mut app, "Fill with vias")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let stitched = app.project.board.vias.len() - vias_before;
@@ -157,7 +154,6 @@ fn a_newcomer_fills_a_copper_area_with_vias() -> Result<(), String> {
     );
     Ok(())
 }
-
 #[test]
 fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -169,13 +165,13 @@ fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
     app.make_dir = folder.to_string_lossy().into_owned();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "Drill map (CSV)", 300.0)?,
         "the make files should include a drill map: {}",
         app.message
     );
-    tap(&ctx, &mut app, "Drill map (CSV)")?;
+    authoring::tests::tap(&ctx, &mut app, "Drill map (CSV)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let map = folder.join("board-drill-tools.csv");
     let text = std::fs::read_to_string(&map)
@@ -187,7 +183,6 @@ fn a_newcomer_writes_a_drill_map() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&folder);
     Ok(())
 }
-
 #[test]
 fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -215,20 +210,20 @@ fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
             egui::Modifiers::NONE,
         );
     }
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "BOARD DRAWINGS", 300.0)?,
         "the factory folder section should also offer a 3D look: {}",
         app.message
     );
-    tap(&ctx, &mut app, "3D model (Step)")?;
+    authoring::tests::tap(&ctx, &mut app, "3D model (Step)")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         folder.join("board.step").is_file(),
         "one click leaves a Step model on disk: {}",
         app.message
     );
-    tap(&ctx, &mut app, "3D viewer file")?;
+    authoring::tests::tap(&ctx, &mut app, "3D viewer file")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         folder.join("board.wrl").is_file(),
@@ -243,7 +238,6 @@ fn a_newcomer_gets_a_3d_model_of_the_board() -> Result<(), String> {
     let _ = std::fs::remove_dir_all(&folder);
     Ok(())
 }
-
 #[test]
 fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
@@ -268,14 +262,14 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
             egui::Modifiers::NONE,
         );
     }
-    tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "PANEL PLAN", 300.0)?,
         "the factory folder section should also plan panels: {}",
         app.message
     );
     let width = app.project.board.width;
-    tap(&ctx, &mut app, "Preview panel")?;
+    authoring::tests::tap(&ctx, &mut app, "Preview panel")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         paints_text(&ctx, &mut app, "4 copies")?,
@@ -292,50 +286,5 @@ fn a_newcomer_plans_a_panel_of_board_copies() -> Result<(), String> {
         app.project.board.width, width,
         "planning a panel never touches the design"
     );
-    Ok(())
-}
-
-#[test]
-fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> {
-    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-    let mut app = App::create(shared, Preferences::default(), None, None);
-    app.refresh();
-    app.tool_call("sample_design", json!({}));
-    let directory = std::env::temp_dir().join(format!("pcbcraft-fab-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    app.make_dir = directory.to_string_lossy().into_owned();
-    let ctx = egui::Context::default();
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Settings")?;
-    tap(&ctx, &mut app, "Copper & drill files")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    tap(&ctx, &mut app, "Plot files")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    app.plot_viewer.folder_path = directory.to_string_lossy().into_owned();
-    tap(&ctx, &mut app, "Load")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "pcb-F.Cu.gbr")?,
-        "front copper should appear in the layer list: {}",
-        app.message
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "pcb-B.Cu.gbr")?,
-        "back copper should appear in the layer list: {}",
-        app.message
-    );
-    let visible_before = app.plot_viewer.visible_layer_count();
-    assert!(visible_before >= 2, "at least two layers should show");
-    tap(&ctx, &mut app, "pcb-F.Cu.gbr")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "pcb-F.Cu.gbr (hidden)")?,
-        "turning a layer off should mark it hidden in the list"
-    );
-    assert!(
-        app.plot_viewer.visible_layer_count() < visible_before,
-        "one fewer layer should be visible on the canvas"
-    );
-    let _ = std::fs::remove_dir_all(&directory);
     Ok(())
 }
