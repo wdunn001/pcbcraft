@@ -47,7 +47,7 @@ struct Hole {
     radius: f64,
 }
 
-fn copper(project: &Project) -> Vec<Copper> {
+fn copper_items(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
         let local = project
@@ -372,8 +372,7 @@ fn root(parent: &[usize], mut node: usize) -> usize {
     }
     node
 }
-pub fn airwires(project: &Project) -> Vec<Airwire> {
-    let items = copper(project);
+fn copper_components(items: &[Copper]) -> Vec<usize> {
     let mut parents: Vec<_> = (0..items.len()).collect();
     for (i, a) in items.iter().enumerate() {
         for (j, b) in items.iter().enumerate().skip(i + 1) {
@@ -386,6 +385,10 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
             }
         }
     }
+    parents
+}
+fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
+    let parents = copper_components(items);
     let mut groups: BTreeMap<Id, BTreeMap<usize, Vec<&Copper>>> = BTreeMap::new();
     for (i, item) in items
         .iter()
@@ -436,6 +439,214 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
                 from_object: a.id,
                 to_object: b.id,
             });
+        }
+    }
+    result
+}
+pub fn airwires(project: &Project) -> Vec<Airwire> {
+    airwires_from(&copper_items(project))
+}
+
+fn points_close(a: Point, b: Point) -> bool {
+    a.distance(b) <= 1e-6
+}
+fn point_index(points: &mut Vec<Point>, p: Point) -> usize {
+    for (i, q) in points.iter().enumerate() {
+        if points_close(*q, p) {
+            return i;
+        }
+    }
+    let i = points.len();
+    points.push(p);
+    i
+}
+fn endpoint_anchored(items: &[Copper], net: Id, layer: Layer, point: Point) -> bool {
+    let probe = Copper {
+        id: 0,
+        net,
+        start: point,
+        end: point,
+        radius: 0.05,
+        contact_radius: 0.05,
+        conservative: false,
+        outline: None,
+        outline_error: 0.0,
+        layer,
+        pad: false,
+        clearance: None,
+        bridge: None,
+        hole: None,
+        cutouts: vec![],
+    };
+    for item in items {
+        if item.net != net || item.layer != layer {
+            continue;
+        }
+        if item.pad && touching(&probe, item) {
+            return true;
+        }
+        if item
+            .outline
+            .as_ref()
+            .is_some_and(|outline| inside(point, outline))
+        {
+            return true;
+        }
+    }
+    false
+}
+fn stub_branch_exceeds(length: f64, limit: f64) -> bool {
+    if limit <= 0.0 {
+        length > 0.05 + 1e-9
+    } else {
+        length > limit + 1e-9
+    }
+}
+fn other_endpoint(
+    track_ends: &BTreeMap<Id, (usize, usize)>,
+    track: Id,
+    at: usize,
+) -> Option<usize> {
+    let (a, b) = track_ends.get(&track).copied()?;
+    if at == a {
+        Some(b)
+    } else if at == b {
+        Some(a)
+    } else {
+        None
+    }
+}
+fn walk_track_branch(
+    track_map: &BTreeMap<Id, &pcbcraft_doc::Track>,
+    track_ends: &BTreeMap<Id, (usize, usize)>,
+    incidents: &[Vec<Id>],
+    points: &[Point],
+    from_junction: Option<usize>,
+    mut at: usize,
+    mut via: Id,
+) -> Option<(BTreeSet<Id>, f64)> {
+    let mut branch = BTreeSet::new();
+    let mut length = 0.0;
+    loop {
+        if !branch.insert(via) {
+            return None;
+        }
+        let track = track_map.get(&via)?;
+        length += track.length();
+        let next = other_endpoint(track_ends, via, at)?;
+        let degree = incidents.get(next).map_or(0, Vec::len);
+        if degree >= 3 {
+            return if from_junction.is_none() {
+                Some((branch, length))
+            } else {
+                None
+            };
+        }
+        if degree <= 1 {
+            return Some((branch, length));
+        }
+        let list = incidents.get(next)?;
+        let next_track = list.iter().copied().find(|id| *id != via)?;
+        at = next;
+        via = next_track;
+    }
+}
+fn stub_length_findings(project: &Project, items: &[Copper]) -> Vec<Finding> {
+    let mut result = vec![];
+    let mut reported: BTreeSet<BTreeSet<Id>> = BTreeSet::new();
+    let board = &project.board;
+    for class in &project.net_classes {
+        let Some(limit) = class.max_stub else {
+            continue;
+        };
+        for net in &class.nets {
+            for layer in [Layer::Front, Layer::Back] {
+                let tracks: Vec<&pcbcraft_doc::Track> = board
+                    .tracks
+                    .iter()
+                    .filter(|t| t.net == *net && t.layer == layer)
+                    .collect();
+                if tracks.is_empty() {
+                    continue;
+                }
+                let mut points = Vec::new();
+                let mut track_ends = BTreeMap::new();
+                let mut track_map = BTreeMap::new();
+                for track in &tracks {
+                    track_map.insert(track.id, *track);
+                    let a = point_index(&mut points, track.start);
+                    let b = point_index(&mut points, track.end);
+                    track_ends.insert(track.id, (a, b));
+                }
+                let mut incidents = vec![Vec::new(); points.len()];
+                for track in &tracks {
+                    let Some((a, b)) = track_ends.get(&track.id).copied() else {
+                        continue;
+                    };
+                    if let Some(list) = incidents.get_mut(a) {
+                        list.push(track.id);
+                    }
+                    if a != b {
+                        if let Some(list) = incidents.get_mut(b) {
+                            list.push(track.id);
+                        }
+                    }
+                }
+                let mut branches: Vec<(BTreeSet<Id>, f64)> = vec![];
+                for (idx, list) in incidents.iter().enumerate() {
+                    let degree = list.len();
+                    if degree >= 3 {
+                        for track in list {
+                            if let Some(branch) = walk_track_branch(
+                                &track_map,
+                                &track_ends,
+                                &incidents,
+                                &points,
+                                Some(idx),
+                                idx,
+                                *track,
+                            ) {
+                                branches.push(branch);
+                            }
+                        }
+                    } else if degree == 1 {
+                        if endpoint_anchored(items, *net, layer, points[idx]) {
+                            continue;
+                        }
+                        let track = list[0];
+                        if let Some(branch) = walk_track_branch(
+                            &track_map,
+                            &track_ends,
+                            &incidents,
+                            &points,
+                            None,
+                            idx,
+                            track,
+                        ) {
+                            branches.push(branch);
+                        }
+                    }
+                }
+                for (tracks_on_branch, length) in branches {
+                    if !stub_branch_exceeds(length, limit) {
+                        continue;
+                    }
+                    if !reported.insert(tracks_on_branch.clone()) {
+                        continue;
+                    }
+                    let mut ids: Vec<Id> = tracks_on_branch.into_iter().collect();
+                    ids.sort_unstable();
+                    result.push(Finding {
+                        code: "stub_length",
+                        severity: project.rule_severity("stub_length", "error"),
+                        message: format!(
+                            "{length:.3} mm stub on {}, at most {limit:.3} mm allowed",
+                            project.net_name(*net),
+                        ),
+                        objects: ids,
+                    });
+                }
+            }
         }
     }
     result
@@ -532,7 +743,7 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
 
 pub fn drc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
-    let items = copper(project);
+    let items = copper_items(project);
     let board = &project.board;
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
@@ -646,7 +857,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
-    for wire in airwires(project) {
+    for wire in airwires_from(&items) {
         result.push(Finding {
             code: "unrouted",
             severity: project.rule_severity("unrouted", "warning"),
@@ -793,6 +1004,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![net.id],
         });
     }
+    result.extend(stub_length_findings(project, &items));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -805,7 +1017,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        Footprint, Net, NetClass, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
     };
     fn fixture() -> Project {
         let mut p = Project::default();
@@ -920,7 +1132,7 @@ mod tests {
             drill: 0.4,
         });
         p.validate()?;
-        let items = copper(&p);
+        let items = copper_items(&p);
         let front = items
             .iter()
             .find(|c| c.id == 4 && c.layer == Layer::Front)
@@ -1009,7 +1221,7 @@ mod tests {
             arc: None,
         });
         p.validate()?;
-        let items = copper(&p);
+        let items = copper_items(&p);
         let zone = items
             .iter()
             .find(|c| c.id == 4)
@@ -1055,7 +1267,7 @@ mod tests {
             arc: None,
         });
         p.validate()?;
-        let items = copper(&p);
+        let items = copper_items(&p);
         let zone = items
             .iter()
             .find(|c| c.id == 4)
@@ -1107,7 +1319,7 @@ mod tests {
             });
         }
         p.validate()?;
-        let items = copper(&p);
+        let items = copper_items(&p);
         let front_track = items
             .iter()
             .find(|c| c.id == 2)
@@ -1158,7 +1370,7 @@ mod tests {
             arc: None,
         });
         p.validate()?;
-        let items = copper(&p);
+        let items = copper_items(&p);
         let head = items.iter().find(|c| c.id == 2).ok_or("head missing")?;
         let tail = items.iter().find(|c| c.id == 3).ok_or("tail missing")?;
         assert!(
@@ -1545,6 +1757,125 @@ mod tests {
             pad.diameter = 0.4;
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
+        }
+    }
+    fn stub_class(p: &mut Project, max_stub: f64) -> Result<(), String> {
+        p.net_classes.push(NetClass {
+            id: 50,
+            name: "STRICT".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: Some(max_stub),
+            nets: vec![1],
+        });
+        p.validate()
+    }
+    fn routed_t_with_stub(p: &mut Project, stub_end: Point) -> u64 {
+        let stub_id = 102;
+        for (id, start, end) in [
+            (100, Point::new(10.0, 10.0), Point::new(20.0, 10.0)),
+            (101, Point::new(20.0, 10.0), Point::new(30.0, 10.0)),
+            (stub_id, Point::new(20.0, 10.0), stub_end),
+        ] {
+            p.board.tracks.push(Track {
+                id,
+                net: 1,
+                start,
+                end,
+                width: 0.25,
+                layer: Layer::Front,
+                arc: None,
+            });
+        }
+        stub_id
+    }
+    #[test]
+    fn open_stub_longer_than_class_max_reports_stub_length_and_names_the_track() -> Result<(), String> {
+        let mut p = fixture();
+        let stub = routed_t_with_stub(&mut p, Point::new(23.0, 10.0));
+        stub_class(&mut p, 1.0)?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "stub_length")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].objects.contains(&stub));
+        assert!(findings[0].message.contains("3.000 mm stub"));
+        Ok(())
+    }
+    #[test]
+    fn removing_stub_track_clears_stub_length_finding() -> Result<(), String> {
+        let mut p = fixture();
+        routed_t_with_stub(&mut p, Point::new(23.0, 10.0));
+        stub_class(&mut p, 1.0)?;
+        assert!(drc(&p).iter().any(|f| f.code == "stub_length"));
+        p.board.tracks.retain(|t| t.id != 102);
+        p.validate()?;
+        assert!(!drc(&p).iter().any(|f| f.code == "stub_length"));
+        Ok(())
+    }
+    #[test]
+    fn test_point_branch_over_limit_reports_stub_length() -> Result<(), String> {
+        let mut p = fixture();
+        routed_t_with_stub(&mut p, Point::new(20.0, 13.0));
+        stub_class(&mut p, 1.0)?;
+        assert!(drc(&p).iter().any(|f| f.code == "stub_length"));
+        Ok(())
+    }
+    #[test]
+    fn test_point_branch_under_limit_is_quiet() -> Result<(), String> {
+        let mut p = fixture();
+        routed_t_with_stub(&mut p, Point::new(20.0, 10.5));
+        stub_class(&mut p, 1.0)?;
+        assert!(!drc(&p).iter().any(|f| f.code == "stub_length"));
+        Ok(())
+    }
+    #[test]
+    fn max_stub_zero_flags_two_tenth_mm_stub() -> Result<(), String> {
+        let mut p = fixture();
+        routed_t_with_stub(&mut p, Point::new(20.2, 10.0));
+        stub_class(&mut p, 0.0)?;
+        assert!(drc(&p).iter().any(|f| f.code == "stub_length"));
+        Ok(())
+    }
+    #[test]
+    fn max_stub_zero_quiet_when_every_track_end_meets_pad_or_via() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.tracks.push(Track {
+            id: 100,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        stub_class(&mut p, 0.0)?;
+        assert!(!drc(&p).iter().any(|f| f.code == "stub_length"));
+        Ok(())
+    }
+    #[test]
+    fn unclassified_net_never_reports_stub_length() -> Result<(), String> {
+        let mut p = fixture();
+        routed_t_with_stub(&mut p, Point::new(23.0, 10.0));
+        p.validate()?;
+        assert!(!drc(&p).iter().any(|f| f.code == "stub_length"));
+        Ok(())
+    }
+    #[test]
+    fn shared_copper_snapshot_keeps_airwire_results_unchanged() {
+        let p = fixture();
+        let direct = airwires(&p);
+        let shared = airwires_from(&copper_items(&p));
+        assert_eq!(direct.len(), shared.len());
+        for (a, b) in direct.iter().zip(shared.iter()) {
+            assert_eq!(a.net, b.net);
+            assert!((a.from.x - b.from.x).abs() < 1e-9);
+            assert!((a.to.x - b.to.x).abs() < 1e-9);
         }
     }
 }

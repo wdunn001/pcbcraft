@@ -227,6 +227,10 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Longest dead-end copper branch allowed on member nets, in millimetres.
+    /// Absent means no stub check; zero means no stubs at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_stub: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -2028,6 +2032,8 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || c.max_stub
+                    .is_some_and(|s| !s.is_finite() || s < 0.0 || s > 100.0)
             {
                 return Err("invalid net class".into());
             }
