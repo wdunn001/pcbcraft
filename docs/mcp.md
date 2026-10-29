@@ -2,7 +2,7 @@
 
 ## Getting started
 
-Build the CLI, start MCP on stdio, and call `inspect_design` before any edit.
+Build the CLI, start MCP on stdio, and call `design.summary` and `inspect_design` before any edit.
 For the same project the desktop shows, run the app with `--control` and connect
 with `pcbcraft-cli mcp --connect`. Tool and command counts on fork `main` are in
 [getting-started.md](getting-started.md).
@@ -50,12 +50,13 @@ How the server measures against the specification, and the test list, are in
 
 ## Recommended agent flow
 
-1. `inspect_design`: read current revision, stable IDs and capability limits.
-2. `list_commands`: inspect schemas and millimetre/degree units.
-3. `execute` or `batch`: supply `expected_revision` when coordinating concurrent edits.
-4. `checks`: inspect scope, findings and object IDs; initial checks are not full ERC/DRC.
-5. `screenshot`: obtain a PNG design preview of `schematic` or `pcb`.
-6. `save` / `export`: use server-host paths. WSL paths differ from Windows paths.
+1. `design.summary`: a short, bounded view of the design (counts, board, parts, nets, findings). Read it first.
+2. `inspect_design`: read current revision, stable IDs and capability limits when you need a full record.
+3. `list_commands`: inspect schemas and millimetre/degree units.
+4. `execute` or `batch`: supply `expected_revision` when coordinating concurrent edits.
+5. `checks`: inspect scope, findings and object IDs; initial checks are not full ERC/DRC.
+6. `screenshot`: obtain a PNG design preview of `schematic` or `pcb`.
+7. `save` / `export`: use server-host paths. WSL paths differ from Windows paths.
 
 Every engine command is also a directly callable MCP tool, such as `component.add`
 or `board.cutout.add`. Use the generic `execute` wrapper for revision guards.
