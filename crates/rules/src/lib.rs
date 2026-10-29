@@ -2,9 +2,9 @@
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, panel_layout, panel_score_lines,
+    PanelSeparation, Project, RuleArea, RuleForbid, Via, panel_layout, panel_score_lines,
 };
-use pcbcraft_geom::{Point, point_segment, segment_distance};
+use pcbcraft_geom::{Point, point_segment, segment_distance, segments_cross};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -696,6 +696,148 @@ fn rings_overlap(a: &[Point], b: &[Point]) -> bool {
             .any(|edge| polygon_segment(a, edge[0], edge[1]) <= 1e-9)
 }
 
+fn segment_intersects_ring(a: Point, b: Point, ring: &[Point]) -> bool {
+    if ring.len() < 3 {
+        return false;
+    }
+    if point_in_polygon(a, ring) || point_in_polygon(b, ring) {
+        return true;
+    }
+    for i in 0..ring.len() {
+        let c = ring[i];
+        let d = ring[(i + 1) % ring.len()];
+        if segments_cross(a, b, c, d) {
+            return true;
+        }
+    }
+    false
+}
+
+fn keepout_area_label(area: &RuleArea) -> String {
+    area.name
+        .clone()
+        .unwrap_or_else(|| format!("rule area {}", area.id))
+}
+
+fn keepout_matches_net(area: &RuleArea, net: Id) -> bool {
+    area.net.is_none_or(|filter| filter == net)
+}
+
+fn keepout_matches_layer(area: &RuleArea, layer: Layer) -> bool {
+    area.layer.is_none_or(|filter| filter == layer)
+}
+
+fn keepout_findings(project: &Project) -> Vec<Finding> {
+    let board = &project.board;
+    let mut result = Vec::new();
+    for area in &board.rule_areas {
+        let Some(forbid) = area.forbid else {
+            continue;
+        };
+        let Some(ring) = project.rule_area_board_ring(area) else {
+            continue;
+        };
+        let label = keepout_area_label(area);
+        let push = |result: &mut Vec<Finding>, object: Id, kind: RuleForbid| {
+            result.push(Finding {
+                code: "keepout",
+                severity: project.rule_severity("keepout", "error"),
+                message: format!(
+                    "{label} forbids {} inside the area",
+                    kind.object_label()
+                ),
+                objects: vec![area.id, object],
+            });
+        };
+        if forbid.blocks_tracks() {
+            for track in &board.tracks {
+                if !keepout_matches_net(area, track.net) || !keepout_matches_layer(area, track.layer)
+                {
+                    continue;
+                }
+                let hit = match track.curve() {
+                    None => segment_intersects_ring(track.start, track.end, &ring),
+                    Some(arc) => {
+                        let chords = 16;
+                        (0..chords).any(|i| {
+                            let a = arc.point_at(i as f64 / chords as f64);
+                            let b = arc.point_at((i + 1) as f64 / chords as f64);
+                            segment_intersects_ring(a, b, &ring)
+                        })
+                    }
+                };
+                if hit {
+                    push(&mut result, track.id, forbid);
+                }
+            }
+        }
+        if forbid.blocks_vias() {
+            for via in &board.vias {
+                if !keepout_matches_net(area, via.net) {
+                    continue;
+                }
+                if !keepout_matches_layer(area, Layer::Front)
+                    && !keepout_matches_layer(area, Layer::Back)
+                {
+                    continue;
+                }
+                if point_in_polygon(via.position, &ring) {
+                    push(&mut result, via.id, forbid);
+                }
+            }
+        }
+        if forbid.blocks_pads() {
+            for footprint in &board.footprints {
+                for pad in &footprint.pads {
+                    if pad
+                        .geometry
+                        .as_ref()
+                        .is_some_and(|g| g.pad_type == "unplated")
+                    {
+                        continue;
+                    }
+                    let pad_net = pad.net.unwrap_or(0);
+                    if !keepout_matches_net(area, pad_net) {
+                        continue;
+                    }
+                    let position = footprint.pad_world_position(pad);
+                    let layer = pad
+                        .geometry
+                        .as_ref()
+                        .and_then(|g| g.layers.first())
+                        .map(|name| match name.as_str() {
+                            "B.Cu" => Layer::Back,
+                            _ => Layer::Front,
+                        })
+                        .unwrap_or(Layer::Front);
+                    if !keepout_matches_layer(area, layer) {
+                        continue;
+                    }
+                    if point_in_polygon(position, &ring) {
+                        push(&mut result, footprint.id, forbid);
+                        break;
+                    }
+                }
+            }
+        }
+        if forbid.blocks_zones() {
+            for zone in &board.zones {
+                if !zone.filled {
+                    continue;
+                }
+                if !keepout_matches_net(area, zone.net) || !keepout_matches_layer(area, zone.layer)
+                {
+                    continue;
+                }
+                if rings_overlap(&zone.outline, &ring) {
+                    push(&mut result, zone.id, forbid);
+                }
+            }
+        }
+    }
+    result
+}
+
 fn panel_findings(project: &Project) -> Vec<Finding> {
     if !project.panel.enabled {
         return Vec::new();
@@ -1078,6 +1220,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     }
     result.extend(panel_findings(project));
     result.extend(fab_findings(project, board));
+    result.extend(keepout_findings(project));
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
@@ -2903,6 +3046,70 @@ mod tests {
         assert!(
             codes(&p).contains(&"cut_hits_via"),
             "a region elsewhere leaves the finding alone"
+        );
+    }
+
+    #[test]
+    fn forbid_tracks_allows_vias_while_forbid_vias_reports_only_vias() {
+        let mut p = Project::default();
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "sig".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(pcbcraft_doc::Track {
+            id: 30,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        test_via(&mut p);
+        p.board.rule_areas.push(RuleArea {
+            id: 40,
+            name: None,
+            net: None,
+            layer: None,
+            clearance: 0.2,
+            max_height: None,
+            region: pcbcraft_doc::RuleRegion {
+                x: 0.0,
+                y: 0.0,
+                width: 25.0,
+                height: 25.0,
+            },
+            profile: None,
+            forbid: Some(RuleForbid::Tracks),
+            footprint_ref: None,
+        });
+        let track_only = drc(&p);
+        assert!(
+            track_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&30)),
+            "tracks inside a forbid-tracks area are flagged"
+        );
+        assert!(
+            !track_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&20)),
+            "vias stay allowed under forbid-tracks"
+        );
+        p.board.rule_areas[0].forbid = Some(RuleForbid::Vias);
+        let via_only = drc(&p);
+        assert!(
+            !via_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&30)),
+            "tracks stay allowed under forbid-vias"
+        );
+        assert!(
+            via_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&20)),
+            "vias inside a forbid-vias area are flagged"
         );
     }
 }

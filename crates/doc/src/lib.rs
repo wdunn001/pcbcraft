@@ -314,6 +314,56 @@ impl DiffPair {
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
     }
 }
+/// Objects a rule area may forbid inside its rectangle when `forbid` is set.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleForbid {
+    AllCopper,
+    Tracks,
+    Vias,
+    Pads,
+    Zones,
+}
+
+impl RuleForbid {
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "all_copper" => Ok(Self::AllCopper),
+            "tracks" => Ok(Self::Tracks),
+            "vias" => Ok(Self::Vias),
+            "pads" => Ok(Self::Pads),
+            "zones" => Ok(Self::Zones),
+            other => Err(format!("unknown forbid kind {other}")),
+        }
+    }
+
+    pub fn object_label(self) -> &'static str {
+        match self {
+            Self::AllCopper => "copper",
+            Self::Tracks => "track",
+            Self::Vias => "via",
+            Self::Pads => "pad",
+            Self::Zones => "zone",
+        }
+    }
+
+    pub fn blocks_tracks(self) -> bool {
+        matches!(self, Self::AllCopper | Self::Tracks)
+    }
+
+    pub fn blocks_vias(self) -> bool {
+        matches!(self, Self::AllCopper | Self::Vias)
+    }
+
+    pub fn blocks_pads(self) -> bool {
+        matches!(self, Self::AllCopper | Self::Pads)
+    }
+
+    pub fn blocks_zones(self) -> bool {
+        matches!(self, Self::AllCopper | Self::Zones)
+    }
+}
+
 /// A rectangular board area that demands a stricter minimum copper
 /// separation: copper lying wholly inside the rectangle, on the matching
 /// layer and net when those filters are set, must clear by at least the
@@ -345,6 +395,13 @@ pub struct RuleArea {
     /// Rule profile that last applied this area, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// When set, copper or geometry of the given kind may not enter the area.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forbid: Option<RuleForbid>,
+    /// When set, `region` is stored in this component's footprint-local
+    /// millimetres and moves with the placed footprint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footprint_ref: Option<String>,
 }
 fn profile_tag_valid(tag: &Option<String>) -> bool {
     tag.as_ref().is_none_or(|s| !s.is_empty() && s.len() <= 64)
@@ -370,6 +427,10 @@ impl RuleArea {
             && self.region.x + self.region.width <= 1000.0
             && self.region.y + self.region.height <= 1000.0
             && self.max_height.is_none_or(|h| (0.1..=100.0).contains(&h))
+            && self
+                .footprint_ref
+                .as_ref()
+                .is_none_or(|r| !r.is_empty() && r.len() <= 64)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1002,6 +1063,18 @@ pub struct RuleRegion {
     /// Extent in millimetres; must be positive.
     pub width: f64,
     pub height: f64,
+}
+
+impl RuleRegion {
+    /// Corners of the axis-aligned rectangle in storage order.
+    pub fn axis_corners(self) -> [Point; 4] {
+        [
+            Point::new(self.x, self.y),
+            Point::new(self.x + self.width, self.y),
+            Point::new(self.x + self.width, self.y + self.height),
+            Point::new(self.x, self.y + self.height),
+        ]
+    }
 }
 /// A text label drawn on the board, such as an assembly note or a marking.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2268,6 +2341,33 @@ impl Project {
     pub fn component(&self, id: Id) -> Option<&Component> {
         self.components.iter().find(|c| c.id == id)
     }
+    pub fn component_by_reference(&self, reference: &str) -> Option<&Component> {
+        self.components.iter().find(|c| c.reference == reference)
+    }
+    /// Board-space corners of a rule area rectangle, or none when it is bound
+    /// to a reference that has no placed footprint yet.
+    pub fn rule_area_board_ring(&self, area: &RuleArea) -> Option<Vec<Point>> {
+        let local = area.region.axis_corners();
+        let Some(reference) = area.footprint_ref.as_deref() else {
+            return Some(local.to_vec());
+        };
+        let component = self.component_by_reference(reference)?;
+        let footprint = self
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component.id)?;
+        Some(
+            local
+                .iter()
+                .map(|corner| {
+                    footprint
+                        .position
+                        .offset(corner.rotate(-footprint.rotation))
+                })
+                .collect(),
+        )
+    }
     pub fn footprint(&self, id: Id) -> Option<&Footprint> {
         self.board.footprints.iter().find(|f| f.id == id)
     }
@@ -2595,12 +2695,10 @@ impl Project {
             if area.layer.is_some_and(|l| layer_a != l && layer_b != l) {
                 continue;
             }
-            let inside = |p: Point| {
-                p.x >= area.region.x
-                    && p.x <= area.region.x + area.region.width
-                    && p.y >= area.region.y
-                    && p.y <= area.region.y + area.region.height
+            let Some(ring) = self.rule_area_board_ring(area) else {
+                continue;
             };
+            let inside = |p: Point| pcbcraft_geom::point_in_polygon(p, &ring);
             if inside(at_a) && inside(at_b) {
                 best = area.clearance;
             }
@@ -2913,8 +3011,15 @@ impl Project {
             if !r.valid()
                 || r.net.is_some_and(|n| !nets.contains(&n))
                 || !profile_tag_valid(&r.profile)
+                || r
+                    .footprint_ref
+                    .as_ref()
+                    .is_some_and(|reference| self.component_by_reference(reference).is_none())
             {
-                return Err("rule areas need a valid rectangle, a sane gap and a known net".into());
+                return Err(
+                    "rule areas need a valid rectangle, a sane gap, a known net and footprint reference"
+                        .into(),
+                );
             }
         }
         if self.board.user_layers.len() > 32 {
@@ -4110,6 +4215,57 @@ mod drill_tests {
             offset: Point::new(0.6, 0.6),
         });
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn rule_area_forbid_and_footprint_reference_round_trip() -> Result<(), String> {
+        let mut p = Project::default();
+        p.components.push(Component {
+            id: 1,
+            reference: "Y1".into(),
+            value: "16 MHz".into(),
+            kind: "crystal".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
+        });
+        p.board.rule_areas.push(RuleArea {
+            id: 2,
+            name: Some("guard".into()),
+            net: None,
+            layer: Some(Layer::Front),
+            clearance: 0.2,
+            max_height: None,
+            region: RuleRegion {
+                x: -2.0,
+                y: -2.0,
+                width: 4.0,
+                height: 4.0,
+            },
+            profile: None,
+            forbid: Some(RuleForbid::AllCopper),
+            footprint_ref: Some("Y1".into()),
+        });
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.board.rule_areas.len(), 1);
+        assert_eq!(back.board.rule_areas[0].forbid, Some(RuleForbid::AllCopper));
+        assert_eq!(
+            back.board.rule_areas[0].footprint_ref.as_deref(),
+            Some("Y1")
+        );
+        let plain = serde_json::to_string(&Project::default()).map_err(|e| e.to_string())?;
+        let empty: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert!(
+            empty.board.rule_areas.is_empty(),
+            "older saves without keepout fields still load"
+        );
         Ok(())
     }
 

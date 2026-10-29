@@ -9056,6 +9056,8 @@ mod tests {
                 height: 8.0,
             },
             profile: None,
+            forbid: None,
+            footprint_ref: None,
         });
         let dsn = specctra_dsn(&project)?;
         assert!(

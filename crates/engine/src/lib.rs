@@ -1444,9 +1444,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "rules.area_add",
-            "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it; optionally narrowed to one net and one copper layer, which apply when either side of a pair matches",
+            "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it, or forbids tracks, vias, pads or zones inside it; optionally bound to a footprint reference so the rectangle moves with the part",
             schema(
-                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
+                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres, footprint-local when footprint_ref is set"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"},"forbid":{"type":"string","enum":["all_copper","tracks","vias","pads","zones"],"description":"optional keepout kind"},"footprint_ref":{"type":"string","maxLength":64,"description":"component reference when the rectangle is footprint-local"}}),
                 &["clearance", "x", "y", "width", "height"],
             ),
         ),
@@ -1932,7 +1932,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Rectangular rule areas can forbid tracks, vias, pads or zones inside them, including areas bound to a footprint reference. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -3440,6 +3440,10 @@ struct RuleAreaParams {
     height: f64,
     #[serde(default)]
     max_height: Option<f64>,
+    #[serde(default)]
+    forbid: Option<String>,
+    #[serde(default)]
+    footprint_ref: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10792,6 +10796,23 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
             }
+            if a
+                .footprint_ref
+                .as_ref()
+                .is_some_and(|r| r.is_empty() || r.len() > 64)
+            {
+                return Err(Error::Invalid(
+                    "footprint reference must be 1 to 64 bytes".into(),
+                ));
+            }
+            let forbid = if let Some(raw) = &a.forbid {
+                Some(
+                    pcbcraft_doc::RuleForbid::parse(raw)
+                        .map_err(Error::Invalid)?,
+                )
+            } else {
+                None
+            };
             let layer = match a.layer.as_deref() {
                 None => None,
                 Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
@@ -10818,6 +10839,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     height: a.height,
                 },
                 profile: None,
+                forbid,
+                footprint_ref: a.footprint_ref,
             });
             Ok(json!({"id": id}))
         }
@@ -17496,6 +17519,87 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn footprint_bound_keepouts_move_with_the_part_and_forbid_copper() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute(
+            "component.add",
+            json!({"kind":"crystal","reference":"Y1","value":"16 MHz","position":{"x":20.0,"y":20.0}}),
+            None,
+        )?;
+        s.execute("board.sync", json!({}), None)?;
+        let fp = s.project.board.footprints[0].id;
+        let net = s.execute("net.create", json!({"name":"CLK"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "rules.area_add",
+            json!({
+                "name":"under crystal",
+                "clearance":0.2,
+                "x":-2.0,"y":-2.0,"width":4.0,"height":4.0,
+                "forbid":"all_copper",
+                "footprint_ref":"Y1",
+                "layer":"F.Cu"
+            }),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":[20.0,20.0],"end":[22.0,20.0],"width":0.2}),
+            None,
+        )?;
+        let keepout = |s: &Session| {
+            s.checks()["drc"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|x| x["code"] == "keepout")
+        };
+        assert!(
+            keepout(&s).is_some(),
+            "a track through the bound keepout is flagged"
+        );
+        s.execute("footprint.move", json!({"id":fp,"position":[40.0,40.0]}), None)?;
+        assert!(
+            keepout(&s).is_none(),
+            "moving the part clears the violation when copper stays behind"
+        );
+        s.execute("footprint.move", json!({"id":fp,"position":[20.0,20.0]}), None)?;
+        assert!(
+            keepout(&s).is_some(),
+            "moving the part back restores the violation"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rule_area_add_rejects_unknown_forbid_kinds_and_long_footprint_refs() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            s.execute(
+                "rules.area_add",
+                json!({"clearance":0.2,"x":0,"y":0,"width":1,"height":1,"forbid":"copper_everywhere"}),
+                None
+            )
+            .is_err(),
+            "unknown forbid strings are refused"
+        );
+        let long_ref = "R".repeat(65);
+        assert!(
+            s.execute(
+                "rules.area_add",
+                json!({"clearance":0.2,"x":0,"y":0,"width":1,"height":1,"footprint_ref":long_ref}),
+                None
+            )
+            .is_err(),
+            "footprint references longer than 64 bytes are refused"
+        );
+        Ok(())
+    }
+
     #[test]
     fn project_archives_export_and_import_whole_designs() -> Result<(), Error> {
         let mut s = Session::default();
