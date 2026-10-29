@@ -1441,7 +1441,9 @@ impl App {
         ghost: bool,
     ) {
         let at = |p: Point| camera.screen(c.position.offset(p.rotate(-c.rotation)), rect);
-        let color = if selected || ghost {
+        let color = if let Some(kind) = self.compare_tint.get(&c.id).copied() {
+            self.compare_kind_color(kind)
+        } else if selected || ghost {
             self.accent()
         } else {
             self.ink()
@@ -1823,7 +1825,11 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let color = if self.selected == Some(f.id) {
+            let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
+                self.compare_kind_color(kind)
+            } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
+                self.compare_kind_color(kind)
+            } else if self.selected == Some(f.id) {
                 self.accent()
             } else {
                 self.ink().gamma_multiply(0.7)

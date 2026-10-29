@@ -7,16 +7,24 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod board_mesh;
+mod diff;
 mod drawn;
 mod gerber;
 mod library_render;
 mod panel_export;
+mod plot_read;
+pub use diff::{DesignChange, DesignDiff, project_diff};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
+pub use plot_read::{
+    count_flashes_and_draws, distance_mm, layer_bounds, load_plot_folder, load_plot_zip,
+    parse_excellon_drill, parse_gerber_layer, PlotAperture, PlotDrillHit, PlotDrillTool,
+    PlotFlash, PlotHint, PlotLayer, PlotLayerKind, PlotPackage, PlotStroke, MAX_PLOT_ZIP_BYTES,
+};
 use library_render::*;
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
@@ -7965,6 +7973,48 @@ mod tests {
         assert!(drill.ends_with("M30\n"));
         Ok(())
     }
+
+    #[test]
+    fn gerber_files_round_trips_flash_and_draw_counts() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 8,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 3,
+            net: 8,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.3,
+            layer: pcbcraft_doc::Layer::Back,
+            arc: None,
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 4,
+            net: 8,
+            position: Point::new(30.0, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        for (name, text) in &files {
+            if !name.ends_with(".gbr") {
+                continue;
+            }
+            let (writer_flashes, writer_draws) = count_flashes_and_draws(text)?;
+            let layer = parse_gerber_layer(text, name)?;
+            assert_eq!(
+                layer.flash_count, writer_flashes,
+                "flash count for {name}"
+            );
+            assert_eq!(layer.draw_count, writer_draws, "draw count for {name}");
+        }
+        Ok(())
+    }
+
     #[test]
     fn oval_drills_export_as_spanned_slots_following_pad_rotation() -> Result<(), String> {
         let mut project = Project::default();
