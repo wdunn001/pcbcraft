@@ -860,12 +860,21 @@ fn panel_findings(project: &Project) -> Vec<Finding> {
     result
 }
 
-pub fn drc(project: &Project) -> Vec<Finding> {
+/// Clearance, board edge and cutout findings for the copper in `items`. When
+/// `only` is set, just the findings that involve one of those object ids.
+fn copper_findings(
+    project: &Project,
+    items: &[Copper],
+    only: Option<&BTreeSet<Id>>,
+) -> Vec<Finding> {
     let mut result = vec![];
-    let items = copper(project);
     let board = &project.board;
+    let wanted = |id: Id| only.is_none_or(|set| set.contains(&id));
     for (i, a) in items.iter().enumerate() {
         for b in items.iter().skip(i + 1) {
+            if !wanted(a.id) && !wanted(b.id) {
+                continue;
+            }
             if a.bridge.is_some() && a.bridge == b.bridge {
                 // A declared net tie's own pads touch on purpose; the pair is
                 // the bridge, never a short.
@@ -907,6 +916,9 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 }
             }
         }
+        if !wanted(a.id) {
+            continue;
+        }
         let edge = if let Some(points) = &a.outline {
             points
                 .iter()
@@ -944,6 +956,22 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    result
+}
+/// Copper findings (clearance, short, board edge, cutout) that involve any of
+/// the given track, via, pad or zone ids, without running the other checks.
+/// Used to test a proposed edit before committing it.
+pub fn copper_conflicts(project: &Project, ids: &[Id]) -> Vec<Finding> {
+    let only: BTreeSet<Id> = ids.iter().copied().collect();
+    let mut found = copper_findings(project, &copper(project), Some(&only));
+    found.retain(|f| !project.rule_disabled(f.code));
+    found
+}
+pub fn drc(project: &Project) -> Vec<Finding> {
+    let mut result = vec![];
+    let items = copper(project);
+    let board = &project.board;
+    result.extend(copper_findings(project, &items, None));
     for track in &board.tracks {
         if let Some(class) = project.net_class(track.net) {
             if let Some(min) = class.min_width.filter(|min| track.width < *min) {
@@ -1058,6 +1086,39 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 tolerance
             ),
             objects: vec![pair.net_p, pair.net_n],
+        });
+    }
+    for group in &board.length_groups {
+        let routed: Vec<(Id, f64)> = group
+            .nets
+            .iter()
+            .filter_map(|n| lengths.get(n).map(|l| (*n, *l)))
+            .collect();
+        if routed.len() < 2 {
+            continue;
+        }
+        let longest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 > a.1 { *b } else { a });
+        let shortest = routed
+            .iter()
+            .fold(routed[0], |a, b| if b.1 < a.1 { *b } else { a });
+        let spread = longest.1 - shortest.1;
+        if spread <= group.tolerance + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "length_group_skew",
+            severity: project.rule_severity("length_group_skew", "error"),
+            message: format!(
+                "{}: {} is {:.3} mm longer than {}, at most {:.3} mm allowed",
+                group.name,
+                project.net_name(longest.0),
+                spread,
+                project.net_name(shortest.0),
+                group.tolerance
+            ),
+            objects: vec![longest.0, shortest.0],
         });
     }
     let classified: BTreeSet<Id> = project
