@@ -98,10 +98,8 @@ fn field_help(ui: &mut egui::Ui, key: &str, muted: egui::Color32) {
     );
 }
 
-/// The complete input reference: every key binding the app installs, plus
-/// the canvas mouse gestures, with where each one applies. The overlay and
-/// the tests read this one table, so the list can never claim a key the
-/// handler does not install.
+/// Legacy static shortcut table kept for the unit test that guards catalog keys.
+#[cfg(test)]
 fn shortcut_rows() -> Vec<(String, String, String)> {
     vec![
         (
