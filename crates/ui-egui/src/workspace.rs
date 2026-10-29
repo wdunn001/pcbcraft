@@ -319,14 +319,14 @@ impl App {
     }
 
     /// The 2D | 3D and Top | Bottom toggles, a floating kit card just inside the
-    /// canvas, below the top ruler and right of the left ruler.
+    /// canvas's top right corner, below the top ruler.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/ui_kit/segmented.rs
     /// - crates/ui-egui/src/canvas.rs (`RULER_SIZE`)
     ///
     /// # Do not
-    /// - Place it at the canvas corner; the rulers draw labels there.
+    /// - Place it at the top left corner; the rulers draw labels there.
     fn layout_view_toggles(&mut self, ctx: &egui::Context, rect: Rect) {
         use crate::ui_kit::segmented::{Segment, segmented};
         let view_3d = self.tab == Tab::Board3d;
@@ -343,7 +343,10 @@ impl App {
         let tokens = crate::theme::tokens(ctx);
         let inset = crate::canvas::RULER_SIZE + crate::theme::SPACE[2];
         egui::Area::new(egui::Id::new("layout-view-toggles"))
-            .fixed_pos(rect.left_top() + egui::vec2(inset, inset))
+            .pivot(egui::Align2::RIGHT_TOP)
+            .fixed_pos(rect.right_top() + egui::vec2(-crate::theme::SPACE[2], inset))
+            // Kept inside the canvas so a narrow window never pushes it off.
+            .constrain_to(rect)
             // Middle, not Foreground: windows sit at Middle and menus and
             // popups at Foreground, so the toggles stay under both.
             .order(egui::Order::Middle)

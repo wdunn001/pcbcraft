@@ -508,3 +508,23 @@ fn a_newcomer_sees_menus_and_windows_over_the_view_toggles() -> Result<(), Strin
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_finds_the_view_toggles_in_the_top_right_of_the_canvas() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Pcb);
+    settled(&ctx, &mut app);
+    let toggles = ctx
+        .memory(|m| m.area_rect(egui::Id::new("layout-view-toggles")))
+        .ok_or("the toggles should be on screen")?;
+    let screen = Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1440.0, 940.0));
+    assert!(screen.contains_rect(toggles), "the toggles stay in view");
+    assert!(
+        toggles.center().x > screen.center().x && toggles.center().y < screen.center().y,
+        "the toggles sit in the top right"
+    );
+    Ok(())
+}
