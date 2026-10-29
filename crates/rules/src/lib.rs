@@ -719,7 +719,56 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for track in &board.tracks {
         *lengths.entry(track.net).or_insert(0.0) += track.length();
     }
+    let mut vias_by_net: BTreeMap<Id, Vec<Id>> = BTreeMap::new();
+    for via in &board.vias {
+        if via.net != 0 {
+            vias_by_net.entry(via.net).or_default().push(via.id);
+        }
+    }
+    for class in &project.net_classes {
+        let Some(limit) = class.max_vias else {
+            continue;
+        };
+        for net in &class.nets {
+            let vias = vias_by_net.get(net).map_or(&[][..], Vec::as_slice);
+            if vias.len() as u32 <= limit {
+                continue;
+            }
+            result.push(Finding {
+                code: "via_count",
+                severity: project.rule_severity("via_count", "error"),
+                message: format!(
+                    "{} has {} vias, {} allows at most {}",
+                    project.net_name(*net),
+                    vias.len(),
+                    class.name,
+                    limit
+                ),
+                objects: vias.to_vec(),
+            });
+        }
+    }
     for pair in &board.diff_pairs {
+        if pair.equal_vias {
+            let on_p = vias_by_net.get(&pair.net_p).map_or(0, Vec::len);
+            let on_n = vias_by_net.get(&pair.net_n).map_or(0, Vec::len);
+            if on_p != on_n {
+                let heavy = if on_p > on_n { pair.net_p } else { pair.net_n };
+                result.push(Finding {
+                    code: "diffpair_via_count",
+                    severity: project.rule_severity("diffpair_via_count", "error"),
+                    message: format!(
+                        "{}: {} has {} vias, {} has {}; equal counts wanted",
+                        pair.name,
+                        project.net_name(pair.net_p),
+                        on_p,
+                        project.net_name(pair.net_n),
+                        on_n
+                    ),
+                    objects: vias_by_net.get(&heavy).cloned().unwrap_or_default(),
+                });
+            }
+        }
         for a in board
             .tracks
             .iter()
@@ -1594,5 +1643,130 @@ mod tests {
             pad.geometry = Some(l);
             assert!((pad.contact_radius() - 0.2).abs() < 1e-12);
         }
+    }
+
+    fn net_class(max_vias: Option<u32>) -> pcbcraft_doc::NetClass {
+        pcbcraft_doc::NetClass {
+            id: 20,
+            name: "usb2".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_vias,
+            nets: vec![1],
+        }
+    }
+    fn via(id: Id, net: Id, x: f64) -> Via {
+        Via {
+            id,
+            net,
+            position: Point::new(x, 10.0),
+            diameter: 0.6,
+            drill: 0.3,
+        }
+    }
+    fn codes(p: &Project) -> Vec<&'static str> {
+        drc(p).into_iter().map(|f| f.code).collect()
+    }
+    #[test]
+    fn a_class_with_max_vias_zero_reports_via_count_until_the_via_is_removed() -> Result<(), String>
+    {
+        let mut p = fixture();
+        p.net_classes.push(net_class(Some(0)));
+        p.board.vias.push(via(30, 1, 12.0));
+        p.validate()?;
+        let found = drc(&p);
+        let finding = found
+            .iter()
+            .find(|f| f.code == "via_count")
+            .ok_or("a via on a member net must report")?;
+        assert_eq!(finding.objects, vec![30]);
+        assert!(
+            finding.message.contains("signal") && finding.message.contains("usb2"),
+            "the finding names the net and the class, got {}",
+            finding.message
+        );
+        p.board.vias.clear();
+        p.validate()?;
+        assert!(!codes(&p).contains(&"via_count"));
+        Ok(())
+    }
+    #[test]
+    fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
+        let mut p = fixture();
+        p.net_classes.push(net_class(Some(4)));
+        for (id, x) in [(30, 10.0), (31, 12.0), (32, 14.0), (33, 16.0)] {
+            p.board.vias.push(via(id, 1, x));
+        }
+        p.validate()?;
+        assert!(!codes(&p).contains(&"via_count"));
+        p.board.vias.push(via(34, 1, 18.0));
+        p.validate()?;
+        let found = drc(&p);
+        let finding = found
+            .iter()
+            .find(|f| f.code == "via_count")
+            .ok_or("five vias must break a limit of four")?;
+        assert_eq!(finding.objects.len(), 5);
+        assert!(
+            finding.message.contains("at most 4"),
+            "got {}",
+            finding.message
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_pair_with_equal_vias_reports_diffpair_via_count_until_counts_match() -> Result<(), String>
+    {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 5,
+            name: "usb_dn".into(),
+            ..Default::default()
+        });
+        p.board.diff_pairs.push(pcbcraft_doc::DiffPair {
+            id: 40,
+            name: "USB_D".into(),
+            net_p: 1,
+            net_n: 5,
+            gap: 0.2,
+            length_tolerance: None,
+            equal_vias: true,
+        });
+        p.board.vias.push(via(30, 1, 12.0));
+        p.board.vias.push(via(31, 1, 14.0));
+        p.board.vias.push(via(32, 5, 16.0));
+        p.validate()?;
+        let found = drc(&p);
+        let finding = found
+            .iter()
+            .find(|f| f.code == "diffpair_via_count")
+            .ok_or("unequal via counts must report")?;
+        assert_eq!(finding.objects, vec![30, 31]);
+        assert!(finding.message.contains("USB_D"), "got {}", finding.message);
+        p.board.vias.push(via(33, 5, 18.0));
+        p.validate()?;
+        assert!(!codes(&p).contains(&"diffpair_via_count"));
+        Ok(())
+    }
+    #[test]
+    fn vias_on_a_net_outside_any_class_never_report_via_count() -> Result<(), String> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 6,
+            name: "spare".into(),
+            ..Default::default()
+        });
+        p.net_classes.push(net_class(Some(0)));
+        for (id, x) in [(30, 20.0), (31, 22.0)] {
+            p.board.vias.push(via(id, 6, x));
+        }
+        p.validate()?;
+        let found = codes(&p);
+        assert!(!found.contains(&"via_count"), "got {found:?}");
+        Ok(())
     }
 }
