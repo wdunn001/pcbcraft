@@ -1,4 +1,6 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod machine_profile;
+pub use machine_profile::*;
 mod panel;
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
@@ -1427,13 +1429,6 @@ pub struct BoardText {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<Id>,
 }
-/// Shop equipment profile for fabrication artifacts.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum MachineProfile {
-    UvPrinter(UvPrinterProfile),
-}
-
 /// Settings for a UV flatbed printer that registers artwork on a camera photo.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct UvPrinterProfile {
@@ -2650,6 +2645,9 @@ pub struct Project {
     /// applied to many pads instead of retyped per footprint.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub padstacks: Vec<Padstack>,
+    /// Shop machine profiles copied from presets or imported from TOML.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub machine_profiles: Vec<MachineProfile>,
     pub wires: Vec<Wire>,
     #[serde(default)]
     pub drawn_wires: Vec<DrawnWire>,
@@ -2745,6 +2743,7 @@ impl Default for Project {
         Self {
             library_table: Vec::new(),
             padstacks: Vec::new(),
+            machine_profiles: Vec::new(),
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
@@ -3471,6 +3470,16 @@ impl Project {
         }
         if self.padstacks.len() > 256 {
             return Err("the design defines at most 256 padstacks".into());
+        }
+        if self.machine_profiles.len() > MAX_ITEMS {
+            return Err("machine profile limit reached (2048)".into());
+        }
+        let mut profile_ids = BTreeSet::new();
+        for profile in &self.machine_profiles {
+            profile.validate()?;
+            if !profile_ids.insert(&profile.id) {
+                return Err("machine profile ids must be unique".into());
+            }
         }
         for stack in &self.padstacks {
             if stack.name.is_empty()

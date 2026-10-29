@@ -1,0 +1,190 @@
+id = "neoden-yy1"
+name = "NeoDen YY1"
+kind = "pick_place"
+vendor = "NeoDen"
+model = "YY1"
+notes = "SD-card CSV placement. Layouts and limits from the maker manual and one machine export; check a file from the owner machine before freezing a golden. Per-package rotation offsets are zero until each reel is confirmed on the machine (the common table is SOT-23 and SOT-223 plus 180, SOIC minus 90, TSSOP plus 270). The feeder map is empty: the file assigns feeders in order."
+
+[work_area]
+x = 350.0
+y = 249.0
+origin = "lower-left"
+y_up = false
+
+[output]
+format = "csv"
+dialect = "neoden_yy1"
+units = "mm"
+line_ending = "crlf"
+mirror_bottom = true
+mirror_axis = "x"
+invert = false
+
+[pick_place.board]
+max_x_mm = 350.0
+max_y_mm = 249.0
+origin_top = "lower-left"
+origin_bottom = "lower-right"
+
+[pick_place.rotation]
+min_deg = -180.0
+max_deg = 360.0
+
+[pick_place.csv]
+native_header = "NEODEN,YY1,P&P FILE"
+import_columns = 11
+line_ending = "crlf"
+
+[[pick_place.feeders]]
+name = "tape"
+first = 1
+last = 52
+
+[[pick_place.feeders]]
+name = "flexible"
+first = 53
+last = 80
+
+[[pick_place.feeders]]
+name = "bulk"
+first = 81
+last = 99
+
+[[pick_place.nozzle]]
+id = "CN030"
+diameter_mm = 0.3
+packages = ["0201"]
+
+[[pick_place.nozzle]]
+id = "CN040"
+diameter_mm = 0.4
+packages = ["0402"]
+
+[[pick_place.nozzle]]
+id = "CN065"
+diameter_mm = 0.7
+packages = ["0603"]
+
+[[pick_place.nozzle]]
+id = "CN100"
+diameter_mm = 1.0
+packages = ["0805", "SOD-123", "SMA"]
+
+[[pick_place.nozzle]]
+id = "CN140"
+diameter_mm = 1.4
+packages = ["1206", "1210", "1812", "2010", "SOT-23", "5050"]
+
+[[pick_place.nozzle]]
+id = "CN220"
+diameter_mm = 2.2
+packages = ["SOP", "SOIC", "SOT-89", "SOT-223", "SOT-252", "TO-252", "TSSOP"]
+
+[[pick_place.nozzle]]
+id = "CN400"
+diameter_mm = 4.0
+packages = ["QFN", "QFP", "DFN", "TQFP"]
+
+[[pick_place.nozzle]]
+id = "CN750"
+diameter_mm = 7.5
+
+[[pick_place.rotation_offset]]
+comment = ""
+footprint = "SOT-23"
+offset_deg = 0.0
+
+[[pick_place.rotation_offset]]
+comment = ""
+footprint = "SOT-223"
+offset_deg = 0.0
+
+[[pick_place.rotation_offset]]
+comment = ""
+footprint = "SOIC"
+offset_deg = 0.0
+
+[[pick_place.rotation_offset]]
+comment = ""
+footprint = "TSSOP"
+offset_deg = 0.0
+
+[[pick_place.footprint_alias]]
+pattern = "^R_0201.*"
+replacement = "0201"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_0201.*"
+replacement = "0201"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_0201.*"
+replacement = "0201"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_0201.*"
+replacement = "0201"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_0402.*"
+replacement = "0402"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_0402.*"
+replacement = "0402"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_0402.*"
+replacement = "0402"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_0402.*"
+replacement = "0402"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_0603.*"
+replacement = "0603"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_0603.*"
+replacement = "0603"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_0603.*"
+replacement = "0603"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_0603.*"
+replacement = "0603"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_0805.*"
+replacement = "0805"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_0805.*"
+replacement = "0805"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_0805.*"
+replacement = "0805"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_0805.*"
+replacement = "0805"
+
+[[pick_place.footprint_alias]]
+pattern = "^R_1206.*"
+replacement = "1206"
+
+[[pick_place.footprint_alias]]
+pattern = "^C_1206.*"
+replacement = "1206"
+
+[[pick_place.footprint_alias]]
+pattern = "^L_1206.*"
+replacement = "1206"
+
+[[pick_place.footprint_alias]]
+pattern = "^D_1206.*"
+replacement = "1206"
