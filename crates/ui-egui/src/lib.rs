@@ -7440,6 +7440,8 @@ impl App {
             return;
         }
         ui.spacing_mut().interact_size.y = 28.0;
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
         icons::set_compact(ui, self.tab == Tab::Pcb && ui.available_width() < 1500.0);
         ui.horizontal(|ui| {
             ui.add_space(Self::PAGE_GUTTER);
@@ -7554,7 +7556,7 @@ impl App {
                 } else {
                     "Update layout"
                 };
-                if icons::icon_label_button(ui, "rotate", label, &sync_tip, false).clicked() {
+                if icons::strip_button(ui, "rotate", label, &sync_tip, false).clicked() {
                     self.run("board.sync", json!({}));
                     self.change_tab(Tab::Pcb);
                 }
@@ -7682,6 +7684,10 @@ impl App {
                     ui.close();
                 }
             }
+            ui.separator();
+            ui.menu_button("Pick", |ui| self.pick_chips(ui))
+                .response
+                .on_hover_text("Choose which kinds of object a click or a drag box may pick up.");
             if let Some((tool, shape)) = pick {
                 self.tool = tool;
                 if let Some(shape) = shape {

@@ -714,38 +714,47 @@ impl App {
         {
             self.arm_measure();
         }
+        if self.tab == Tab::Pcb {
+            return;
+        }
         ui.separator();
-        ui.menu_button("Pick", |ui| {
-            ui.label("Pick:")
-                .on_hover_text("Choose which kinds of object a click or a drag box may pick up.");
-            let chips = [
-                (
-                    "Parts",
-                    "Parts and their symbols. Turn off to pick only the rest.",
-                ),
-                (
-                    "Copper",
-                    "Tracks, vias and copper zones. Turn off to leave wiring alone.",
-                ),
-                ("Graphics", "Drawn shapes, cutouts and holes."),
-                ("Text", "Text labels and net labels."),
-            ];
-            for (label, tip) in chips {
-                let f = &mut self.edit.filter;
-                let flag = match label {
-                    "Parts" => &mut f.parts,
-                    "Copper" => &mut f.copper,
-                    "Graphics" => &mut f.graphics,
-                    _ => &mut f.text,
-                };
-                if ui
-                    .selectable_label(*flag, label)
-                    .on_hover_text(tip)
-                    .clicked()
-                {
-                    *flag = !*flag;
-                }
+        ui.menu_button("Pick", |ui| self.pick_chips(ui));
+    }
+
+    /// The pick-filter chips: which kinds of object a click may pick up.
+    ///
+    /// # Rules
+    /// - Shown in the Pick menu on Schematic and in the More menu on Layout.
+    pub(super) fn pick_chips(&mut self, ui: &mut egui::Ui) {
+        ui.label("Pick:")
+            .on_hover_text("Choose which kinds of object a click or a drag box may pick up.");
+        let chips = [
+            (
+                "Parts",
+                "Parts and their symbols. Turn off to pick only the rest.",
+            ),
+            (
+                "Copper",
+                "Tracks, vias and copper zones. Turn off to leave wiring alone.",
+            ),
+            ("Graphics", "Drawn shapes, cutouts and holes."),
+            ("Text", "Text labels and net labels."),
+        ];
+        for (label, tip) in chips {
+            let f = &mut self.edit.filter;
+            let flag = match label {
+                "Parts" => &mut f.parts,
+                "Copper" => &mut f.copper,
+                "Graphics" => &mut f.graphics,
+                _ => &mut f.text,
+            };
+            if ui
+                .selectable_label(*flag, label)
+                .on_hover_text(tip)
+                .clicked()
+            {
+                *flag = !*flag;
             }
-        });
+        }
     }
 }
