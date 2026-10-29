@@ -1,5 +1,7 @@
 # Worker brief
 
+Getting started: [../getting-started.md](../getting-started.md) and [README.md](README.md).
+
 - **Claim:** `ready`, `status:open`, no live lease; shared host → `conflict:parallel-safe`.
 - **Branch:** from fork `main`, push to fork only; merge `origin/main` before final push.
 - **Build:** green **GitHub Actions on wdunn001/pcbcraft** for your commit (required). Local `cargo xtask ci` optional.
