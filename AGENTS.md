@@ -4,7 +4,16 @@ Rust EDA app, GPL-3.0-or-later, MCP-first. **Codebase of record:** [wdunn001/pcb
 
 ## Before coding
 
-Read docs/getting-started.md, docs/capabilities.md, ROADMAP.md, docs/architecture.md. For a claimed issue, read its body plus every `### Research` and `### Enrichment` comment.
+Read README.md (what works), ROADMAP.md, docs/architecture.md. For a claimed issue, read its body plus every `### Research` and `### Enrichment` comment.
+
+## Before editing a file (docs/doc-standard.md)
+
+- **Pre-edit:** read the file's `//!` header and the doc block of each function you change.
+- **Pre-edit:** confirm every path under `# Dependencies` and every `Contract:` line exists. If one is missing, stop and report it on the issue. Do not guess a path.
+- **Pre-edit:** before editing a trait or the engine command registry, open every file under its `# Implementations`. If the list is missing or stale, stop and report.
+- Never shorten a `# Do not` section; only append to it.
+- Each rule lives at the layer it governs (this file, `//!` header, trait or shared type, function). Point up to a rule; do not copy it down.
+- `cargo xtask docs check` must pass (docs/ci.md).
 
 ## Parallel agents
 
@@ -38,9 +47,6 @@ Green **GitHub Actions on the fork** for the commit you report is required proof
 
 Same build/test failure twice with identical output → post output, set `status:blocked`, stop (CONTRIBUTING.md §9).
 
-## Cloud Agent fleet (fork wdunn001/pcbcraft)
+## Cloud Agent fleet
 
-**Workers:** push a `<kind>-<slug>` or `feature/<slug>-db36` branch only. Green **GitHub Actions on that branch** is the proof. Post the upstream build report ending with `PR pending owner review`. **Do not** open a pull request on the fork and **do not** use forge PR tools to create one—maintainer/integrator lands work on fork `main` with a merge commit after review.
-
-**Integrator (same fleet):** merge contributor branches into fork `main` with `git merge` (not `gh pr merge`). Close any stray worker-opened fork PRs with `closed` status so the branch + Actions run remain the record. Upstream PR to tangency-labs waits until fork `main` is green and the owner has run the packaged test gate—never ask the owner to close PRs or merge manually.
-
+Workers push a branch only and never open a pull request; the integrator merges with `git merge`. Full text: docs/agents/README.md, section "Fleet rules".

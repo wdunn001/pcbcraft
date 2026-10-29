@@ -2,6 +2,9 @@
 # nightly runs exercise the exact packaging that a tagged release uses.
 # No build cache here: release artifacts are built from a clean state.
 #
+# Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
+# repackage jobs. No Snap Store or Flathub upload in CI.
+#
 # docs-agent (D451): when Linux installers land, extend docs/ci.md Releases section with
 # AppImage (+ .zsync), .deb, and .rpm per arch; point packaging/linux/package.sh for repro.
 name: Build distributables
@@ -136,6 +139,14 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ inputs.version }}
         run: bash .github/scripts/package.sh "$PLATFORM" "$VERSION" dist
+      - name: Linux FHS tarball for Flatpak and Snap
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PCBCRAFT_DIST_TAG: ${{ inputs.version }}
+          DIST: ${{ github.workspace }}/dist
+          LINUX_TARGET: ${{ matrix.targets }}
+        run: packaging/linux/package.sh --skip-build --formats tar
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.platform }}
@@ -200,6 +211,118 @@ jobs:
         with:
           name: dist-windows-x86_64
           path: dist/*
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  flatpak:
+    name: Flatpak (${{ matrix.arch }})
+    needs: native
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, platform: linux-x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, platform: linux-aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder librsvg2-common
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Build the Flatpak bundle
+        shell: bash
+        env:
+          PCBCRAFT_DIST_TAG: ${{ inputs.version }}
+          DIST: ${{ github.workspace }}/dist
+        run: |
+          tarball="dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-${{ matrix.arch }}.tar.gz"
+          test -s "$tarball"
+          packaging/linux/flatpak-bundle.sh --no-test "$tarball"
+      - name: Version-less Flatpak name for latest download links
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          shopt -s nullglob
+          for f in dist/pcbcraft-"$VERSION"-linux-*.flatpak; do
+            cp -- "$f" "dist/pcbcraft-${f#dist/pcbcraft-$VERSION-}"
+          done
+          ls -l dist/*.flatpak
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-flatpak-${{ matrix.arch }}
+          path: dist/*.flatpak
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+
+  snap:
+    name: Snap (${{ matrix.arch }})
+    needs: native
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, platform: linux-x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, platform: linux-aarch64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+      - name: Build the snap
+        shell: bash
+        env:
+          PCBCRAFT_DIST_TAG: ${{ inputs.version }}
+          DIST: ${{ github.workspace }}/dist
+        run: |
+          tarball="dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-${{ matrix.arch }}.tar.gz"
+          test -s "$tarball"
+          sudo --preserve-env=PCBCRAFT_DIST_TAG,DIST,PCBCRAFT_VERSION,VERSION,ROOT env "PATH=$PATH" \
+            packaging/linux/snap-pack.sh --destructive-mode "$tarball"
+          sudo chown -R "$(id -u):$(id -g)" dist target 2>/dev/null || sudo chown -R "$(id -u):$(id -g)" dist
+      - name: Install and check the snap
+        shell: bash
+        env:
+          PCBCRAFT_DIST_TAG: ${{ inputs.version }}
+        run: |
+          snap_file="dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-${{ matrix.arch }}.snap"
+          sudo snap install --dangerous "$snap_file"
+          snap info --verbose "$snap_file" | head -n 12
+          pcbcraft.cli help >/dev/null
+      - name: Version-less snap name for latest download links
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          shopt -s nullglob
+          for f in dist/pcbcraft-"$VERSION"-linux-*.snap; do
+            cp -- "$f" "dist/pcbcraft-${f#dist/pcbcraft-$VERSION-}"
+          done
+          ls -l dist/*.snap
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-snap-${{ matrix.arch }}
+          path: dist/*.snap
           if-no-files-found: error
           retention-days: ${{ inputs.retention-days }}
 
