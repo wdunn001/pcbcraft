@@ -1048,8 +1048,10 @@ impl Track {
             .map_or_else(|| self.start.distance(self.end), |arc| arc.length())
     }
 }
-/// A plated through-hole via joining the front and back copper layers. A via
-/// is one physical pad plated through the board, so it conducts on both layers.
+/// A plated via. With no span it joins the top and bottom copper layers; a
+/// span limits it to the copper layers from `from_layer` down to `to_layer`
+/// (blind when one end is an outer layer, buried when neither is). It
+/// conducts only on the layers in its span.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Via {
     pub id: Id,
@@ -1060,6 +1062,12 @@ pub struct Via {
     pub diameter: f64,
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
+    /// Upper end of the copper span; none means the top layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_layer: Option<Layer>,
+    /// Lower end of the copper span; none means the bottom layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_layer: Option<Layer>,
     /// How this via is protected from the board face, or `None` to follow the
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1138,6 +1146,31 @@ impl Via {
         self.covering.unwrap_or(board.via_covering_default)
     }
 }
+/// What a via is, derived from its span and the stackup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViaKind {
+    /// Top to bottom.
+    Through,
+    /// One end on an outer layer.
+    Blind,
+    /// Both ends on inner layers.
+    Buried,
+    /// A short, shallow blind or buried via that a laser can drill.
+    Micro,
+}
+impl ViaKind {
+    /// Plain-language name.
+    pub fn label(self) -> &'static str {
+        match self {
+            ViaKind::Through => "Through",
+            ViaKind::Blind => "Blind",
+            ViaKind::Buried => "Buried",
+            ViaKind::Micro => "Micro",
+        }
+    }
+}
+/// Deepest span a via can have and still count as a micro via, in millimetres.
+pub const MICRO_VIA_MAX_DEPTH: f64 = 0.25;
 /// A solid copper region on one layer, bounded by a closed polygon and
 /// belonging to a net. Same-net copper that falls inside the outline conducts
 /// to the zone; the zone keeps its clearance from copper of other nets.
@@ -1954,6 +1987,10 @@ pub struct Board {
     /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
+    /// Extra via spans (upper, lower copper layer index) the build allows
+    /// beyond the generic ones, for example a buried span.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub via_spans: Vec<(u8, u8)>,
     /// Machining notes for fabrication, absent when none were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machining: Option<MachiningNotes>,
@@ -2559,6 +2596,7 @@ impl Default for Project {
                 drill_origin: board_origin(),
                 via_covering_default: ViaCovering::Open,
                 layer_records: vec![],
+                via_spans: vec![],
                 machining: None,
                 pair_rules: vec![],
                 diff_pairs: vec![],
@@ -2801,6 +2839,94 @@ impl Project {
         } else {
             n as u8
         }
+    }
+    /// The copper span of a via as (upper, lower) layers; an unset end is the
+    /// outer layer on that side of this board.
+    pub fn via_span(&self, via: &Via) -> (Layer, Layer) {
+        let last = self.copper_layer_count().saturating_sub(1);
+        (
+            via.from_layer.unwrap_or(Layer::Front),
+            via.to_layer
+                .or_else(|| Layer::from_index(last).ok())
+                .unwrap_or(Layer::Back),
+        )
+    }
+    /// Every copper layer a via conducts on, top to bottom.
+    pub fn via_span_layers(&self, via: &Via) -> Vec<Layer> {
+        let (a, b) = self.via_span(via);
+        (a.index()..=b.index())
+            .filter_map(|i| Layer::from_index(i).ok())
+            .collect()
+    }
+    /// Distance in millimetres from the upper to the lower span layer, taken
+    /// from the stackup records; none when the stackup carries no such rows.
+    pub fn via_depth(&self, via: &Via) -> Option<f64> {
+        let (a, b) = self.via_span(via);
+        let mut copper = 0usize;
+        let mut inside = false;
+        let mut depth = 0.0;
+        for rec in &self.board.layer_records {
+            if rec.kind == "copper" {
+                if inside && copper == b.index() as usize {
+                    return Some(depth);
+                }
+                if copper == a.index() as usize {
+                    inside = true;
+                }
+                copper += 1;
+            }
+            if inside {
+                depth += rec.thickness;
+            }
+        }
+        None
+    }
+    /// Kind of a via, derived from its span (never stored).
+    pub fn via_kind(&self, via: &Via) -> ViaKind {
+        let (a, b) = self.via_span(via);
+        let last = self.copper_layer_count().saturating_sub(1);
+        let outer_top = a.index() == 0;
+        let outer_bottom = b.index() >= last;
+        if outer_top && outer_bottom {
+            return ViaKind::Through;
+        }
+        let micro = via.drill > 0.0
+            && self
+                .via_depth(via)
+                .is_some_and(|d| d <= MICRO_VIA_MAX_DEPTH + 1e-9 && d / via.drill <= 1.0 + 1e-9);
+        if micro {
+            ViaKind::Micro
+        } else if outer_top || outer_bottom {
+            ViaKind::Blind
+        } else {
+            ViaKind::Buried
+        }
+    }
+    /// Spans a via may use when no fabrication profile narrows them: top to
+    /// bottom, and one layer deep from either outer layer.
+    pub fn allowed_via_spans(&self) -> Vec<(Layer, Layer)> {
+        let last = self.copper_layer_count().saturating_sub(1);
+        let mut spans = vec![];
+        if let (Ok(top), Ok(bottom)) = (Layer::from_index(0), Layer::from_index(last)) {
+            spans.push((top, bottom));
+            if last >= 2
+                && let (Ok(second), Ok(before_last)) =
+                    (Layer::from_index(1), Layer::from_index(last - 1))
+            {
+                spans.push((top, second));
+                spans.push((before_last, bottom));
+            }
+        }
+        for &(a, b) in &self.board.via_spans {
+            if a < b
+                && b <= last
+                && let (Ok(a), Ok(b)) = (Layer::from_index(a), Layer::from_index(b))
+                && !spans.contains(&(a, b))
+            {
+                spans.push((a, b));
+            }
+        }
+        spans
     }
     /// Ordered copper layer indices from top (0) to bottom.
     pub fn copper_layers(&self) -> Vec<Layer> {
@@ -4069,6 +4195,13 @@ impl Project {
             {
                 return Err("invalid via geometry or net".into());
             }
+            let count = self.copper_layer_count();
+            let (a, b) = self.via_span(v);
+            if (v.from_layer.is_some() || v.to_layer.is_some())
+                && (a.index() >= count || b.index() >= count || a.index() >= b.index())
+            {
+                return Err("via span must run from an upper to a lower copper layer".into());
+            }
             if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
                 return Err(
                     "a via without a drilled hole cannot be tented, plugged or filled".into(),
@@ -5207,6 +5340,8 @@ mod via_covering_tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill,
+            from_layer: None,
+            to_layer: None,
             covering,
         });
         p

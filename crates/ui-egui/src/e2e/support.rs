@@ -44,9 +44,9 @@ pub(crate) fn scrolled_to_at(
     let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
     // Down first, then back up, in case the label sits above where an earlier
     // search left the scroll.
-    for step in 0..160 {
+    for step in 0..300 {
         let (lane_x, lane_y) = lanes[step % lanes.len()];
-        let direction = if step < 80 { -60.0 } else { 60.0 };
+        let direction = if step < 150 { -60.0 } else { 60.0 };
         // Small point-sized steps: a line-sized jump can sail a short
         // button clean past the viewport between two polls.
         let wheel = egui::Event::MouseWheel {
