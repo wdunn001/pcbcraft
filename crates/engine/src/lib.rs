@@ -24545,7 +24545,8 @@ mod tests {
             json!({"net":4,"start":{"x":12.0,"y":32.0},"end":{"x":22.0,"y":32.0},"width":0.3}),
             None,
         )?;
-        let stale = s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+        let stale_query = s.query("artifact.stale", json!({}), None)?;
+        let stale = stale_query["result"]["stale"]
             .as_array()
             .ok_or_else(missing)?;
         assert!(
@@ -24605,7 +24606,8 @@ mod tests {
             None,
         )?;
         s.undo()?;
-        let stale = s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+        let stale_query = s.query("artifact.stale", json!({}), None)?;
+        let stale = stale_query["result"]["stale"]
             .as_array()
             .ok_or_else(missing)?;
         assert!(
@@ -24661,7 +24663,8 @@ mod tests {
             json!({"net":4,"start":{"x":12.0,"y":32.0},"end":{"x":22.0,"y":32.0},"width":0.3}),
             None,
         )?;
-        let stale = s.query("artifact.stale", json!({}), None)?["result"]["stale"]
+        let stale_query = s.query("artifact.stale", json!({}), None)?;
+        let stale = stale_query["result"]["stale"]
             .as_array()
             .ok_or_else(missing)?;
         assert!(stale.iter().any(|v| v.as_u64() == Some(copper)));
