@@ -1,6 +1,7 @@
 //! Native project persistence and original, limited KiCad PCB / preview writers.
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
@@ -357,7 +358,7 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
 }
 
 /// Portable reusable block: one template schematic page and the library it needs.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DesignBlock {
     pub format: String,
     pub version: u32,
@@ -373,11 +374,7 @@ pub struct DesignBlock {
 
 fn sheet_object_ids(project: &Project, sheet: pcbcraft_doc::Id) -> BTreeSet<pcbcraft_doc::Id> {
     let mut nets = BTreeSet::new();
-    for c in project
-        .components
-        .iter()
-        .filter(|c| c.sheet == sheet)
-    {
+    for c in project.components.iter().filter(|c| c.sheet == sheet) {
         for pin in &c.pins {
             if let Some(net) = pin.net {
                 nets.insert(net);
@@ -6909,6 +6906,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 600,
             reference: "R1".into(),
             value: "10k".into(),
@@ -7537,6 +7536,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -8158,6 +8159,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -8354,6 +8357,8 @@ mod tests {
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: format!("J{id}"),
                 value: "slot".into(),
@@ -8444,6 +8449,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -8561,6 +8568,8 @@ mod tests {
         for (id, reference) in [(1, "R1"), (2, "D1")] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "2V".into(),
@@ -8651,6 +8660,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -8727,6 +8738,7 @@ mod tests {
             name: "PWR".into(),
             target_length: None,
             length_tolerance: None,
+            instance: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -8806,6 +8818,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -8881,6 +8895,7 @@ mod tests {
             name: "P&&R".into(),
             target_length: None,
             length_tolerance: None,
+            instance: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -8975,6 +8990,8 @@ mod tests {
         };
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R5".into(),
             value: "1k".into(),
@@ -9010,6 +9027,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 2,
             reference: "U1".into(),
             value: "1k".into(),
@@ -9166,6 +9185,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -9308,6 +9329,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -9716,6 +9739,8 @@ mod tests {
         ] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: value.into(),
@@ -9812,6 +9837,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "10k".into(),
@@ -9893,6 +9920,8 @@ mod tests {
         for (id, reference) in [(1, "R1"), (2, "R2")] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "10k".into(),
@@ -10055,6 +10084,8 @@ mod tests {
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -10203,6 +10234,8 @@ mod tests {
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -10279,6 +10312,7 @@ mod tests {
             name: "PWR".into(),
             target_length: None,
             length_tolerance: None,
+            instance: None,
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -10346,6 +10380,8 @@ mod tests {
         };
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "R1".into(),
             value: "1k".into(),
@@ -10523,6 +10559,8 @@ mod tests {
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
                 sheet: 0,
+                instance: None,
+                prototype: None,
                 id,
                 reference: reference.into(),
                 value: "1k".into(),
@@ -10606,6 +10644,8 @@ mod tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 3,
             reference: "R9".into(),
             value: "1 k".into(),
@@ -11047,6 +11087,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "U1".into(),
             value: "CLKPART".into(),
@@ -11332,6 +11374,7 @@ mod tests {
             name: "probe".into(),
             target_length: None,
             length_tolerance: None,
+            instance: None,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,
@@ -12230,6 +12273,8 @@ mod tests {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "C1".into(),
             value: "cap".into(),

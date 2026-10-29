@@ -1,14 +1,13 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod panel;
 mod sheet_instances;
-pub use sheet_instances::{
-    allocate_id, collapse_instance, expand_instance, reference_with_offset,
-    validate_sheet_instances, SheetInstance, MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET,
-    MAX_SHEET_INSTANCES,
-};
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
+};
+pub use sheet_instances::{
+    MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET, MAX_SHEET_INSTANCES, SheetInstance, allocate_id,
+    collapse_instance, expand_instance, reference_with_offset, validate_sheet_instances,
 };
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};

@@ -1,8 +1,8 @@
 //! Reusable schematic page instances: materialized copies on a parent page.
 
 use crate::{
-    Component, ComponentField, DrawnWire, Id, Label, Net, Pin, PinRef, Point, Port, Project, Sheet,
-    Wire, MAX_ITEMS,
+    Component, ComponentField, DrawnWire, Id, Label, MAX_ITEMS, Net, Pin, PinRef, Point, Port,
+    Project, Sheet, Wire,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,12 +33,12 @@ pub fn reference_with_offset(reference: &str, offset: u64) -> Result<String, Str
     if letters.is_empty() || digits.is_empty() {
         return Err("reference needs a letter prefix and numeric suffix".into());
     }
-    let base: u64 = digits.parse().map_err(|_: std::num::ParseIntError| {
-        "reference numeric suffix is invalid".to_string()
-    })?;
-    let sum = base.checked_add(offset).ok_or_else(|| {
-        "reference offset would exceed the numeric suffix limit".to_string()
-    })?;
+    let base: u64 = digits
+        .parse()
+        .map_err(|_: std::num::ParseIntError| "reference numeric suffix is invalid".to_string())?;
+    let sum = base
+        .checked_add(offset)
+        .ok_or_else(|| "reference offset would exceed the numeric suffix limit".to_string())?;
     let out = format!("{letters}{sum}");
     if out.len() > 64 {
         return Err("reference would exceed 64 bytes".into());
@@ -66,27 +66,23 @@ fn template_port_nets(project: &Project, sheet: Id) -> BTreeSet<Id> {
 }
 
 fn net_used_on_sheet(project: &Project, sheet: Id, net: Id) -> bool {
-    project.components.iter().any(|c| {
-        c.sheet == sheet && c.pins.iter().any(|p| p.net == Some(net))
-    }) || project
-        .ports
+    project
+        .components
         .iter()
-        .any(|p| p.sheet == sheet && p.net == net)
+        .any(|c| c.sheet == sheet && c.pins.iter().any(|p| p.net == Some(net)))
+        || project
+            .ports
+            .iter()
+            .any(|p| p.sheet == sheet && p.net == net)
 }
 
-fn parent_net_for_port(
-    project: &Project,
-    parent: Id,
-    port_name: &str,
-) -> Result<Id, String> {
+fn parent_net_for_port(project: &Project, parent: Id, port_name: &str) -> Result<Id, String> {
     project
         .ports
         .iter()
         .find(|p| p.sheet == parent && p.name == port_name)
         .map(|p| p.net)
-        .ok_or_else(|| {
-            format!("parent page has no port {port_name:?} for this instance")
-        })
+        .ok_or_else(|| format!("parent page has no port {port_name:?} for this instance"))
 }
 
 pub fn expand_instance(
@@ -170,17 +166,14 @@ pub fn expand_instance(
         for p in &old.pins {
             let mut pin = p.clone();
             if let Some(net) = pin.net {
-                let mapped = *net_map.get(&net).ok_or_else(|| {
-                    "template pin net could not be remapped".to_string()
-                })?;
+                let mapped = *net_map
+                    .get(&net)
+                    .ok_or_else(|| "template pin net could not be remapped".to_string())?;
                 pin.net = Some(mapped);
             }
             pins.push(pin);
         }
-        let position = Point::new(
-            old.position.x + inst.entry.x,
-            old.position.y + inst.entry.y,
-        );
+        let position = Point::new(old.position.x + inst.entry.x, old.position.y + inst.entry.y);
         if !position.valid() {
             return Err("materialized component position is out of range".into());
         }
@@ -223,15 +216,15 @@ pub fn expand_instance(
         .cloned()
         .collect::<Vec<_>>()
     {
-        let from = component_map.get(&wire.from.component).ok_or_else(|| {
-            "wire endpoint missing after expansion".to_string()
-        })?;
-        let to = component_map.get(&wire.to.component).ok_or_else(|| {
-            "wire endpoint missing after expansion".to_string()
-        })?;
-        let net = *net_map.get(&wire.net).ok_or_else(|| {
-            "wire net missing after expansion".to_string()
-        })?;
+        let from = component_map
+            .get(&wire.from.component)
+            .ok_or_else(|| "wire endpoint missing after expansion".to_string())?;
+        let to = component_map
+            .get(&wire.to.component)
+            .ok_or_else(|| "wire endpoint missing after expansion".to_string())?;
+        let net = *net_map
+            .get(&wire.net)
+            .ok_or_else(|| "wire net missing after expansion".to_string())?;
         let id = allocate_id(project, next)?;
         project.wires.push(Wire {
             id,
@@ -246,13 +239,19 @@ pub fn expand_instance(
             },
         });
     }
-    for wire in project.drawn_wires.iter().filter(|w| {
-        project.schematic_drawn_wire_page(w) == template
-    }).cloned().collect::<Vec<_>>() {
+    for wire in project
+        .drawn_wires
+        .iter()
+        .filter(|w| project.schematic_drawn_wire_page(w) == template)
+        .cloned()
+        .collect::<Vec<_>>()
+    {
         let net = match wire.net {
-            Some(n) => Some(*net_map.get(&n).ok_or_else(|| {
-                "drawn wire net missing after expansion".to_string()
-            })?),
+            Some(n) => Some(
+                *net_map
+                    .get(&n)
+                    .ok_or_else(|| "drawn wire net missing after expansion".to_string())?,
+            ),
             None => None,
         };
         let id = allocate_id(project, next)?;
@@ -273,9 +272,9 @@ pub fn expand_instance(
         .cloned()
         .collect::<Vec<_>>()
     {
-        let net = *net_map.get(&label.net).ok_or_else(|| {
-            "label net missing after expansion".to_string()
-        })?;
+        let net = *net_map
+            .get(&label.net)
+            .ok_or_else(|| "label net missing after expansion".to_string())?;
         let position = Point::new(
             label.position.x + inst.entry.x,
             label.position.y + inst.entry.y,
@@ -295,7 +294,12 @@ pub fn expand_instance(
     }
     let new_nets = net_map
         .values()
-        .filter(|id| project.nets.iter().any(|n| n.id == **id && n.instance == Some(inst.id)))
+        .filter(|id| {
+            project
+                .nets
+                .iter()
+                .any(|n| n.id == **id && n.instance == Some(inst.id))
+        })
         .count();
     if project.ids().count() > MAX_ITEMS {
         return Err("project object limit reached (2048)".into());
@@ -331,7 +335,9 @@ pub fn collapse_instance(project: &mut Project, instance: Id) -> Result<(), Stri
         .drawn_wires
         .retain(|w| w.net.is_none_or(|n| !local_nets.contains(&n)));
     project.labels.retain(|l| !local_nets.contains(&l.net));
-    project.no_connects.retain(|f| !materialized.contains(&f.pin.component));
+    project
+        .no_connects
+        .retain(|f| !materialized.contains(&f.pin.component));
     project.sheet_instances.remove(inst_index);
     let _ = inst;
     Ok(())
@@ -364,11 +370,7 @@ pub fn validate_sheet_instances(project: &Project) -> Result<(), String> {
         if !project.sheets.iter().any(|s| s.id == inst.sheet) {
             return Err("instance template sheet does not exist".into());
         }
-        if !project
-            .components
-            .iter()
-            .any(|c| c.sheet == inst.sheet)
-        {
+        if !project.components.iter().any(|c| c.sheet == inst.sheet) {
             return Err("instance template sheet has no components".into());
         }
     }

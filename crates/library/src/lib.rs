@@ -248,6 +248,7 @@ pub enum Graphic {
 pub struct SessionNet {
     pub name: String,
     pub pins: Vec<(String, String)>,
+    instance: None,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

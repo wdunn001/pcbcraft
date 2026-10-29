@@ -2103,6 +2103,8 @@ mod library_render_tests {
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 1,
             reference: "ZZ8".into(),
             value: "9".into(),

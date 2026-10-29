@@ -2074,6 +2074,7 @@ mod tests {
             name: "gnd".into(),
             target_length: None,
             length_tolerance: None,
+            instance: None,
         });
         p.board.clearance = clearance;
         if let Some(pad) = p

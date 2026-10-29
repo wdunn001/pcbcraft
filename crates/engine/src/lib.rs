@@ -3688,6 +3688,7 @@ struct SessionImportParams {
 struct NetlistNet {
     name: String,
     pins: Vec<NetlistPin>,
+    instance: None,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4576,9 +4577,9 @@ fn component_for_instance_prototype(
     instance: Id,
     prototype: Id,
 ) -> Option<&Component> {
-    p.components.iter().find(|c| {
-        c.instance == Some(instance) && c.prototype == Some(prototype)
-    })
+    p.components
+        .iter()
+        .find(|c| c.instance == Some(instance) && c.prototype == Some(prototype))
 }
 
 fn footprint_for_component(p: &Project, component: Id) -> Option<&Footprint> {
@@ -4653,7 +4654,12 @@ fn merge_design_block_template(
         }
     }
     for footprint in block.library.footprints {
-        if !p.library.footprints.iter().any(|f| f.name == footprint.name) {
+        if !p
+            .library
+            .footprints
+            .iter()
+            .any(|f| f.name == footprint.name)
+        {
             p.library.footprints.push(footprint);
         }
     }
@@ -4694,9 +4700,7 @@ fn merge_design_block_template(
             id: *id_map.get(&wire.id).ok_or_else(missing)?,
             net: *id_map.get(&wire.net).ok_or_else(missing)?,
             from: PinRef {
-                component: *id_map
-                    .get(&wire.from.component)
-                    .ok_or_else(missing)?,
+                component: *id_map.get(&wire.from.component).ok_or_else(missing)?,
                 pin: wire.from.pin.clone(),
             },
             to: PinRef {
@@ -6294,6 +6298,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         .into_iter()
                         .map(|(reference, pin)| NetlistPin { reference, pin })
                         .collect(),
+                    instance: None,
                 })
                 .collect();
             import_nets(p, next, &NetlistImportParams { nets })
@@ -8208,7 +8213,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
             }
             if a.reference_offset > MAX_REFERENCE_OFFSET {
-                return Err(Error::Invalid("reference offset must be 0 to 999000".into()));
+                return Err(Error::Invalid(
+                    "reference offset must be 0 to 999000".into(),
+                ));
             }
             if !a.entry.valid() {
                 return Err(Error::Invalid("entry position is out of range".into()));
@@ -8218,8 +8225,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "a schematic supports at most 64 sheet instances".into(),
                 ));
             }
-            if p
-                .sheet_instances
+            if p.sheet_instances
                 .iter()
                 .any(|i| i.parent == a.parent && i.name == a.name)
             {
@@ -8242,8 +8248,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 parent: a.parent,
                 entry: a.entry,
             };
-            let (components, nets) =
-                expand_instance(p, &inst, next).map_err(Error::Invalid)?;
+            let (components, nets) = expand_instance(p, &inst, next).map_err(Error::Invalid)?;
             p.sheet_instances.push(inst);
             Ok(json!({"id": id, "components": components, "nets": nets}))
         }
@@ -8277,7 +8282,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("instance name must be 1 to 64 bytes".into()));
             }
             if reference_offset > MAX_REFERENCE_OFFSET {
-                return Err(Error::Invalid("reference offset must be 0 to 999000".into()));
+                return Err(Error::Invalid(
+                    "reference offset must be 0 to 999000".into(),
+                ));
             }
             if p.sheet_instances.len() >= MAX_SHEET_INSTANCES {
                 return Err(Error::Invalid(
@@ -8293,8 +8300,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 parent: a.parent,
                 entry: a.entry,
             };
-            let (components, nets) =
-                expand_instance(p, &inst, next).map_err(Error::Invalid)?;
+            let (components, nets) = expand_instance(p, &inst, next).map_err(Error::Invalid)?;
             p.sheet_instances.push(inst);
             Ok(json!({
                 "sheet": sheet,
@@ -12294,7 +12300,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(Error::Invalid("targets must list 1 to 63 instances".into()));
             }
             if a.anchor_reference.is_empty() || a.anchor_reference.len() > 64 {
-                return Err(Error::Invalid("anchor reference must be 1 to 64 bytes".into()));
+                return Err(Error::Invalid(
+                    "anchor reference must be 1 to 64 bytes".into(),
+                ));
             }
             let source = p
                 .sheet_instances
@@ -12311,28 +12319,24 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 if !p.sheet_instances.iter().any(|i| i.id == *target) {
                     return Err(Error::Invalid("target instance does not exist".into()));
                 }
-                if p.sheet_instances.iter().find(|i| i.id == *target).is_some_and(|t| {
-                    t.sheet != source.sheet || t.parent != source.parent
-                }) {
+                if p.sheet_instances
+                    .iter()
+                    .find(|i| i.id == *target)
+                    .is_some_and(|t| t.sheet != source.sheet || t.parent != source.parent)
+                {
                     return Err(Error::Invalid(
                         "every target must share the template and parent page".into(),
                     ));
                 }
             }
-            let template_anchor = template_component_by_reference(p, source.sheet, &a.anchor_reference)
-                .ok_or_else(|| {
-                    Error::Invalid("anchor reference is missing on the template page".into())
-                })?;
-            let source_anchor = component_for_instance_prototype(
-                p,
-                source.id,
-                template_anchor.id,
-            )
-            .ok_or_else(missing)?;
+            let template_anchor =
+                template_component_by_reference(p, source.sheet, &a.anchor_reference).ok_or_else(
+                    || Error::Invalid("anchor reference is missing on the template page".into()),
+                )?;
+            let source_anchor = component_for_instance_prototype(p, source.id, template_anchor.id)
+                .ok_or_else(missing)?;
             let source_fp = footprint_for_component(p, source_anchor.id).ok_or_else(|| {
-                Error::Invalid(
-                    "sync footprints before repeating layout across instances".into(),
-                )
+                Error::Invalid("sync footprints before repeating layout across instances".into())
             })?;
             if footprint_locked(p, source_fp.id) {
                 return Err(Error::Invalid(
@@ -12353,12 +12357,9 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     .iter()
                     .find(|i| i.id == *target_id)
                     .ok_or_else(missing)?;
-                let target_anchor = component_for_instance_prototype(
-                    p,
-                    *target_id,
-                    template_anchor.id,
-                )
-                .ok_or_else(missing)?;
+                let target_anchor =
+                    component_for_instance_prototype(p, *target_id, template_anchor.id)
+                        .ok_or_else(missing)?;
                 let target_fp = footprint_for_component(p, target_anchor.id).ok_or_else(|| {
                     Error::Invalid(
                         "sync footprints before repeating layout across instances".into(),
@@ -12374,20 +12375,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     target_fp.position.y - source_fp.position.y,
                 );
                 for prototype in &template_parts {
-                    let source_part = component_for_instance_prototype(
-                        p,
-                        source.id,
-                        *prototype,
-                    )
-                    .ok_or_else(missing)?;
-                    let target_part = component_for_instance_prototype(
-                        p,
-                        *target_id,
-                        *prototype,
-                    )
-                    .ok_or_else(missing)?;
-                    let source_foot = footprint_for_component(p, source_part.id)
+                    let source_part = component_for_instance_prototype(p, source.id, *prototype)
                         .ok_or_else(missing)?;
+                    let target_part = component_for_instance_prototype(p, *target_id, *prototype)
+                        .ok_or_else(missing)?;
+                    let source_foot =
+                        footprint_for_component(p, source_part.id).ok_or_else(missing)?;
                     let target_foot = p
                         .board
                         .footprints
@@ -12403,10 +12396,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         source_foot.position.x - source_fp.position.x,
                         source_foot.position.y - source_fp.position.y,
                     );
-                    let want = Point::new(
-                        target_fp.position.x + rel.x,
-                        target_fp.position.y + rel.y,
-                    );
+                    let want =
+                        Point::new(target_fp.position.x + rel.x, target_fp.position.y + rel.y);
                     if !want.valid() {
                         return Err(Error::Invalid(
                             "the repeated layout would move a footprint out of range".into(),
@@ -12425,9 +12416,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     let template_name = name
                         .strip_suffix(&format!("__{}", source.name))
                         .ok_or_else(|| {
-                            Error::Invalid(
-                                "instance net names no longer match the template".into(),
-                            )
+                            Error::Invalid("instance net names no longer match the template".into())
                         })?;
                     let target_name =
                         instance_materialized_net_name(template_name, &target_row.name);
@@ -12436,9 +12425,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         .iter()
                         .find(|n| n.instance == Some(*target_id) && n.name == target_name)
                         .map(|n| n.id)
-                        .ok_or_else(|| {
-                            Error::Invalid("target instance net is missing".into())
-                        })?;
+                        .ok_or_else(|| Error::Invalid("target instance net is missing".into()))?;
                     for track in p
                         .board
                         .tracks
@@ -12455,9 +12442,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                             end: track.end.offset(layout_shift),
                             width: track.width,
                             layer: track.layer,
-                            arc: track
-                                .arc
-                                .map(|mid| mid.offset(layout_shift)),
+                            arc: track.arc.map(|mid| mid.offset(layout_shift)),
                         });
                         copied_tracks += 1;
                     }
@@ -21734,9 +21719,10 @@ mod tests {
     }
 
     fn two_resistor_template_sheet(s: &mut Session) -> Result<Id, Error> {
-        let sheet = s.execute("schematic.new_sheet", json!({"name":"channel"}), None)?["result"]["id"]
-            .as_u64()
-            .ok_or_else(missing)?;
+        let sheet =
+            s.execute("schematic.new_sheet", json!({"name":"channel"}), None)?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
         let r1 = s.execute(
             "component.add",
             json!({"kind":"resistor","reference":"R1","position":{"x":10.0,"y":10.0}}),
