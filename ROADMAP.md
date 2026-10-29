@@ -35,8 +35,11 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Reusable native library collections, attribution, atomic saves and undoable load
 - [x] Plated through-hole pads, circular/oval offset drills, front/back pad bridges
 - [ ] Interactive canvas library drawing (#300) and library writers (#301)
-- [ ] Repeated common pins (#302), graphical pin styles (#303), NPTH holes (#304) and back SMD placement (#305)
-- [ ] Explicit wire vertices, junctions, labels, buses (#308) and hierarchy (#306, #307)
+- [ ] Repeated common pins (#302) and back SMD placement (#305)
+- [x] Graphical pin styles on project-library symbols (#303 subset on fork main)
+- [x] Unplated footprint holes and board mounting holes/slots (#304 subset on fork main)
+- [x] Explicit wire vertices, junctions, labels and no-connect flags (#308 subset on fork main)
+- [ ] Buses (#308) and hierarchy (#306, #307)
 - [ ] General import of boards and schematics with unknown-field preservation and round-trip fixtures (#309, #310, #311)
 - [ ] Complete pin-type electrical rules (#312) and project/net-class rules with fabrication presets (#313)
 - [ ] Browser download/upload and project recovery (#314)
@@ -46,15 +49,16 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 ## M2: Serious board layout
 
 - [x] Chamfered and custom polygon pad shapes with exact clearance outlines (#281)
-- [ ] Vias and multilayer stackups
+- [x] Plated vias, stitch grids and editable copper pours with cutouts (thermal reliefs and keepouts #284 remain open)
+- [ ] Inner copper layer stackups (#317)
 - [ ] Interactive 45° routing, obstacle avoidance, shove and track dragging (#282)
-- [ ] Differential pair routing as one gesture with skew tuning (#341)
+- [x] Differential pair routing as one coupled gesture (#341 subset on fork main; skew tuning #407 remains open)
 - [ ] Length tuning and impedance-aware constraints (#283)
-- [ ] Copper zones, thermal reliefs, islands, keepouts, robust polygon operations (#284)
+- [ ] Copper zone thermal reliefs, islands, keepouts and robust polygon operations (#284)
 - [ ] Comprehensive clearance and manufacturing checks (#285)
 - [ ] Checks on drawn machine layers against the copper and vias they cross (#277)
 - [ ] Design-intent electrical checks: power pins, decoupling and pull-ups (#334)
-- [ ] Plots, drill files, placement files, BOM and a one-command fabrication package (#286), on fabrication-valid output (#351)
+- [x] Many fabrication plots, drill, placement, BOM and named output jobs (#286 subset on fork main; fabrication-valid copper gerbers #351 remain open)
 - [ ] Everyday editing: copy and paste, box select, measure, groups and track cleanup (#342)
 - [ ] Logos and reference images placed as bitmaps and traced to silk, mask or copper (#343)
 - [x] Initial Gerber copper layer writer (pad flashes and tracks)
@@ -63,7 +67,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 
 - [ ] Line/arc outline sketch model inspired by a planar sketch workflow (#287)
 - [ ] Dimensions, constraints, named parameters and expression-driven regeneration (#288)
-- [ ] Slots, notches, mounting holes and dimensioned patterns (#289)
+- [x] Unplated mounting holes, routed slots and rectangular edge notches (#289 subset on fork main; sketch-driven patterns remain in #287)
 - [ ] PCB/enclosure coordination, shared mounting datums and STEP exchange (#290)
 - [ ] Component bodies in STEP and enclosure model import (#321)
 - [ ] Real 3D board tab with component bodies and inspection (#291)
@@ -103,12 +107,12 @@ for in-house machines.
 - [ ] Fabrication-house plots with attributes, drill split and drill map (#325)
 - [ ] BOM artifact (#326)
 - [ ] Assembly and fabrication drawings (#327)
-- [ ] Raster images for photo-exposure, laser and UV print (#328)
+- [x] Fabrication-layer PNG rasters via output jobs (#328 subset on fork main; UV-specific workflows and drawn-layer BMP export remain open)
 - [ ] CNC isolation G-code (#329)
 - [ ] CNC drilling and outline G-code (#330)
 - [ ] Paste stencil and laser cut paths (#331)
-- [ ] Plot drawn layers for laser, mill and printer output (#276)
-- [ ] Panel output: tabs, breakaway holes, rails and panel fabrication files (#338)
+- [x] Plot drawn layers for laser, mill and printer output (#276 on fork main)
+- [x] Panel fabrication export with breakaway and tooling holes (#338 subset on fork main; interactive panel UI #417-#419 remain open)
 
 ## Workbench and UX
 
@@ -123,7 +127,7 @@ User-interface work that cuts across milestones. These lines carry
 - [ ] Right-click context menu on the canvas (#279)
 - [ ] Library browser with filters in the left dock (#280)
 - [ ] Online part sources: search distributor catalogs from the library (#333)
-- [ ] Generate footprints from package dimensions, with a footprint checker (#344)
+- [x] Generate IPC-style land patterns from package parameters and read-only footprint checks (#344 subset on fork main)
 - [ ] Parts table: edit every part's fields in one grid (#345)
 - [ ] Schematic tool strip: wiring, labels, shapes, text and tables drawn on the sheet (#346)
 - [ ] Several designs open at once, one document tab each (#347)
