@@ -38,6 +38,7 @@ mod reference_panel;
 mod route_drag;
 mod showcase;
 mod sources;
+mod sourcing_panel;
 #[cfg(test)]
 mod target_size;
 mod targets;

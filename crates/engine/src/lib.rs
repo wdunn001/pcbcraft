@@ -340,9 +340,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "part.attach_source",
-            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU) and into the typed sourcing record (with an optional description, lifecycle text and product link)",
             schema(
-                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256},"description":{"type":"string","maxLength":256},"lifecycle":{"type":"string","maxLength":64},"product_url":{"type":"string","maxLength":512}}),
                 &["id", "manufacturer", "mpn"],
             ),
         ),
@@ -352,6 +352,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"key":{"type":"string"},"value":{"type":["string","null"]}}),
                 &["id", "key"],
+            ),
+        ),
+        (
+            "component.set_sourcing",
+            "Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
+            schema(
+                json!({"id":id_schema(),"manufacturer":{"type":["string","null"],"maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":256},"lifecycle":{"type":["string","null"],"enum":["active","nrnd","last_time_buy","obsolete","unknown",null]},"moisture_level":{"type":["integer","null"],"minimum":1,"maximum":6},"rohs":{"type":["boolean","null"]},"reach":{"type":["boolean","null"]},"halogen_free":{"type":["boolean","null"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "component.set_supplier",
+            "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
+            schema(
+                json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
+                &["id", "supplier"],
             ),
         ),
         (
@@ -2474,7 +2490,8 @@ impl Session {
         self.revision = self.revision.saturating_add(1);
         Ok(json!({"revision":self.revision}))
     }
-    pub fn replace(&mut self, p: Project) -> Result<Value, Error> {
+    pub fn replace(&mut self, mut p: Project) -> Result<Value, Error> {
+        p.adopt_free_form_sourcing();
         p.validate()?;
         self.next_id = self
             .next_id
@@ -5046,10 +5063,7 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
                     None => "starter pads".into(),
                 },
             };
-        let values: Vec<String> = keys
-            .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
-            .collect();
+        let values: Vec<String> = keys.iter().map(|key| c.bom_value(key)).collect();
         let apart = if a.group {
             String::new()
         } else {
@@ -5136,6 +5150,51 @@ struct AttachSourceParams {
     distributor: String,
     #[serde(default)]
     sku: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    lifecycle: String,
+    #[serde(default)]
+    product_url: String,
+}
+/// Reads a key that may be absent (leave alone), null (clear) or a value (set).
+fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourcingParams {
+    id: Id,
+    #[serde(default, deserialize_with = "present")]
+    manufacturer: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    mpn: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
+    #[serde(default, deserialize_with = "present")]
+    moisture_level: Option<Option<u8>>,
+    #[serde(default, deserialize_with = "present")]
+    rohs: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    reach: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    halogen_free: Option<Option<bool>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SupplierParams {
+    id: Id,
+    supplier: String,
+    #[serde(default)]
+    part_number: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8138,6 +8197,54 @@ fn run_command(
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
         }
+        "component.set_sourcing" => {
+            let a: SourcingParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            let text = |slot: &mut String, v: Option<Option<String>>| {
+                if let Some(v) = v {
+                    *slot = v.map(|t| t.trim().to_owned()).unwrap_or_default();
+                }
+            };
+            text(&mut next.manufacturer, a.manufacturer);
+            text(&mut next.mpn, a.mpn);
+            text(&mut next.description, a.description);
+            if let Some(v) = a.lifecycle {
+                next.lifecycle = v;
+            }
+            if let Some(v) = a.moisture_level {
+                next.moisture_level = v;
+            }
+            if let Some(v) = a.rohs {
+                next.rohs = v;
+            }
+            if let Some(v) = a.reach {
+                next.reach = v;
+            }
+            if let Some(v) = a.halogen_free {
+                next.halogen_free = v;
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
+        }
+        "component.set_supplier" => {
+            let a: SupplierParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            next.set_supplier(&a.supplier, a.part_number.as_deref(), a.url.as_deref())
+                .map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "suppliers": component.sourcing.suppliers}))
+        }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
             let bounded = |name: &str, v: &str, max: usize| -> Result<(), Error> {
@@ -8158,6 +8265,9 @@ fn run_command(
             bounded("datasheet", &a.datasheet, 256)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
+            bounded("description", &a.description, 256)?;
+            bounded("lifecycle", &a.lifecycle, 64)?;
+            bounded("product_url", &a.product_url, 512)?;
             let component = p
                 .components
                 .iter_mut()
@@ -8183,6 +8293,29 @@ fn run_command(
                 };
                 put(key, &a.sku)?;
             }
+            // The typed record gets the same facts, plus what only the typed record keeps.
+            let mut next = component.sourcing.clone();
+            next.manufacturer = a.manufacturer.trim().to_owned();
+            next.mpn = a.mpn.trim().to_owned();
+            if !a.description.trim().is_empty() {
+                next.description = a.description.trim().to_owned();
+            }
+            if !a.lifecycle.trim().is_empty() {
+                let kind = pcbcraft_library::listing::lifecycle_from(&a.lifecycle);
+                if kind != pcbcraft_library::listing::Lifecycle::Unknown {
+                    next.lifecycle = Some(kind);
+                }
+            }
+            if !a.sku.trim().is_empty() && !a.distributor.trim().is_empty() {
+                next.set_supplier(
+                    a.distributor.trim(),
+                    Some(a.sku.trim()),
+                    Some(a.product_url.as_str()),
+                )
+                .map_err(Error::Invalid)?;
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
             Ok(json!({"id": a.id, "fields": written}))
         }
         "component.find" => {

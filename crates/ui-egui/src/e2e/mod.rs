@@ -31,6 +31,7 @@ mod schematic_pages;
 mod settings;
 mod shell;
 mod showcase;
+mod sourcing;
 mod toolbar;
 mod tree_rows;
 mod via_covering;
