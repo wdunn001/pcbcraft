@@ -13,6 +13,7 @@ mod board_side;
 mod builds;
 mod checks;
 mod compare;
+mod drill_table;
 mod editing;
 mod images;
 mod keymap;

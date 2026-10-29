@@ -26,7 +26,9 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+mod via_protection;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -1306,6 +1308,11 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
+    /// How the bottom face is protected when it differs from the top; none
+    /// means the bottom follows the top (or the board default), which is how
+    /// every file saved before this field existed reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering_bottom: Option<ViaCovering>,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1376,8 +1383,15 @@ impl ViaCovering {
 }
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
+    /// For a via with a separate bottom setting this is the top face.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
         self.covering.unwrap_or(board.via_covering_default)
+    }
+    /// The covering of the bottom face: its own bottom setting, else the top
+    /// face's covering.
+    pub fn effective_covering_bottom(&self, board: &Board) -> ViaCovering {
+        self.covering_bottom
+            .unwrap_or_else(|| self.effective_covering(board))
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -5365,7 +5379,12 @@ impl Project {
             {
                 return Err("via span must run from an upper to a lower copper layer".into());
             }
-            if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
+            if v.drill <= 0.0
+                && [v.covering, v.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != ViaCovering::Open)
+            {
                 return Err(
                     "a via without a drilled hole cannot be tented, plugged or filled".into(),
                 );
@@ -6585,6 +6604,7 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            covering_bottom: None,
         });
         p
     }

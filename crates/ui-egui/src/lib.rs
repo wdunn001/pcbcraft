@@ -12,6 +12,7 @@ mod canvas;
 mod contrast;
 mod datums;
 mod draw_target;
+mod drill_table;
 mod editing;
 pub mod fonts;
 mod footprint_wizard;

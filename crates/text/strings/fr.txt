@@ -1158,6 +1158,7 @@ check.track_width = Largeur de piste
 check.unassigned_pin = Broche non attribuée
 check.unrouted = Non routé
 check.via_aspect_ratio = Rapport de forme du via
+check.via_in_pad_not_capped = Via dans le pad non bouché
 check.via_span_not_allowed = Portée de via non autorisée
 check.zone_island = Îlot de zone
 check.zone_unconnected = Zone non connectée
