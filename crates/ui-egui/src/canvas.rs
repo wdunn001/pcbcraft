@@ -254,7 +254,7 @@ impl App {
 
 impl App {
     pub(super) fn select_at(&mut self, pos: Point, zoom: f32) {
-        let id = self.pick_object(pos, zoom);
+        let id = self.pick_filtered(pos, zoom);
         self.select(id);
         if self.tab == Tab::Schematic
             && let Some(c) = id.and_then(|id| self.project.component(id))
@@ -460,6 +460,7 @@ impl App {
         } else {
             self.paint_board(&painter, rect, camera, &visible);
         }
+        self.paint_edit_overlay(&painter, rect, camera);
         let text = match &self.tool {
             Tool::Select => "SELECT",
             Tool::Place(_) => "PLACE SYMBOL · CLICK TO COMMIT",
@@ -476,6 +477,7 @@ impl App {
             Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
             Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
             Tool::DrawLayer => "DRAW SHAPE · PICK THE LAYER IN THE PANEL",
+            Tool::Measure => "MEASURE · CLICK TWO POINTS",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -641,9 +643,15 @@ impl App {
             && matches!(self.tool, Tool::Select)
             && let Some(pos) = cursor
         {
-            self.select_at(pos, camera.zoom);
+            let shift = ui.input(|i| i.modifiers.shift);
+            match self.pick_filtered(pos, camera.zoom) {
+                Some(hit) if self.promote_member(hit) => {}
+                Some(_) => self.select_at(pos, camera.zoom),
+                None => self.begin_box(pos, shift),
+            }
             let id = self.selected;
-            if let Some(id) = id
+            if self.edit.box_from.is_none()
+                && let Some(id) = id
                 && (self.project.component(id).is_some() || self.project.footprint(id).is_some())
             {
                 let original = self
@@ -657,6 +665,15 @@ impl App {
             }
         }
         if response.dragged_by(egui::PointerButton::Primary)
+            && self.edit.box_from.is_some()
+            && let Some(pos) = cursor
+        {
+            self.edit.box_to = Some(pos);
+        }
+        if response.drag_stopped_by(egui::PointerButton::Primary) && self.edit.box_from.is_some() {
+            self.finish_box();
+        }
+        if response.dragged_by(egui::PointerButton::Primary)
             && let (Some((id, _)), Some(pos)) = (self.drag, cursor)
         {
             self.drag = Some((id, snap(pos.offset(self.drag_offset))));
@@ -664,18 +681,24 @@ impl App {
         if response.drag_stopped_by(egui::PointerButton::Primary)
             && let Some((id, pos)) = self.drag.take()
         {
-            let mut params = json!({"id":id,"position":pos});
-            if self.project.component(id).is_some() {
-                params["unit"] = json!(self.selected_unit);
+            if self.selection().len() > 1
+                && let Some(origin) = self.drag_origin(id)
+            {
+                self.move_selection(pos.x - origin.x, pos.y - origin.y);
+            } else {
+                let mut params = json!({"id":id,"position":pos});
+                if self.project.component(id).is_some() {
+                    params["unit"] = json!(self.selected_unit);
+                }
+                self.run(
+                    if self.project.footprint(id).is_some() {
+                        "footprint.move"
+                    } else {
+                        "component.move"
+                    },
+                    params,
+                );
             }
-            self.run(
-                if self.project.footprint(id).is_some() {
-                    "footprint.move"
-                } else {
-                    "component.move"
-                },
-                params,
-            );
         }
         if ui.input(|i| i.key_pressed(egui::Key::Enter))
             && matches!(self.tool, Tool::DrawLayer)
@@ -689,7 +712,11 @@ impl App {
         if response.clicked()
             && let Some(pos) = cursor
         {
-            self.canvas_click(pos, camera.zoom);
+            if matches!(self.tool, Tool::Select) && ui.input(|i| i.modifiers.shift) {
+                self.shift_click(pos, camera.zoom);
+            } else {
+                self.canvas_click(pos, camera.zoom);
+            }
         }
         // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
         egui::Area::new(egui::Id::new("fit-fab"))
@@ -931,7 +958,7 @@ impl App {
         );
     }
 
-    fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
+    pub(super) fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
             self.project
                 .components
@@ -1095,6 +1122,7 @@ impl App {
                         "Wire picked: change its width or straighten it in the inspector".into();
                 }
             }
+            Tool::Measure => self.measure_click(pos, zoom),
             Tool::Place(kind) => {
                 self.run("component.add", json!({"kind":kind,"position":snap(pos)}))
             }
@@ -1657,6 +1685,7 @@ impl App {
                 painter.circle_stroke(center, radius, Stroke::new(1.0, self.ink()));
             }
         }
+        self.paint_datums(painter, rect, camera, p);
         for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
             let center = camera.screen(c.center, rect);
             painter.circle_filled(center, c.radius as f32 * camera.zoom, self.surface());
@@ -1746,16 +1775,19 @@ impl App {
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
-            painter.circle_filled(
-                at,
-                radius,
-                if self.selected == Some(v.id) {
-                    self.accent()
-                } else {
-                    self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
-                },
-            );
-            if v.drill > 0.0 {
+            let base = if self.selected == Some(v.id) {
+                self.accent()
+            } else {
+                self.copper(Some(v.net), Color32::from_rgb(245, 141, 121))
+            };
+            if via_on_layer(p, v, self.route_layer) {
+                painter.circle_filled(at, radius, base);
+            } else {
+                // The via has no copper on the active layer: show a faint ring
+                // so it is still found, without looking like copper here.
+                painter.circle_stroke(at, radius, Stroke::new(1.0, base.linear_multiply(0.35)));
+            }
+            if v.drill > 0.0 && via_on_layer(p, v, self.route_layer) {
                 painter.circle_filled(
                     at,
                     (v.drill as f32 / 2.0 * camera.zoom).max(1.0),
@@ -1967,6 +1999,23 @@ fn pad_shape(mut outline: Vec<Pos2>, convex: bool, color: Color32) -> egui::Shap
         }
     }
     egui::Shape::convex_polygon(outline, color, Stroke::NONE)
+}
+
+/// Whether a via has copper on the layer being worked on. The "Bottom" choice
+/// always means the last copper layer of the board.
+pub(crate) fn via_on_layer(
+    p: &pcbcraft_doc::Project,
+    v: &pcbcraft_doc::Via,
+    active: pcbcraft_doc::Layer,
+) -> bool {
+    let last = p.copper_layer_count().saturating_sub(1);
+    let index = if active == Layer::Back {
+        last
+    } else {
+        active.index()
+    };
+    let (a, b) = p.via_span(v);
+    (a.index()..=b.index()).contains(&index)
 }
 
 #[cfg(test)]

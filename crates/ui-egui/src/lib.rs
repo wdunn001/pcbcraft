@@ -1,11 +1,16 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod authoring;
+mod board3d;
 mod canvas;
+mod datums;
+mod editing;
+mod impedance_panel;
 mod library;
 mod library_quality;
 mod plot_viewer;
 mod sources;
 mod via_covering;
+mod via_span;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -68,6 +73,32 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
             "command palette",
         ),
         ("?", "Show or hide this shortcut list", "anywhere"),
+        ("Ctrl+C", "Copy the selected objects as text", "canvas"),
+        (
+            "Ctrl+V",
+            "Paste the copied objects, ready to move",
+            "canvas",
+        ),
+        (
+            "Ctrl+A",
+            "Select every object the pick chips allow",
+            "canvas",
+        ),
+        (
+            "Shift+click",
+            "Add an object to the selection or take it out",
+            "canvas",
+        ),
+        (
+            "Drag on empty canvas",
+            "Draw a box and select what it touches",
+            "canvas",
+        ),
+        (
+            "U",
+            "Measure tool: click two points to read the distance",
+            "canvas",
+        ),
         ("A", "Open the symbol palette", "schematic tab"),
         (
             "W",
@@ -95,7 +126,7 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str, &'static str)> {
             "anywhere",
         ),
         ("Home", "Zoom the view so the whole design fits", "anywhere"),
-        ("Delete", "Delete the selected object", "anywhere"),
+        ("Delete", "Delete every selected object", "anywhere"),
         (
             "Esc",
             "Return to the select tool and close open palettes",
@@ -259,6 +290,9 @@ fn tool_hint(tool: &Tool) -> String {
         Tool::Fiducial => format!("LMB: place an assembly mark at the cursor{common}"),
         Tool::DrawLayer => {
             format!("LMB: place the shape on the active layer{common}")
+        }
+        Tool::Measure => {
+            format!("LMB: click two points to read the distance between them{common}")
         }
     }
 }
@@ -547,6 +581,7 @@ enum Tool {
     NoConnect,
     Fiducial,
     DrawLayer,
+    Measure,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -585,6 +620,8 @@ pub struct App {
     tab: Tab,
     tool: Tool,
     selected: Option<Id>,
+    edit: editing::EditState,
+    view3d: board3d::View3d,
     highlight_net: Option<Id>,
     selected_unit: u32,
     route_layer: pcbcraft_doc::Layer,
@@ -609,11 +646,13 @@ pub struct App {
     art_points: Vec<Point>,
     art_text: String,
     hole_edit: Option<(Id, f64)>,
+    datum_ui: datums::DatumUi,
     fiducial_diameter: f64,
     fiducial_edit: Option<(Id, f64, bool)>,
     renumber_prefix: Option<String>,
     track_width: f64,
     chamfer_size: f64,
+    impedance_ui: impedance_panel::ImpedanceUi,
     stitch_spacing: f64,
     pair_a: Id,
     pair_b: Id,
@@ -802,6 +841,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
         rows.push(("Net".into(), format!("{} · follows the wiring", net(v.net))));
         rows.push(("Copper".into(), format!("{:.2} mm", v.diameter)));
         rows.push(("Drill".into(), format!("{:.2} mm", v.drill)));
+        rows.extend(via_span::via_span_rows(project, v));
         rows.push((
             "Protection".into(),
             via_covering::covering_name(v.effective_covering(&project.board)).into(),
@@ -926,6 +966,7 @@ impl App {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
                 Some("plots") => Tab::PlotFiles,
+                Some("3d") => Tab::Board3d,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -933,6 +974,8 @@ impl App {
             },
             tool: Tool::Select,
             selected: None,
+            edit: editing::EditState::default(),
+            view3d: board3d::View3d::default(),
             highlight_net: None,
             selected_unit: 1,
             route_layer: pcbcraft_doc::Layer::Front,
@@ -957,11 +1000,13 @@ impl App {
             art_points: Vec::new(),
             art_text: "MY BOARD".into(),
             hole_edit: None,
+            datum_ui: datums::DatumUi::default(),
             fiducial_diameter: 1.0,
             fiducial_edit: None,
             renumber_prefix: None,
             track_width: 0.25,
             chamfer_size: 0.25,
+            impedance_ui: impedance_panel::ImpedanceUi::default(),
             stitch_spacing: 3.0,
             pair_a: 0,
             pair_b: 0,
@@ -1230,6 +1275,7 @@ impl App {
     }
     fn select(&mut self, id: Option<Id>) {
         self.selected = id;
+        self.edit.extra.clear();
         self.selected_unit = 1;
         self.load_properties();
     }
@@ -1868,7 +1914,11 @@ impl App {
             .default_open(true)
             .show(ui, |ui| {
             self.holes_section(ui);
+            self.datums_section(ui);
             self.fiducials_section(ui);
+            if self.tab == Tab::Pcb {
+                self.via_spans_section(ui);
+            }
             ui.add_space(16.0);
             let rows: &[&str] = match self.tab {
                 Tab::Schematic => &["Grid", "Symbols", "Wires", "Net labels", "Graphics"],
@@ -1981,10 +2031,11 @@ impl App {
                 (
                     v.id,
                     format!(
-                        "Via at {}, {} · {} mm hole · Top to Bottom · {}",
+                        "Via at {}, {} · {} mm hole · {} · {}",
                         v.position.x.round(),
                         v.position.y.round(),
                         v.drill,
+                        via_span::via_tree_span(&self.project, v),
                         self.project.net_name(v.net)
                     ),
                 )
@@ -2525,6 +2576,7 @@ impl App {
         if ctx.egui_wants_keyboard_input() || ctx.current_pass_index() > 0 {
             return;
         }
+        let mut delete_now = false;
         ctx.input(|i| {
             if i.modifiers.command {
                 if i.key_pressed(egui::Key::F) {
@@ -2575,17 +2627,20 @@ impl App {
                 self.drag = None;
                 self.palette = false;
                 self.shortcuts_open = false;
+                self.edit.measure = None;
+                self.edit.box_from = None;
+                self.edit.box_to = None;
             }
             if i.key_pressed(egui::Key::Slash) {
                 self.shortcuts_open = !self.shortcuts_open;
             }
-            if i.key_pressed(egui::Key::Delete)
-                && let Some(id) = self.selected
-            {
-                self.run("object.delete", json!({"id":id}));
-                self.select(None);
+            if i.key_pressed(egui::Key::Delete) && self.selected.is_some() {
+                delete_now = true;
             }
         });
+        if delete_now {
+            self.delete_selection();
+        }
     }
     fn style(&self, ctx: &egui::Context) {
         let mut visuals = if self.preferences.dark {
@@ -2995,6 +3050,30 @@ impl App {
                 .clicked()
             {
                 self.tool_call("redo", json!({}));
+            }
+            ui.separator();
+            if ui
+                .button("Copy  Ctrl+C")
+                .on_hover_text("Copy the selected objects as text; paste them here or in another window.")
+                .clicked()
+            {
+                let ctx = ui.ctx().clone();
+                self.copy_selection(&ctx);
+            }
+            if ui
+                .button("Paste  Ctrl+V")
+                .on_hover_text("Paste the last copy a little to the side, with new reference numbers.")
+                .clicked()
+            {
+                self.paste_last_copy();
+            }
+            if self.tab == Tab::Pcb
+                && ui
+                    .button("Clean up tracks")
+                    .on_hover_text("Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.")
+                    .clicked()
+            {
+                self.cleanup_tracks();
             }
             ui.separator();
             if ui
@@ -5529,7 +5608,9 @@ impl App {
                     .show(ui, |ui| {
                 self.draw_tool_options(ui);
                 self.section_heading(ui, "Details");
-                if let Some(id) = self.selected {
+                if let Some(id) = self.selected.filter(|id| datums::is_datum(&self.project, *id)) {
+                    self.datum_inspector(ui, id);
+                } else if let Some(id) = self.selected {
                     let c = self.project.component(id).cloned().or_else(|| {
                         self.project
                             .footprint(id)
@@ -5604,12 +5685,7 @@ impl App {
                             )
                             .clicked()
                         {
-                            let target =
-                                self.project.footprint(id).map_or(id, |fp| fp.component);
-                            self.run(
-                                "object.duplicate",
-                                json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
-                            );
+                            self.duplicate_selection();
                         }
                         let sheet = Self::datasheet_url(c.field("Datasheet"));
                         if ui
@@ -5705,6 +5781,7 @@ impl App {
                                 ui.label(value);
                             });
                         }
+                        self.via_span_controls(ui, id);
                         self.via_covering_controls(ui, id);
                         if let Some(track) =
                             self.project.board.tracks.iter().find(|t| t.id == id)
@@ -5825,6 +5902,7 @@ impl App {
                                     json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
                                 );
                             }
+                            self.impedance_section(ui, id, net);
                         }
                         if let Some(zone) =
                             self.project.board.zones.iter().find(|z| z.id == id)
@@ -5877,8 +5955,7 @@ impl App {
                     }
                     ui.add_space(10.0);
                     if ui.button("Delete  Del").on_hover_text(command_tip("object.delete")).clicked() {
-                        self.run("object.delete", json!({"id":id}));
-                        self.select(None);
+                        self.delete_selection();
                     }
                     ui.separator();
                 } else {
@@ -5928,6 +6005,7 @@ impl App {
             Tool::NoConnect => "No connection".to_owned(),
             Tool::Fiducial => "Fiducial mark".to_owned(),
             Tool::DrawLayer => "Draw on a layer".to_owned(),
+            Tool::Measure => "Measure".to_owned(),
         };
         egui::Panel::bottom("status")
             .frame(
@@ -5950,6 +6028,10 @@ impl App {
                     .on_hover_text(
                         "Every edit raises this number; undo and redo step it back and forth.",
                     );
+                    if let Some(reading) = self.measure_readout() {
+                        ui.label(egui::RichText::new(reading).small().strong())
+                            .on_hover_text("The last measurement. Press Esc to clear it.");
+                    }
                     if let Some(p) = self.cursor {
                         ui.label(
                             egui::RichText::new(format!("{:.2}, {:.2} mm", p.x, p.y))
@@ -6709,13 +6791,17 @@ impl App {
                     self.tool = Tool::Fiducial;
                 }
             }
-            if !matches!(self.tool, Tool::Select) {
-                ui.label(
-                    egui::RichText::new(tool_hint(&self.tool))
-                        .small()
-                        .color(self.muted()),
-                );
-            }
+            ui.separator();
+            self.editing_controls(ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if !matches!(self.tool, Tool::Select) {
+                    ui.label(
+                        egui::RichText::new(tool_hint(&self.tool))
+                            .small()
+                            .color(self.muted()),
+                    );
+                }
+            });
         });
         ui.separator();
     }
@@ -6738,12 +6824,17 @@ impl App {
         });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
-        Self::margined(ui, |ui| {
-            ui.heading("3D view");
-            ui.label(
-                "A Rust-native 3D board viewer is on the way. Until then, use fabrication previews and mesh export from Settings.",
-            );
-        });
+        let env = board3d::Env {
+            project: &self.project,
+            revision: self.revision,
+            selected: self.selected,
+            dark: self.preferences.dark,
+            bg: self.surface(),
+            muted: self.muted(),
+        };
+        if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
+            self.select(Some(id));
+        }
     }
 
     fn show(&mut self, ui: &mut egui::Ui) {
@@ -6753,6 +6844,7 @@ impl App {
         self.refresh();
         self.style(&ctx);
         self.shortcuts(&ctx);
+        self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
         if self.home_open {
@@ -6773,11 +6865,7 @@ impl App {
                                 .show(ui, |ui| Self::padded(ui, |ui| self.files_tab(ui)))
                                 .inner
                         }
-                        Tab::Board3d => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::padded(ui, |ui| self.board3d_tab(ui)))
-                                .inner
-                        }
+                        Tab::Board3d => self.board3d_tab(ui),
                         Tab::Libraries => {
                             egui::ScrollArea::vertical()
                                 .show(ui, |ui| Self::padded(ui, |ui| self.library(ui)))
