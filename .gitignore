@@ -2,3 +2,4 @@
 *.pcbcraft.tmp
 /work/
 __pycache__/
+/site/.env.deploy
