@@ -1,4 +1,37 @@
-//! Initial electrical and geometric checks, with object-addressable diagnostics.
+//! # Rules Crate
+//!
+//! This crate implements electrical and geometric checks for PCB design, with object-addressable diagnostics.
+//!
+//! ## Context
+//!
+//! This crate contains rules for validating PCB layouts, including copper clearance,
+//! via and pad dimensions, and panel layout specifications.
+//!
+//! ## Local Rules
+//!
+//! - All rules must be documented with `///` blocks for public items
+//! - Dependencies must be listed with real relative paths
+//! - No AI attribution or mention of other EDA tools
+//!
+//! ## Dependencies
+//!
+//! - `pcbcraft_doc` (crates/pcbcraft_doc/src/lib.rs)
+//! - `pcbcraft_geom` (crates/pcbcraft_geom/src/lib.rs)
+//! - `serde` (third-party)
+//! - `std::collections` (third-party)
+//!
+//! ## Do not
+//!
+//! - Document private items
+//! - Repeat rules from higher layers
+//! - Use markdown formatting
+//!
+//! ## Rules
+//!
+//! - Plain sentences only
+//! - No em-dashes
+//! - No AI attribution
+//! - No mention of other EDA tools
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
