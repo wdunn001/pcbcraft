@@ -348,3 +348,35 @@ fn a_newcomer_sees_no_format_in_the_file_menu() -> Result<(), String> {
     }
     Ok(())
 }
+
+#[test]
+fn a_newcomer_picks_a_naming_style_and_sees_the_file_names() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "Copper and drill files")?;
+    let stem = pcbcraft_io::gerber_preset::file_stem(&app.project);
+    assert!(
+        paints_text(&ctx, &mut app, "pcb-F.Cu.gbr")?,
+        "the preview starts with the project names"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Three-letter extensions")?;
+    assert!(
+        paints_text(&ctx, &mut app, &format!("{stem}.GTL"))?
+            && paints_text(&ctx, &mut app, &format!("{stem}.GKO"))?,
+        "the preview now lists the three-letter names"
+    );
+    authoring::tests::tap(&ctx, &mut app, "One file")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    for name in [format!("{stem}.GTL"), format!("{stem}.GBL")] {
+        assert!(
+            dir.path().join(&name).is_file(),
+            "{name} was written: {}",
+            app.message
+        );
+    }
+    assert!(
+        !dir.path().join(format!("{stem}-NPTH.XLN")).exists(),
+        "one drill file means no separate non-plated file"
+    );
+    Ok(())
+}
