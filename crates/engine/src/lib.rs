@@ -26562,6 +26562,7 @@ mod tests {
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
+                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
