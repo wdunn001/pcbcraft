@@ -7,6 +7,7 @@
 | [architecture.md](architecture.md) | Crate layers and mutation rules |
 | [mcp.md](mcp.md) | MCP client config |
 | [ci.md](ci.md) | GitHub Actions jobs |
+| [tooltips.md](tooltips.md) | What every control tooltip must say |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |
