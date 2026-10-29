@@ -47,9 +47,7 @@ fn set_kind_changes_missing_decoupling_on_checks() -> Result<(), Error> {
     let before = s.checks();
     let erc_before = before["erc"].as_array().ok_or_else(missing)?;
     assert!(
-        erc_before
-            .iter()
-            .any(|f| f["code"] == "missing_decoupling"),
+        erc_before.iter().any(|f| f["code"] == "missing_decoupling"),
         "ic-like part with power_in should need decoupling"
     );
     s.execute(
@@ -60,9 +58,7 @@ fn set_kind_changes_missing_decoupling_on_checks() -> Result<(), Error> {
     let after = s.checks();
     let erc_after = after["erc"].as_array().ok_or_else(missing)?;
     assert!(
-        !erc_after
-            .iter()
-            .any(|f| f["code"] == "missing_decoupling"),
+        !erc_after.iter().any(|f| f["code"] == "missing_decoupling"),
         "capacitor kind should not trigger ic decoupling rule"
     );
     Ok(())

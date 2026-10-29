@@ -2,9 +2,9 @@
 mod component_kind;
 mod panel;
 pub use component_kind::{
-    assign_kind_from_library, allowed_kinds_message, is_ic_like_kind, is_valid_component_kind,
-    kind_matches, parse_component_kind, validate_component_kinds, COMPONENT_KIND_SLUGS,
-    DECOUPLING_EXCLUDED_KINDS,
+    COMPONENT_KIND_SLUGS, DECOUPLING_EXCLUDED_KINDS, allowed_kinds_message,
+    assign_kind_from_library, is_ic_like_kind, is_valid_component_kind, kind_matches,
+    parse_component_kind, validate_component_kinds,
 };
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
