@@ -2965,6 +2965,7 @@ struct HolePlaceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct FiducialPlaceParams {
     position: Point,
     diameter: f64,
@@ -3061,6 +3062,7 @@ struct ZoneParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct TeardropParams {
     #[serde(default)]
     net: Option<Id>,
@@ -3095,6 +3097,7 @@ fn teardrop_depth() -> f64 {
 type Junction = (Point, (f64, f64), f64, f64, f64, Id, Layer);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct TeardropRemoveParams {
     #[serde(default)]
     net: Option<Id>,
@@ -3471,6 +3474,7 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct RuleAreaParams {
     #[serde(default)]
     name: Option<String>,
@@ -3649,6 +3653,7 @@ struct ItemsUpdateParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ItemFindParams {
     kind: String,
     #[serde(default)]
@@ -11121,7 +11126,7 @@ fn run_command(
                     "layer record name must be 1 to 64 characters".into(),
                 ));
             }
-            let mut trial: Vec<_> = p
+            let trial: Vec<_> = p
                 .board
                 .layer_records
                 .iter()
@@ -17149,7 +17154,7 @@ mod tests {
             .clone();
         assert_eq!(set["drill_origin"]["x"], 20.0);
         assert_eq!(set["drill_origin"]["y"], 10.0);
-        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Drill.drl"].clone();
+        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
             drill.contains("X10.000Y10.000\n"),
             "the recorded origin moves drill coordinates"
@@ -26049,11 +26054,15 @@ mod tests {
         assert_eq!(
             out["files"],
             json!([
+                "README-fabrication.txt",
                 "pcb-B.Cu.gbr",
-                "pcb-Drill.drl",
+                "pcb-B.Mask.gbr",
+                "pcb-B.Paste.gbr",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-F.Mask.gbr",
+                "pcb-F.Paste.gbr",
                 "pcb-NPTH.drl",
                 "pcb-Plated.drl",
                 "pcb.dxf"
@@ -26062,11 +26071,13 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-F.Mask.gbr",
             "pcb-NPTH.drl",
             "pcb-Plated.drl",
+            "README-fabrication.txt",
             "pcb.dxf",
         ] {
             assert!(
@@ -26117,7 +26128,7 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
             "pcb-Edge.gbr",
             "pcb-NPTH.drl",
             "pcb-Plated.drl",

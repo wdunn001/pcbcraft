@@ -826,7 +826,9 @@ pub struct Layer(u8);
 pub const MAX_COPPER_LAYERS: u8 = 32;
 
 impl Layer {
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
     pub const Front: Layer = Layer(0);
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
     pub const Back: Layer = Layer(1);
 
     pub fn from_index(index: u8) -> Result<Self, String> {
