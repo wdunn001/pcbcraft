@@ -1,4 +1,6 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod layer_names;
+pub use layer_names::LayerNaming;
 mod machine_profile;
 mod outline;
 pub use machine_profile::*;
@@ -1204,6 +1206,11 @@ impl Layer {
         if s.is_empty() {
             return Err("copper layer name is empty".into());
         }
+        if let Some(count) = layer_names::current_count()
+            && let Some(i) = layer_names::stackup_index(s, count)
+        {
+            return Layer::from_index(i);
+        }
         if s == "F.Cu" {
             return Ok(Layer::Front);
         }
@@ -1227,7 +1234,11 @@ impl Layer {
     }
 
     fn to_file_str(self) -> String {
-        if self.0 == 0 {
+        if let Some(count) = layer_names::current_count()
+            && let Some(name) = layer_names::stackup_name(self.0, count)
+        {
+            name
+        } else if self.0 == 0 {
             "F.Cu".into()
         } else if self.0 == 1 {
             "B.Cu".into()
@@ -3122,9 +3133,13 @@ pub fn valid_parameter_value(value: f64) -> bool {
     value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(remote = "Self")]
 pub struct Project {
     pub format: String,
     pub version: u32,
+    /// File marker: copper layers are named by stackup (see [`LayerNaming`]).
+    #[serde(default, skip_deserializing)]
+    pub layer_naming: LayerNaming,
     pub name: String,
     /// The unit this design is read in: "mm", "mil" or "inch". Stored
     /// coordinates stay millimetres; inch fabrication output is converted,
@@ -3319,6 +3334,31 @@ pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
     }
     Ok(())
 }
+/// Writes the project with copper layers named by its own stackup.
+///
+/// # Rules
+/// - The context lasts for this call only; see `layer_names.rs`.
+impl Serialize for Project {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let _scope = layer_names::Scope::enter(self.copper_layer_count());
+        Project::serialize(self, serializer)
+    }
+}
+
+/// Reads the project, naming copper layers by its stackup when the file
+/// carries the `layer_naming` marker and by index (the old rule) when not.
+///
+/// # Rules
+/// - Reads the file into a value first, because the stackup may come after
+///   the first item that names a layer.
+impl<'de> Deserialize<'de> for Project {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let file = serde_json::Value::deserialize(deserializer)?;
+        let _scope = layer_names::file_uses_stackup_names(&file)
+            .then(|| layer_names::Scope::enter(layer_names::copper_count_of(&file)));
+        Project::deserialize(file).map_err(de::Error::custom)
+    }
+}
 impl Default for Project {
     fn default() -> Self {
         Self {
@@ -3328,6 +3368,7 @@ impl Default for Project {
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
+            layer_naming: LayerNaming,
             name: "Untitled circuit".into(),
             unit: "mm".into(),
             components: vec![],
