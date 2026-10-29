@@ -15,6 +15,7 @@ mod datums;
 mod draw_target;
 mod editing;
 mod file_dialogs;
+mod files_home;
 pub mod fonts;
 mod footprint_wizard;
 mod hover_affordance;
@@ -670,6 +671,12 @@ struct Preferences {
     /// The last exports and imports with the options they used, newest first.
     #[serde(default)]
     recent_files: file_dialogs::Recents,
+    /// Projects kept at the top of the Files page, by path.
+    #[serde(default)]
+    pinned_projects: Vec<String>,
+    /// When each project was last opened or saved here, seconds since 1970, by path.
+    #[serde(default)]
+    project_opened: std::collections::BTreeMap<String, u64>,
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
@@ -740,6 +747,8 @@ impl Default for Preferences {
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             recent_files: Default::default(),
+            pinned_projects: Vec::new(),
+            project_opened: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
@@ -908,6 +917,8 @@ pub struct App {
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     recent_designs: Vec<String>,
+    /// The Files workspace: page, selection, pictures of recent projects.
+    files_home: files_home::State,
     home_open: bool,
     home_path_focus: bool,
     /// The unified Layers tree view state (left aside).
@@ -1442,6 +1453,7 @@ impl App {
             )),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
+            files_home: files_home::State::default(),
             home_open: false,
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
@@ -1728,6 +1740,8 @@ impl App {
         if success && (name == "save" || name == "open") {
             pcbcraft_engine::recents::record_recent_path(&self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
+            let opened = self.path.clone();
+            self.files_note_opened(&opened);
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
@@ -2371,9 +2385,6 @@ impl App {
                 if i.key_pressed(egui::Key::Y) {
                     self.tool_call("redo", json!({}));
                 }
-                if i.key_pressed(egui::Key::S) {
-                    self.tool_call("save", json!({"path":self.path}));
-                }
                 if held.shift && i.key_pressed(egui::Key::A) {
                     self.assistant_toggle();
                 }
@@ -2784,14 +2795,16 @@ impl App {
                 .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
-                self.home_open = true;
+                self.show_files(files_home::Page::Open);
+                ui.close();
             }
             if ui
                 .button(t!("menu.file.save"))
                 .on_hover_text(t!("menu.file.save.tip"))
                 .clicked()
             {
-                self.tool_call("save", json!({"path":self.path}));
+                self.save_or_ask();
+                ui.close();
             }
             if ui
                 .button(t!("menu.file.save_as"))
@@ -5487,6 +5500,21 @@ impl App {
         }
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
+        if self.tab == Tab::Files {
+            if !Self::narrow_window(ui.ctx()) {
+                let tokens = theme::tokens(ui.ctx());
+                egui::Panel::right("inspector")
+                    .default_size(340.0)
+                    .min_size(280.0)
+                    .frame(
+                        egui::Frame::NONE
+                            .fill(tokens.panel)
+                            .stroke(egui::Stroke::new(theme::BORDER, tokens.line)),
+                    )
+                    .show(ui, |ui| self.files_details(ui));
+            }
+            return;
+        }
         if Self::narrow_window(ui.ctx()) {
             egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
@@ -6176,6 +6204,7 @@ impl App {
             && library_ready
             && self.online_settled()
             && self.edit.dialog.script.ready()
+            && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -6412,6 +6441,7 @@ impl App {
             ctx.request_repaint();
             return;
         }
+        self.file_shortcuts(&ctx);
         self.shortcuts(&ctx);
         self.edit_events(&ctx);
         self.header(ui);

@@ -60,6 +60,17 @@ pub fn record_recent_path(path: &str) {
     list.truncate(MAX_RECENT);
     write(&list);
 }
+/// Take one design off the list, as the Files page does for Remove from list.
+/// The file itself is never touched.
+pub fn forget_recent_path(path: &str) {
+    let trimmed = path.trim();
+    let mut list = load_recent_paths();
+    let before = list.len();
+    list.retain(|seen| seen != trimmed);
+    if list.len() != before {
+        write(&list);
+    }
+}
 /// Forget every remembered design.
 pub fn clear_recent_paths() {
     write(&[]);
