@@ -574,3 +574,75 @@ fn library_editor_canvas_and_form_show_the_same_pin_position_after_drag() -> Res
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_makes_a_qfn_from_its_datasheet_numbers() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Generate footprint")?;
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            "Type the numbers from the package drawing in the datasheet. Dimensions are millimetres."
+        )?,
+        "the form tells a newcomer what to type"
+    );
+    // The datasheet says: 0.5 mm pitch, 32 pins, 5 by 5 mm body.
+    app.library.editor.wizard.family = "qfn";
+    app.library.editor.wizard.name = "QFN32_5X5".into();
+    app.library.editor.wizard.pitch = 0.5;
+    app.library.editor.wizard.pin_count = 32;
+    app.library.editor.wizard.body_length = 5.0;
+    app.library.editor.wizard.body_width = 5.0;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "33 pads, with a thermal pad")?,
+        "the preview counts the pads and shows the thermal pad"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Create footprint")?;
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    let session = shared.lock().map_err(|_| "session unavailable")?;
+    let saved = session
+        .project
+        .library
+        .footprints
+        .iter()
+        .find(|f| f.name == "QFN32_5X5")
+        .ok_or("the library does not hold the new footprint")?;
+    assert_eq!(saved.pads.len(), 33, "32 pins plus the thermal pad");
+    assert!(saved.pads.iter().any(|p| p.number == "EP"));
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_why_impossible_numbers_cannot_make_a_footprint() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared,
+        Preferences::default(),
+        None,
+        Some("footprint-editor"),
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    authoring::tests::tap(&ctx, &mut app, "Generate footprint")?;
+    app.library.editor.wizard.pitch = 40.0;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(
+            &ctx,
+            &mut app,
+            "pitch must be between 0.1 and 25.4 millimetres"
+        )?,
+        "a pitch that no package has is explained in plain words"
+    );
+    Ok(())
+}
