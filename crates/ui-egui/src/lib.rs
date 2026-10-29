@@ -1468,10 +1468,7 @@ impl App {
     /// # Do not
     /// - Read the environment here; the entry point puts the folder in the session.
     pub(crate) fn user_config(&self) -> pcbcraft_engine::user_config::UserConfig {
-        self.session
-            .lock()
-            .map(|s| s.config.clone())
-            .unwrap_or_default()
+        self.session.config().clone()
     }
     fn create(
         session: SharedSession,

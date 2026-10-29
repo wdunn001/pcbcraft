@@ -6,6 +6,7 @@ mod prompts;
 mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -14,12 +15,41 @@ use std::io::{BufRead, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-pub type SharedSession = Arc<Mutex<Session>>;
+/// One design session shared between the window, the tools and the server.
+///
+/// # Rules
+/// - Locks like the `Mutex<Session>` it wraps (it derefs to it).
+/// - Carries a copy of the session's [`UserConfig`] taken when it was made, so
+///   library and recents reads find the settings folder without taking the
+///   design lock.
+///
+/// # Do not
+/// - Read the configuration through `lock()`; a long edit would stall the read.
+#[derive(Clone)]
+pub struct SharedSession {
+    session: Arc<Mutex<Session>>,
+    config: Arc<UserConfig>,
+}
+impl std::ops::Deref for SharedSession {
+    type Target = Mutex<Session>;
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
+}
+impl SharedSession {
+    /// The settings folder this session was made with.
+    pub fn config(&self) -> &UserConfig {
+        &self.config
+    }
+}
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
 /// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
 pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
-    Arc::new(Mutex::new(session))
+    SharedSession {
+        config: Arc::new(session.config.clone()),
+        session: Arc::new(Mutex::new(session)),
+    }
 }
 pub fn tool_list() -> Value {
     let object = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
@@ -281,8 +311,12 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::list_with_project(&s.config, args, Some(&s.project))
-            .map(text_result);
+        return pcbcraft_engine::library::list_with_project(
+            session.config(),
+            args,
+            Some(&s.project),
+        )
+        .map(text_result);
     }
     if [
         "design.recents",
@@ -297,12 +331,7 @@ pub(crate) fn invoke_session(
     ]
     .contains(&name)
     {
-        let config = session
-            .lock()
-            .map_err(|_| "session unavailable after internal failure".to_string())?
-            .config
-            .clone();
-        return pcbcraft_engine::library::read_tool(&config, name, args).map(text_result);
+        return pcbcraft_engine::library::read_tool(session.config(), name, args).map(text_result);
     }
     let mut s = session
         .lock()
