@@ -103,7 +103,7 @@ pub fn ui(
         );
         let path_response = ui
             .add(
-                egui::TextEdit::singleline(&mut state.folder_path)
+                crate::targets::text_field(&mut state.folder_path)
                     .desired_width(220.0)
                     .hint_text("Path to copper and drill files"),
             )

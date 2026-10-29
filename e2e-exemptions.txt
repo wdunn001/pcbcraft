@@ -14,7 +14,6 @@ tooltip | button:Copper & drill files | missing tooltip, tracked in #520
 tooltip | button:Declare pair | missing tooltip, tracked in #520
 tooltip | button:Design report | missing tooltip, tracked in #520
 tooltip | button:Drill map (CSV) | missing tooltip, tracked in #520
-tooltip | button:Editor | missing tooltip, tracked in #520
 tooltip | button:GND | missing tooltip, tracked in #520
 tooltip | button:Graphic # | missing tooltip, tracked in #520
 tooltip | button:Graphic # · unit # | missing tooltip, tracked in #520
@@ -22,7 +21,6 @@ tooltip | button:Holes and cut-outs | missing tooltip, tracked in #520
 tooltip | button:Import as board edge | missing tooltip, tracked in #520
 tooltip | button:Import drawing | missing tooltip, tracked in #520
 tooltip | button:LED | missing tooltip, tracked in #520
-tooltip | button:Library | missing tooltip, tracked in #520
 tooltip | button:Machine layers you draw | missing tooltip, tracked in #520
 tooltip | button:Net list | missing tooltip, tracked in #520
 tooltip | button:New net | missing tooltip, tracked in #520
@@ -260,11 +258,5 @@ tooltip | textinput:PNG file path | missing tooltip, tracked in #520
 tooltip | button:Print art, bottom silkscreen | missing tooltip, tracked in #520
 tooltip | button:Print art, top silkscreen | missing tooltip, tracked in #520
 story | button:Print art, bottom silkscreen | no story yet, tracked in #520
-story | button:Forget Always allow | no story yet, tracked in #520
-story | checkbox:Show assistant | no story yet, tracked in #520
-story | radiobutton:Allow everything | no story yet, tracked in #520
-story | radiobutton:Ask every time | no story yet, tracked in #520
-story | radiobutton:Auto-allow design edits | no story yet, tracked in #520
-tooltip | button:Add hole | below the fold of the longer Settings page, tracked in #520
-tooltip | button:Apply board dimensions | below the fold of the longer Settings page, tracked in #520
+tooltip | button:Set substrate | has a tooltip; sits below the fold on the Files page now that rows are 24 px, so the walk cannot hover it, tracked in #520
 story | button:Add hole | below the fold of the longer Settings page, tracked in #520

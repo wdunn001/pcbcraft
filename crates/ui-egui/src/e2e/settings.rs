@@ -64,3 +64,69 @@ fn a_newcomer_finds_appearance_on_the_settings_page() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// Turn the wheel once over the board and report the zoom before and after.
+fn zoom_after_one_wheel_frame(reduced: bool) -> (f32, f32) {
+    let mut app = fresh();
+    app.preferences.reduced_motion = reduced;
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Pcb);
+    let at = egui::pos2(700.0, 450.0);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(at)],
+        egui::Modifiers::NONE,
+    );
+    let before = app.pcb.zoom;
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 100.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        }],
+        egui::Modifiers::NONE,
+    );
+    (before, app.pcb.zoom)
+}
+
+#[test]
+fn a_newcomer_turns_off_animation_in_settings() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Settings);
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Reduce motion", 700.0)?,
+        "Settings should offer a Reduce motion choice"
+    );
+    assert!(!app.preferences.reduced_motion, "off until the person asks");
+    authoring::tests::tap(&ctx, &mut app, "Reduce motion")?;
+    assert!(
+        app.preferences.reduced_motion,
+        "ticking the box turns it on"
+    );
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(
+        ctx.global_style().animation_time,
+        0.0,
+        "fades and collapses finish in the frame they start"
+    );
+    // A zoom step reaches its final value in one frame when motion is reduced.
+    let (before, after) = zoom_after_one_wheel_frame(true);
+    let target = (before * (100.0_f32 * 0.003).exp()).clamp(0.02, 100.0);
+    assert!(
+        (after - target).abs() < target * 1e-3,
+        "one frame should reach {target}, got {after} from {before}"
+    );
+    // With motion on, the same wheel notch has not finished in one frame.
+    let (before_on, after_on) = zoom_after_one_wheel_frame(false);
+    assert!(
+        (after_on - before_on).abs() < (after - before).abs(),
+        "gliding zoom should lag the instant one: {before_on} to {after_on}"
+    );
+    Ok(())
+}

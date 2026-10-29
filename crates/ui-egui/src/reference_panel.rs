@@ -80,7 +80,7 @@ impl App {
         );
         ui.add_space(4.0);
         ui.add(
-            egui::TextEdit::singleline(&mut form.path)
+            crate::targets::text_field(&mut form.path)
                 .hint_text("PNG file path")
                 .desired_width(180.0),
         )
@@ -142,7 +142,7 @@ impl App {
                             .speed(0.005)
                             .suffix(" mm/px"),
                     )
-                    .on_hover_text("How many millimetres one picture pixel covers. Larger makes the picture bigger.");
+                    .on_hover_text("Set how many millimetres one picture pixel covers; larger makes the picture bigger. From 0.001 to 100 millimetres per pixel.");
                 commit |= resp.drag_stopped() || resp.lost_focus();
             });
             ui.horizontal(|ui| {
@@ -318,7 +318,7 @@ impl App {
                         .speed(0.01)
                         .suffix(" mm"),
                 )
-                .on_hover_text("Rounds off pixel steps. Larger gives fewer, straighter corners.");
+                .on_hover_text("Round off pixel steps; larger gives fewer, straighter corners. From 0 to 10 millimetres.");
             });
             if ui
                 .button("Trace to layer")

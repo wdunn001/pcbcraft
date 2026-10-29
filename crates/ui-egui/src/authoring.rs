@@ -211,7 +211,7 @@ fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
 fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.text_edit_singleline(value);
+        ui.add(crate::targets::text_field(value));
     });
 }
 fn number(ui: &mut egui::Ui, label: &str, value: &mut f64) {
@@ -228,10 +228,10 @@ fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
             width,
             layer,
         } => {
-            point(ui, "Start", start);
-            point(ui, "End", end);
-            number(ui, "Stroke", width);
-            text(ui, "Layer", layer);
+            point(ui, &t!("library.graphic.start"), start);
+            point(ui, &t!("library.graphic.end"), end);
+            number(ui, &t!("library.graphic.stroke"), width);
+            text(ui, &t!("library.graphic.layer"), layer);
         }
         Graphic::Rectangle {
             start,
@@ -240,11 +240,11 @@ fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
             fill,
             layer,
         } => {
-            point(ui, "Start", start);
-            point(ui, "End", end);
-            number(ui, "Stroke", width);
-            text(ui, "Fill", fill);
-            text(ui, "Layer", layer);
+            point(ui, &t!("library.graphic.start"), start);
+            point(ui, &t!("library.graphic.end"), end);
+            number(ui, &t!("library.graphic.stroke"), width);
+            text(ui, &t!("library.graphic.fill"), fill);
+            text(ui, &t!("library.graphic.layer"), layer);
         }
         Graphic::Circle {
             center,
@@ -253,11 +253,11 @@ fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
             fill,
             layer,
         } => {
-            point(ui, "Center", center);
-            number(ui, "Radius", radius);
-            number(ui, "Stroke", width);
-            text(ui, "Fill", fill);
-            text(ui, "Layer", layer);
+            point(ui, &t!("library.graphic.center"), center);
+            number(ui, &t!("library.graphic.radius"), radius);
+            number(ui, &t!("library.graphic.stroke"), width);
+            text(ui, &t!("library.graphic.fill"), fill);
+            text(ui, &t!("library.graphic.layer"), layer);
         }
         Graphic::Arc {
             start,
@@ -266,11 +266,11 @@ fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
             width,
             layer,
         } => {
-            point(ui, "Start", start);
-            point(ui, "Through", mid);
-            point(ui, "End", end);
-            number(ui, "Stroke", width);
-            text(ui, "Layer", layer);
+            point(ui, &t!("library.graphic.start"), start);
+            point(ui, &t!("library.graphic.through"), mid);
+            point(ui, &t!("library.graphic.end"), end);
+            number(ui, &t!("library.graphic.stroke"), width);
+            text(ui, &t!("library.graphic.layer"), layer);
         }
         Graphic::Polyline {
             points,
@@ -279,30 +279,30 @@ fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
             layer,
         } => {
             for (i, p) in points.iter_mut().enumerate().take(128) {
-                point(ui, &format!("Vertex {}", i + 1), p);
+                point(ui, &t!("library.graphic.vertex_v0", v0 = i + 1), p);
             }
             if points.len() > 128 {
-                ui.label("Remaining vertices are preserved.");
+                ui.label(t!("library.graphic.remaining_vertices_are_preserved"));
             }
             if ui
-                .button("Add vertex")
-                .on_hover_text("Append another corner to the outline.")
+                .button(t!("library.graphic.add_vertex"))
+                .on_hover_text(t!("library.graphic.add_vertex.tip"))
                 .clicked()
                 && points.len() < 128
             {
                 points.push(Point::default());
             }
             if ui
-                .button("Remove last vertex")
-                .on_hover_text("Drop the last corner of the outline.")
+                .button(t!("library.graphic.remove_last_vertex"))
+                .on_hover_text(t!("library.graphic.remove_last_vertex.tip"))
                 .clicked()
                 && points.len() > 2
             {
                 points.pop();
             }
-            number(ui, "Stroke", width);
-            text(ui, "Fill", fill);
-            text(ui, "Layer", layer);
+            number(ui, &t!("library.graphic.stroke"), width);
+            text(ui, &t!("library.graphic.fill"), fill);
+            text(ui, &t!("library.graphic.layer"), layer);
         }
         Graphic::Text {
             position,
@@ -311,21 +311,21 @@ fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
             size,
             layer,
         } => {
-            point(ui, "Position", position);
-            text(ui, "Text", content);
-            point(ui, "Text size", size);
-            number(ui, "Angle", angle);
-            text(ui, "Layer", layer);
+            point(ui, &t!("library.graphic.position"), position);
+            text(ui, &t!("library.graphic.text"), content);
+            point(ui, &t!("library.graphic.text_size"), size);
+            number(ui, &t!("library.graphic.angle"), angle);
+            text(ui, &t!("library.graphic.layer"), layer);
         }
     }
 }
 fn add_graphic(ui: &mut egui::Ui, layer: &str) -> Option<Graphic> {
     let mut result = None;
     ui.horizontal_wrapped(|ui| {
-        ui.label("Add drawing:");
+        ui.label(t!("library.add_graphic.add_drawing"));
         if ui
-            .button("Line")
-            .on_hover_text("Add a straight line segment to this definition.")
+            .button(t!("library.add_graphic.line"))
+            .on_hover_text(t!("library.add_graphic.line.tip"))
             .clicked()
         {
             result = Some(Graphic::Line {
@@ -336,15 +336,15 @@ fn add_graphic(ui: &mut egui::Ui, layer: &str) -> Option<Graphic> {
             });
         }
         if ui
-            .button("Rectangle")
-            .on_hover_text("Add a rectangle outline to this definition.")
+            .button(t!("library.add_graphic.rectangle"))
+            .on_hover_text(t!("library.add_graphic.rectangle.tip"))
             .clicked()
         {
             result = Some(rectangle(layer));
         }
         if ui
-            .button("Circle")
-            .on_hover_text("Add a circle to this definition.")
+            .button(t!("library.add_graphic.circle"))
+            .on_hover_text(t!("library.add_graphic.circle.tip"))
             .clicked()
         {
             result = Some(Graphic::Circle {
@@ -356,8 +356,8 @@ fn add_graphic(ui: &mut egui::Ui, layer: &str) -> Option<Graphic> {
             });
         }
         if ui
-            .button("Arc")
-            .on_hover_text("Add an arc segment to this definition.")
+            .button(t!("library.add_graphic.arc"))
+            .on_hover_text(t!("library.add_graphic.arc.tip"))
             .clicked()
         {
             result = Some(Graphic::Arc {
@@ -369,8 +369,8 @@ fn add_graphic(ui: &mut egui::Ui, layer: &str) -> Option<Graphic> {
             });
         }
         if ui
-            .button("Polyline")
-            .on_hover_text("Add an open multi-segment outline to this definition.")
+            .button(t!("library.add_graphic.polyline"))
+            .on_hover_text(t!("library.add_graphic.polyline.tip"))
             .clicked()
         {
             result = Some(Graphic::Polyline {
@@ -385,14 +385,14 @@ fn add_graphic(ui: &mut egui::Ui, layer: &str) -> Option<Graphic> {
             });
         }
         if ui
-            .button("Text")
-            .on_hover_text("Add a text label to this definition.")
+            .button(t!("library.add_graphic.text"))
+            .on_hover_text(t!("library.add_graphic.text.tip"))
             .clicked()
         {
             result = Some(Graphic::Text {
                 position: Point::default(),
                 angle: 0.0,
-                text: "Label".into(),
+                text: t!("library.add_graphic.label"),
                 size: Point::new(1.0, 1.0),
                 layer: layer.into(),
             });
@@ -831,7 +831,7 @@ impl App {
             self.library.editor.needs_fit = false;
         }
         if response.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            let scroll = motion::wheel_zoom_delta(ui, self.preferences.reduced_motion);
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
             {
@@ -1087,11 +1087,21 @@ fn graphic_translate(graphic: &mut Graphic, delta: Point) {
 impl App {
     pub(super) fn library_workspaces(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.library.editor.mode, 0, "Library");
-            ui.selectable_value(&mut self.library.editor.mode, 2, "Editor");
+            ui.selectable_value(
+                &mut self.library.editor.mode,
+                0,
+                t!("library.library_workspaces.library"),
+            )
+            .on_hover_text(t!("library.library_workspaces.library.tip"));
+            ui.selectable_value(
+                &mut self.library.editor.mode,
+                2,
+                t!("library.library_workspaces.editor"),
+            )
+            .on_hover_text(t!("library.library_workspaces.editor.tip"));
             if ui
-                .button("New symbol")
-                .on_hover_text("Start a fresh empty symbol definition.")
+                .button(t!("library.library_workspaces.new_symbol"))
+                .on_hover_text(t!("library.library_workspaces.new_symbol.tip"))
                 .clicked()
             {
                 self.library.editor.draft = Some(Draft::Symbol(new_symbol()));
@@ -1100,8 +1110,8 @@ impl App {
                 self.library.editor.needs_fit = true;
             }
             if ui
-                .button("New footprint")
-                .on_hover_text("Start a fresh empty footprint definition.")
+                .button(t!("library.library_workspaces.new_footprint"))
+                .on_hover_text(t!("library.library_workspaces.new_footprint.tip"))
                 .clicked()
             {
                 self.library.editor.draft = Some(Draft::Footprint(new_footprint()));
@@ -1110,10 +1120,8 @@ impl App {
                 self.library.editor.needs_fit = true;
             }
             if ui
-                .button("Generate footprint")
-                .on_hover_text(
-                    "Build a footprint from a package family and the numbers in its datasheet.",
-                )
+                .button(t!("library.library_workspaces.generate_footprint"))
+                .on_hover_text(t!("library.library_workspaces.generate_footprint.tip"))
                 .clicked()
             {
                 self.library.editor.wizard.open = true;
@@ -1137,35 +1145,38 @@ impl App {
         self.project_library(ui);
     }
     fn project_library(&mut self, ui: &mut egui::Ui) {
-        ui.heading("This project's definitions");
-        ui.label("Saved here, live with the design; everything above is shared collections. Placed components retain their embedded copies.");
+        ui.heading(t!("library.project_library.this_project_s_definitions"));
+        ui.label(t!("library.project_library.saved_here_live_with_the"));
         ui.horizontal(|ui| {
-            ui.label("Collection file");
-            ui.text_edit_singleline(&mut self.library.editor.path);
+            ui.label(t!("library.project_library.collection_file"));
+            ui.add(crate::targets::text_field(&mut self.library.editor.path));
             if ui
-                .button("Save library")
-                .on_hover_text("Write the authored collections to a reusable library file.")
+                .button(t!("library.project_library.save_library"))
+                .on_hover_text(t!("library.project_library.save_library.tip"))
                 .clicked()
             {
                 self.tool_call("library.save", json!({"path":self.library.editor.path}));
             }
             if ui
-                .button("Load library")
-                .on_hover_text("Bring a saved library file into the editor.")
+                .button(t!("library.project_library.load_library"))
+                .on_hover_text(t!("library.project_library.load_library.tip"))
                 .clicked()
             {
                 self.run("library.load", json!({"path":self.library.editor.path}));
             }
         });
         ui.separator();
-        ui.heading("Symbols");
+        ui.heading(t!("library.project_library.symbols"));
         for def in self.project.library.symbols.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(&def.name);
-                ui.label(format!("{} physical pins", def.pins.len()));
+                ui.label(t!(
+                    "library.project_library.len_physical_pins",
+                    len = def.pins.len()
+                ));
                 if ui
-                    .button("Edit")
-                    .on_hover_text("Edit this definition in the panel below.")
+                    .button(t!("library.project_library.edit"))
+                    .on_hover_text(t!("library.project_library.edit.tip"))
                     .clicked()
                 {
                     self.library.editor.draft = Some(Draft::Symbol(def.clone()));
@@ -1183,15 +1194,18 @@ impl App {
                 )
                 .is_ok();
                 if ui
-                    .add_enabled(supported, egui::Button::new("Place"))
+                    .add_enabled(
+                        supported,
+                        egui::Button::new(t!("library.project_library.place")),
+                    )
                     .clicked()
                 {
                     self.change_tab(Tab::Schematic);
                     self.tool = Tool::CustomPlace(def.name.clone(), Box::new(def.clone()));
                 }
                 if ui
-                    .button("Remove")
-                    .on_hover_text("Remove this definition from the project library.")
+                    .button(t!("library.project_library.remove"))
+                    .on_hover_text(t!("library.project_library.remove.tip"))
                     .clicked()
                 {
                     self.run("library.symbol.remove", json!({"name":def.name}));
@@ -1199,16 +1213,16 @@ impl App {
             });
         }
         ui.separator();
-        ui.heading("Footprints");
+        ui.heading(t!("library.project_library.footprints"));
         self.refresh_footprint_quality();
         for def in self.project.library.footprints.clone() {
             ui.horizontal_wrapped(|ui| {
                 ui.strong(&def.name);
-                ui.label(format!("{} pads", def.pads.len()));
+                ui.label(t!("library.project_library.len_pads", len = def.pads.len()));
                 self.quality_badge(ui, &def.name);
                 if ui
-                    .button("Edit")
-                    .on_hover_text("Edit this definition in the panel below.")
+                    .button(t!("library.project_library.edit"))
+                    .on_hover_text(t!("library.project_library.edit.tip"))
                     .clicked()
                 {
                     self.library.editor.draft = Some(Draft::Footprint(def.clone()));
@@ -1231,7 +1245,7 @@ impl App {
                 if ui
                     .add_enabled(
                         matching && pcbcraft_doc::validate_footprint_support(&def).is_ok(),
-                        egui::Button::new("Assign to selection"),
+                        egui::Button::new(t!("library.project_library.assign_to_selection")),
                     )
                     .clicked()
                     && let Some(id) = selected.map(|c| c.id)
@@ -1239,8 +1253,8 @@ impl App {
                     self.run("footprint.assign_custom", json!({"id":id,"name":def.name}));
                 }
                 if ui
-                    .button("Remove")
-                    .on_hover_text("Remove this definition from the project library.")
+                    .button(t!("library.project_library.remove"))
+                    .on_hover_text(t!("library.project_library.remove.tip"))
                     .clicked()
                 {
                     self.run("library.footprint.remove", json!({"name":def.name}));
@@ -1251,52 +1265,49 @@ impl App {
     fn library_editor(&mut self, ui: &mut egui::Ui) {
         self.footprint_wizard(ui);
         let Some(mut draft) = self.library.editor.draft.take() else {
-            ui.heading("Library editor");
-            ui.label(
-                "Create a symbol or footprint, or edit a copy from the installed/project library.",
-            );
+            ui.heading(t!("library.library_editor.library_editor"));
+            ui.label(t!("library.library_editor.create_a_symbol_or_footprint"));
             return;
         };
         let mut save = None;
-        ui.label("Dimensions are millimetres; angles are counterclockwise degrees. Save commits one undoable edit.");
+        ui.label(t!(
+            "library.library_editor.dimensions_are_millimetres_angles_are"
+        ));
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_min_width(340.0);
                 ui.set_max_width(400.0);
                 match &mut draft {
             Draft::Symbol(def) => {
-                ui.heading("Symbol editor");
-                text(ui, "Name", &mut def.name);
-                text(ui, "Reference prefix", &mut def.reference);
-                text(ui, "Default value", &mut def.value);
-                text(ui, "Description", &mut def.description);
-                text(ui, "Suggested footprint", &mut def.footprint);
+                ui.heading(t!("library.library_editor.symbol_editor"));
+                text(ui, &t!("library.library_editor.name"), &mut def.name);
+                text(ui, &t!("library.library_editor.reference_prefix"), &mut def.reference);
+                text(ui, &t!("library.library_editor.default_value"), &mut def.value);
+                text(ui, &t!("library.library_editor.description"), &mut def.description);
+                text(ui, &t!("library.library_editor.suggested_footprint"), &mut def.footprint);
                 ui.horizontal(|ui| {
-                    ui.label("Set")
-                        .on_hover_text("Optional group name, like Power bits. Parts that share a set are grouped together when you add parts, and the group can be hidden.");
-                    ui.text_edit_singleline(&mut def.set);
+                    ui.label(t!("library.library_editor.set"))
+                        .on_hover_text(t!("library.library_editor.set.tip"));
+                    ui.add(crate::targets::text_field(&mut def.set));
                 });
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
                 }
                 if !def.unsupported.is_empty() {
-                    ui.label(format!(
-                        "Preserved unsupported features: {}",
-                        def.unsupported.join(", ")
-                    ));
+                    ui.label(t!("library.library_editor.preserved_unsupported_features_v0", v0 = def.unsupported.join(", ")));
                 }
                 if ui
-                    .button("Save symbol to project library")
-                    .on_hover_text("Store this symbol in the current project library.")
+                    .button(t!("library.library_editor.save_symbol_to_project_library"))
+                    .on_hover_text(t!("library.library_editor.save_symbol_to_project_library.tip"))
                     .clicked()
                 {
                     save = Some(("library.symbol.upsert", json!({"definition":def})));
                 }
                 ui.separator();
-                ui.heading("Pins");
+                ui.heading(t!("library.library_editor.pins"));
                 if ui
-                    .button("Duplicate preview unit")
-                    .on_hover_text("Copy the unit being edited to grow a multi-unit package.")
+                    .button(t!("library.library_editor.duplicate_preview_unit"))
+                    .on_hover_text(t!("library.library_editor.duplicate_preview_unit.tip"))
                     .clicked()
                 {
                     let unit = def
@@ -1342,8 +1353,8 @@ impl App {
                     }
                 }
                 if ui
-                    .button("Add pin")
-                    .on_hover_text("Add a new pin to this symbol.")
+                    .button(t!("library.library_editor.add_pin"))
+                    .on_hover_text(t!("library.library_editor.add_pin.tip"))
                     .clicked()
                     && def.pins.len() < 64
                 {
@@ -1361,16 +1372,16 @@ impl App {
                 let mut remove = None;
                 for (i, pin) in def.pins.iter_mut().enumerate().take(64) {
                     ui.push_id(i, |ui| {
-                        ui.collapsing(format!("Pin {} · unit {}", pin.number, pin.unit), |ui| {
-                            text(ui, "Number", &mut pin.number);
-                            text(ui, "Name", &mut pin.name);
-                            point(ui, "Connection", &mut pin.position);
-                            number(ui, "Angle", &mut pin.angle);
-                            number(ui, "Length", &mut pin.length);
+                        ui.collapsing(t!("library.library_editor.pin_number_unit_unit", number = pin.number, unit = pin.unit), |ui| {
+                            text(ui, &t!("library.library_editor.number"), &mut pin.number);
+                            text(ui, &t!("library.library_editor.name"), &mut pin.name);
+                            point(ui, &t!("library.library_editor.connection"), &mut pin.position);
+                            number(ui, &t!("library.library_editor.angle"), &mut pin.angle);
+                            number(ui, &t!("library.library_editor.length"), &mut pin.length);
                             ui.add(
                                 egui::DragValue::new(&mut pin.unit)
                                     .range(1..=32)
-                                    .prefix("Unit "),
+                                    .prefix(format!("{} ", t!("library.library_editor.unit"))),
                             );
                             egui::ComboBox::from_id_salt("pin-type")
                                 .selected_text(&pin.electrical_type)
@@ -1391,8 +1402,8 @@ impl App {
                                     }
                                 });
                             if ui
-                                .button("Delete pin")
-                                .on_hover_text("Remove this pin.")
+                                .button(t!("library.library_editor.delete_pin"))
+                                .on_hover_text(t!("library.library_editor.delete_pin.tip"))
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1404,7 +1415,7 @@ impl App {
                     def.pins.remove(i);
                 }
                 ui.separator();
-                ui.heading("Drawing");
+                ui.heading(t!("library.library_editor.drawing"));
                 if let Some(primitive) = add_graphic(ui, "") {
                     def.graphics.push(UnitGraphic {
                         unit: self.library.preview_unit.max(1),
@@ -1415,16 +1426,16 @@ impl App {
                 let mut remove = None;
                 for (i, g) in def.graphics.iter_mut().enumerate().take(256) {
                     ui.push_id(("symbol-graphic", i), |ui| {
-                        ui.collapsing(format!("Graphic {} · unit {}", i + 1, g.unit), |ui| {
+                        ui.collapsing(t!("library.library_editor.graphic_v0_unit_unit", v0 = i + 1, unit = g.unit), |ui| {
                             ui.add(
                                 egui::DragValue::new(&mut g.unit)
                                     .range(0..=32)
-                                    .prefix("Unit (0 shared) "),
+                                    .prefix(format!("{} ", t!("library.library_editor.unit_0_shared"))),
                             );
                             graphic(ui, &mut g.primitive);
                             if ui
-                                .button("Delete graphic")
-                                .on_hover_text("Remove this graphic.")
+                                .button(t!("library.library_editor.delete_graphic"))
+                                .on_hover_text(t!("library.library_editor.delete_graphic.tip"))
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1437,9 +1448,9 @@ impl App {
                 }
             }
             Draft::Footprint(def) => {
-                ui.heading("Footprint editor");
-                text(ui, "Name", &mut def.name);
-                text(ui, "Description", &mut def.description);
+                ui.heading(t!("library.library_editor.footprint_editor"));
+                text(ui, &t!("library.library_editor.name"), &mut def.name);
+                text(ui, &t!("library.library_editor.description"), &mut def.description);
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
                 }
@@ -1447,17 +1458,17 @@ impl App {
                     ui.label(e);
                 }
                 if ui
-                    .button("Save footprint to project library")
-                    .on_hover_text("Store this footprint in the current project library.")
+                    .button(t!("library.library_editor.save_footprint_to_project_library"))
+                    .on_hover_text(t!("library.library_editor.save_footprint_to_project_library.tip"))
                     .clicked()
                 {
                     save = Some(("library.footprint.upsert", json!({"definition":def})));
                 }
                 ui.separator();
-                ui.heading("Pads");
+                ui.heading(t!("library.library_editor.pads"));
                 if ui
-                    .button("Add pad")
-                    .on_hover_text("Add a new pad to this footprint.")
+                    .button(t!("library.library_editor.add_pad"))
+                    .on_hover_text(t!("library.library_editor.add_pad.tip"))
                     .clicked()
                     && def.pads.len() < PAD_LIST_LIMIT
                 {
@@ -1470,11 +1481,11 @@ impl App {
                 let mut remove = None;
                 for (i, pad) in def.pads.iter_mut().enumerate().take(PAD_LIST_LIMIT) {
                     ui.push_id(("pad", i), |ui| {
-                        ui.collapsing(format!("Pad {} · {}", pad.number, pad.pad_type), |ui| {
-                            text(ui, "Number", &mut pad.number);
-                            point(ui, "Position", &mut pad.position);
-                            point(ui, "Copper size", &mut pad.size);
-                            number(ui, "Angle", &mut pad.rotation);
+                        ui.collapsing(t!("library.library_editor.pad_number_pad_type", number = pad.number, pad_type = pad.pad_type), |ui| {
+                            text(ui, &t!("library.library_editor.number"), &mut pad.number);
+                            point(ui, &t!("library.library_editor.position"), &mut pad.position);
+                            point(ui, &t!("library.library_editor.copper_size"), &mut pad.size);
+                            number(ui, &t!("library.library_editor.angle"), &mut pad.rotation);
                             let before = pad.pad_type.clone();
                             egui::ComboBox::from_id_salt("pad-type")
                                 .selected_text(&pad.pad_type)
@@ -1482,22 +1493,22 @@ impl App {
                                     ui.selectable_value(
                                         &mut pad.pad_type,
                                         "smd".into(),
-                                        "Front SMD",
+                                        t!("library.library_editor.front_smd"),
                                     )
-                                    .on_hover_text("Soldered to the board surface; no drill hole.");
+                                    .on_hover_text(t!("library.library_editor.front_smd.tip"));
                                     ui.selectable_value(
                                         &mut pad.pad_type,
                                         "thru_hole".into(),
-                                        "Plated through-hole",
+                                        t!("library.library_editor.plated_through_hole"),
                                     )
-                                    .on_hover_text("Drilled and plated so legs can pass through.");
+                                    .on_hover_text(t!("library.library_editor.plated_through_hole.tip"));
                                     ui.selectable_value(
                                         &mut pad.pad_type,
                                         "unplated".into(),
-                                        "Unplated hole",
+                                        t!("library.library_editor.unplated_hole"),
                                     )
                                     .on_hover_text(
-                                        "A bare drilled hole for a locating peg or screw. It has no copper and no net.",
+                                        t!("library.library_editor.unplated_hole.tip"),
                                     );
                                 });
                             if before != pad.pad_type {
@@ -1521,7 +1532,7 @@ impl App {
                                     for shape in ["circle", "rect", "oval", "roundrect"] {
                                         ui.selectable_value(&mut pad.shape, shape.into(), shape)
                                             .on_hover_text(
-                                                "Copper outline of the pad; the mask follows it.",
+                                                t!("library.library_editor.copper_outline_of_the_pad.tip"),
                                             );
                                     }
                                 });
@@ -1530,7 +1541,7 @@ impl App {
                                     egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
                                         .range(0.0..=0.5)
                                         .speed(0.01)
-                                        .prefix("Corner ratio "),
+                                        .prefix(format!("{} ", t!("library.library_editor.corner_ratio"))),
                                 );
                             } else {
                                 pad.roundrect_ratio = None;
@@ -1542,13 +1553,13 @@ impl App {
                                 pad.polygon.clear();
                             }
                             if let Some(drill) = &mut pad.drill {
-                                point(ui, "Drill size (oval if unequal)", &mut drill.size);
-                                point(ui, "Drill offset", &mut drill.offset);
+                                point(ui, &t!("library.library_editor.drill_size_oval_if_unequal"), &mut drill.size);
+                                point(ui, &t!("library.library_editor.drill_offset"), &mut drill.offset);
                             }
-                            ui.label(format!("Layers: {}", pad.layers.join(", ")));
+                            ui.label(t!("library.library_editor.layers_v0", v0 = pad.layers.join(", ")));
                             if ui
-                                .button("Delete pad")
-                                .on_hover_text("Remove this pad.")
+                                .button(t!("library.library_editor.delete_pad"))
+                                .on_hover_text(t!("library.library_editor.delete_pad.tip"))
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1560,18 +1571,18 @@ impl App {
                     def.pads.remove(i);
                 }
                 ui.separator();
-                ui.heading("Drawing");
+                ui.heading(t!("library.library_editor.drawing"));
                 if let Some(g) = add_graphic(ui, "F.SilkS") {
                     def.graphics.push(g);
                 }
                 let mut remove = None;
                 for (i, g) in def.graphics.iter_mut().enumerate().take(256) {
                     ui.push_id(("footprint-graphic", i), |ui| {
-                        ui.collapsing(format!("Graphic {}", i + 1), |ui| {
+                        ui.collapsing(t!("library.library_editor.graphic_v0", v0 = i + 1), |ui| {
                             graphic(ui, g);
                             if ui
-                                .button("Delete graphic")
-                                .on_hover_text("Remove this graphic.")
+                                .button(t!("library.library_editor.delete_graphic"))
+                                .on_hover_text(t!("library.library_editor.delete_graphic.tip"))
                                 .clicked()
                             {
                                 remove = Some(i);
@@ -1749,7 +1760,10 @@ pub(crate) mod tests {
                 let mut stills = 0;
                 while stills < 2 {
                     let output = frame(ctx, app, vec![]);
-                    if let Some(pos) = find(&output) {
+                    if let Some(seen) = find(&output) {
+                        // One more quiet frame: the page may still be settling,
+                        // and the click must land where the label rests.
+                        let pos = find(&frame(ctx, app, vec![])).unwrap_or(seen);
                         for pressed in [true, false] {
                             frame(
                                 ctx,
