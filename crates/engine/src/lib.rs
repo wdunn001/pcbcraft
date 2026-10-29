@@ -154,9 +154,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "project.import",
-            "Replace the open design from an interchange board file in one undo step",
+            "Replace the open design from an interchange board or schematic file on disk in one undo step",
             schema(
-                json!({"format":{"type":"string","enum":["board"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
+                json!({"format":{"type":"string","enum":["board","schematic"]},"path":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["format", "path"],
             ),
         ),
@@ -7470,23 +7470,35 @@ fn run_command(
         }
         "project.import" => {
             let a: ProjectImportParams = parse(params)?;
-            if a.format != "board" {
-                return Err(Error::Invalid("unsupported import format".into()));
-            }
-            let text =
-                pcbcraft_io::read_text(std::path::Path::new(&a.path)).map_err(Error::Invalid)?;
-            let imported = pcbcraft_io::read_board_interchange(&text).map_err(Error::Invalid)?;
-            let preserved_nodes = count_preserved_nodes(&imported);
-            let summary = json!({
-                "format": "board",
-                "components": imported.components.len(),
-                "nets": imported.nets.len(),
-                "footprints": imported.board.footprints.len(),
-                "tracks": imported.board.tracks.len(),
-                "vias": imported.board.vias.len(),
-                "zones": imported.board.zones.len(),
-                "preserved_nodes": preserved_nodes,
-            });
+            let path = std::path::Path::new(&a.path);
+            let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
+            let (imported, summary) = match a.format.as_str() {
+                "board" => {
+                    let (imported, report) =
+                        pcbcraft_io::read_board_interchange_report(&text).map_err(Error::Invalid)?;
+                    let preserved_nodes = count_preserved_nodes(&imported);
+                    let summary = json!({
+                        "format": "board",
+                        "components": imported.components.len(),
+                        "nets": imported.nets.len(),
+                        "footprints": imported.board.footprints.len(),
+                        "tracks": imported.board.tracks.len(),
+                        "vias": imported.board.vias.len(),
+                        "zones": imported.board.zones.len(),
+                        "layers": imported.copper_layer_count(),
+                        "preserved_nodes": preserved_nodes,
+                        "notices": report.notices,
+                    });
+                    (imported, summary)
+                }
+                "schematic" => {
+                    let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
+                        .map_err(Error::Invalid)?;
+                    let summary = pcbcraft_io::import_summary(&imported, 0);
+                    (imported, summary)
+                }
+                _ => return Err(Error::Invalid("unsupported import format".into())),
+            };
             *p = imported;
             Ok(summary)
         }
@@ -10720,6 +10732,7 @@ fn run_command(
                 net: a.net,
                 sheet: a.sheet,
                 position: a.position,
+                interchange_uuid: None,
             });
             Ok(json!({"id":id,"name":a.name,"sheet":a.sheet}))
         }
@@ -10923,6 +10936,7 @@ fn run_command(
                     net,
                     sheet,
                     position: item.position,
+                    interchange_uuid: None,
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
@@ -22635,6 +22649,26 @@ mod tests {
     }
 
     #[test]
+    fn project_import_schematic_replaces_session_undo_once() -> Result<(), Error> {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../io/tests/fixtures/schematic_import_flat.kicad_sch");
+        let path = fixture.to_string_lossy().to_string();
+        let mut session = Session::sample()?;
+        let before = session.project.clone();
+        let summary = session.execute(
+            "project.import",
+            json!({"path": path, "format": "schematic"}),
+            None,
+        )?;
+        assert_eq!(summary["result"]["components"], 2);
+        assert!(summary["result"]["nets"].as_u64().is_some_and(|n| n >= 1));
+        assert_ne!(session.project, before);
+        session.undo()?;
+        assert_eq!(session.project, before);
+        Ok(())
+    }
+
+    #[test]
     fn project_import_board_invalid_leaves_project_unchanged() -> Result<(), Error> {
         let path = std::env::temp_dir().join(format!(
             "pcbcraft-board-bad-{}.kicad_pcb",
@@ -22658,6 +22692,20 @@ mod tests {
         assert!(msg.contains("line"), "error should name a line: {msg}");
         assert_eq!(s.project, before);
         std::fs::remove_file(&path).ok();
+        Ok(())
+    }
+
+    #[test]
+    fn project_import_schematic_invalid_leaves_project_unchanged() -> Result<(), Error> {
+        let mut session = Session::sample()?;
+        let before = session.project.clone();
+        let bad = session.execute(
+            "project.import",
+            json!({"path": "not-a-real-file.kicad_sch", "format": "schematic"}),
+            None,
+        );
+        assert!(bad.is_err());
+        assert_eq!(session.project, before);
         Ok(())
     }
 

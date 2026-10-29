@@ -227,6 +227,9 @@ pub struct Sheet {
     /// Where the child page box sits on the parent page, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<Point>,
+    /// Interchange file uuid for hierarchy round-trip, when present in the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interchange_uuid: Option<String>,
 }
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
@@ -658,6 +661,9 @@ pub struct Port {
     /// The page the port sits on; 0 is the root page.
     pub sheet: Id,
     pub position: Point,
+    /// Interchange file uuid for hierarchy round-trip, when present in the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interchange_uuid: Option<String>,
 }
 /// Free-form schematic wire drawn by the user with explicit vertices.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
