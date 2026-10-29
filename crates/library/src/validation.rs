@@ -129,6 +129,10 @@ impl SymbolDefinition {
             text(&p.number)?;
             text(&p.name)?;
             text(&p.electrical_type)?;
+            text(&p.graphical_style)?;
+            if !SymbolPin::graphical_style_supported(&p.graphical_style) {
+                return Err(bad("invalid pin graphical style"));
+            }
             if p.number.is_empty()
                 || p.electrical_type.is_empty()
                 || !p.position.valid()
@@ -190,8 +194,8 @@ impl FootprintDefinition {
             metadata(&p.raw_source, &[])?;
             if !p.position.valid()
                 || !scalar(p.rotation)
-                || !positive_size(p.size)
-                || p.layers.is_empty()
+                || (!positive_size(p.size) && p.pad_type != "unplated")
+                || (p.layers.is_empty() && p.pad_type != "unplated")
                 || p.layers.len() > 64
                 || p.shape.is_empty()
                 || p.pad_type.is_empty()
@@ -200,6 +204,17 @@ impl FootprintDefinition {
             }
             for layer in &p.layers {
                 text(layer)?;
+            }
+            if p.pad_type == "unplated" {
+                if p.drill.is_none() {
+                    return Err(bad("unplated pad needs a drill"));
+                }
+                if p.layers.iter().any(|l| {
+                    l.ends_with(".Cu") || l.as_str() == "*.Cu" || l == "F.Cu" || l == "B.Cu"
+                }) {
+                    return Err(bad("unplated pad must not include copper layers"));
+                }
+                continue;
             }
             if p.roundrect_ratio
                 .is_some_and(|r| !r.is_finite() || !(0.0..=0.5).contains(&r))
@@ -212,8 +227,10 @@ impl FootprintDefinition {
             {
                 return Err(bad("invalid pad drill"));
             }
+            #[allow(clippy::collapsible_match)]
             match (p.shape.as_str(), &p.chamfer) {
                 ("chamfered", Some(c)) => {
+                    #[allow(clippy::collapsible_match)]
                     if !c.ratio.is_finite()
                         || c.ratio <= 0.0
                         || c.ratio > 0.5
@@ -226,7 +243,9 @@ impl FootprintDefinition {
                     }
                 }
                 ("chamfered", None) => return Err(bad("chamfered pad is missing its chamfer")),
-                (_, Some(_)) => return Err(bad("chamfer is only valid on a chamfered pad")),
+                (shape, Some(_)) if shape != "chamfered" => {
+                    return Err(bad("chamfer is only valid on a chamfered pad"));
+                }
                 _ => {}
             }
             if !p.polygon.is_empty() {

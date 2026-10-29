@@ -1,0 +1,530 @@
+{
+  "app_version": "1",
+  "shapes": [
+    {
+      "kind": "Path",
+      "cut_index": 0,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 5.647918471982868,
+              "y": 7.65
+            },
+            {
+              "x": 16.35208152801713,
+              "y": 7.65
+            },
+            {
+              "x": 16.85,
+              "y": 8.14791847198287
+            },
+            {
+              "x": 16.85,
+              "y": 8.852081528017132
+            },
+            {
+              "x": 16.35208152801713,
+              "y": 9.350000000000001
+            },
+            {
+              "x": 5.647918471982871,
+              "y": 9.350000000000001
+            },
+            {
+              "x": 5.15,
+              "y": 8.85208152801713
+            },
+            {
+              "x": 5.15,
+              "y": 8.147918471982868
+            }
+          ],
+          "closed": true
+        }
+      }
+    },
+    {
+      "kind": "Path",
+      "cut_index": 1,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 5.6686291501015225,
+              "y": 7.7
+            },
+            {
+              "x": 6.331370849898477,
+              "y": 7.7
+            },
+            {
+              "x": 6.8,
+              "y": 8.168629150101523
+            },
+            {
+              "x": 6.8,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 6.331370849898476,
+              "y": 9.3
+            },
+            {
+              "x": 5.668629150101525,
+              "y": 9.3
+            },
+            {
+              "x": 5.2,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 5.2,
+              "y": 8.168629150101523
+            }
+          ],
+          "closed": true
+        }
+      }
+    },
+    {
+      "kind": "Path",
+      "cut_index": 1,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 15.668629150101523,
+              "y": 7.7
+            },
+            {
+              "x": 16.331370849898477,
+              "y": 7.7
+            },
+            {
+              "x": 16.8,
+              "y": 8.168629150101525
+            },
+            {
+              "x": 16.8,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 16.331370849898477,
+              "y": 9.3
+            },
+            {
+              "x": 15.668629150101525,
+              "y": 9.3
+            },
+            {
+              "x": 15.2,
+              "y": 8.831370849898475
+            },
+            {
+              "x": 15.2,
+              "y": 8.168629150101523
+            }
+          ],
+          "closed": true
+        }
+      }
+    },
+    {
+      "kind": "Path",
+      "cut_index": 1,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 5.958578643762691,
+              "y": 8.4
+            },
+            {
+              "x": 16.041421356237308,
+              "y": 8.4
+            },
+            {
+              "x": 16.1,
+              "y": 8.45857864376269
+            },
+            {
+              "x": 16.1,
+              "y": 8.541421356237311
+            },
+            {
+              "x": 16.04142135623731,
+              "y": 8.6
+            },
+            {
+              "x": 5.958578643762692,
+              "y": 8.6
+            },
+            {
+              "x": 5.9,
+              "y": 8.54142135623731
+            },
+            {
+              "x": 5.9,
+              "y": 8.458578643762692
+            }
+          ],
+          "closed": true
+        }
+      }
+    },
+    {
+      "kind": "Path",
+      "cut_index": 2,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 5.668629150101525,
+              "y": 7.7
+            },
+            {
+              "x": 6.331370849898476,
+              "y": 7.7
+            },
+            {
+              "x": 6.8,
+              "y": 8.168629150101523
+            },
+            {
+              "x": 6.8,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 6.331370849898476,
+              "y": 9.3
+            },
+            {
+              "x": 5.668629150101524,
+              "y": 9.3
+            },
+            {
+              "x": 5.2,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 5.2,
+              "y": 8.168629150101525
+            }
+          ],
+          "closed": true
+        }
+      }
+    },
+    {
+      "kind": "Path",
+      "cut_index": 2,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 15.668629150101523,
+              "y": 7.7
+            },
+            {
+              "x": 16.331370849898477,
+              "y": 7.7
+            },
+            {
+              "x": 16.8,
+              "y": 8.168629150101525
+            },
+            {
+              "x": 16.8,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 16.331370849898477,
+              "y": 9.3
+            },
+            {
+              "x": 15.668629150101523,
+              "y": 9.3
+            },
+            {
+              "x": 15.2,
+              "y": 8.831370849898477
+            },
+            {
+              "x": 15.2,
+              "y": 8.168629150101523
+            }
+          ],
+          "closed": true
+        }
+      }
+    },
+    {
+      "kind": "Path",
+      "cut_index": 3,
+      "geometry": {
+        "Polyline": {
+          "points": [
+            {
+              "x": 0.7928932188134525,
+              "y": 0.5
+            },
+            {
+              "x": 21.207106781186546,
+              "y": 0.5
+            },
+            {
+              "x": 21.5,
+              "y": 0.792893218813453
+            },
+            {
+              "x": 21.5,
+              "y": 16.207106781186546
+            },
+            {
+              "x": 21.207106781186546,
+              "y": 16.5
+            },
+            {
+              "x": 0.7928932188134539,
+              "y": 16.5
+            },
+            {
+              "x": 0.5,
+              "y": 16.207106781186546
+            },
+            {
+              "x": 0.5,
+              "y": 0.7928932188134539
+            }
+          ],
+          "closed": true
+        }
+      }
+    }
+  ],
+  "cut_settings": [
+    {
+      "index": 0,
+      "name": "isolation-cut",
+      "speed_mm_s": 750.0,
+      "power_min": 100.0,
+      "power_max": 100.0,
+      "num_passes": 2,
+      "air_assist": true,
+      "galvo": {
+        "mode": "Line",
+        "frequency_khz": 25.0,
+        "q_pulse_width_ns": 200.0,
+        "global_passes": 1,
+        "fill": {
+          "line_interval_mm": 0.1,
+          "hatch_angle_deg": 45.0,
+          "angle_increment_deg": 90.0,
+          "auto_rotate": false,
+          "dot_width_adjust": false,
+          "dot_width_mm": 0.08,
+          "ramp_length_mm": 0.0,
+          "ramp_outer_edge": false,
+          "cross_hatch": false,
+          "overscan_mm": 0.0,
+          "bidirectional": true,
+          "flood_fill": false,
+          "dot_mode": false,
+          "dot_time_ms": 1.0
+        },
+        "line": {
+          "kerf_offset_mm": 0.0,
+          "perforation": false,
+          "perforation_cut_mm": 0.1,
+          "perforation_skip_mm": 0.1,
+          "overcut_mm": 0.0,
+          "lead_in_mm": 0.0,
+          "lead_out_mm": 0.0
+        },
+        "tabs": {
+          "enabled": false,
+          "automatic": true,
+          "size_mm": 0.5,
+          "spacing_mm": 50.0,
+          "tabs_per_shape": 1,
+          "skip_inner_shapes": false,
+          "cut_power_pct": 0.0
+        },
+        "wobble": {
+          "enabled": false,
+          "step_mm": 0.05,
+          "size_mm": 0.1
+        },
+        "timing_override": null
+      }
+    },
+    {
+      "index": 1,
+      "name": "copper-rubout",
+      "speed_mm_s": 750.0,
+      "power_min": 100.0,
+      "power_max": 100.0,
+      "num_passes": 2,
+      "air_assist": true,
+      "galvo": {
+        "mode": "Fill",
+        "frequency_khz": 25.0,
+        "q_pulse_width_ns": 200.0,
+        "global_passes": 1,
+        "fill": {
+          "line_interval_mm": 0.025,
+          "hatch_angle_deg": 45.0,
+          "angle_increment_deg": 90.0,
+          "auto_rotate": false,
+          "dot_width_adjust": false,
+          "dot_width_mm": 0.08,
+          "ramp_length_mm": 0.0,
+          "ramp_outer_edge": false,
+          "cross_hatch": false,
+          "overscan_mm": 0.0,
+          "bidirectional": true,
+          "flood_fill": false,
+          "dot_mode": false,
+          "dot_time_ms": 1.0
+        },
+        "line": {
+          "kerf_offset_mm": 0.0,
+          "perforation": false,
+          "perforation_cut_mm": 0.1,
+          "perforation_skip_mm": 0.1,
+          "overcut_mm": 0.0,
+          "lead_in_mm": 0.0,
+          "lead_out_mm": 0.0
+        },
+        "tabs": {
+          "enabled": false,
+          "automatic": true,
+          "size_mm": 0.5,
+          "spacing_mm": 50.0,
+          "tabs_per_shape": 1,
+          "skip_inner_shapes": false,
+          "cut_power_pct": 0.0
+        },
+        "wobble": {
+          "enabled": false,
+          "step_mm": 0.05,
+          "size_mm": 0.1
+        },
+        "timing_override": null
+      }
+    },
+    {
+      "index": 2,
+      "name": "mask-open",
+      "speed_mm_s": 1500.0,
+      "power_min": 30.0,
+      "power_max": 30.0,
+      "num_passes": 1,
+      "air_assist": true,
+      "galvo": {
+        "mode": "Fill",
+        "frequency_khz": 60.0,
+        "q_pulse_width_ns": 50.0,
+        "global_passes": 1,
+        "fill": {
+          "line_interval_mm": 0.03,
+          "hatch_angle_deg": 0.0,
+          "angle_increment_deg": 90.0,
+          "auto_rotate": false,
+          "dot_width_adjust": false,
+          "dot_width_mm": 0.08,
+          "ramp_length_mm": 0.0,
+          "ramp_outer_edge": false,
+          "cross_hatch": false,
+          "overscan_mm": 0.0,
+          "bidirectional": true,
+          "flood_fill": false,
+          "dot_mode": false,
+          "dot_time_ms": 1.0
+        },
+        "line": {
+          "kerf_offset_mm": 0.0,
+          "perforation": false,
+          "perforation_cut_mm": 0.1,
+          "perforation_skip_mm": 0.1,
+          "overcut_mm": 0.0,
+          "lead_in_mm": 0.0,
+          "lead_out_mm": 0.0
+        },
+        "tabs": {
+          "enabled": false,
+          "automatic": true,
+          "size_mm": 0.5,
+          "spacing_mm": 50.0,
+          "tabs_per_shape": 1,
+          "skip_inner_shapes": false,
+          "cut_power_pct": 0.0
+        },
+        "wobble": {
+          "enabled": false,
+          "step_mm": 0.05,
+          "size_mm": 0.1
+        },
+        "timing_override": null
+      }
+    },
+    {
+      "index": 3,
+      "name": "stencil-cut",
+      "speed_mm_s": 300.0,
+      "power_min": 100.0,
+      "power_max": 100.0,
+      "num_passes": 10,
+      "air_assist": true,
+      "galvo": {
+        "mode": "Line",
+        "frequency_khz": 30.0,
+        "q_pulse_width_ns": 350.0,
+        "global_passes": 1,
+        "fill": {
+          "line_interval_mm": 0.1,
+          "hatch_angle_deg": 45.0,
+          "angle_increment_deg": 90.0,
+          "auto_rotate": false,
+          "dot_width_adjust": false,
+          "dot_width_mm": 0.08,
+          "ramp_length_mm": 0.0,
+          "ramp_outer_edge": false,
+          "cross_hatch": false,
+          "overscan_mm": 0.0,
+          "bidirectional": true,
+          "flood_fill": false,
+          "dot_mode": false,
+          "dot_time_ms": 1.0
+        },
+        "line": {
+          "kerf_offset_mm": 0.02,
+          "perforation": false,
+          "perforation_cut_mm": 0.1,
+          "perforation_skip_mm": 0.1,
+          "overcut_mm": 0.0,
+          "lead_in_mm": 0.0,
+          "lead_out_mm": 0.0
+        },
+        "tabs": {
+          "enabled": false,
+          "automatic": true,
+          "size_mm": 0.5,
+          "spacing_mm": 50.0,
+          "tabs_per_shape": 1,
+          "skip_inner_shapes": false,
+          "cut_power_pct": 0.0
+        },
+        "wobble": {
+          "enabled": false,
+          "step_mm": 0.05,
+          "size_mm": 0.1
+        },
+        "timing_override": null
+      }
+    }
+  ],
+  "width_mm": 22.0,
+  "height_mm": 17.0
+}
