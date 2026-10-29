@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
-use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::Component;
+use std::path::Path;
 mod board_mesh;
 mod drawn;
 mod fab_export;
@@ -2428,7 +2428,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }
     }
     Ok(files)
-
 }
 
 /// Gerber drill-map layer with one marker per tool and a legend table.
@@ -6164,9 +6163,7 @@ pub fn export_library_definitions(
         }
         "footprint" => {
             let mut files = Vec::new();
-            if names.len() == 1
-                && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod")
-            {
+            if names.len() == 1 && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod") {
                 let name = &names[0];
                 let item = library
                     .footprints
@@ -6184,7 +6181,10 @@ pub fn export_library_definitions(
                 return Ok(serde_json::json!({"path": path.to_string_lossy(), "files": files}));
             }
             if path.exists() && !path.is_dir() {
-                return Err("footprint export needs a folder path unless writing one .kicad_mod file".into());
+                return Err(
+                    "footprint export needs a folder path unless writing one .kicad_mod file"
+                        .into(),
+                );
             }
             std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
             for name in names {
@@ -8258,8 +8258,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -8360,8 +8360,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -8568,8 +8568,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -8724,8 +8724,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -10125,8 +10125,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -12215,7 +12215,9 @@ mod tests {
             thickness: 0.035,
             copper_role: None,
         });
-        project.meta.insert("contact".into(), "fab@example.test".into());
+        project
+            .meta
+            .insert("contact".into(), "fab@example.test".into());
         project.validate()?;
         let files = gerber_files(&project)?;
         let readme = &files["README-fabrication.txt"];
