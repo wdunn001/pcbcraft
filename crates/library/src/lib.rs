@@ -2,9 +2,12 @@
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod listing;
+pub mod listing_adapters;
 mod paths;
 mod reader;
 mod sexpr;
+pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};

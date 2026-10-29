@@ -1,0 +1,4 @@
+# Reviewed exemptions for the e2e gate (cargo xtask e2e, issue #393).
+# Format: kind | id | reason     kind is tooltip, story or name; an id ending in * matches by prefix.
+# Every line below is a gap found by the first run and is tracked in #520. The list may only shrink:
+# fix the control, then delete its line. Lines that match nothing painted fail the gate.

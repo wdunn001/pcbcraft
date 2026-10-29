@@ -3,8 +3,10 @@
 name: CI
 
 on:
+  # Work reaches main through pull requests on the fork, so branches are
+  # checked by their pull request run. Main keeps a run per commit.
   push:
-    branches: ["**"]
+    branches: ["main"]
   pull_request:
   merge_group:
   workflow_dispatch:
@@ -121,6 +123,30 @@ jobs:
       - run: cargo xtask clippy
       - run: cargo xtask docs
 
+  docs-check:
+    name: Documentation standard
+    needs: changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: docs-check
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask docs check
+
   test:
     name: Tests
     needs: changes
@@ -159,8 +185,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  bench:
-    name: Large-board bench
+  e2e:
+    name: E2E stories and control coverage
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
@@ -180,9 +206,44 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          shared-key: bench
+          shared-key: test
+          save-if: false
+      # Runs every a_newcomer_* story, walks every page of the UI, and fails
+      # naming each control that has no tooltip or no story.
+      - run: cargo xtask e2e
+      - name: Upload the control coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-coverage
+          path: target/e2e/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  strings:
+    name: UI strings are in the catalog
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: strings
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask bench
+      - run: cargo xtask strings check
 
   wasm:
     name: WebAssembly
@@ -403,7 +464,7 @@ jobs:
   result:
     name: CI result
     # The single check to mark as required in branch protection.
-    needs: [changes, policy, lint, test, wasm, msrv, deny, screenshots, build]
+    needs: [changes, policy, lint, docs-check, strings, test, e2e, wasm, msrv, deny, screenshots, build]
     if: always()
     runs-on: ubuntu-24.04
     permissions: {}

@@ -1,0 +1,61 @@
+id = "snapmaker-artisan-200w-cnc"
+name = "Snapmaker Artisan 200W CNC"
+kind = "cnc_mill"
+vendor = "Snapmaker"
+model = "Artisan"
+notes = "200 W CNC module; larger work area owner-unverified."
+
+[work_area]
+x = 400.0
+y = 400.0
+z = 400.0
+origin = "lower-left"
+y_up = false
+
+[output]
+format = "gcode"
+dialect = "snapmaker"
+units = "mm"
+line_ending = "lf"
+mirror_bottom = false
+mirror_axis = "x"
+invert = false
+
+[mill.spindle]
+speed_style = "percent"
+max_rpm = 18000.0
+default_percent = 100.0
+min_percent = 50.0
+max_percent = 100.0
+
+[mill.gcode]
+header_type = "cnc"
+tool_head = "levelTwoCNCToolheadForSM2"
+machine_label = "Snapmaker Artisan"
+flavor = "marlin"
+arcs_allowed = false
+tool_change = "new_file"
+safe_z_mm = 5.0
+work_speed_mm_min = 300.0
+jog_speed_mm_min = 1500.0
+preamble = ["G90", "G21", "G17"]
+postamble = ["M400", "M5"]
+
+[[mill.tool]]
+id = "iso-0.2"
+diameter_mm = 0.2
+feed_mm_min = 300.0
+plunge_mm_min = 100.0
+spindle_percent = 100.0
+
+[[mill.tool]]
+id = "drill-0.8"
+diameter_mm = 0.8
+feed_mm_min = 200.0
+plunge_mm_min = 80.0
+spindle_percent = 80.0
+
+[mill.material]
+name = "fr4-1.6"
+thickness_mm = 1.6
+safe_z_mm = 2.0

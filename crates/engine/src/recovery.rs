@@ -337,6 +337,8 @@ mod tests {
         // Nothing is offered while this app holds its lock.
         assert!(orphans(&d).is_empty());
         drop(a);
+        // saved_at is whole seconds; wait so the second snapshot sorts first.
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
         let mut t = Session::default();
         add_track(&mut t)?;
