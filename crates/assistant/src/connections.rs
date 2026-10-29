@@ -17,10 +17,15 @@ const MAX_URL: usize = 2048;
 /// One saved model endpoint.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Connection {
+    /// Stable id, also the keychain entry name (see `key_id`).
     pub id: String,
+    /// The name shown in lists.
     pub name: String,
+    /// The wire format it uses.
     pub protocol: Protocol,
+    /// The server address, as `normalize_url` leaves it.
     pub base_url: String,
+    /// The model name to ask for.
     pub model: String,
     /// True when a key is stored in the keychain for this connection.
     #[serde(default)]
@@ -33,8 +38,11 @@ pub struct Connection {
 /// A starting point offered by the Add connection dialog.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Preset {
+    /// The name shown in the preset list.
     pub name: &'static str,
+    /// The address it fills in (empty for a custom one).
     pub base_url: &'static str,
+    /// The wire format it uses.
     pub protocol: Protocol,
 }
 

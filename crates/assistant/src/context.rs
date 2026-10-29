@@ -19,19 +19,28 @@ pub const MAX_PICTURE_BYTES: usize = 4 * 1024 * 1024;
 /// The selected object.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Selection {
+    /// What it is, for example a resistor.
     pub kind: String,
+    /// Its stable id.
     pub id: u64,
+    /// Its reference, if it has one.
     pub reference: String,
+    /// Its value, if it has one.
     pub value: String,
+    /// The nets it touches.
     pub net: String,
+    /// Where it sits, in millimetres.
     pub position: Option<(f64, f64)>,
+    /// Its layer, if it has one.
     pub layer: String,
 }
 
 /// What the pane knows when the user presses Send.
 #[derive(Clone, Debug)]
 pub struct Context {
+    /// The view.
     pub tab: &'static str,
+    /// What is selected, if anything.
     pub selection: Option<Selection>,
     /// The output of `design.summary`.
     pub summary: Value,
@@ -40,8 +49,11 @@ pub struct Context {
 /// What an earlier message already told the model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sent {
+    /// The design revision.
     pub revision: u64,
+    /// The id of the selected object.
     pub selection: Option<u64>,
+    /// The view.
     pub tab: &'static str,
 }
 
