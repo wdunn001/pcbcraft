@@ -44,13 +44,13 @@ pub struct SymbolPin {
     /// other standard shape keywords. Not the unit alternate-body index.
     #[serde(
         default = "default_pin_graphical_style",
-        skip_serializing_if = "pin_graphical_style_is_default"
+        skip_serializing_if = "pin_graphical_style_is_default",
     )]
     pub graphical_style: String,
     /// When false the pin may stay in the library but is omitted from schematic views.
     #[serde(
         default = "default_pin_visible",
-        skip_serializing_if = "pin_visible_is_default"
+        skip_serializing_if = "pin_visible_is_default",
     )]
     pub visible: bool,
 }
@@ -156,11 +156,10 @@ impl SymbolPin {
         if require_visible && !self.visible {
             return Vec::new();
         }
-        let bubble = |pin: &SymbolPin| pin.bubble();
         match self.graphical_style.as_str() {
-            "inverted" | "output_low" => vec![bubble(self)],
-            "inverted_clock" | "clock_low" => vec![bubble(self)],
-            "input_low" => vec![bubble(self)],
+            "inverted" | "output_low" | "inverted_clock" | "clock_low" | "input_low" => {
+                vec![self.bubble()]
+            }
             _ => Vec::new(),
         }
     }
@@ -173,23 +172,16 @@ impl SymbolPin {
             return Vec::new();
         }
         let mut paths = Vec::new();
-        let push_wedge = |paths: &mut Vec<Vec<Point>>, pin: &SymbolPin, depth: f64| {
-            paths.push(pin.clock_wedge(depth));
-        };
+        let wedge = |depth: f64| paths.push(self.clock_wedge(depth));
         match self.graphical_style.as_str() {
             "inverted" | "output_low" => {}
-            "clock" => push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.4),
-            "inverted_clock" => {
-                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.4);
-            }
+            "clock" | "inverted_clock" => wedge(Self::DECO_RADIUS * 1.4),
             "input_low" => {
-                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.2);
+                wedge(Self::DECO_RADIUS * 1.2);
                 paths.push(self.active_low_tick());
             }
-            "clock_low" => {
-                push_wedge(&mut paths, self, Self::DECO_RADIUS * 1.2);
-            }
-            "edge_clock_high" => push_wedge(&mut paths, self, Self::DECO_RADIUS * 0.85),
+            "clock_low" => wedge(Self::DECO_RADIUS * 1.2),
+            "edge_clock_high" => wedge(Self::DECO_RADIUS * 0.85),
             "non_logic" => paths.push(self.non_logic_diamond()),
             _ => {}
         }
