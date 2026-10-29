@@ -75,6 +75,7 @@ pub fn tool_list() -> Value {
         json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
+        json!({"name":"dry_run","description":"Preview 1–128 commands on a copy: returns each result and a summary of what would be added, removed, moved or changed. Nothing is applied and the revision does not change","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"undo","description":"Undo one transaction","inputSchema":object(json!({}),&[])}),
         json!({"name":"redo","description":"Redo one transaction","inputSchema":object(json!({}),&[])}),
         json!({"name":"new_design","description":"Replace the project with a new empty one; replacement is undoable","inputSchema":object(json!({}),&[])}),
@@ -252,6 +253,39 @@ fn file_name_from_path(path: &str) -> Result<String, String> {
         .and_then(|n| n.to_str())
         .map(str::to_string)
         .ok_or_else(|| "path must include a file name".into())
+}
+/// Check a tool call's arguments against the tool's schema, and for `execute` and `batch` each
+/// command's parameters against that command's schema, without running anything. The assistant
+/// gate uses it to refuse a malformed call with the engine's own reason.
+pub fn check_args(name: &str, args: &Value) -> Result<(), String> {
+    if !args.is_object() {
+        return Err("arguments must be an object".into());
+    }
+    validate_tool_schema(name, args)?;
+    let one = |command: &Value| -> Result<(), String> {
+        let id = command.get("command").and_then(Value::as_str).unwrap_or("");
+        let spec = pcbcraft_engine::commands()
+            .into_iter()
+            .find(|c| c.id == id)
+            .ok_or_else(|| format!("unknown command: {id}"))?;
+        let params = command.get("params").cloned().unwrap_or(json!({}));
+        validate_schema(&params, &spec.input_schema, &format!("{id} params"))
+    };
+    match name {
+        "execute" => one(args)?,
+        "batch" | "dry_run" => {
+            for command in args
+                .get("commands")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                one(command)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 pub(crate) fn validate_tool_schema(name: &str, args: &Value) -> Result<(), String> {
     let tools = tool_list();
@@ -528,6 +562,15 @@ pub(crate) fn invoke_session(
                     .map_err(|e| e.to_string())?;
             s.batch(&commands, revision(args)?)
                 .map_err(|e| e.to_string())?
+        }
+        "dry_run" => {
+            let commands: Vec<Command> =
+                serde_json::from_value(args.get("commands").cloned().ok_or("missing commands")?)
+                    .map_err(|e| e.to_string())?;
+            let preview = s
+                .dry_run(&commands, revision(args)?)
+                .map_err(|e| e.to_string())?;
+            serde_json::to_value(preview).map_err(|e| e.to_string())?
         }
         "undo" => s.undo().map_err(|e| e.to_string())?,
         "redo" => s.redo().map_err(|e| e.to_string())?,
@@ -1027,6 +1070,25 @@ mod tests {
                 "{name}"
             );
         }
+        Ok(())
+    }
+    #[test]
+    fn dry_run_is_listed_and_previews_without_changing_the_revision() -> Result<(), String> {
+        let listed = tool_list()["tools"]
+            .as_array()
+            .is_some_and(|l| l.iter().any(|t| t["name"] == "dry_run"));
+        assert!(listed, "dry_run is in tools/list");
+        let session = shared(Session::default());
+        let reply = call_tool(
+            &session,
+            "dry_run",
+            &json!({"commands":[{"command":"component.add","params":{"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}}]}),
+        );
+        assert_eq!(reply["isError"], false, "{reply}");
+        let summary = &reply["structuredContent"]["summary"];
+        assert_eq!(summary["added"][0][1], "R1", "{reply}");
+        let revision = session.lock().map_err(|e| e.to_string())?.revision;
+        assert_eq!(revision, 0, "nothing was applied");
         Ok(())
     }
     #[test]
