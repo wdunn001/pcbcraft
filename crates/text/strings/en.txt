@@ -1602,6 +1602,7 @@ library.dock.note.installed_what = {what} · {library}
 library.dock.pick.tip = Pick this part, then click the sheet to place it. From the board view this takes you to the schematic first.
 library.dock.close = Close the library
 library.dock.pins = {count} pins
+library.dock.pads = {count} pads
 library.dock.kind.passive = Passive parts
 library.dock.kind.passive.tip = Show only resistors, capacitors, inductors, diodes and similar parts. Click again to clear.
 library.dock.kind.ic = Chips

@@ -123,6 +123,9 @@ pub(crate) struct Dock {
     /// Which drawing the cards show; follows the tab until the person picks.
     pub(crate) view: ViewKind,
     view_tab: Option<Tab>,
+    /// A `--capture` image asks for the first online card to be placed once it is listed;
+    /// holds the frame the placement was started on.
+    pub(crate) capture_place: Option<Option<u32>>,
     /// Only starred parts.
     pub(crate) favourites_only: bool,
     /// Kind toggles switched on (`passive`, `ic`, `connector`, `mechanical`).
@@ -197,6 +200,7 @@ impl Default for Dock {
             hide_online: false,
             view: ViewKind::Symbols,
             view_tab: None,
+            capture_place: None,
             favourites_only: false,
             kinds: BTreeSet::new(),
             tag: None,
@@ -476,6 +480,21 @@ impl App {
                 Card::Installed(i) => !i.package.trim().is_empty(),
                 Card::Online(..) => true,
             });
+        }
+        if self.dock.capture_place == Some(None)
+            && self.dock.pending.is_none()
+            && let Some(card) = cards
+                .iter()
+                .find(|c| matches!(c, Card::Online(..)))
+                .cloned()
+        {
+            let (target, at) = if self.tab == Tab::Pcb {
+                ("board", self.pcb.center)
+            } else {
+                ("schematic", self.schematic.center)
+            };
+            self.dock_place(ui.ctx(), &card, target, at);
+            self.dock.capture_place = Some(Some(self.frames));
         }
         self.dock_sets(ui, &sets);
         if want_installed && !self.dock.inflight.is_empty() {
@@ -1035,12 +1054,22 @@ impl App {
                         }
                     })
                     .filter(|t| !t.is_empty());
-                let mut meta = if p.distributor.is_empty() && p.price_breaks.is_empty() {
+                let alone = p
+                    .sku
+                    .strip_prefix(pcbcraft_library::open_library::FOOTPRINT_SKU_PREFIX);
+                let mut meta = if let Some(rest) = alone {
+                    rest.split('/').next().unwrap_or_default().to_owned()
+                } else if p.distributor.is_empty() && p.price_breaks.is_empty() {
                     p.sku.clone()
                 } else {
                     sources::stock_line(p)
                 };
-                if let Some((d, _)) = def {
+                if let (Some(_), Some((_, Some(fp)))) = (alone, def) {
+                    meta = format!(
+                        "{meta} \u{b7} {}",
+                        t!("library.dock.pads", count = fp.pads.len())
+                    );
+                } else if let Some((d, _)) = def {
                     let extra = if d.footprint.trim().is_empty() {
                         t!("library.dock.pins", count = d.pins.len())
                     } else {
@@ -1807,6 +1836,22 @@ impl App {
             name: part.mpn.clone(),
             rx: reply,
         });
+    }
+
+    /// Ask a `--capture` image to place the first online card once it is listed,
+    /// the way a person picking it would.
+    pub fn with_capture_place(mut self, on: bool) -> Self {
+        self.dock.capture_place = on.then_some(None);
+        self
+    }
+
+    /// True while a requested capture placement has not been drawn yet.
+    pub(crate) fn dock_capture_placing(&self) -> bool {
+        match self.dock.capture_place {
+            None => false,
+            Some(None) => true,
+            Some(Some(at)) => self.dock.pending.is_some() || self.frames < at + 30,
+        }
     }
 
     /// True when enough online cards have been read for a capture image, or

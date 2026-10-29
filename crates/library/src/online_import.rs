@@ -8,6 +8,9 @@
 //! - A footprint keeps its 3D model reference only when a model file was fetched:
 //!   the path becomes the cached file and the transform stays. Otherwise it is dropped.
 //! - Every definition is validated here, so a bad file fails before the engine sees it.
+//! - A footprint found on its own is placed with a generic symbol made from its pads
+//!   ([`generic_symbol_for`]): the engine places parts as symbol plus footprint, so this
+//!   keeps one placement path and the pad and pin numbers match by construction.
 //!
 //! # Dependencies
 //! - crates/library/src/cad.rs
@@ -15,7 +18,11 @@
 //! - crates/engine/src/online.rs
 use crate::cad::{CadKind, CadRef, CadSource};
 use crate::sources::SourceError;
-use crate::{FootprintDefinition, Model3D, SymbolDefinition, read_footprint, read_symbols};
+use crate::{
+    FootprintDefinition, Graphic, Model3D, SymbolDefinition, SymbolPin, UnitGraphic,
+    read_footprint, read_symbols,
+};
+use pcbcraft_geom::Point;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -105,6 +112,141 @@ pub fn import_part(
     Ok(ImportedPart {
         symbol: symbol_def,
         footprint: footprint_def,
+        model_path,
+        notices,
+    })
+}
+
+/// Most pins a generated symbol gets; larger footprints are refused.
+pub const MAX_GENERIC_PINS: usize = 1024;
+
+/// A plain rectangular symbol with one passive pin per distinct pad number of
+/// `footprint`, so the part can be placed on the schematic and the board.
+///
+/// # Rules
+/// - Pins keep the pad order of the footprint; a number used by several pads (a thermal pad cut in pieces) gets one pin.
+/// - Pads with no number are not wired parts of the package and get no pin.
+/// - Pins sit on a 2.54 mm grid, half on each side; the symbol links to the footprint by name.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs (the symbol and footprint types)
+///
+/// # Do not
+/// - Name pins after signals; the footprint file does not know them.
+pub fn generic_symbol_for(
+    footprint: &FootprintDefinition,
+) -> Result<SymbolDefinition, SourceError> {
+    let mut numbers: Vec<&str> = Vec::new();
+    for pad in &footprint.pads {
+        let n = pad.number.trim();
+        if !n.is_empty() && !numbers.contains(&n) {
+            numbers.push(n);
+        }
+    }
+    if numbers.is_empty() {
+        return Err(invalid(
+            "this footprint has no numbered pads to wire".into(),
+        ));
+    }
+    if numbers.len() > MAX_GENERIC_PINS {
+        return Err(invalid(
+            "this footprint has too many pads for a generic symbol".into(),
+        ));
+    }
+    const GRID: f64 = 2.54;
+    const HALF_WIDTH: f64 = 6.35;
+    let left = numbers.len().div_ceil(2);
+    let right = numbers.len() - left;
+    let rows = left.max(1);
+    let pin = |number: &str, x: f64, y: f64, angle: f64| SymbolPin {
+        number: number.to_owned(),
+        name: number.to_owned(),
+        position: Point::new(x, y),
+        angle,
+        length: GRID,
+        electrical_type: "passive".into(),
+        unit: 1,
+        body_style: 1,
+        graphical_style: "line".into(),
+        visible: true,
+    };
+    let mut pins = Vec::with_capacity(numbers.len());
+    for (i, n) in numbers.iter().take(left).enumerate() {
+        pins.push(pin(n, -(HALF_WIDTH + GRID), i as f64 * GRID, 0.0));
+    }
+    for (i, n) in numbers.iter().skip(left).take(right).enumerate() {
+        pins.push(pin(n, HALF_WIDTH + GRID, i as f64 * GRID, 180.0));
+    }
+    let graphics = vec![UnitGraphic {
+        unit: 1,
+        body_style: 1,
+        primitive: Graphic::Rectangle {
+            start: Point::new(-HALF_WIDTH, -GRID),
+            end: Point::new(HALF_WIDTH, rows as f64 * GRID),
+            width: 0.254,
+            fill: "background".into(),
+            layer: String::new(),
+        },
+    }];
+    let symbol = SymbolDefinition {
+        name: footprint.name.clone(),
+        reference: "U".into(),
+        value: footprint.name.clone(),
+        description: footprint.description.clone(),
+        keywords: footprint.keywords.clone(),
+        footprint: footprint.name.clone(),
+        set: String::new(),
+        pins,
+        graphics,
+        extends: None,
+        raw_source: String::new(),
+        unsupported: Vec::new(),
+    };
+    symbol
+        .validate()
+        .map_err(|e| invalid(format!("the generated symbol is not usable: {e}")))?;
+    Ok(symbol)
+}
+
+/// Fetch one footprint and shape it for the engine with a generic symbol.
+///
+/// # Rules
+/// - Same validation, notices and model handling as [`import_part`].
+///
+/// # Dependencies
+/// - crates/library/src/cad.rs
+///
+/// # Do not
+/// - Write to a project; hand the result to the engine commands instead.
+pub fn import_footprint_only(
+    source: &dyn CadSource,
+    footprint: &CadRef,
+    model: Option<&CadRef>,
+) -> Result<ImportedPart, SourceError> {
+    let ffile = source.fetch_footprint(footprint)?;
+    let mut def = read_footprint(ffile.text()?)
+        .map_err(|e| invalid(format!("the footprint file could not be read: {e}")))?;
+    def.validate()
+        .map_err(|e| invalid(format!("the footprint is not usable: {e}")))?;
+    let symbol = generic_symbol_for(&def)?;
+    let mut notices = vec![ffile.provenance.notice()];
+    let mut model_path = None;
+    if let Some(mref) = model {
+        let mfile = source.fetch_model(mref)?;
+        notices.push(mfile.provenance.notice());
+        model_path = source.cached_path(mref);
+    }
+    def.model = match (def.model.take(), &model_path) {
+        (Some(m), Some(path)) => Some(Model3D {
+            path: path.to_string_lossy().into_owned(),
+            ..m
+        }),
+        _ => None,
+    };
+    notices.dedup();
+    Ok(ImportedPart {
+        symbol,
+        footprint: Some(def),
         model_path,
         notices,
     })
