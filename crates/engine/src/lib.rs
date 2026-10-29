@@ -26059,6 +26059,7 @@ mod tests {
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
+                "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
@@ -29724,7 +29725,7 @@ mod tests {
         let out = directory.join(format!("parts-{}.kicad_sym", std::process::id()));
         let result = s.execute(
             "library.export",
-            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","C"]}),
+            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","LED"]}),
             None,
         )?["result"]
             .clone();
@@ -29734,7 +29735,7 @@ mod tests {
         let text = std::fs::read_to_string(&out).map_err(|e| Error::Invalid(e.to_string()))?;
         let symbols =
             pcbcraft_library::read_symbols(&text).map_err(|e| Error::Invalid(e.to_string()))?;
-        assert_eq!(symbols.len(), 2);
+        assert_eq!(symbols.len(), 2, "R and LED export together");
         assert!(
             s.execute(
                 "library.export",

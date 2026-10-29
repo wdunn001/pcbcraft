@@ -1,4 +1,5 @@
 //! Fabrication Gerber bundle: X2 attributes, split drills, mask, paste, readme.
+#![allow(clippy::too_many_arguments)]
 use pcbcraft_doc::{Layer, Project, Via};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
@@ -334,18 +335,18 @@ impl GerberLayer {
     }
 }
 
-fn net_name<'a>(p: &'a Project, id: u64) -> Option<&'a str> {
+fn net_name(p: &Project, id: u64) -> Option<&str> {
     p.nets.iter().find(|n| n.id == id).map(|n| n.name.as_str())
 }
 
-fn component_reference<'a>(p: &'a Project, component_id: u64) -> Option<&'a str> {
+fn component_reference(p: &Project, component_id: u64) -> Option<&str> {
     p.components
         .iter()
         .find(|c| c.id == component_id)
         .map(|c| c.reference.as_str())
 }
 
-fn footprint_rules<'a>(p: &'a Project, component_id: u64) -> Option<&'a FootprintRules> {
+fn footprint_rules(p: &Project, component_id: u64) -> Option<&FootprintRules> {
     p.components
         .iter()
         .find(|c| c.id == component_id)
