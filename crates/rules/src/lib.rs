@@ -1381,12 +1381,7 @@ mod tests {
             &pad,
             vdd,
         ));
-        p.board.footprints.push(simple_footprint(
-            302,
-            cap_id,
-            Point::new(10.0, 0.0),
-            vdd,
-        ));
+        p.board.footprints.push(simple_footprint(302, cap_id, Point::new(10.0, 0.0), vdd));
         p.validate()?;
         assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
         p.board.footprints[1].position = Point::new(2.0, 0.0);
