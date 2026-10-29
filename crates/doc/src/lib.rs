@@ -3054,6 +3054,30 @@ pub fn panel_score_lines(project: &Project) -> Result<Vec<(Point, Point)>, Strin
     }
     Ok(lines)
 }
+/// V-score or breakaway score segments on the board profile: panel score
+/// lines when the design is panelized with V-score, plus drawn cut figures
+/// on user layers.
+pub fn board_vscore_segments(project: &Project) -> Vec<(Point, Point)> {
+    let mut lines = Vec::new();
+    if project.panel.enabled && project.panel.separation == PanelSeparation::VScore {
+        if let Ok(panel) = panel_score_lines(project) {
+            lines.extend(panel);
+        }
+    }
+    for layer in &project.board.user_layers {
+        if layer.kind != ArtKind::Cut {
+            continue;
+        }
+        for shape in &layer.shapes {
+            for path in shape.paths() {
+                for edge in path.points.windows(2) {
+                    lines.push((edge[0], edge[1]));
+                }
+            }
+        }
+    }
+    lines
+}
 /// Tab-routing cut paths between copies when tab separation is active.
 pub fn panel_tab_segments(project: &Project) -> Result<Vec<(Point, Point)>, String> {
     let settings = &project.panel;
