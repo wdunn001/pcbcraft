@@ -117,10 +117,10 @@ pub fn part_fields(c: &Component) -> PartFields {
         } else if f.key.eq_ignore_ascii_case("Digi-Key") || f.key.eq_ignore_ascii_case("DigiKey") {
             out.digikey = f.value.clone();
             push_dist(&mut out.distributor, "Digi-Key", &f.value);
-        } else if f.key.eq_ignore_ascii_case("Link") || f.key.eq_ignore_ascii_case("URL") {
-            if out.link.is_empty() {
-                out.link = f.value.clone();
-            }
+        } else if (f.key.eq_ignore_ascii_case("Link") || f.key.eq_ignore_ascii_case("URL"))
+            && out.link.is_empty()
+        {
+            out.link = f.value.clone();
         }
     }
     out
@@ -196,7 +196,7 @@ pub fn bom_rows(p: &Project, opts: &BomOptions) -> Result<BomTable, String> {
         lines.sort_by(|a, b| reference_cmp(a.reference.as_str(), b.reference.as_str(), opts.legacy_reference_order));
         let sample = &lines[0];
         let refs: Vec<String> = lines.iter().map(|l| l.reference.clone()).collect();
-        let quantity = if sample.dnp { lines.len() } else { lines.len() };
+        let quantity = lines.len();
         let row = BomRow {
             refs,
             quantity,
@@ -776,13 +776,14 @@ pub fn format_references(refs: &[String], ranges: bool, legacy_order: bool) -> S
             let mut j = i + 1;
             let mut expect = num + 1;
             while j < sorted.len() {
-                if let Some((p, n)) = parse_designator(&sorted[j]) {
-                    if p == prefix && n == expect {
-                        end = j;
-                        expect += 1;
-                        j += 1;
-                        continue;
-                    }
+                if let Some((p, n)) = parse_designator(&sorted[j])
+                    && p == prefix
+                    && n == expect
+                {
+                    end = j;
+                    expect += 1;
+                    j += 1;
+                    continue;
                 }
                 break;
             }

@@ -404,6 +404,20 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                 .and_then(|v| v.as_str())
                 .unwrap_or("csv");
             let summary = args.get("summary").and_then(|v| v.as_bool()).unwrap_or(false);
+            let legacy_layout = grouping.is_empty()
+                && dnp.is_empty()
+                && house.is_empty()
+                && format == "csv";
+            let path = Path::new(directory);
+            if legacy_layout {
+                let text = pcbcraft_io::bom_csv(
+                    &s.project,
+                    &fields,
+                    variant.as_deref(),
+                )?;
+                pcbcraft_io::atomic_write(&path.join("bom.csv"), text.as_bytes())?;
+                return Ok(json!({"directory":directory,"files":["bom.csv"]}));
+            }
             let opts = pcbcraft_io::BomOptions {
                 grouping: pcbcraft_io::parse_bom_grouping(grouping)?,
                 dnp: pcbcraft_io::parse_dnp_mode(dnp)?,
@@ -424,7 +438,6 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
                     "only the generic bill accepts do-not-populate sections or columns".into(),
                 );
             }
-            let path = Path::new(directory);
             if format == "xlsx" {
                 let bytes = pcbcraft_io::bom_xlsx(&s.project, &opts)?;
                 pcbcraft_io::atomic_write(&path.join("bom.xlsx"), &bytes)?;
