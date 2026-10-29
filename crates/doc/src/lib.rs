@@ -38,6 +38,9 @@ fn passive() -> String {
 fn default_decoupling_max_mm() -> f64 {
     3.0
 }
+fn is_default_decoupling_mm(v: &f64) -> bool {
+    v.is_finite() && (*v - 3.0).abs() < 1e-9
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -1423,7 +1426,10 @@ pub struct Project {
     /// decoupling capacitor on the same net when that IC has a board footprint.
     /// Schematic-only designs ignore distance and only require a capacitor on
     /// the net.
-    #[serde(default = "default_decoupling_max_mm")]
+    #[serde(
+        default = "default_decoupling_max_mm",
+        skip_serializing_if = "is_default_decoupling_mm"
+    )]
     pub decoupling_max_mm: f64,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.

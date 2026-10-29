@@ -526,8 +526,8 @@ fn is_ic_like(component: &pcbcraft_doc::Component) -> bool {
 
 fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
     project.components.iter().any(|c| {
-        let acts_as_passive = c.kind == "resistor"
-            || c.pins.iter().any(|p| p.electrical_type == "passive");
+        let acts_as_passive =
+            c.kind == "resistor" || c.pins.iter().any(|p| p.electrical_type == "passive");
         if !acts_as_passive {
             return false;
         }
@@ -547,11 +547,7 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
     if project.wires.iter().any(|w| w.net == net) {
         return true;
     }
-    if project
-        .drawn_wires
-        .iter()
-        .any(|w| w.net == Some(net))
-    {
+    if project.drawn_wires.iter().any(|w| w.net == Some(net)) {
         return true;
     }
     if project
@@ -566,24 +562,14 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
 }
 
 fn capacitor_on_net(project: &Project, net: Id) -> bool {
-    project.components.iter().any(|c| {
-        c.kind == "capacitor"
-            && c.pins.iter().any(|p| p.net == Some(net))
-    })
+    project
+        .components
+        .iter()
+        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
 }
 
-fn decoupling_distance_ok(
-    project: &Project,
-    ic: Id,
-    power_pin: &str,
-    net: Id,
-) -> bool {
-    let Some(ic_fp) = project
-        .board
-        .footprints
-        .iter()
-        .find(|f| f.component == ic)
-    else {
+fn decoupling_distance_ok(project: &Project, ic: Id, power_pin: &str, net: Id) -> bool {
+    let Some(ic_fp) = project.board.footprints.iter().find(|f| f.component == ic) else {
         return true;
     };
     let Some(ic_pad) = ic_fp.pad_position(power_pin) else {
@@ -615,9 +601,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for c in &project.components {
         for p in &c.pins {
-            if p.net.is_none()
-                && !pin_flagged_no_connect(project, c.id, &p.number)
-            {
+            if p.net.is_none() && !pin_flagged_no_connect(project, c.id, &p.number) {
                 result.push(Finding {
                     code: "unassigned_pin",
                     severity: project.rule_severity("unassigned_pin", "warning"),
@@ -668,11 +652,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
         if !is_ic_like(c) {
             continue;
         }
-        let placed = project
-            .board
-            .footprints
-            .iter()
-            .any(|f| f.component == c.id);
+        let placed = project.board.footprints.iter().any(|f| f.component == c.id);
         for p in &c.pins {
             if p.electrical_type != "power_in" {
                 continue;
@@ -689,7 +669,9 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                     severity: project.rule_severity("missing_decoupling", "warning"),
                     message: format!(
                         "{} pin {} on {} needs a decoupling capacitor on the same net",
-                        c.reference, p.number, project.net_name(net)
+                        c.reference,
+                        p.number,
+                        project.net_name(net)
                     ),
                     objects: vec![c.id],
                 });
@@ -729,8 +711,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             .iter()
             .flat_map(|c| &c.pins)
             .any(|p| p.net == Some(net.id) && p.electrical_type == "passive");
-        let needs_pullup =
-            open_count >= 2 || (open_count >= 1 && !passive_on_net);
+        let needs_pullup = open_count >= 2 || (open_count >= 1 && !passive_on_net);
         if needs_pullup && !net_has_pullup_to_power(project, net.id) {
             result.push(Finding {
                 code: "missing_pullup",
@@ -1089,10 +1070,27 @@ pub fn drc(project: &Project) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Component, Footprint, Label, LibrarySymbol, Net, NoConnectFlag, Pad, Pin, PinRef,
-        Track, Via, component_template,
+        Component, Footprint, Label, LibraryFootprint, LibrarySymbol, Net, NoConnectFlag, Pad,
+        Pin, PinRef, Track, Via, component_template,
     };
-    use pcbcraft_library::SymbolDefinition;
+    use pcbcraft_library::{FootprintDefinition, FootprintPad, SymbolDefinition};
+
+    fn ic_pad_definition() -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
 
     fn library_ic(id: Id, reference: &str, pins: Vec<Pin>) -> Result<Component, String> {
         let sym_pins: Vec<pcbcraft_library::SymbolPin> = pins
@@ -1140,6 +1138,50 @@ mod tests {
             sheet: 0,
         };
         Ok(component)
+    }
+
+    fn library_ic_with_footprint(id: Id, reference: &str, pins: Vec<Pin>) -> Result<Component, String> {
+        let mut component = library_ic(id, reference, pins)?;
+        let pad = ic_pad_definition();
+        component.library_footprint = Some(LibraryFootprint {
+            library: "test".into(),
+            definition: FootprintDefinition {
+                name: "U1".into(),
+                description: String::new(),
+                keywords: String::new(),
+                pads: vec![pad.clone()],
+                graphics: vec![],
+                rules: None,
+                model: None,
+                raw_source: String::new(),
+                unsupported: vec![],
+            },
+        });
+        Ok(component)
+    }
+
+    fn placed_library_footprint(
+        id: Id,
+        component: Id,
+        position: Point,
+        def_pad: &FootprintPad,
+        net: Id,
+    ) -> Footprint {
+        Footprint {
+            id,
+            component,
+            position,
+            rotation: 0.0,
+            locked: None,
+            pads: vec![Pad {
+                number: def_pad.number.clone(),
+                offset: def_pad.position,
+                diameter: def_pad.size.x.min(def_pad.size.y),
+                net: Some(net),
+                castellated: None,
+                geometry: Some(def_pad.clone()),
+            }],
+        }
     }
 
     fn simple_footprint(id: Id, component: Id, position: Point, pad_net: Id) -> Footprint {
@@ -1296,38 +1338,47 @@ mod tests {
     }
     #[test]
     fn erc_applies_decoupling_distance_when_ic_is_placed() -> Result<(), String> {
-        let mut p = Project::default();
-        p.decoupling_max_mm = 3.0;
+        let mut p = Project {
+            decoupling_max_mm: 3.0,
+            ..Default::default()
+        };
+        let vdd = 101;
+        let ic = 201;
+        let cap_id = 202;
         p.nets.push(Net {
-            id: 1,
+            id: vdd,
             name: "VDD".into(),
             ..Default::default()
         });
-        p.components.push(library_ic(
-            2,
+        let pad = ic_pad_definition();
+        p.components.push(library_ic_with_footprint(
+            ic,
             "U1",
             vec![Pin {
                 number: "1".into(),
                 name: "VDD".into(),
                 offset: Point::default(),
-                net: Some(1),
+                net: Some(vdd),
                 electrical_type: "power_in".into(),
                 direction: Some(0.0),
                 unit: 1,
             }],
         )?);
-        let mut cap = component_template("capacitor", 3, "C1".into(), Point::new(30.0, 20.0))
+        let mut cap = component_template("capacitor", cap_id, "C1".into(), Point::new(30.0, 20.0))
             .ok_or("capacitor template missing")?;
         for pin in &mut cap.pins {
-            pin.net = Some(1);
+            pin.net = Some(vdd);
         }
         p.components.push(cap);
         p.board
             .footprints
-            .push(simple_footprint(10, 2, Point::new(0.0, 0.0), 1));
-        p.board
-            .footprints
-            .push(simple_footprint(11, 3, Point::new(10.0, 0.0), 1));
+            .push(placed_library_footprint(301, ic, Point::new(0.0, 0.0), &pad, vdd));
+        p.board.footprints.push(simple_footprint(
+            302,
+            cap_id,
+            Point::new(10.0, 0.0),
+            vdd,
+        ));
         p.validate()?;
         assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
         p.board.footprints[1].position = Point::new(2.0, 0.0);
@@ -1374,25 +1425,27 @@ mod tests {
     #[test]
     fn erc_clears_missing_pullup_when_resistor_reaches_power_net() -> Result<(), String> {
         let mut p = Project::default();
+        let sda = 101;
+        let vcc = 102;
         p.nets.push(Net {
-            id: 1,
+            id: sda,
             name: "SDA".into(),
             ..Default::default()
         });
         p.nets.push(Net {
-            id: 2,
+            id: vcc,
             name: "VCC".into(),
             ..Default::default()
         });
         p.components.push(library_ic(
-            2,
+            201,
             "U1",
             vec![
                 Pin {
                     number: "1".into(),
                     name: "SDA".into(),
                     offset: Point::new(-5.0, 0.0),
-                    net: Some(1),
+                    net: Some(sda),
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
@@ -1401,22 +1454,22 @@ mod tests {
                     number: "2".into(),
                     name: "SCL".into(),
                     offset: Point::new(5.0, 0.0),
-                    net: Some(1),
+                    net: Some(sda),
                     electrical_type: "open_collector".into(),
                     direction: Some(0.0),
                     unit: 1,
                 },
             ],
         )?);
-        let mut pull = component_template("resistor", 3, "R1".into(), Point::new(40.0, 20.0))
+        let mut pull = component_template("resistor", 202, "R1".into(), Point::new(40.0, 20.0))
             .ok_or("resistor template missing")?;
-        pull.pins[0].net = Some(1);
-        pull.pins[1].net = Some(2);
+        pull.pins[0].net = Some(sda);
+        pull.pins[1].net = Some(vcc);
         p.components.push(pull);
         p.labels.push(Label {
-            id: 4,
+            id: 203,
             kind: "power".into(),
-            net: 2,
+            net: vcc,
             position: Point::new(50.0, 10.0),
             rotation: 0.0,
             text: String::new(),
