@@ -10,6 +10,10 @@ mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
+pub mod export_package;
+pub use export_package::{
+    PackageOutput, availability, build_package, bundled_packages, find_package,
+};
 mod fab_export;
 pub mod formats;
 mod generate;
