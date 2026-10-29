@@ -6,6 +6,55 @@ use pcbcraft_geom::point_segment;
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, everything drawn on the schematic tab, falling back to the
 /// default sheet area so a fresh project still frames sensibly.
+fn selection_bounds(project: &Project, id: pcbcraft_doc::Id) -> Option<(Point, Point)> {
+    if let Some(c) = project.component(id) {
+        let p = c.position;
+        let pad = 3.0;
+        return Some((
+            Point::new(p.x - pad, p.y - pad),
+            Point::new(p.x + pad, p.y + pad),
+        ));
+    }
+    if let Some(f) = project.footprint(id) {
+        let mut lo = f.position;
+        let mut hi = f.position;
+        for pad in &f.pads {
+            if let Some(pos) = f.pad_position(&pad.number) {
+                lo = Point::new(lo.x.min(pos.x), lo.y.min(pos.y));
+                hi = Point::new(hi.x.max(pos.x), hi.y.max(pos.y));
+            }
+        }
+        let pad = 1.0;
+        return Some((
+            Point::new(lo.x - pad, lo.y - pad),
+            Point::new(hi.x + pad, hi.y + pad),
+        ));
+    }
+    if let Some(track) = project.board.tracks.iter().find(|t| t.id == id) {
+        let lo = Point::new(
+            track.start.x.min(track.end.x),
+            track.start.y.min(track.end.y),
+        );
+        let hi = Point::new(
+            track.start.x.max(track.end.x),
+            track.start.y.max(track.end.y),
+        );
+        return Some((lo, hi));
+    }
+    if let Some(via) = project.board.vias.iter().find(|v| v.id == id) {
+        let r = via.diameter * 0.5;
+        let p = via.position;
+        return Some((
+            Point::new(p.x - r, p.y - r),
+            Point::new(p.x + r, p.y + r),
+        ));
+    }
+    None
+}
+
+/// The world rectangle each tab should show by default: the board outline on
+/// the PCB tab, everything drawn on the schematic tab, falling back to the
+/// default sheet area so a fresh project still frames sensibly.
 fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
     let mut pts: Vec<Point> = Vec::new();
     if pcb {
@@ -302,6 +351,15 @@ impl App {
             camera = fit_camera(lo, hi, (rect.width(), rect.height()));
             self.needs_fit = false;
         }
+        if self.needs_zoom_selection
+            && rect.width() > 40.0
+            && rect.height() > 40.0
+            && let Some(id) = self.selected
+            && let Some((lo, hi)) = selection_bounds(&self.project, id)
+        {
+            camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+            self.needs_zoom_selection = false;
+        }
         if response.hovered() {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll.abs() > 0.01
@@ -399,6 +457,7 @@ impl App {
             Tool::NoConnect => "NO CONNECT · CLICK A PIN TO MARK IT UNUSED",
             Tool::Fiducial => "ASSEMBLY MARK · CLICK A CLEAR CORNER",
             Tool::DrawLayer => "DRAW SHAPE · PICK THE LAYER IN THE PANEL",
+            Tool::Via => "VIA · CLICK TO PLACE",
         };
         painter.text(
             rect.left_top() + Vec2::new(20.0, 20.0),
@@ -1196,6 +1255,36 @@ impl App {
                 "board.cutout.add",
                 json!({"center":snap(pos),"radius":self.cutout_radius}),
             ),
+            Tool::Via => {
+                let net = self
+                    .selected
+                    .and_then(|id| self.net_for_selection(id))
+                    .or_else(|| {
+                        self.pick_pad(pos, zoom).and_then(|(fid, pad)| {
+                            self.project.footprint(fid).and_then(|f| {
+                                f.pads
+                                    .iter()
+                                    .find(|p| p.number == pad)
+                                    .and_then(|p| p.net)
+                            })
+                        })
+                    });
+                let Some(net) = net.filter(|n| *n != 0) else {
+                    self.message =
+                        "Pick a pad or a copper object so the via knows its connection.".into();
+                    return;
+                };
+                self.run(
+                    "via.place",
+                    json!({
+                        "net": net,
+                        "position": snap(pos),
+                        "diameter": 0.7,
+                        "drill": 0.3,
+                        "layer": self.route_layer,
+                    }),
+                );
+            }
             Tool::DrawLayer => {
                 let Some(layer) = self.art_layer else {
                     self.message = "Pick or make a layer to draw on first".into();
@@ -1441,7 +1530,9 @@ impl App {
         ghost: bool,
     ) {
         let at = |p: Point| camera.screen(c.position.offset(p.rotate(-c.rotation)), rect);
-        let color = if selected || ghost {
+        let color = if let Some(kind) = self.compare_tint.get(&c.id).copied() {
+            self.compare_kind_color(kind)
+        } else if selected || ghost {
             self.accent()
         } else {
             self.ink()
@@ -1823,7 +1914,11 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
-            let color = if self.selected == Some(f.id) {
+            let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
+                self.compare_kind_color(kind)
+            } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
+                self.compare_kind_color(kind)
+            } else if self.selected == Some(f.id) {
                 self.accent()
             } else {
                 self.ink().gamma_multiply(0.7)
