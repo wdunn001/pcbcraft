@@ -327,6 +327,29 @@ fn a_newcomer_picks_a_fab_preset_and_sees_the_numbers_change() -> Result<(), Str
         paints_text(&ctx, &mut app, "preset JLCPCB 1-2L")?,
         "each number names the preset it came from"
     );
+    for field in [
+        "Copper to cut edge",
+        "Copper to scored edge",
+        "Deepest hole ratio",
+        "Narrowest silkscreen line",
+        "Narrowest track",
+        "Pad hole to copper",
+        "Pad hole to hole",
+        "Pad ring",
+        "Plating allowance",
+        "Silkscreen to pad",
+        "Smallest copper gap",
+        "Smallest drill",
+        "Smallest silkscreen text",
+        "Smallest unplated hole",
+        "Solder mask bridge",
+        "Unplated hole to copper",
+        "Via hole to copper",
+        "Via hole to hole",
+        "Via ring",
+    ] {
+        tap_id(&ctx, &mut app, &format!("spinbutton:{field}"))?;
+    }
     app.tool_call("undo", json!({}));
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
