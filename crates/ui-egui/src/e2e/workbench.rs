@@ -282,3 +282,93 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     }
     Ok(())
 }
+
+/// A focused control that a window drawn above it covers on all five probe
+/// points (centre and four inset corners), as (screen, control name).
+fn obscured_focus(ctx: &egui::Context, screen: &str, found: &mut Vec<String>) -> bool {
+    let Some(id) = ctx.memory(|m| m.focused()) else {
+        return false;
+    };
+    let Some(widget) = ctx.read_response(id) else {
+        return false;
+    };
+    let rect = widget.rect;
+    if !rect.is_finite() || rect.width() < 2.0 || rect.height() < 2.0 {
+        return false;
+    }
+    let inner = rect.shrink2(rect.size() * 0.2);
+    let probes = [
+        rect.center(),
+        inner.left_top(),
+        inner.right_top(),
+        inner.left_bottom(),
+        inner.right_bottom(),
+    ];
+    let covered = probes.iter().all(|p| {
+        ctx.layer_id_at(*p)
+            .is_some_and(|top| top != widget.layer_id && top.order > widget.layer_id.order)
+    });
+    if covered {
+        found.push(format!(
+            "{screen}: control at {rect:?} is under another window"
+        ));
+    }
+    true
+}
+
+#[test]
+fn tabbing_through_the_docks_never_leaves_focus_under_a_floating_window() -> Result<(), String> {
+    let tab_key = egui::Event::Key {
+        key: egui::Key::Tab,
+        physical_key: Some(egui::Key::Tab),
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut found = Vec::new();
+    let mut walked = Vec::new();
+    let mut checked = 0usize;
+    for (tab, palette) in [
+        (Tab::Schematic, false),
+        (Tab::Pcb, false),
+        (Tab::Pcb, true),
+        (Tab::Rules, false),
+        (Tab::Checks, false),
+        (Tab::Settings, false),
+    ] {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        app.select(Some(app.project.components[0].id));
+        app.change_tab(tab);
+        app.command_open = palette;
+        let ctx = egui::Context::default();
+        frame_plain(&ctx, &mut app, vec![]);
+        let screen = format!(
+            "{tab:?}{}",
+            if palette {
+                " with the command console"
+            } else {
+                ""
+            }
+        );
+        for _ in 0..90 {
+            frame_plain(&ctx, &mut app, vec![tab_key.clone()]);
+            checked += usize::from(obscured_focus(&ctx, &screen, &mut found));
+        }
+        walked.push(screen);
+    }
+    assert!(
+        checked > 100,
+        "the walk really lands on controls: {checked}"
+    );
+    found.sort();
+    found.dedup();
+    assert!(
+        found.is_empty(),
+        "walked {walked:?}; focus hidden under a floating window:\n{}",
+        found.join("\n")
+    );
+    Ok(())
+}

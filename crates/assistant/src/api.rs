@@ -42,7 +42,7 @@ const NOTE_REFUSED: &str =
 const HIDDEN_TOOLS: &[&str] = &[];
 
 /// Which wire shape the endpoint speaks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Protocol {
     OpenAi,
     Anthropic,
