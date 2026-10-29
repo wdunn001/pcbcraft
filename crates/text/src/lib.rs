@@ -19,6 +19,8 @@ pub const ENGLISH: &str = include_str!("../strings/en.txt");
 pub const CONVERTED_FNS: &str = include_str!("../strings/converted-fns.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_FR: &str = include_str!("../strings/fixture-fr.txt");
+#[cfg(feature = "fixture")]
+const FIXTURE_RTL: &str = include_str!("../strings/fixture-rtl.txt");
 
 /// Language tag meaning "follow the computer's language".
 pub const SYSTEM: &str = "system";
@@ -111,21 +113,50 @@ pub fn shipped_languages() -> Vec<Language> {
         tag: "en".into(),
         name: language_name(ENGLISH),
     }];
-    list.extend(fixture_language());
+    list.extend(fixture_languages());
     list
 }
 
 #[cfg(feature = "fixture")]
-fn fixture_language() -> Option<Language> {
-    Some(Language {
-        tag: "fr".into(),
-        name: language_name(FIXTURE_FR),
-    })
+fn fixture_languages() -> Vec<Language> {
+    vec![
+        Language {
+            tag: "fr".into(),
+            name: language_name(FIXTURE_FR),
+        },
+        Language {
+            tag: FIXTURE_RTL_TAG.into(),
+            name: language_name(FIXTURE_RTL),
+        },
+    ]
 }
 
 #[cfg(not(feature = "fixture"))]
-fn fixture_language() -> Option<Language> {
-    None
+fn fixture_languages() -> Vec<Language> {
+    Vec::new()
+}
+
+/// Tag of the pseudo right-to-left fixture language.
+#[cfg(feature = "fixture")]
+pub const FIXTURE_RTL_TAG: &str = "qps-rtl";
+
+/// The way a language's text runs.
+///
+/// # Rules
+/// Read it with [`Catalog::direction`]; this crate only reports it and
+/// mirrors nothing.
+///
+/// # Dependencies
+/// `strings/en.txt` defines `language.direction`.
+///
+/// # Do not
+/// Add a mixed or vertical value here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// Left to right (the default).
+    Ltr,
+    /// Right to left.
+    Rtl,
 }
 
 fn language_name(text: &str) -> String {
@@ -142,7 +173,30 @@ fn language_text(tag: &str) -> Option<&'static str> {
         "en" => Some(ENGLISH),
         #[cfg(feature = "fixture")]
         "fr" => Some(FIXTURE_FR),
+        #[cfg(feature = "fixture")]
+        FIXTURE_RTL_TAG => Some(FIXTURE_RTL),
         _ => None,
+    }
+}
+
+/// True when the language's "one" form is used for `count`.
+///
+/// CLDR cardinal rule: French and Portuguese (`fr`, `pt`, `pt-BR` and so on)
+/// use "one" for 0 and 1; every other shipped language only for 1.
+///
+/// # Rules
+/// Whole-number counts only; richer categories are #602.
+///
+/// # Dependencies
+/// None.
+///
+/// # Do not
+/// Add few or many here.
+fn is_one(tag: &str, count: u64) -> bool {
+    let primary = tag.split(['-', '_']).next().unwrap_or(tag);
+    match primary {
+        "fr" | "pt" => count <= 1,
+        _ => count == 1,
     }
 }
 
@@ -230,6 +284,39 @@ impl Catalog {
         &self.tag
     }
 
+    /// The way the loaded language runs. The `language.direction` key
+    /// decides (`ltr` or `rtl`). Without one, Arabic, Hebrew, Persian and
+    /// Urdu tags are right to left and the rest left to right. A value that
+    /// is neither gives left to right and is reported once as
+    /// `language.direction`.
+    ///
+    /// # Rules
+    /// Reports only; no screen is mirrored from here.
+    ///
+    /// # Dependencies
+    /// `strings/en.txt` for the key.
+    ///
+    /// # Do not
+    /// Call it per widget; read it once per frame.
+    pub fn direction(&self) -> Direction {
+        match self.overrides.get("language.direction").map(|v| v.trim()) {
+            Some("ltr") => Direction::Ltr,
+            Some("rtl") => Direction::Rtl,
+            Some(_) => {
+                self.report("language.direction");
+                Direction::Ltr
+            }
+            None => {
+                let primary = self.tag.split(['-', '_']).next().unwrap_or("");
+                if matches!(primary, "ar" | "he" | "fa" | "ur") {
+                    Direction::Rtl
+                } else {
+                    Direction::Ltr
+                }
+            }
+        }
+    }
+
     /// Every key English defines, in sorted order.
     pub fn keys(&self) -> impl Iterator<Item = &str> {
         self.english.keys().map(String::as_str)
@@ -264,15 +351,25 @@ impl Catalog {
         text
     }
 
-    /// `{base}.one` for a count of one, else `{base}.other`, with `{count}`
-    /// filled in. A language may add `{base}.zero`.
+    /// `{base}.one` when the language treats the count as one, else
+    /// `{base}.other`, with `{count}` filled in. A language may add
+    /// `{base}.zero`.
+    ///
+    /// # Rules
+    /// French and Portuguese count 0 as one (see `is_one`).
+    ///
+    /// # Dependencies
+    /// `strings/en.txt` for the `.one` and `.other` keys.
+    ///
+    /// # Do not
+    /// Build a plural with an inline `s` in screen code.
     pub fn plural(&self, base: &str, count: u64) -> String {
         let zero = format!("{base}.zero");
         let form = if count == 0
             && (self.overrides.contains_key(&zero) || self.english.contains_key(&zero))
         {
             "zero"
-        } else if count == 1 {
+        } else if is_one(&self.tag, count) {
             "one"
         } else {
             "other"
@@ -357,6 +454,7 @@ mod tests {
     use super::*;
 
     const FIXTURE: &str = include_str!("../strings/fixture-fr.txt");
+    const FIXTURE_RTL: &str = include_str!("../strings/fixture-rtl.txt");
 
     #[test]
     fn loading_a_fixture_language_swaps_catalog_strings() {
@@ -399,6 +497,125 @@ mod tests {
         assert_eq!(english.plural("cmp.count", 7), "7 parts");
         let french = Catalog::english().with_language("fr", FIXTURE);
         assert_eq!(french.plural("cmp.count", 2), "2 pièces");
+    }
+
+    #[test]
+    fn french_uses_the_one_form_for_zero_and_one() {
+        let french = Catalog::english().with_language("fr", FIXTURE);
+        let forms: Vec<String> = [0, 1, 2, 5, 11, 21, 101]
+            .iter()
+            .map(|n| french.plural("cmp.count", *n))
+            .collect();
+        assert_eq!(
+            forms,
+            [
+                "0 pièce",
+                "1 pièce",
+                "2 pièces",
+                "5 pièces",
+                "11 pièces",
+                "21 pièces",
+                "101 pièces"
+            ]
+        );
+    }
+
+    #[test]
+    fn english_is_left_to_right() {
+        assert_eq!(Catalog::english().direction(), Direction::Ltr);
+        assert_eq!(Catalog::english().get("language.direction"), "ltr");
+        let french = Catalog::english().with_language("fr", FIXTURE);
+        assert_eq!(french.direction(), Direction::Ltr);
+    }
+
+    #[test]
+    fn the_pseudo_rtl_fixture_reports_right_to_left() {
+        let rtl = Catalog::english().with_language("qps-rtl", FIXTURE_RTL);
+        assert_eq!(rtl.direction(), Direction::Rtl);
+        assert_ne!(rtl.get("menu.file"), Catalog::english().get("menu.file"));
+        #[cfg(feature = "fixture")]
+        {
+            assert!(
+                shipped_languages()
+                    .iter()
+                    .any(|l| l.tag == FIXTURE_RTL_TAG && l.name == "Pseudo RTL")
+            );
+            assert_eq!(
+                Catalog::for_language(FIXTURE_RTL_TAG).direction(),
+                Direction::Rtl
+            );
+        }
+        // Shipped tags with no key still run right to left.
+        for tag in ["ar", "he", "fa", "ur", "ar-EG"] {
+            assert_eq!(
+                Catalog::english().with_language(tag, "").direction(),
+                Direction::Rtl,
+                "{tag}"
+            );
+        }
+        assert_eq!(
+            Catalog::english().with_language("de", "").direction(),
+            Direction::Ltr
+        );
+    }
+
+    #[test]
+    fn portuguese_uses_the_one_form_for_zero_and_one() {
+        let text = "cmp.count.one = {count} peça\ncmp.count.other = {count} peças\n";
+        for tag in ["pt", "pt-BR"] {
+            let pt = Catalog::english().with_language(tag, text);
+            assert_eq!(pt.plural("cmp.count", 0), "0 peça");
+            assert_eq!(pt.plural("cmp.count", 1), "1 peça");
+            assert_eq!(pt.plural("cmp.count", 2), "2 peças");
+            assert_eq!(pt.plural("cmp.count", 5), "5 peças");
+        }
+    }
+
+    #[test]
+    fn an_invalid_direction_value_falls_back_to_left_to_right_and_is_reported() {
+        let bad = Catalog::english().with_language("xx", "language.direction = sideways\n");
+        assert_eq!(bad.direction(), Direction::Ltr);
+        assert_eq!(bad.direction(), Direction::Ltr);
+        assert_eq!(bad.missing_keys(), vec!["language.direction".to_string()]);
+        let good = Catalog::english().with_language("xx", "language.direction = rtl\n");
+        assert_eq!(good.direction(), Direction::Rtl);
+        assert!(good.missing_keys().is_empty());
+    }
+
+    #[test]
+    fn the_english_file_still_passes_the_well_formed_test_with_the_new_key() {
+        let (entries, errors) = parse(ENGLISH);
+        assert!(errors.is_empty(), "{errors:?}");
+        let count = entries
+            .iter()
+            .filter(|(k, _)| k == "language.direction")
+            .count();
+        assert_eq!(count, 1);
+        let (rtl, rtl_errors) = parse(FIXTURE_RTL);
+        assert!(rtl_errors.is_empty(), "{rtl_errors:?}");
+        for (key, value) in rtl {
+            let base = entries.iter().find(|(k, _)| *k == key).map(|(_, v)| v);
+            assert_eq!(
+                base.map(|v| placeholders(v)),
+                Some(placeholders(&value)),
+                "placeholders of {key} match English"
+            );
+        }
+    }
+
+    #[test]
+    fn english_and_spanish_use_the_one_form_only_for_one() {
+        let text = "cmp.count.one = {count} pieza\ncmp.count.other = {count} piezas\n";
+        let es = Catalog::english().with_language("es", text);
+        let en = Catalog::english();
+        assert_eq!(es.plural("cmp.count", 0), "0 piezas");
+        assert_eq!(es.plural("cmp.count", 1), "1 pieza");
+        assert_eq!(es.plural("cmp.count", 2), "2 piezas");
+        assert_eq!(es.plural("cmp.count", 5), "5 piezas");
+        assert_eq!(en.plural("cmp.count", 0), "0 parts");
+        assert_eq!(en.plural("cmp.count", 1), "1 part");
+        assert_eq!(en.plural("cmp.count", 2), "2 parts");
+        assert_eq!(en.plural("cmp.count", 5), "5 parts");
     }
 
     #[test]
