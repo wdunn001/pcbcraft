@@ -2575,9 +2575,14 @@ impl App {
     const APP_BAR_HEIGHT: f32 = 34.0;
     /// One square icon button for the application bar. The picture is drawn
     /// with the painter so it follows the theme and needs no image files.
-    fn bar_icon(&self, ui: &mut egui::Ui, icon: BarIcon, tip: &str, enabled: bool) -> egui::Response {
-        let (rect, response) =
-            ui.allocate_exact_size(Vec2::splat(26.0), egui::Sense::click());
+    fn bar_icon(
+        &self,
+        ui: &mut egui::Ui,
+        icon: BarIcon,
+        tip: &str,
+        enabled: bool,
+    ) -> egui::Response {
+        let (rect, response) = ui.allocate_exact_size(Vec2::splat(26.0), egui::Sense::click());
         let response = response.on_hover_text(tip);
         let live = enabled;
         if live && response.hovered() {
@@ -2617,7 +2622,11 @@ impl App {
                 );
             }
             BarIcon::Undo | BarIcon::Redo => {
-                let flip = if matches!(icon, BarIcon::Undo) { 1.0 } else { -1.0 };
+                let flip = if matches!(icon, BarIcon::Undo) {
+                    1.0
+                } else {
+                    -1.0
+                };
                 let mut points = Vec::new();
                 for step in 0..=8 {
                     let angle = 2.7 - step as f32 * 0.3;
@@ -2642,10 +2651,7 @@ impl App {
                 for k in 0..8 {
                     let a = k as f32 * std::f32::consts::FRAC_PI_4;
                     let (s, co) = a.sin_cos();
-                    painter.line_segment(
-                        [at(co * 6.0, s * 6.0), at(co * 8.0, s * 8.0)],
-                        stroke,
-                    );
+                    painter.line_segment([at(co * 6.0, s * 6.0), at(co * 8.0, s * 8.0)], stroke);
                 }
             }
             BarIcon::Feedback => {
@@ -2670,7 +2676,13 @@ impl App {
             }
             BarIcon::Help => {
                 painter.circle_stroke(c, 8.0, stroke);
-                painter.text(c, Align2::CENTER_CENTER, "?", FontId::proportional(12.0), color);
+                painter.text(
+                    c,
+                    Align2::CENTER_CENTER,
+                    "?",
+                    FontId::proportional(12.0),
+                    color,
+                );
             }
         }
         response
