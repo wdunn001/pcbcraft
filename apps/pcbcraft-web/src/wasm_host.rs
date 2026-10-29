@@ -105,7 +105,10 @@ impl ProjectHost for WasmHost {
             .map_err(|_| "download anchor has wrong type")?;
         anchor.set_href(&url);
         anchor.set_download(filename);
-        let _ = anchor.set_style("display", "none");
+        anchor
+            .style()
+            .set_property("display", "none")
+            .map_err(|_| "could not hide download anchor")?;
         let body = document.body().ok_or("document has no body")?;
         body.append_child(&anchor)
             .map_err(|_| "could not attach download anchor")?;

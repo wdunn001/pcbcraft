@@ -8964,15 +8964,7 @@ mod tests {
                 .session
                 .lock()
                 .map_err(|_| "session unavailable after internal failure".to_string())?;
-            let id = s
-                .project
-                .board
-                .holes
-                .iter()
-                .map(|h| h.id)
-                .max()
-                .unwrap_or(0)
-                .saturating_add(1);
+            let id = s.project.ids().max().unwrap_or(0).saturating_add(1);
             s.project.board.holes.push(pcbcraft_doc::Hole {
                 id,
                 position: Point::new(12.0, 8.0),

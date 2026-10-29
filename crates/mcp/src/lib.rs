@@ -85,6 +85,12 @@ fn text_result(value: Value) -> Value {
 fn error_result(error: String) -> Value {
     json!({"content":[{"type":"text","text":error}],"isError":true})
 }
+fn view_label(args: &Value) -> &str {
+    args.get("view")
+        .and_then(Value::as_str)
+        .map_or("pcb", |view| view)
+}
+
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
@@ -285,10 +291,7 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         }
         "ps.write" => {
             let directory = string(args, "path")?;
-            let view = match args.get("view").and_then(Value::as_str) {
-                Some(v) => v,
-                None => "pcb",
-            };
+            let view = view_label(args);
             let files = tool_files::write_tool_files(&s.project, name, args)?;
             write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"file":format!("pcb-{view}.ps"),"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
@@ -313,10 +316,7 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         }
         "hpgl.write" => {
             let directory = string(args, "path")?;
-            let view = match args.get("view").and_then(Value::as_str) {
-                Some(v) => v,
-                None => "pcb",
-            };
+            let view = view_label(args);
             let files = tool_files::write_tool_files(&s.project, name, args)?;
             write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"file":format!("pcb-{view}.hpgl"),"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
@@ -329,10 +329,7 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         }
         "pdf.write" => {
             let directory = string(args, "path")?;
-            let view = match args.get("view").and_then(Value::as_str) {
-                Some(v) => v,
-                None => "pcb",
-            };
+            let view = view_label(args);
             let files = tool_files::write_tool_files(&s.project, name, args)?;
             write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"file":format!("pcb-{view}.pdf"),"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
