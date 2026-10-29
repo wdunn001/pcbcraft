@@ -1,7 +1,7 @@
 //! Read a bracketed board interchange file into a native project.
 use pcbcraft_doc::{
-    Component, CopperZone, Cutout, Footprint, Id, Layer, Net, Pad, Pin, PreservedSource, Project,
-    Track, Via,
+    Component, CopperZone, Cutout, Footprint, Id, Layer, LibraryFootprint, Net, Pad, Pin,
+    PreservedSource, Project, Track, Via,
 };
 use pcbcraft_geom::Point;
 use pcbcraft_library::{Error as LibraryError, Node, line_number_at_offset, parse, read_footprint};
@@ -274,6 +274,10 @@ impl ImportCtx {
             }
         }
 
+        let embedded = LibraryFootprint {
+            library: "project".into(),
+            definition: definition.clone(),
+        };
         if self.components.iter().all(|c| c.id != comp_id) {
             let pins = template_pins(&kind);
             self.components.push(Component {
@@ -286,10 +290,12 @@ impl ImportCtx {
                 pins,
                 units: Vec::new(),
                 library_symbol: None,
-                library_footprint: None,
+                library_footprint: Some(embedded),
                 fields: Vec::new(),
                 sheet: 0,
             });
+        } else if let Some(component) = self.components.iter_mut().find(|c| c.id == comp_id) {
+            component.library_footprint = Some(embedded);
         }
 
         board.footprints.push(Footprint {
