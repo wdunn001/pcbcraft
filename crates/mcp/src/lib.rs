@@ -1,5 +1,9 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
 mod document_hub;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http;
+mod prompts;
+mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
 use pcbcraft_engine::{Command, Session};
@@ -12,6 +16,8 @@ use std::sync::{Arc, Mutex};
 
 pub type SharedSession = Arc<Mutex<Session>>;
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
+/// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
+pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
     Arc::new(Mutex::new(session))
 }
@@ -80,7 +86,95 @@ pub fn tool_list() -> Value {
             json!({"name":spec.id,"description":spec.description,"inputSchema":spec.input_schema}),
         );
     }
+    for tool in &mut tools {
+        let name = tool
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        tool["title"] = json!(title_for(&name));
+        tool["annotations"] = annotations_for(&name);
+    }
     json!({"tools":tools})
+}
+
+/// Which family a tool belongs to, for its client-facing hints.
+#[derive(PartialEq)]
+enum ToolKind {
+    ReadOnly,
+    WritesFiles,
+    DiscardsState,
+    EditsDesign,
+}
+
+fn tool_kind(name: &str) -> ToolKind {
+    const READ_ONLY: [&str; 14] = [
+        "inspect_design",
+        "list_commands",
+        "checks",
+        "board_mesh",
+        "screenshot",
+        "library.catalog",
+        "library.search",
+        "library.inspect_symbol",
+        "library.inspect_footprint",
+        "library.compare",
+        "library.sources",
+        "design.recents",
+        "design.list_open",
+        "design.activate",
+    ];
+    if READ_ONLY.contains(&name) {
+        ToolKind::ReadOnly
+    } else if ["new_design", "sample_design", "open"].contains(&name) {
+        ToolKind::DiscardsState
+    } else if name.ends_with(".write")
+        || name.ends_with(".export")
+        || name.starts_with("export_")
+        || name.starts_with("library.export_")
+        || ["export", "save", "library.save", "output_job.package"].contains(&name)
+    {
+        ToolKind::WritesFiles
+    } else {
+        ToolKind::EditsDesign
+    }
+}
+
+/// The four MCP behaviour hints for one tool, so a client can decide when to ask first.
+///
+/// Read-only tools never change the design. File writers change nothing in the
+/// project but replace files on the host. Tools that replace the whole design are
+/// marked destructive. Every other edit is undoable, so it is not destructive.
+///
+/// # Rules
+/// The table lives here only; `docs/mcp.md` section "Tool hints" describes it.
+///
+/// # Dependencies
+/// `crates/mcp/src/lib.rs` (`tool_list` applies it to every listed tool).
+///
+/// # Do not
+/// Do not add a name to the read-only list unless the tool leaves the revision unchanged.
+fn annotations_for(name: &str) -> Value {
+    let (read_only, destructive, idempotent) = match tool_kind(name) {
+        ToolKind::ReadOnly => (true, false, true),
+        ToolKind::WritesFiles => (false, false, true),
+        ToolKind::DiscardsState => (false, true, false),
+        ToolKind::EditsDesign => (false, false, false),
+    };
+    json!({"readOnlyHint":read_only,"destructiveHint":destructive,"idempotentHint":idempotent,"openWorldHint":false})
+}
+
+/// A short display name: dots and underscores become spaces, first letter capitalized.
+///
+/// # Do not
+/// Do not put a rule here; a title is display text only.
+fn title_for(name: &str) -> String {
+    let spaced = name.replace(['.', '_'], " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 pub(crate) fn text_result(value: Value) -> Value {
     json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
@@ -672,12 +766,12 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
                 .get("protocolVersion")
                 .and_then(Value::as_str)
                 .unwrap_or("2025-11-25");
-            let version = if ["2025-11-25", "2025-06-18", "2024-11-05"].contains(&requested) {
+            let version = if SUPPORTED_VERSIONS.contains(&requested) {
                 requested
             } else {
                 "2025-11-25"
             };
-            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
+            json!({"protocolVersion":version,"capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"prompts":{"listChanged":false}},"serverInfo":{"name":"pcbcraft","version":env!("CARGO_PKG_VERSION")},"instructions":"100% Rust EDA engine. Use inspect_design and list_commands before edits; batches are atomic. Check capability limits and checks.scope."})
         }
         "ping" => json!({}),
         "tools/list" => tool_list(),
@@ -713,6 +807,35 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
                 hub.call_tool(name, &args)
             }
         }
+        "resources/list" => resources::list(),
+        "resources/templates/list" => resources::templates(),
+        "resources/read" => {
+            let Some(uri) = params.get("uri").and_then(Value::as_str) else {
+                return Some(rpc_error(id, -32602, "missing resource uri"));
+            };
+            match resources::read(hub, uri) {
+                Ok(value) => value,
+                Err(e) => {
+                    let mut reply = rpc_error(id, e.code, &e.message);
+                    if let Some(data) = e.data {
+                        reply["error"]["data"] = data;
+                    }
+                    return Some(reply);
+                }
+            }
+        }
+        "prompts/list" => prompts::list(),
+        "prompts/get" => {
+            let Some(name) = params.get("name").and_then(Value::as_str) else {
+                return Some(rpc_error(id, -32602, "missing prompt name"));
+            };
+            match prompts::get(name, params.get("arguments").unwrap_or(&Value::Null)) {
+                Ok(value) => value,
+                Err(prompts::PromptError(message)) => {
+                    return Some(rpc_error(id, -32602, &message));
+                }
+            }
+        }
         _ => return Some(rpc_error(id, -32601, "method not found")),
     };
     Some(json!({"jsonrpc":"2.0","id":id,"result":result}))
@@ -734,6 +857,18 @@ fn read_message(reader: &mut impl BufRead) -> Result<Option<String>, String> {
         .map(Some)
         .map_err(|e| e.to_string())
 }
+/// Run the stdio server loop: one JSON-RPC message per line in, one reply per request out.
+///
+/// # Rules
+/// Before a successful `initialize`, every request except `initialize` and `ping` gets
+/// -32002 "initialize the MCP session first" (lifecycle page of the 2025-11-25 spec).
+/// Notifications never get a reply. A failed `initialize` does not open the session.
+///
+/// # Dependencies
+/// `crates/mcp/src/lib.rs` (`handle_rpc`, `read_message`).
+///
+/// # Do not
+/// Do not gate `ping`. The HTTP transport in `http.rs` is stateless and does not use this gate.
 pub fn serve(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
@@ -745,7 +880,7 @@ pub fn serve(
         let response = match serde_json::from_str::<Value>(&line) {
             Ok(request) => {
                 let method = request.get("method").and_then(Value::as_str);
-                if !initialized && method.is_some_and(|m| m.starts_with("tools/")) {
+                if !initialized && method.is_some_and(|m| m != "initialize" && m != "ping") {
                     request
                         .get("id")
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
@@ -829,9 +964,149 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod http_tests;
+#[cfg(test)]
+mod protocol_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn run_session(lines: &[Value]) -> Result<Vec<Value>, String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
+        let mut output = vec![];
+        serve(&mut input.as_bytes(), &mut output, &hub, None)?;
+        String::from_utf8(output)
+            .map_err(|e| e.to_string())?
+            .lines()
+            .map(|line| serde_json::from_str(line).map_err(|e| e.to_string()))
+            .collect()
+    }
+    fn initialize_request(id: u64) -> Value {
+        json!({"jsonrpc":"2.0","id":id,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"t","version":"1"}}})
+    }
+    #[test]
+    fn methods_other_than_initialize_and_ping_are_refused_before_initialize() -> Result<(), String>
+    {
+        let replies = run_session(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),
+            json!({"jsonrpc":"2.0","id":2,"method":"resources/list"}),
+            json!({"jsonrpc":"2.0","id":3,"method":"prompts/list"}),
+            json!({"jsonrpc":"2.0","id":4,"method":"foo"}),
+        ])?;
+        assert_eq!(replies.len(), 4);
+        for reply in &replies {
+            assert_eq!(reply["error"]["code"], -32002, "{reply}");
+        }
+        Ok(())
+    }
+    #[test]
+    fn ping_works_before_initialize() -> Result<(), String> {
+        let replies = run_session(&[json!({"jsonrpc":"2.0","id":1,"method":"ping"})])?;
+        assert_eq!(replies[0]["result"], json!({}));
+        Ok(())
+    }
+    #[test]
+    fn a_failed_initialize_does_not_open_the_session() -> Result<(), String> {
+        let replies = run_session(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+            initialize_request(3),
+            json!({"jsonrpc":"2.0","id":4,"method":"tools/list"}),
+        ])?;
+        assert_eq!(replies[0]["error"]["code"], -32602);
+        assert_eq!(replies[1]["error"]["code"], -32002);
+        assert!(replies[2]["result"].is_object());
+        assert!(replies[3]["result"]["tools"].is_array());
+        Ok(())
+    }
+    fn listed_tools() -> Result<Vec<Value>, String> {
+        tool_list()["tools"]
+            .as_array()
+            .cloned()
+            .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            assert!(
+                tool["title"].as_str().is_some_and(|t| !t.is_empty()),
+                "{name} has no title"
+            );
+            for hint in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(
+                    tool["annotations"][hint].is_boolean(),
+                    "{name} lacks {hint}"
+                );
+            }
+        }
+        Ok(())
+    }
+    #[test]
+    fn tools_whose_description_says_without_editing_the_project_are_not_destructive()
+    -> Result<(), String> {
+        let mut seen = 0;
+        for tool in listed_tools()? {
+            if tool["description"]
+                .as_str()
+                .is_some_and(|d| d.contains("without editing the project"))
+            {
+                seen += 1;
+                assert_eq!(
+                    tool["annotations"]["destructiveHint"], false,
+                    "{}",
+                    tool["name"]
+                );
+            }
+        }
+        assert!(seen > 10, "the phrase is found on many tools");
+        Ok(())
+    }
+    #[test]
+    fn read_only_tools_never_change_the_revision() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let revision = |s: &SharedSession| {
+            call_tool(s, "inspect_design", &json!({}))["structuredContent"]["revision"].clone()
+        };
+        let before = revision(&session);
+        assert!(before.is_number(), "inspect_design reports a revision");
+        let mut called = 0;
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            let needs_args = tool["inputSchema"]["required"]
+                .as_array()
+                .is_some_and(|r| !r.is_empty());
+            if tool["annotations"]["readOnlyHint"] == true
+                && !needs_args
+                && !name.starts_with("design.")
+            {
+                call_tool(&session, name, &json!({}));
+                called += 1;
+            }
+        }
+        assert!(called >= 4, "several read-only tools were called");
+        assert_eq!(revision(&session), before);
+        Ok(())
+    }
+    #[test]
+    fn new_design_and_open_are_marked_destructive() -> Result<(), String> {
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?");
+            let destructive = tool["annotations"]["destructiveHint"] == true;
+            assert_eq!(
+                destructive,
+                ["new_design", "sample_design", "open"].contains(&name),
+                "{name}"
+            );
+        }
+        Ok(())
+    }
     #[test]
     fn package_tool_is_listed_with_its_schema_and_writes_a_zip() -> Result<(), String> {
         let tools = tool_list();

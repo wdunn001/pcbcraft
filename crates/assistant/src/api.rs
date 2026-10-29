@@ -10,6 +10,7 @@ use crate::backend::{
     ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
 };
 use crate::prompt::SYSTEM_NOTE;
+use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -29,6 +30,14 @@ const CANCEL_POLL: Duration = Duration::from_millis(40);
 const ANTHROPIC_MAX_TOKENS: u64 = 8192;
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const TEST_TIMEOUT_S: u64 = 60;
+/// Shown when the model ran out of room for its answer (`length`, `max_tokens`).
+const NOTE_CUT_BY_LENGTH: &str = "The model stopped early because the answer hit its length limit. Ask for a shorter answer or a smaller step.";
+/// Shown when the endpoint filtered the answer (`content_filter`).
+const NOTE_FILTERED: &str =
+    "The endpoint filtered the answer, so it may be missing or partial. Try rewording the request.";
+/// Shown when the model declined to answer (`refusal`).
+const NOTE_REFUSED: &str =
+    "The model declined to answer this request. Try rewording it or asking for a smaller step.";
 /// Tools the model is not offered. None today.
 const HIDDEN_TOOLS: &[&str] = &[];
 
@@ -95,9 +104,10 @@ impl ApiBackend {
         let cancel = Arc::new(AtomicBool::new(false));
         let stop = cancel.clone();
         let tool_list = pcbcraft_mcp::tool_list();
-        let (tools, tool_names) = match cfg.protocol {
-            Protocol::OpenAi => (openai_tools(&tool_list), tool_names(&tool_list)),
-            Protocol::Anthropic => (anthropic_tools(&tool_list), tool_names(&tool_list)),
+        let tool_names = ToolNames::from_list(&tool_list)?;
+        let tools = match cfg.protocol {
+            Protocol::OpenAi => openai_tools(&tool_list),
+            Protocol::Anthropic => anthropic_tools(&tool_list),
         };
         let spawned = std::thread::Builder::new()
             .name("assistant-api".into())
@@ -168,7 +178,7 @@ struct Worker {
     http: HttpFn,
     tool_sink: Option<Sender<ToolRequest>>,
     tools: Vec<Value>,
-    tool_names: Vec<String>,
+    tool_names: ToolNames,
     history: Vec<Value>,
     events: Sender<Event>,
     cancel: Arc<AtomicBool>,
@@ -269,6 +279,26 @@ impl Worker {
             for (thought, text) in reply.text {
                 self.emit(Event::Text { thought, text });
             }
+            let stop = reply.stop.as_deref().unwrap_or("");
+            let cut_by_length = matches!(stop, "length" | "max_tokens");
+            let note = stop_note(stop);
+            // A cut-off answer may hold cut-off tool arguments: none of its calls run, and the
+            // message goes back to the model without them so the history stays well formed.
+            if note.is_some() && (reply.calls.is_empty() || cut_by_length) {
+                let kept = if reply.calls.is_empty() {
+                    reply.assistant
+                } else {
+                    without_calls(reply.assistant)
+                };
+                self.history.push(kept);
+                if let Some(note) = note {
+                    self.emit(Event::Note(note.to_string()));
+                }
+                self.emit(Event::TurnEnded {
+                    reason: stop.to_string(),
+                });
+                return;
+            }
             self.history.push(reply.assistant);
             if reply.calls.is_empty() {
                 self.emit(Event::TurnEnded {
@@ -278,12 +308,15 @@ impl Worker {
             }
             let mut results = Vec::new();
             for c in reply.calls.iter().take(32) {
+                // The model uses the wire name; the host, the permission prompts and the UI use the MCP name.
+                let mcp = self.tool_names.mcp_name(&c.name).map(str::to_string);
+                let shown_name = mcp.as_deref().unwrap_or(&c.name);
                 let args = c.arguments.clone().unwrap_or_else(|_| json!({}));
                 self.requests_made += 1;
                 let tool_id = format!("{}-{}", c.id, self.requests_made);
                 self.emit(Event::Tool {
                     id: tool_id.clone(),
-                    title: Some(tool_title(&c.name, &args)),
+                    title: Some(tool_title(shown_name, &args)),
                     kind: Some(String::new()),
                     status: Some(ToolStatus::InProgress),
                     output: None,
@@ -292,13 +325,13 @@ impl Worker {
                     ("cancelled by the user".to_string(), true)
                 } else if let Err(e) = &c.arguments {
                     (format!("Not run: {e}"), true)
-                } else if !self.tool_names.iter().any(|t| t == &c.name) {
-                    (format!("unknown tool `{}`", c.name), true)
-                } else {
-                    match self.call_tool(&c.name, args) {
+                } else if let Some(mcp) = &mcp {
+                    match self.call_tool(mcp, args) {
                         Ok(r) => tool_text(&r),
                         Err(e) => (e, true),
                     }
+                } else {
+                    (format!("unknown tool `{}`", c.name), true)
                 };
                 let shown: String = text.chars().take(2000).collect();
                 self.emit(Event::Tool {
@@ -585,6 +618,39 @@ struct Reply {
     text: Vec<(bool, String)>,
     calls: Vec<Call>,
     assistant: Value,
+    /// `finish_reason` (OpenAI) or `stop_reason` (Anthropic), when the endpoint sent one.
+    stop: Option<String>,
+}
+
+/// The note for a stop value that means the answer was cut off or held back, else `None`.
+fn stop_note(stop: &str) -> Option<&'static str> {
+    match stop {
+        "length" | "max_tokens" => Some(NOTE_CUT_BY_LENGTH),
+        "content_filter" => Some(NOTE_FILTERED),
+        "refusal" => Some(NOTE_REFUSED),
+        _ => None,
+    }
+}
+
+/// An assistant message with its tool calls taken out. An emptied message gets a short placeholder,
+/// because both protocols refuse an assistant message with nothing in it.
+fn without_calls(mut message: Value) -> Value {
+    const PLACEHOLDER: &str = "(answer cut off)";
+    if let Some(obj) = message.as_object_mut() {
+        obj.remove("tool_calls");
+    }
+    match message.get_mut("content") {
+        Some(Value::Array(blocks)) => {
+            blocks.retain(|b| b["type"] != "tool_use");
+            if blocks.is_empty() {
+                blocks.push(json!({"type": "text", "text": PLACEHOLDER}));
+            }
+        }
+        Some(Value::String(t)) if t.is_empty() => *t = PLACEHOLDER.to_string(),
+        Some(Value::Null) | None => message["content"] = json!(PLACEHOLDER),
+        _ => {}
+    }
+    message
 }
 
 fn reply(protocol: Protocol, body: &Value) -> Reply {
@@ -630,10 +696,15 @@ fn openai_reply(body: &Value) -> Reply {
     if !raw.is_empty() {
         assistant["tool_calls"] = Value::Array(raw);
     }
+    let stop = body
+        .pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Reply {
         text,
         calls,
         assistant,
+        stop,
     }
 }
 
@@ -699,14 +770,19 @@ fn anthropic_reply(body: &Value) -> Reply {
         }
         _ => json!({"role": "assistant", "content": content.clone()}),
     };
+    let stop = body
+        .get("stop_reason")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Reply {
         text,
         calls,
         assistant,
+        stop,
     }
 }
 
-fn tool_entries(list: &Value) -> impl Iterator<Item = (&str, &Value)> {
+pub(crate) fn tool_entries(list: &Value) -> impl Iterator<Item = (&str, &Value)> {
     list.get("tools")
         .and_then(Value::as_array)
         .into_iter()
@@ -724,12 +800,13 @@ fn schema_of(t: &Value) -> Value {
         .unwrap_or(json!({"type": "object", "properties": {}}))
 }
 
-/// The tool list (MCP `tools/list` shape) as OpenAI function tools.
+/// The tool list (MCP `tools/list` shape) as OpenAI function tools. Names go out through
+/// [`to_wire`] (see `crates/assistant/src/tool_names.rs`).
 pub fn openai_tools(list: &Value) -> Vec<Value> {
     tool_entries(list)
         .map(|(name, t)| {
             json!({"type": "function", "function": {
-                "name": name,
+                "name": to_wire(name),
                 "description": t.get("description").and_then(Value::as_str).unwrap_or(""),
                 "parameters": schema_of(t),
             }})
@@ -737,21 +814,17 @@ pub fn openai_tools(list: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// The tool list as Anthropic tools.
+/// The tool list as Anthropic tools, names through [`to_wire`].
 pub fn anthropic_tools(list: &Value) -> Vec<Value> {
     tool_entries(list)
         .map(|(name, t)| {
             json!({
-                "name": name,
+                "name": to_wire(name),
                 "description": t.get("description").and_then(Value::as_str).unwrap_or(""),
                 "input_schema": schema_of(t),
             })
         })
         .collect()
-}
-
-fn tool_names(list: &Value) -> Vec<String> {
-    tool_entries(list).map(|(n, _)| n.to_string()).collect()
 }
 
 /// `{base}/v1/{path}`, whether the base ends in `/v1` or not.
