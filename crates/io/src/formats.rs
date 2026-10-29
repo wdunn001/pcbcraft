@@ -45,11 +45,17 @@ pub enum Direction {
 /// The heading a format sits under in its dialog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
+    /// Project files and their archives.
     Project,
+    /// Files a board maker needs.
     Fabrication,
+    /// Files an assembler needs.
     Assembly,
+    /// Drawings, reports and pictures.
     Documentation,
+    /// Files other tools open.
     Exchange,
+    /// Drawings, parts and profiles brought in.
     Library,
 }
 
@@ -81,12 +87,17 @@ pub enum Run {
 /// What an option's value looks like.
 #[derive(Clone, Copy, Debug)]
 pub enum OptionKind {
+    /// A checkbox.
     Bool {
+        /// Whether it starts on.
         default: bool,
     },
     /// (value as sent, English label).
+    /// One of several values.
     Choice {
+        /// The values and their English labels.
         choices: &'static [(&'static str, &'static str)],
+        /// Index in `choices` that starts chosen.
         default: usize,
     },
     /// The assembly variants of the open design, or none.
@@ -107,6 +118,7 @@ pub struct OptionSpec {
     pub label: &'static str,
     /// Tooltip: what it does and why.
     pub tip: &'static str,
+    /// What its value looks like.
     pub kind: OptionKind,
 }
 
@@ -121,10 +133,15 @@ pub struct FormatSpec {
     pub tip: &'static str,
     /// Extensions, lower case, preferred first; matching ignores case.
     pub extensions: &'static [&'static str],
+    /// Whole project, made from it, or brought into it.
     pub scope: Scope,
+    /// The heading it sits under.
     pub group: Group,
+    /// What reads it as a project (File > Open).
     pub open: Option<Run>,
+    /// What reads it into the open design (File > Import).
     pub import: Option<Run>,
+    /// What writes it (Save as for a project format, Export for an output).
     pub export: Option<Run>,
     /// Options offered when it is written or imported.
     pub options: &'static [OptionSpec],

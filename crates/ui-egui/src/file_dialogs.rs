@@ -30,6 +30,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+/// Option values keyed by the registry label.
+pub(crate) type Values = BTreeMap<String, String>;
+/// A menu pick: the format id and the options to fill in, either may be absent.
+type Pick = (Option<String>, Option<Values>);
+
 /// Most entries a Recent list keeps.
 pub(crate) const RECENT_MAX: usize = 5;
 /// Rows the preview shows inside the dialog.
@@ -112,6 +117,28 @@ pub(crate) struct DialogState {
     pub preview_open: bool,
     /// (revision, rows) of the plain bill, for the Manufacture row count.
     pub count: Option<(u64, usize)>,
+    /// The scripted clicks of a `--show` capture.
+    pub script: CaptureScript,
+}
+
+/// What a `--show` capture does before it takes the picture: opens a dialog, or clicks
+/// through File and Export to show the submenu.
+#[derive(Default)]
+pub(crate) struct CaptureScript {
+    /// The scene asked for: `file-export` or `export-dialog`.
+    pub show: Option<String>,
+    /// Where the menu buttons were drawn last frame.
+    pub rects: BTreeMap<&'static str, egui::Pos2>,
+    release: Option<egui::Pos2>,
+    step: u8,
+    wait: u32,
+}
+
+impl CaptureScript {
+    /// True once the scene is on screen and has settled.
+    pub(crate) fn ready(&self) -> bool {
+        self.show.as_deref() != Some("file-export") || (self.step >= 2 && self.wait >= 10)
+    }
 }
 
 fn spec(id: &str) -> Option<&'static FormatSpec> {
@@ -299,10 +326,10 @@ impl App {
             Mode::Import => self.preferences.recent_files.imports.clone(),
             _ => self.preferences.recent_files.exports.clone(),
         };
-        let mut picked: Option<(Option<String>, Option<BTreeMap<String, String>>)> = None;
-        ui.menu_button(label, |ui| {
+        let mut picked: Option<Pick> = None;
+        let button = ui.menu_button(label, |ui| {
             if !recent.is_empty() {
-                ui.label(egui::RichText::new("Recent").small().color(self.muted()));
+                ui.label(crate::fonts::caption("Recent").color(self.muted()));
                 for r in &recent {
                     if ui
                         .button(&r.summary)
@@ -315,7 +342,7 @@ impl App {
                 }
                 ui.separator();
             }
-            ui.label(egui::RichText::new("Common").small().color(self.muted()));
+            ui.label(crate::fonts::caption("Common").color(self.muted()));
             for f in formats::listed(mode.direction(), mode.scope())
                 .into_iter()
                 .filter(|f| f.common)
@@ -337,9 +364,15 @@ impl App {
                 picked = Some((None, None));
                 ui.close();
             }
-        })
-        .response
-        .on_hover_text(tip);
+        });
+        if self.capture.is_some() {
+            self.edit
+                .dialog
+                .script
+                .rects
+                .insert(label, button.response.rect.center());
+        }
+        button.response.on_hover_text(tip);
         if let Some((format, values)) = picked {
             self.open_dialog(mode, format.as_deref(), values, vec![]);
         }
@@ -364,7 +397,9 @@ impl App {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
-            .default_width(700.0)
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(780.0)
             .show(ctx, |ui| {
                 ui.add_space(6.0);
                 ui.horizontal_top(|ui| {
@@ -379,7 +414,7 @@ impl App {
                     ui.separator();
                     ui.add_space(12.0);
                     ui.vertical(|ui| {
-                        ui.set_width(430.0);
+                        ui.set_width(520.0);
                         match spec(&d.format) {
                             None => {
                                 ui.label(
@@ -608,6 +643,7 @@ impl App {
             .collect();
         let muted = self.muted();
         ui.add_space(8.0);
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
@@ -618,12 +654,11 @@ impl App {
                     ui.label(egui::RichText::new(format!("{rows} rows")).color(muted));
                 });
                 ui.label(
-                    egui::RichText::new(if jobs.is_empty() {
+                    crate::fonts::caption(if jobs.is_empty() {
                         "Not in an output job yet.".to_owned()
                     } else {
                         format!("Also written by the output jobs: {}.", jobs.join(", "))
                     })
-                    .small()
                     .color(muted),
                 );
                 ui.add_space(4.0);
@@ -644,6 +679,7 @@ impl App {
                     }
                 });
             });
+        });
     }
 
     fn bom_preview_window(&mut self, ctx: &egui::Context) {
@@ -732,7 +768,7 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
             .collect()
     };
     for (heading, list) in groups {
-        ui.label(egui::RichText::new(heading).small().color(muted));
+        ui.label(crate::fonts::caption(heading).color(muted));
         for f in list {
             let chosen = d.format == f.id;
             if ui
@@ -751,7 +787,7 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
         ui.add_space(8.0);
     }
     if d.mode == Mode::Export {
-        ui.label(egui::RichText::new("Packages").small().color(muted));
+        ui.label(crate::fonts::caption("Packages").color(muted));
         if packages().is_empty() {
             ui.label(egui::RichText::new("No packages yet.").color(muted))
                 .on_hover_text(
@@ -778,7 +814,7 @@ fn detail(
     browser: bool,
     go: &mut bool,
 ) {
-    ui.label(egui::RichText::new(f.label).strong().size(15.0));
+    ui.label(crate::fonts::title(f.label));
     ui.label(egui::RichText::new(f.tip).color(muted));
     ui.add_space(8.0);
     for o in f.options {
@@ -790,12 +826,8 @@ fn detail(
     ui.add_space(8.0);
     match d.mode {
         Mode::Export => {
-            ui.label(
-                egui::RichText::new(format!("Saves into {make_dir}"))
-                    .small()
-                    .color(muted),
-            )
-            .on_hover_text("The make folder. Change it in Settings under Make files.");
+            ui.label(crate::fonts::caption(format!("Saves into {make_dir}")).color(muted))
+                .on_hover_text("The make folder. Change it in Settings under Make files.");
         }
         Mode::SaveAs | Mode::Import => {
             let before = d.path.clone();
@@ -1009,4 +1041,73 @@ fn option_row(
         }
     }
     let _ = f;
+}
+
+impl App {
+    /// Capture option: stage a scene for the screenshot (`file-export`, `export-dialog`).
+    pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
+        self.edit.dialog.script.show = scene;
+        self
+    }
+
+    /// Frame 3 of a `--show` capture: seed a Recent export or open the dialog.
+    pub(crate) fn capture_scene(&mut self) {
+        match self.edit.dialog.script.show.clone().as_deref() {
+            Some("file-export") => {
+                let mut values =
+                    bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
+                values.insert(bom_export::FILE_TYPE.into(), "tsv".into());
+                values.insert(bom_export::GROUP.into(), "false".into());
+                let summary = bom_export::summary(&self.project, &values);
+                remember(
+                    &mut self.preferences.recent_files.exports,
+                    Recent {
+                        format: "bom".into(),
+                        values,
+                        summary,
+                    },
+                );
+            }
+            Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
+            _ => {}
+        }
+    }
+
+    /// Feed the scripted clicks of a `--show file-export` capture into the next frame.
+    pub(crate) fn capture_inputs(&mut self, raw: &mut egui::RawInput) {
+        if self.capture.is_none() {
+            return;
+        }
+        let frames = self.frames;
+        let script = &mut self.edit.dialog.script;
+        if script.show.as_deref() != Some("file-export") {
+            return;
+        }
+        let button = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        if let Some(pos) = script.release.take() {
+            raw.events.push(button(pos, false));
+            return;
+        }
+        if frames < 8 {
+            return;
+        }
+        script.wait += 1;
+        let target = match script.step {
+            0 => "File",
+            1 if script.wait >= 6 => "Export",
+            _ => return,
+        };
+        if let Some(pos) = script.rects.get(target).copied() {
+            raw.events.push(egui::Event::PointerMoved(pos));
+            raw.events.push(button(pos, true));
+            script.release = Some(pos);
+            script.step += 1;
+            script.wait = 0;
+        }
+    }
 }

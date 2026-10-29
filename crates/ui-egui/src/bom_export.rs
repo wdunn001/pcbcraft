@@ -380,7 +380,7 @@ mod tests {
         assert!(
             render(&t, "csv").starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity\n")
         );
-        assert!(render(&t, "json").contains("\"Designator\"") == false);
+        assert!(render(&t, "json").contains("\"Reference\""));
         assert_eq!(file_name(&o), "bom.csv");
         Ok(())
     }

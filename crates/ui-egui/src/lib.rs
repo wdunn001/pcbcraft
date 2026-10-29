@@ -2770,7 +2770,7 @@ impl App {
         }
     }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(t!("menu.file"), |ui| {
+        let file = ui.menu_button(t!("menu.file"), |ui| {
             if ui
                 .button(t!("menu.file.new"))
                 .on_hover_text(t!("menu.file.new.tip"))
@@ -2780,7 +2780,7 @@ impl App {
                 self.select(None);
             }
             if ui
-                .button("Open…")
+                .button(t!("menu.file.open"))
                 .on_hover_text(t!("menu.file.open.tip"))
                 .clicked()
             {
@@ -2794,10 +2794,8 @@ impl App {
                 self.tool_call("save", json!({"path":self.path}));
             }
             if ui
-                .button("Save as…")
-                .on_hover_text(
-                    "Save the whole project under a new name or as an archive. To make something from it, such as a bill of materials, use Export.",
-                )
+                .button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
@@ -2814,9 +2812,15 @@ impl App {
                 let ctx = ui.ctx().clone();
                 self.copy_plot_to_clipboard(&ctx);
             }
-        })
-        .response
-        .on_hover_text(t!("menu.file.tip"));
+        });
+        if self.capture.is_some() {
+            self.edit
+                .dialog
+                .script
+                .rects
+                .insert("File", file.response.rect.center());
+        }
+        file.response.on_hover_text(t!("menu.file.tip"));
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.edit"), |ui| {
@@ -6158,13 +6162,21 @@ impl App {
                 self.canvas_menu = Some((at, canvas::CanvasMenuKind::Object(id)));
             }
         }
+        if self.frames == 3 {
+            self.capture_scene();
+        }
         ui_kit::menu::request_capture(ctx, self.capture_menu_tag.as_deref());
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0
             || (self.library.catalog.is_some()
                 && (self.library.results.is_some() || self.library.path.is_empty())
                 && self.library.pending.is_none());
-        if self.capture.is_some() && self.frames >= 5 && library_ready && self.online_settled() {
+        if self.capture.is_some()
+            && self.frames >= 5
+            && library_ready
+            && self.online_settled()
+            && self.edit.dialog.script.ready()
+        {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
         if let Some(path) = self.capture.clone() {
@@ -6448,6 +6460,9 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         self.show(ui);
+    }
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        self.capture_inputs(raw_input);
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);

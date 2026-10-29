@@ -4967,6 +4967,11 @@ struct FindParams {
 }
 /// Set (or clear, when `value` is `None`) one named property on a component.
 /// Returns whether the property is set afterwards.
+/// Rows keyed by value, kind, footprint, requested property values and, when parts
+/// are listed apart, the reference.
+type BomGroups =
+    std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
+
 /// The bill of materials as data: rows grouped by value, kind, footprint and
 /// the requested properties, or one row per part when `group` is false.
 ///
@@ -5021,10 +5026,7 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
     }
     // One row per kind of part, or one row per part when not grouping
     // (the reference then joins the key).
-    let mut groups: std::collections::BTreeMap<
-        (String, String, String, Vec<String>, String),
-        Vec<String>,
-    > = std::collections::BTreeMap::new();
+    let mut groups: BomGroups = std::collections::BTreeMap::new();
     let mut populated = 0usize;
     for c in &p.components {
         if !c.in_bom()
