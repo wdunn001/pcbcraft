@@ -240,27 +240,7 @@ fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
         "the layers dock should list every piece of the board: {}",
         app.message
     );
-    let mut seen = false;
-    for _ in 0..12 {
-        if paints_text(&ctx, &mut app, "Top copper wires")? {
-            seen = true;
-            break;
-        }
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(1180.0, 500.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Line,
-                    delta: egui::vec2(0.0, -4.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
+    let seen = scrolled_to(&ctx, &mut app, "Top copper wires")?;
     assert!(
         seen,
         "the anatomy list should show the top copper wires layer: {}",
