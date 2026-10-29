@@ -4,7 +4,7 @@ use pcbcraft_doc::{
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
     PanelSeparation, Project, Via, panel_layout, panel_score_lines,
 };
-use pcbcraft_geom::{Point, point_segment, segment_distance};
+use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -332,6 +332,97 @@ fn copper(project: &Project) -> Vec<Copper> {
     }
     result
 }
+
+const LASER_OBJECT_CAP: usize = 4096;
+
+/// One closed copper outline on a layer, grouped by net for laser export.
+#[derive(Clone, Debug, Serialize)]
+pub struct LaserCopperOutline {
+    pub net: Id,
+    pub ring: Vec<Point>,
+}
+
+fn track_capsule_outline(start: Point, end: Point, half_width: f64) -> Vec<Point> {
+    if start.distance(end) < 1e-9 {
+        return hull::octagon(&[start], half_width);
+    }
+    hull::octagon(&[start, end], half_width)
+}
+
+fn open_ring(mut ring: Vec<Point>) -> Vec<Point> {
+    if ring.len() >= 2
+        && let (Some(first), Some(last)) = (ring.first(), ring.last())
+        && first.distance(*last) < 1e-9
+    {
+        ring.pop();
+    }
+    ring
+}
+
+fn copper_item_ring(item: &Copper) -> Option<Vec<Point>> {
+    if let Some(outline) = &item.outline {
+        return Some(open_ring(outline.clone()));
+    }
+    if item.start.distance(item.end) < 1e-9 {
+        return Some(hull::octagon(&[item.start], item.radius));
+    }
+    Some(track_capsule_outline(item.start, item.end, item.radius))
+}
+
+/// Copper outlines on one layer, grouped by net, using the same geometry as DRC.
+pub fn laser_copper_outlines(
+    project: &Project,
+    layer: Layer,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    let mut out = Vec::new();
+    for item in copper(project)
+        .into_iter()
+        .filter(|c| c.layer == layer && c.net != 0)
+    {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser copper outline limit reached (4096)".into());
+        }
+        let ring = copper_item_ring(&item)
+            .ok_or_else(|| "copper outline could not be built".to_string())?;
+        if !polygon_is_simple(&ring) {
+            return Err("a copper outline is not a simple closed ring".into());
+        }
+        out.push(LaserCopperOutline {
+            net: item.net,
+            ring,
+        });
+    }
+    Ok(out)
+}
+
+/// Isolation rings offset outward from each net's copper on one layer.
+pub fn isolation_cut_polygons(
+    project: &Project,
+    layer: Layer,
+    isolation_width_mm: f64,
+) -> Result<Vec<LaserCopperOutline>, String> {
+    if !isolation_width_mm.is_finite() || isolation_width_mm <= 0.0 {
+        return Err("isolation width must be a positive millimetre value".into());
+    }
+    let outlines = laser_copper_outlines(project, layer)?;
+    let mut by_net: BTreeMap<Id, Vec<Point>> = BTreeMap::new();
+    for item in outlines {
+        by_net.entry(item.net).or_default().extend(item.ring);
+    }
+    let mut out = Vec::new();
+    for (net, points) in by_net {
+        if out.len() >= LASER_OBJECT_CAP {
+            return Err("laser isolation outline limit reached (4096)".into());
+        }
+        let ring = hull::octagon(&points, isolation_width_mm);
+        if ring.len() < 3 || !polygon_is_simple(&ring) {
+            return Err("an isolation ring is not a simple closed polygon".into());
+        }
+        out.push(LaserCopperOutline { net, ring });
+    }
+    Ok(out)
+}
+
 /// Copper a new track must keep clear of, seen exactly as the checks see it.
 #[derive(Clone, Debug)]
 pub struct Obstacle {

@@ -2,6 +2,7 @@ use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Layer};
 use pcbcraft_geom::point_segment;
+mod underlay;
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, everything drawn on the schematic tab, falling back to the
@@ -1272,6 +1273,7 @@ impl App {
     }
     fn paint_schematic(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
         let shown = |name: &str| self.layer_shown(name);
+        underlay::paint(painter, rect, camera, p, "schematic");
         for w in p.wires.iter().filter(|_| shown("Wires")) {
             if let Some(path) = p.wire_path(w) {
                 painter.add(egui::Shape::line(
@@ -1613,6 +1615,7 @@ impl App {
                 Color32::from_rgb(205, 233, 222)
             },
         );
+        underlay::paint(painter, rect, camera, p, "pcb");
         painter.rect_stroke(
             board,
             0.0,
