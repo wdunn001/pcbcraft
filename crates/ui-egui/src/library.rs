@@ -1,6 +1,9 @@
 use super::*;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
+pub mod host;
+pub use host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
+
 #[derive(Default)]
 pub(super) struct Browser {
     pub(super) editor: super::authoring::Editor,

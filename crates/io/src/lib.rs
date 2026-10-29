@@ -1,6 +1,7 @@
 //! Native project persistence and original, limited KiCad PCB / preview writers.
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
+use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
@@ -60,11 +61,86 @@ pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
 }
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
+    save_bytes(project)
+        .and_then(|bytes| atomic_write(path, &bytes))
+}
+
+/// Serialize a validated project to pretty JSON bytes for download or in-memory storage.
+pub fn save_bytes(project: &Project) -> Result<Vec<u8>, String> {
+    project.validate()?;
     let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err("project exceeds 8 MiB".into());
     }
-    atomic_write(path, &bytes)
+    Ok(bytes)
+}
+
+/// What an uploaded or picked file contains after validation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpenKind {
+    Project(Project),
+    Library(pcbcraft_doc::ProjectLibrary),
+    Footprint(pcbcraft_library::FootprintDefinition),
+    Symbols(Vec<pcbcraft_library::SymbolDefinition>),
+}
+
+#[derive(Deserialize)]
+struct LibraryCollectionFile {
+    format: String,
+    version: u32,
+    library: pcbcraft_doc::ProjectLibrary,
+}
+
+/// Classify and parse design bytes from an upload or download round-trip.
+pub fn open_document(bytes: &[u8], filename_hint: &str) -> Result<OpenKind, String> {
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("file exceeds 8 MiB".into());
+    }
+    let ext = Path::new(filename_hint)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    match ext {
+        "kicad_mod" => {
+            let text = std::str::from_utf8(bytes).map_err(|_| "footprint file must be UTF-8")?;
+            let footprint =
+                pcbcraft_library::read_footprint(text).map_err(|e| e.to_string())?;
+            footprint.validate().map_err(|e| e.to_string())?;
+            return Ok(OpenKind::Footprint(footprint));
+        }
+        "kicad_sym" => {
+            let text = std::str::from_utf8(bytes).map_err(|_| "symbol file must be UTF-8")?;
+            let symbols = pcbcraft_library::read_symbols(text).map_err(|e| e.to_string())?;
+            for symbol in &symbols {
+                symbol.validate().map_err(|e| e.to_string())?;
+            }
+            return Ok(OpenKind::Symbols(symbols));
+        }
+        "zip" => {
+            let project = archive_project(bytes)?;
+            return Ok(OpenKind::Project(project));
+        }
+        _ => {}
+    }
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        if let Ok(file) = serde_json::from_str::<LibraryCollectionFile>(text) {
+            if file.format == "pcbcraft-library" && file.version == 1 {
+                file.library.validate()?;
+                return Ok(OpenKind::Library(file.library));
+            }
+        }
+        if let Ok(project) = serde_json::from_str::<Project>(text) {
+            if project.validate().is_ok() {
+                return Ok(OpenKind::Project(project));
+            }
+        }
+    }
+    if bytes.starts_with(b"PK\x03\x04") {
+        if let Ok(project) = archive_project(bytes) {
+            return Ok(OpenKind::Project(project));
+        }
+    }
+    Err("unrecognized or invalid design file".into())
 }
 fn quote(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".into())
@@ -168,6 +244,10 @@ pub fn archive_zip(p: &Project) -> Result<Vec<u8>, String> {
 }
 
 /// Build a stored (uncompressed) ZIP file from named byte entries.
+pub fn zip_named(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    zip_bytes(entries)
+}
+
 fn zip_bytes(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     let mut zip: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();
@@ -6308,6 +6388,49 @@ mod tests {
             archive_project(&wrong).is_err(),
             "a renamed design is not found"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn open_document_round_trips_a_native_project_file() -> Result<(), String> {
+        let project = Project {
+            name: "Bytes round trip".into(),
+            ..Project::default()
+        };
+        let bytes = save_bytes(&project)?;
+        let opened = open_document(&bytes, "demo.pcbcraft")?;
+        match opened {
+            OpenKind::Project(back) => assert_eq!(back, project),
+            _ => return Err("expected a native project file".into()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn open_document_reads_a_project_archive_zip() -> Result<(), String> {
+        let project = Project {
+            name: "Archive upload".into(),
+            ..Project::default()
+        };
+        let zip = archive_zip(&project)?;
+        let opened = open_document(&zip, "bundle.zip")?;
+        match opened {
+            OpenKind::Project(back) => assert_eq!(back, project),
+            _ => return Err("expected a project archive".into()),
+        }
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn save_bytes_matches_save_on_disk_for_sample_project() -> Result<(), String> {
+        let project = Project::default();
+        let bytes = save_bytes(&project)?;
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("sample.pcbcraft");
+        save(&project, &path)?;
+        let disk = read_bytes(&path)?;
+        assert_eq!(disk, bytes);
         Ok(())
     }
 

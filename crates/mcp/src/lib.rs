@@ -1,4 +1,5 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
+mod tool_files;
 use base64::Engine as _;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
@@ -117,6 +118,55 @@ pub fn call_tool(session: &SharedSession, name: &str, args: &Value) -> Value {
         Err(e) => error_result(e),
     }
 }
+
+/// Produce the files a write-style MCP tool would create, without touching the host filesystem.
+pub fn write_tool_files(session: &SharedSession, name: &str, args: &Value) -> Result<Vec<(String, Vec<u8>)>, String> {
+    if !args.is_object() {
+        return Err("arguments must be an object".into());
+    }
+    let tools = tool_list();
+    let schema = tools
+        .get("tools")
+        .and_then(Value::as_array)
+        .and_then(|list| {
+            list.iter()
+                .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+        })
+        .and_then(|tool| tool.get("inputSchema"))
+        .ok_or("unknown tool")?;
+    validate_schema(args, schema, "arguments")?;
+    let s = session
+        .lock()
+        .map_err(|_| "session unavailable after internal failure".to_string())?;
+    tool_files::write_tool_files(&s.project, name, args)
+}
+
+fn write_files_to_directory(directory: &str, files: &[(String, Vec<u8>)]) -> Result<Vec<String>, String> {
+    let mut written = Vec::new();
+    for (name, bytes) in files {
+        pcbcraft_io::atomic_write(&Path::new(directory).join(name), bytes)?;
+        written.push(name.clone());
+    }
+    Ok(written)
+}
+
+fn write_files_to_path(path: &str, files: &[(String, Vec<u8>)]) -> Result<(), String> {
+    match files {
+        [(name, bytes)] if name == &file_name_from_path(path)? => {
+            pcbcraft_io::atomic_write(Path::new(path), bytes)?;
+            Ok(())
+        }
+        _ => Err("expected a single named output for this path".into()),
+    }
+}
+
+fn file_name_from_path(path: &str) -> Result<String, String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| "path must include a file name".into())
+}
 fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, String> {
     if !args.is_object() {
         return Err("arguments must be an object".into());
@@ -152,271 +202,181 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         .map_err(|_| "session unavailable after internal failure".to_string())?;
     let result = match name {
         "library.save" => {
-            s.project.library.validate()?;
             let path = string(args, "path")?;
-            let bytes = serde_json::to_vec_pretty(
-                &json!({"format":"pcbcraft-library","version":1,"library":s.project.library}),
-            )
-            .map_err(|e| e.to_string())?;
-            if bytes.len() as u64 > pcbcraft_io::MAX_FILE_BYTES {
-                return Err("library collection exceeds 8 MiB".into());
-            }
-            pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_path(path, &files)?;
             json!({"path":path})
         }
         "library.export_footprint"
         | "library.export_symbol"
         | "library.export_footprint_svg"
         | "library.export_symbol_svg" => {
-            s.project.library.validate()?;
             let path = string(args, "path")?;
             let definition = string(args, "name")?;
-            let footprint =
-                name == "library.export_footprint" || name == "library.export_footprint_svg";
-            let suffix = match name {
-                "library.export_footprint" => "kicad_mod",
-                "library.export_symbol" => "kicad_sym",
-                _ => "svg",
-            };
-            if Path::new(path).extension().and_then(|e| e.to_str()) != Some(suffix) {
-                return Err(format!("path must end in .{suffix}"));
-            }
-            let text = if footprint {
-                let item = s
-                    .project
-                    .library
-                    .footprints
-                    .iter()
-                    .find(|f| f.name == definition)
-                    .ok_or("unknown project-library footprint")?;
-                if suffix == "svg" {
-                    pcbcraft_io::footprint_svg(item)?
-                } else {
-                    pcbcraft_io::footprint_library_text(item)?
-                }
-            } else {
-                let item = s
-                    .project
-                    .library
-                    .symbols
-                    .iter()
-                    .find(|f| f.name == definition)
-                    .ok_or("unknown project-library symbol")?;
-                if suffix == "svg" {
-                    pcbcraft_io::symbol_svg(item)?
-                } else {
-                    pcbcraft_io::symbol_library_text(item)?
-                }
-            };
-            pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
-            json!({"path":path,"name":definition,"bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_path(path, &files)?;
+            json!({"path":path,"name":definition,"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "library.export_footprints" => {
             let directory = string(args, "path")?;
-            let mut files = Vec::new();
-            for item in &s.project.library.footprints {
-                let text = pcbcraft_io::footprint_library_text(item)?;
-                let name = format!("{}.kicad_mod", item.name);
-                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
-                files.push(name);
-            }
-            json!({"directory":directory,"files":files})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            let written = write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"files":written})
         }
         "library.export_symbols" => {
             let directory = string(args, "path")?;
-            let mut files = Vec::new();
-            for item in &s.project.library.symbols {
-                let text = pcbcraft_io::symbol_library_text(item)?;
-                let name = format!("{}.kicad_sym", item.name);
-                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
-                files.push(name);
-            }
-            json!({"directory":directory,"files":files})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            let written = write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"files":written})
         }
         "gerber.export" => {
             let directory = string(args, "path")?;
-            let files = pcbcraft_io::gerber_files(&s.project)?;
-            let mut written = Vec::new();
-            for (name, text) in &files {
-                pcbcraft_io::atomic_write(&Path::new(directory).join(name), text.as_bytes())?;
-                written.push(name.clone());
-            }
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            let written = write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"files":written})
         }
         "dsn.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::specctra_dsn(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("pcb.dsn"), text.as_bytes())?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"file":"pcb.dsn"})
         }
         "cmp.write" => {
             let path = string(args, "path")?;
-            if Path::new(&path).extension().and_then(|e| e.to_str()) != Some("cmp") {
-                return Err("path must end in .cmp".into());
-            }
-            let text = pcbcraft_io::cmp_text(&s.project)?;
-            pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
-            json!({"path":path,"bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_path(path, &files)?;
+            json!({"path":path,"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "report.write" => {
             let path = string(args, "path")?;
-            if Path::new(&path).extension().and_then(|e| e.to_str()) != Some("txt") {
-                return Err("path must end in .txt".into());
-            }
-            let text = pcbcraft_io::report_text(&s.project)?;
-            pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
-            json!({"path":path,"bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_path(path, &files)?;
+            json!({"path":path,"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "ipc2581.write" => {
             let path = string(args, "path")?;
-            if Path::new(&path).extension().and_then(|e| e.to_str()) != Some("xml") {
-                return Err("path must end in .xml".into());
-            }
-            let text = pcbcraft_io::ipc2581_text(&s.project)?;
-            pcbcraft_io::atomic_write(Path::new(&path), text.as_bytes())?;
-            json!({"path":path,"bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_path(path, &files)?;
+            json!({"path":path,"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "idf.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::idf_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.idf"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.idf","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board.idf","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board.step","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::vrml_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.wrl"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.wrl","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board.wrl","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "hyperlynx.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::hyperlynx_csv(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("netlist.csv"), text.as_bytes())?;
-            json!({"directory":directory,"file":"netlist.csv","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"netlist.csv","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "gencad.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::gencad_text(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.gencad"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.gencad","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board.gencad","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "ps.write" => {
             let directory = string(args, "path")?;
-            let view = args.get("view").and_then(Value::as_str).unwrap_or("pcb");
-            let text = pcbcraft_io::postscript(&s.project, view)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join(format!("pcb-{view}.ps")),
-                text.as_bytes(),
-            )?;
-            json!({"directory":directory,"file":format!("pcb-{view}.ps"),"bytes":text.len()})
+            let view = match args.get("view").and_then(Value::as_str) {
+                Some(v) => v,
+                None => "pcb",
+            };
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":format!("pcb-{view}.ps"),"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "stats.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::stats_text(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("board-stats.csv"),
-                text.as_bytes(),
-            )?;
-            json!({"directory":directory,"file":"board-stats.csv","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board-stats.csv","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "drill_chart.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::drill_chart_csv(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("board-drill-tools.csv"),
-                text.as_bytes(),
-            )?;
-            json!({"directory":directory,"file":"board-drill-tools.csv","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board-drill-tools.csv","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "stackup.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::stackup_text(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("board-stackup.txt"),
-                text.as_bytes(),
-            )?;
-            json!({"directory":directory,"file":"board-stackup.txt","bytes":text.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board-stackup.txt","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "hpgl.write" => {
             let directory = string(args, "path")?;
-            let view = args.get("view").and_then(Value::as_str).unwrap_or("pcb");
-            let text = pcbcraft_io::hpgl_plot(&s.project, view)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join(format!("pcb-{view}.hpgl")),
-                text.as_bytes(),
-            )?;
-            json!({"directory":directory,"file":format!("pcb-{view}.hpgl"),"bytes":text.len()})
+            let view = match args.get("view").and_then(Value::as_str) {
+                Some(v) => v,
+                None => "pcb",
+            };
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":format!("pcb-{view}.hpgl"),"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "odb.write" => {
             let directory = string(args, "path")?;
-            let bytes = pcbcraft_io::odb_package(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.odb.zip"), &bytes)?;
-            json!({"directory":directory,"file":"board.odb.zip","bytes":bytes.len()})
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":"board.odb.zip","bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "pdf.write" => {
             let directory = string(args, "path")?;
-            let view = args.get("view").and_then(Value::as_str).unwrap_or("pcb");
-            let bytes = pcbcraft_io::pdf_document(&s.project, view)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join(format!("pcb-{view}.pdf")),
-                &bytes,
-            )?;
-            json!({"directory":directory,"file":format!("pcb-{view}.pdf"),"bytes":bytes.len()})
+            let view = match args.get("view").and_then(Value::as_str) {
+                Some(v) => v,
+                None => "pcb",
+            };
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
+            json!({"directory":directory,"file":format!("pcb-{view}.pdf"),"bytes":files.first().map(|(_, b)| b.len()).unwrap_or(0)})
         }
         "ipc356.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::ipc356_netlist(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("test.brd"), text.as_bytes())?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"file":"test.brd"})
         }
         "netlist.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::netlist_text(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("pcb-netlist.net"),
-                text.as_bytes(),
-            )?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"files":["pcb-netlist.net"]})
         }
         "bom.write" => {
             let directory = string(args, "path")?;
-            let fields = strings(args, "fields")?;
-            let variant = args
-                .get("variant")
-                .map(|v| v.as_str().ok_or("variant must be a string"))
-                .transpose()?;
-            let text = pcbcraft_io::bom_csv(&s.project, &fields, variant)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("bom.csv"), text.as_bytes())?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"files":["bom.csv"]})
         }
         "dxf.export" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::dxf_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("pcb.dxf"), text.as_bytes())?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"files":["pcb.dxf"]})
         }
         "placement.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::placement_text(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("placement.txt"),
-                text.as_bytes(),
-            )?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"files":["placement.txt"]})
         }
         "plot_csv.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::plot_csv(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("plot-report.csv"),
-                text.as_bytes(),
-            )?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_directory(directory, &files)?;
             json!({"directory":directory,"file":"plot-report.csv"})
         }
         "list_commands" => {
@@ -488,25 +448,11 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         "export" => {
             let path = string(args, "path")?;
             let format = string(args, "format")?;
+            let files = tool_files::write_tool_files(&s.project, name, args)?;
+            write_files_to_path(path, &files)?;
             if format == "png" {
-                let bytes = pcbcraft_io::preview_png(
-                    &s.project,
-                    args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
-                )?;
-                pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
                 return Ok(text_result(json!({"path":path,"revision":s.revision})));
             }
-            let text = match format {
-                "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
-                "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
-                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
-                "svg" => pcbcraft_io::svg(
-                    &s.project,
-                    args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
-                )?,
-                _ => return Err("unsupported export format".into()),
-            };
-            pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
             json!({"path":path,"revision":s.revision})
         }
         "screenshot" => {
