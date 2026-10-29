@@ -470,12 +470,30 @@ fn a_newcomer_thickens_a_whole_connection_at_once() -> Result<(), String> {
     app.track_width = 0.6;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Thicken whole connection")?,
-        "the inspector offers to widen the entire run, not just the picked leg: {}",
-        app.message
+    // The inspector rows are 24 px tall now, so the button can sit just below
+    // the fold of the lower right aside. Wheel that aside up a little first.
+    let over_inspector = egui::pos2(1300.0, 700.0);
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(over_inspector)],
+        egui::Modifiers::NONE,
     );
-    authoring::tests::tap(&ctx, &mut app, "Thicken whole connection")?;
+    for _ in 0..3 {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -60.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            }],
+            egui::Modifiers::NONE,
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "Thicken whole connection")
+        .map_err(|e| format!("the inspector offers to widen the entire run: {e}"))?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
     let legs: Vec<f64> = app

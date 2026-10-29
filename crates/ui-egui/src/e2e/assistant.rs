@@ -191,7 +191,7 @@ fn a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo() -> Result<(
         app.assistant.transcript.items
     );
     assert!(
-        paints_text(&ctx, &mut app, "Undo")?,
+        scrolled_to(&ctx, &mut app, "Undo")?,
         "the Undo button is on screen"
     );
     authoring::tests::tap(&ctx, &mut app, "Undo")?;
