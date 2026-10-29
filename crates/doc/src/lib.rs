@@ -10,8 +10,8 @@ use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::fmt;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
@@ -826,7 +826,9 @@ pub struct Layer(u8);
 pub const MAX_COPPER_LAYERS: u8 = 32;
 
 impl Layer {
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
     pub const Front: Layer = Layer(0);
+    #[allow(clippy::upper_case_acronyms, non_upper_case_globals)]
     pub const Back: Layer = Layer(1);
 
     pub fn from_index(index: u8) -> Result<Self, String> {
@@ -1204,12 +1206,10 @@ impl LayerRecord {
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
-            && self.copper_role.as_ref().is_none_or(|r| {
-                matches!(
-                    r.as_str(),
-                    "signal" | "plane" | "mixed" | "hatched"
-                )
-            })
+            && self
+                .copper_role
+                .as_ref()
+                .is_none_or(|r| matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched"))
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
@@ -2326,7 +2326,9 @@ impl Project {
     }
     /// Ordered copper layer indices from top (0) to bottom.
     pub fn copper_layers(&self) -> Vec<Layer> {
-        (0..self.copper_layer_count()).filter_map(|i| Layer::from_index(i).ok()).collect()
+        (0..self.copper_layer_count())
+            .filter_map(|i| Layer::from_index(i).ok())
+            .collect()
     }
     /// Gerber-style copper name for a layer index on this board.
     pub fn layer_name(&self, layer: Layer) -> String {
@@ -2436,9 +2438,12 @@ impl Project {
             {
                 kinds.push("fiducial");
             }
-            if self.board.rule_areas.iter().any(|a| {
-                a.layer.is_some_and(|l| l.index() >= limit)
-            }) {
+            if self
+                .board
+                .rule_areas
+                .iter()
+                .any(|a| a.layer.is_some_and(|l| l.index() >= limit))
+            {
                 kinds.push("rule area");
             }
             Some(format!(
@@ -4244,6 +4249,11 @@ mod drill_tests {
     #[test]
     fn four_layer_stackup_accepts_inner_track_index() -> Result<(), String> {
         let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
         p.board.layer_records = vec![
             LayerRecord {
                 name: "F.Cu".into(),
@@ -4272,7 +4282,7 @@ mod drill_tests {
         ];
         assert_eq!(p.copper_layer_count(), 4);
         p.board.tracks.push(Track {
-            id: 1,
+            id: 100,
             net: 1,
             start: Point::new(0.0, 0.0),
             end: Point::new(1.0, 0.0),
@@ -4286,8 +4296,13 @@ mod drill_tests {
     #[test]
     fn track_on_inner_layer_refused_on_two_layer_board() -> Result<(), String> {
         let mut p = Project::default();
-        p.board.tracks.push(Track {
+        p.nets.push(Net {
             id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 100,
             net: 1,
             start: Point::new(0.0, 0.0),
             end: Point::new(1.0, 0.0),
