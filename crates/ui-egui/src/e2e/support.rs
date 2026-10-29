@@ -217,7 +217,10 @@ fn control_center(ctx: &egui::Context, app: &mut App, id: &str) -> Result<egui::
 /// Switch the right aside to the Layers page on a drawing tab.
 pub(crate) fn open_layers_aside(ctx: &egui::Context, app: &mut App) -> Result<(), String> {
     if !matches!(app.tab, Tab::Schematic | Tab::Pcb | Tab::Board3d) {
-        return Err(format!("layers aside needs a drawing tab, on {:?}", app.tab));
+        return Err(format!(
+            "layers aside needs a drawing tab, on {:?}",
+            app.tab
+        ));
     }
     authoring::tests::tap(ctx, app, "Layers")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);

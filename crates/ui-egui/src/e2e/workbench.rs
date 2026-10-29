@@ -112,7 +112,7 @@ fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), S
     });
     let ctx = egui::Context::default();
     settled(&ctx, &mut app);
-    let (fix, warnings, notes) = App::finding_counts(&app.checks);
+    let (fix, _warnings, _notes) = App::finding_counts(&app.checks);
     let errors_label = app.catalog.plural("board.footer.errors", fix as u64);
     authoring::tests::tap(&ctx, &mut app, &errors_label)?;
     assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
