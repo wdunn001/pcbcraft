@@ -57,7 +57,7 @@ selected from a real component manufacturer's footprint specification.
   the actual dark schematic successfully with DirectX 12 and exited cleanly.
   Browser runtime behavior has not been tested yet.
 
-The initial routing tool has no obstacle avoidance/shove; initial checks are not
+The default routing mode has no obstacle avoidance; the octilinear and octilinear_shove modes avoid pads, tracks and cutouts on one layer and push other nets' tracks within fixed limits (no vias, no spring-back); initial checks are not
 comprehensive ERC/DRC. Full KiCad import, production libraries, arbitrary pad
 shapes, zones, vias, simulation and 3D are tracked in ROADMAP.md.
 

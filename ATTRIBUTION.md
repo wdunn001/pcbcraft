@@ -19,3 +19,7 @@ the KiCad data license and source attribution embedded in the native collection.
 No KiCad implementation code has been copied or ported in this implementation.
 PCBCraft sample circuits are original; imported symbol/footprint artwork retains
 its KiCad data license and design-output exception. Dependencies retain their own licenses.
+
+The octagonal-hull walkaround and shove router in crates/engine/src/route and
+crates/geom/src/hull.rs is an original implementation from published algorithm
+descriptions. No third-party router source was copied or ported.
