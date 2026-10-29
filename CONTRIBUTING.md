@@ -440,7 +440,7 @@ Pull requests are never opened by workers, reviewers or the integrator. Pushing 
 
 - **Program status epic #352** on tangency-labs/pcbcraft: every roadmap line with its issue, what is in flight, open owner decisions, and the enrichment and research comment links. Update it when an issue is opened, claimed, finished or dropped.
 - **The issue itself**: body, `### Research`, `### Enrichment`, build reports, `### Review`.
-- **Repository docs**: AGENTS.md (rules), README.md (what works, how to run), ROADMAP.md (milestones), `docs/architecture.md` (layers and decisions), `docs/validation.md` (evidence for the initial subset), `docs/mcp.md` (MCP client setup), `docs/ci.md` on the CI pipeline branch (every CI job and its local command), ATTRIBUTION.md (provenance).
+- **Repository docs**: AGENTS.md (rules for all agents), CLAUDE.md (Claude Code workflow), `.cursor/rules/*.mdc` (Cursor Agent rules; see [Cursor rules docs](https://cursor.com/docs/rules)), `docs/agents/` (role briefs for parallel workers), README.md (what works, how to run), ROADMAP.md (milestones), `docs/architecture.md` (layers and decisions), `docs/validation.md` (evidence for the initial subset), `docs/mcp.md` (MCP client setup), `docs/ci.md` (every CI job and its local command), ATTRIBUTION.md (provenance).
 - **Research notes**, available on request from the maintainer: the feature parity matrix, per-issue research notes (routing, length and impedance, pours, fabrication checks, 3D view, simulation), the manufacturing artifact format survey, the shop equipment and machine profile notes, the tagging standard and the coordinator's queue. Ask on the issue you are working and the relevant note is posted or summarised there. A searchable knowledge base of captured standards and sources backs the research stage; findings from it arrive on issues as `### Research` comments.
 
 ## 9. Instructions adopted from the pipeline review
@@ -469,7 +469,7 @@ These are proposals, not current rules. Follow sections 1 to 9 until an item mov
 - **Real labels.** Once the maintainer has triage permission upstream, convert the Tags vocabulary into GitHub labels and keep the body line as a mirror for search.
 - **Required check.** Mark the CI result job as a required check on fork main and upstream main once the CI pipeline is merged.
 - **Integration ledger in the repository.** Publish the integrator's ledger as a file in the fork.
-- **Versioned pipeline rules and agent definitions.** Keep the pipeline documents, the agent briefs and the pre-post checks in version control in the fork, so tooling enforces them instead of prose.
+- **Versioned pipeline rules and agent definitions.** Partially adopted: AGENTS.md, CLAUDE.md, `.cursor/rules/`, and `docs/agents/` in the fork. Still to do: pre-post check scripts (`scripts/post-check.sh`, `scripts/queue.sh`).
 - **Budgets per agent and per stage.** Turn and cost limits on every headless worker, sized by the `size:` tag, and a cap per stage so research does not starve enrichment.
 - **Lessons loop.** Append each reviewer fail and each worker limitation to a lessons file per issue. When a review fails a branch for a reason that has failed another branch, open a `kind:chore` issue to encode the check in `cargo xtask`.
 
