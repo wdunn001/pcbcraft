@@ -911,11 +911,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             if member_lengths.is_empty() {
                 continue;
             }
-            member_lengths.sort_by(|a, b| {
-                a.1.partial_cmp(&b.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.0.cmp(&b.0))
-            });
+            member_lengths.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
             let (short_net, short_len) = member_lengths[0];
             let (long_net, long_len) = member_lengths[member_lengths.len() - 1];
             let spread = long_len - short_len;
@@ -1868,11 +1864,7 @@ mod tests {
             profile: None,
         });
         p.validate()?;
-        assert!(
-            drc(&p)
-                .iter()
-                .any(|f| f.code == "layer_change" && f.objects == vec![2])
-        );
+        assert!(drc(&p).iter().any(|f| f.code == "layer_change" && f.objects == vec![2]));
         p.board.tracks.retain(|t| t.net != 2 || t.layer == Layer::Front);
         assert!(!drc(&p).iter().any(|f| f.code == "layer_change"));
         Ok(())
@@ -1904,9 +1896,9 @@ mod tests {
         if let Some(n) = p.nets.iter_mut().find(|n| n.id == 1) {
             n.max_length = Some(150.0);
         }
-        assert!(drc(&p).iter().all(|f| {
-            !(f.code == "track_length" && f.message.contains("at most"))
-        }));
+        assert!(drc(&p)
+            .iter()
+            .all(|f| !(f.code == "track_length" && f.message.contains("at most"))));
         Ok(())
     }
 

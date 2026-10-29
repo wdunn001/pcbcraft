@@ -19139,16 +19139,14 @@ mod tests {
         );
         s.execute("net.set_length", json!({"id":n1,"max_length":150.0}), None)?;
         assert!(
-            s.checks()["drc"]
-                .as_array()
-                .is_none_or(|a| {
-                    !a.iter().any(|f| {
-                        f["code"] == "track_length"
-                            && f["message"]
-                                .as_str()
-                                .is_some_and(|m| m.contains("at most"))
-                    })
-                }),
+            s.checks()["drc"].as_array().is_none_or(|a| {
+                !a.iter().any(|f| {
+                    f["code"] == "track_length"
+                        && f["message"]
+                            .as_str()
+                            .is_some_and(|m| m.contains("at most"))
+                })
+            }),
             "the net ceiling overrides the class ceiling"
         );
         let before = s.inspect();
