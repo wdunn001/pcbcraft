@@ -7,6 +7,7 @@
 //! primitive (code 4) holding the pad's board-space outline relative to the
 //! flash point. Chamfered and custom outlines are exact; roundrect corners are
 //! chord approximated within `Pad::outline_error`.
+use crate::fab_layers::{copper_gerber_file_function, pad_on_copper_layer};
 use pcbcraft_doc::{Layer, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -101,11 +102,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
-            let plated = pad
-                .geometry
-                .as_ref()
-                .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !pad_on_copper_layer(p, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -156,11 +153,8 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
         }
     }
-    let (index, side) = match layer {
-        Layer::Front => (1, "Top"),
-        Layer::Back => (2, "Bot"),
-    };
+    let file_function = copper_gerber_file_function(p, layer);
     Ok(format!(
-        "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
+        "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,{file_function}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
     ))
 }

@@ -7,6 +7,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod board_mesh;
+mod fab_layers;
 mod gerber;
 mod library_render;
 mod panel_export;
@@ -1069,30 +1070,47 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
             Ok(())
         }
     }
-    let mut top = Feat::new();
-    let mut bottom = Feat::new();
+    let copper_layers = p.copper_layers();
+    let mut copper_feats: BTreeMap<String, Feat> = BTreeMap::new();
+    for layer in &copper_layers {
+        copper_feats.insert(fab_layers::odb_features_key(p, *layer), Feat::new());
+    }
+    let mut copper_feat = |layer: Layer| -> Result<&mut Feat, String> {
+        let key = fab_layers::odb_features_key(p, layer);
+        copper_feats
+            .get_mut(&key)
+            .ok_or_else(|| format!("odb copper layer {key} is missing"))
+    };
     let mut misc = Feat::new();
     for z in &p.board.zones {
         if !z.filled {
             continue;
         }
-        let back = z.layer == pcbcraft_doc::Layer::Back;
-        let file = if back { &mut bottom } else { &mut top };
-        let outline: Vec<(f64, f64)> = z.outline.iter().map(|q| (mirror(q.x, back), q.y)).collect();
+        let flip = fab_layers::copper_mirror_for_fabrication(p, z.layer);
+        let file = copper_feat(z.layer)?;
+        let outline: Vec<(f64, f64)> = z
+            .outline
+            .iter()
+            .map(|q| (mirror(q.x, flip), q.y))
+            .collect();
         let holes: Vec<Vec<(f64, f64)>> = z
             .cutouts
             .iter()
-            .map(|ring| ring.iter().map(|q| (mirror(q.x, back), q.y)).collect())
+            .map(|ring| {
+                ring.iter()
+                    .map(|q| (mirror(q.x, flip), q.y))
+                    .collect()
+            })
             .collect();
         file.surface(&outline, &holes)?;
     }
     for t in &p.board.tracks {
-        let back = t.layer == pcbcraft_doc::Layer::Back;
-        let file = if back { &mut bottom } else { &mut top };
-        let (x1, y1) = (mirror(t.start.x, back), t.start.y);
-        let (x2, y2) = (mirror(t.end.x, back), t.end.y);
+        let flip = fab_layers::copper_mirror_for_fabrication(p, t.layer);
+        let file = copper_feat(t.layer)?;
+        let (x1, y1) = (mirror(t.start.x, flip), t.start.y);
+        let (x2, y2) = (mirror(t.end.x, flip), t.end.y);
         if let Some(arc) = t.curve() {
-            let cw = if back {
+            let cw = if flip {
                 arc.sweep > 0.0
             } else {
                 arc.sweep < 0.0
@@ -1101,7 +1119,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
                 t.width,
                 (x1, y1),
                 (x2, y2),
-                (mirror(arc.center.x, back), arc.center.y),
+                (mirror(arc.center.x, flip), arc.center.y),
                 cw,
             )?;
         } else {
@@ -1157,13 +1175,6 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         side.push_str("\tEndComponent\n");
         for pad in &f.pads {
             let world = f.position.offset(pad.offset.rotate(-f.rotation));
-            let through = pad
-                .geometry
-                .as_ref()
-                .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
-            let on_back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
             let name = match &pad.geometry {
                 Some(g) => {
                     let w = um(g.size.x);
@@ -1189,23 +1200,33 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
                     true,
                 )?,
             };
-            if through || !on_back {
-                top.symbol(&name, world.x, world.y, spin(f.rotation, false))?;
-            }
-            if through || on_back {
-                bottom.symbol(
+            for layer in &copper_layers {
+                if !fab_layers::pad_on_copper_layer(p, pad, *layer) {
+                    continue;
+                }
+                let flip = fab_layers::copper_mirror_for_fabrication(p, *layer);
+                let file = copper_feat(*layer)?;
+                file.symbol(
                     &name,
-                    mirror(world.x, true),
+                    mirror(world.x, flip),
                     world.y,
-                    spin(f.rotation, true),
+                    spin(f.rotation, flip),
                 )?;
             }
         }
     }
     for v in &p.board.vias {
         let name = symbol(format!("C{}", um(v.diameter)), v.diameter, v.diameter, true)?;
-        top.symbol(&name, v.position.x, v.position.y, 0.0)?;
-        bottom.symbol(&name, mirror(v.position.x, true), v.position.y, 0.0)?;
+        for layer in &copper_layers {
+            let flip = fab_layers::copper_mirror_for_fabrication(p, *layer);
+            let file = copper_feat(*layer)?;
+            file.symbol(
+                &name,
+                mirror(v.position.x, flip),
+                v.position.y,
+                0.0,
+            )?;
+        }
     }
     let edge = board_edge_points(p);
     if let Some(first) = edge.last().copied() {
@@ -1228,11 +1249,21 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
             )?;
         }
     }
+    let mut matrix_layers = String::new();
+    for (i, layer) in copper_layers.iter().enumerate() {
+        let row = i + 1;
+        let suffix = fab_layers::odb_layer_suffix(p, *layer);
+        matrix_layers.push_str(&format!(
+            "\t\t.Layer L{row} {suffix} {row} 0 0 Polarity\n\t\t.EndLayer\n"
+        ));
+    }
+    let misc_row = copper_layers.len() + 1;
+    matrix_layers.push_str(&format!(
+        "\t\t.Layer MISC GML {misc_row} 0 0 Polarity\n\t\t.EndLayer\n"
+    ));
     let matrix = format!(
         ".Extract 0\n.Header\n\t.Creator PCBCraft\n\t.Title {job}\n.EndHeader\n.Matrix\n\t.\
-         Job {job} 0 1\n\t.Step STEP1 0\n\t\t.Layer L1 GTL 1 0 0 Polarity\n\t\t.EndLayer\n\t\t.\
-         Layer L2 GBL 2 0 0 Polarity\n\t\t.EndLayer\n\t\t.Layer MISC GML 3 0 0 Polarity\n\t\t.\
-         EndLayer\n\t.EndStep\n.EndMatrix\n"
+         Job {job} 0 1\n\t.Step STEP1 0\n{matrix_layers}\t.EndStep\n.EndMatrix\n"
     );
     let mut symbols_text = String::from("UnitsType=MM\n");
     for (name, points) in &symbols {
@@ -1250,30 +1281,33 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
     };
     let components =
         |body: &str| -> String { format!("UnitsType=MM\n.Components\n{body}\tEndComponents\n") };
-    let entries = vec![
+    let mut entries = vec![
         (format!("{job}/matrix/matrix"), matrix.into_bytes()),
         (format!("{job}/symbols/symbols"), symbols_text.into_bytes()),
-        (
-            format!("{job}/features/top"),
-            features("copper on the front side", &top).into_bytes(),
-        ),
-        (
-            format!("{job}/features/bottom"),
-            features("copper on the back side", &bottom).into_bytes(),
-        ),
-        (
-            format!("{job}/features/misc"),
-            features("board outline and cutouts", &misc).into_bytes(),
-        ),
-        (
-            format!("{job}/components/top"),
-            components(&comps_top).into_bytes(),
-        ),
-        (
-            format!("{job}/components/bottom"),
-            components(&comps_bottom).into_bytes(),
-        ),
     ];
+    for layer in copper_layers {
+        let key = fab_layers::odb_features_key(p, layer);
+        let feat = copper_feats
+            .get(&key)
+            .ok_or_else(|| format!("odb features for {key} are missing"))?;
+        let label = fab_layers::copper_fabrication_label(p, layer);
+        entries.push((
+            format!("{job}/features/{key}"),
+            features(&format!("copper on the {label} side"), feat).into_bytes(),
+        ));
+    }
+    entries.push((
+        format!("{job}/features/misc"),
+        features("board outline and cutouts", &misc).into_bytes(),
+    ));
+    entries.push((
+        format!("{job}/components/top"),
+        components(&comps_top).into_bytes(),
+    ));
+    entries.push((
+        format!("{job}/components/bottom"),
+        components(&comps_bottom).into_bytes(),
+    ));
     zip_bytes(&entries)
 }
 
@@ -1611,8 +1645,24 @@ fn f64s(v: f64) -> String {
 pub fn kicad_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let b = &p.board;
+    let mut layer_rows = String::new();
+    let copper_count = p.copper_layer_count();
+    for layer in p.copper_layers() {
+        let id = if layer.index() == 0 {
+            0
+        } else if layer.index() + 1 == copper_count {
+            31
+        } else {
+            layer.index() as i32
+        };
+        layer_rows.push_str(&format!(
+            " ({} \"{}\" signal)",
+            id,
+            quote(&p.layer_name(layer))
+        ));
+    }
     let mut s = format!(
-        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal) (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
+        "(kicad_pcb (version 20240108) (generator \"pcbcraft\")\n (general (thickness {})) (paper \"A4\")\n (layers{layer_rows} (34 \"B.Paste\" user) (35 \"F.Paste\" user) (36 \"B.SilkS\" user \"b.silkscreen\") (37 \"F.SilkS\" user \"f.silkscreen\") (38 \"B.Mask\" user) (39 \"F.Mask\" user) (44 \"Edge.Cuts\" user) (46 \"B.CrtYd\" user) (47 \"F.CrtYd\" user) (48 \"B.Fab\" user) (49 \"F.Fab\" user))\n (setup (pad_to_mask_clearance 0))\n (net 0 \"\")\n",
         b.thickness
     );
     for (i, n) in p.nets.iter().enumerate() {
@@ -1753,7 +1803,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                 t.end.x,
                 t.end.y,
                 t.width,
-                quote(t.layer.name()),
+                quote(&p.layer_name(t.layer)),
                 ordinal(Some(t.net)),
                 uuid(t.id, 1)
             )),
@@ -1764,7 +1814,7 @@ pub fn kicad_board(p: &Project) -> Result<String, String> {
                 t.end.x,
                 t.end.y,
                 t.width,
-                quote(t.layer.name()),
+                quote(&p.layer_name(t.layer)),
                 ordinal(Some(t.net)),
                 uuid(t.id, 1)
             )),
@@ -2157,11 +2207,12 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             self.body.push_str("G37*\n");
             Ok(())
         }
-        fn finish(&self, mirror: bool, name: &str) -> String {
+        fn finish(&self, mirror: bool, name: &str, file_function: &str) -> String {
             let mirror = if mirror { "D" } else { "A" };
             let mo = if self.scale != 1.0 { "MOIN" } else { "MOMM" };
-            let mut out =
-                format!("G04 {name} generated by PCBCraft *\n%FSLANX*X{mirror}Y{mirror}{mo}*%\n");
+            let mut out = format!(
+                "G04 {name} generated by PCBCraft *\n%TF.FileFunction,{file_function}*%\n%TF.FilePolarity,Positive*%\n%FSLANX*X{mirror}Y{mirror}{mo}*%\n"
+            );
             for (ap, code) in &self.apertures {
                 match *ap {
                     Ap::Circle(d) => out.push_str(&format!(
@@ -2197,28 +2248,36 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             out
         }
     }
-    let mut front = LayerFile::new(scale);
-    let mut back = LayerFile::new(scale);
-    let mirror =
-        |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x + 0.0, y) } else { (x, y) } };
+    let copper_layers = p.copper_layers();
+    let mut copper_files: BTreeMap<u8, LayerFile> = BTreeMap::new();
+    for layer in &copper_layers {
+        copper_files.insert(layer.index(), LayerFile::new(scale));
+    }
+    let mut copper_layer = |layer: Layer| -> Result<&mut LayerFile, String> {
+        copper_files
+            .get_mut(&layer.index())
+            .ok_or_else(|| format!("copper layer {} is missing from the export", layer.index()))
+    };
+    let mirror_xy =
+        |x: f64, y: f64, flip: bool| -> (f64, f64) { if flip { (-x, y) } else { (x, y) } };
     for z in &p.board.zones {
         if !z.filled {
             continue;
         }
-        let is_back = z.layer == pcbcraft_doc::Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
+        let flip = fab_layers::copper_mirror_for_fabrication(p, z.layer);
+        let file = copper_layer(z.layer)?;
         let code = file.code(Ap::Circle(1))?;
         let outline: Vec<(f64, f64)> = z
             .outline
             .iter()
             .chain(z.cutouts.iter().flatten())
-            .map(|q| mirror(q.x, q.y, is_back))
+            .map(|q| mirror_xy(q.x, q.y, flip))
             .collect();
         file.fill(code, &outline)?;
     }
     for t in &p.board.tracks {
-        let is_back = t.layer == pcbcraft_doc::Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
+        let flip = fab_layers::copper_mirror_for_fabrication(p, t.layer);
+        let file = copper_layer(t.layer)?;
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Circle(w.max(1)))?;
         if let Some(arc) = t.curve() {
@@ -2226,10 +2285,10 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             if file.ops > MAX_OPS {
                 return Err("gerber export exceeds the object limit".into());
             }
-            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
-            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
-            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
-            let clockwise = if is_back {
+            let (sx, sy) = mirror_xy(t.start.x, t.start.y, flip);
+            let (ex, ey) = mirror_xy(t.end.x, t.end.y, flip);
+            let (cx, cy) = mirror_xy(arc.center.x, arc.center.y, flip);
+            let clockwise = if flip {
                 arc.sweep > 0.0
             } else {
                 arc.sweep < 0.0
@@ -2248,8 +2307,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             file.stroke(
                 code,
                 &[
-                    mirror(t.start.x, t.start.y, is_back),
-                    mirror(t.end.x, t.end.y, is_back),
+                    mirror_xy(t.start.x, t.start.y, flip),
+                    mirror_xy(t.end.x, t.end.y, flip),
                 ],
                 false,
             )?;
@@ -2264,8 +2323,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 continue;
             }
             let world = f.pad_world_position(pad);
-            let through = g.pad_type == "thru_hole" || g.drill.is_some();
-            let is_back = !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."));
             let ap = match g.shape.as_str() {
                 "circle" => {
                     let w = (g.size.x * 1_000.0).round() as u64;
@@ -2294,30 +2351,28 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
                 }
                 _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
             };
-            let (front_code, back_code) = if through {
-                (front.code(ap.clone())?, back.code(ap.clone())?)
-            } else if is_back {
-                (0, back.code(ap)?)
-            } else {
-                (front.code(ap)?, 0)
-            };
-            if front_code != 0 {
-                front.flash(front_code, world.x, world.y)?;
-            }
-            if back_code != 0 {
-                let (x, y) = mirror(world.x, world.y, true);
-                back.flash(back_code, x, y)?;
+            for layer in &copper_layers {
+                if !fab_layers::pad_on_copper_layer(p, pad, *layer) {
+                    continue;
+                }
+                let flip = fab_layers::copper_mirror_for_fabrication(p, *layer);
+                let file = copper_layer(*layer)?;
+                let code = file.code(ap.clone())?;
+                let (x, y) = mirror_xy(world.x, world.y, flip);
+                file.flash(code, x, y)?;
             }
         }
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
         let ap = Ap::Circle(d.max(1));
-        let front_code = front.code(ap.clone())?;
-        let back_code = back.code(ap)?;
-        front.flash(front_code, v.position.x, v.position.y)?;
-        let (x, y) = mirror(v.position.x, v.position.y, true);
-        back.flash(back_code, x, y)?;
+        for layer in &copper_layers {
+            let flip = fab_layers::copper_mirror_for_fabrication(p, *layer);
+            let file = copper_layer(*layer)?;
+            let code = file.code(ap.clone())?;
+            let (x, y) = mirror_xy(v.position.x, v.position.y, flip);
+            file.flash(code, x, y)?;
+        }
     }
     let mut outline = LayerFile::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
@@ -2355,21 +2410,24 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }
     }
     let mut files = BTreeMap::new();
-    files.insert(
-        "pcb-F.Cu.gbr".into(),
-        front.finish(false, "front copper layer"),
-    );
-    files.insert(
-        "pcb-B.Cu.gbr".into(),
-        back.finish(true, "back copper layer"),
-    );
+    for layer in copper_layers {
+        let flip = fab_layers::copper_mirror_for_fabrication(p, layer);
+        let comment = fab_layers::copper_gerber_comment(p, layer);
+        let ff = fab_layers::copper_gerber_file_function(p, layer);
+        let name = fab_layers::copper_gerber_zip_name(p, layer);
+        let body = copper_files
+            .remove(&layer.index())
+            .ok_or_else(|| format!("copper layer {} missing", layer.index()))?
+            .finish(flip, &comment, &ff);
+        files.insert(name, body);
+    }
     files.insert(
         "pcb-Edge.gbr".into(),
-        outline.finish(false, "board outline"),
+        outline.finish(false, "board outline", "Profile,NP"),
     );
     files.insert(
         "pcb-DrillMap.gbr".into(),
-        map.finish(false, "drill hole map"),
+        map.finish(false, "drill hole map", "Drillmap,Top"),
     );
     files.insert("pcb-Drill.drl".into(), drill);
     files.insert("pcb-Plated.drl".into(), plated_drill);
@@ -2619,16 +2677,28 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
             count(1)?;
         }
     }
-    for (layer, name) in [
-        (pcbcraft_doc::Layer::Front, "circuit0"),
-        (pcbcraft_doc::Layer::Back, "circuit1"),
-    ] {
-        let layer_name = layer.name();
+    out.push_str("<STACKUP>\n");
+    count(1)?;
+    for (i, layer) in p.copper_layers().iter().enumerate() {
+        let layer_name = p.layer_name(*layer);
+        let label = fab_layers::copper_fabrication_label(p, *layer);
+        out.push_str(&format!(
+            "<LAYERREF layerOrGroupRef=\"{}\" label=\"{}\" position=\"{}\"/>\n",
+            xml_escape(&layer_name),
+            xml_escape(&label),
+            i + 1
+        ));
+        count(1)?;
+    }
+    out.push_str("</STACKUP>\n");
+    for (i, layer) in p.copper_layers().iter().enumerate() {
+        let name = format!("circuit{i}");
+        let layer_name = p.layer_name(*layer);
         out.push_str(&format!(
             "<LAYER name=\"{name}\" copper=\"{layer_name}\">\n"
         ));
         count(1)?;
-        for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
+        for track in p.board.tracks.iter().filter(|t| t.layer == *layer) {
             out.push_str(&format!(
                 "<TRACK start_x=\"{:.3}\" start_y=\"{:.3}\" end_x=\"{:.3}\" end_y=\"{:.3}\" width=\"{:.3}\" net=\"{}\"/>\n",
                 track.start.x,
@@ -2978,6 +3048,16 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
         total += l.thickness;
     }
     out.push_str(&format!("Total recorded thickness: {:.3} mm\n", total));
+    if !p.board.layer_records.is_empty() {
+        out.push_str("\nCopper layers for fabrication:\nPOSITION,LABEL,NAME,GERBER_FUNCTION\n");
+        for layer in p.copper_layers() {
+            let position = layer.index() as u32 + 1;
+            let label = fab_layers::copper_fabrication_label(p, layer);
+            let name = p.layer_name(layer);
+            let function = fab_layers::copper_gerber_file_function(p, layer);
+            out.push_str(&format!("{position},{label},{name},{function}\n"));
+        }
+    }
     if let Some(m) = &p.board.machining {
         out.push_str("\nMachining notes:\n");
         if let Some(v) = m.edge_plating {
@@ -3241,7 +3321,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(track.start.x, track.start.y), (track.end.x, track.end.y)];
         touch(
             &mut layers,
-            track.layer.name(),
+            &p.layer_name(track.layer),
             &mut |plot| plot.tracks += 1,
             &points,
         )?;
@@ -3256,7 +3336,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points: Vec<(f64, f64)> = zone.outline.iter().map(|pt| (pt.x, pt.y)).collect();
         touch(
             &mut layers,
-            zone.layer.name(),
+            &p.layer_name(zone.layer),
             &mut |plot| plot.zones += 1,
             &points,
         )?;
@@ -3265,7 +3345,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(text.position.x, text.position.y)];
         touch(
             &mut layers,
-            text.layer.name(),
+            &p.layer_name(text.layer),
             &mut |plot| plot.texts += 1,
             &points,
         )?;
@@ -3274,7 +3354,7 @@ pub fn plot_csv(p: &Project) -> Result<String, String> {
         let points = [(fiducial.position.x, fiducial.position.y)];
         touch(
             &mut layers,
-            fiducial.layer.name(),
+            &p.layer_name(fiducial.layer),
             &mut |plot| plot.fiducials += 1,
             &points,
         )?;
@@ -7782,9 +7862,9 @@ mod tests {
         assert!(map.ends_with("M02*\n"), "the map ends cleanly");
         let front = &files["pcb-F.Cu.gbr"];
         assert!(
-            front.starts_with(
-                "G04 front copper layer generated by PCBCraft *\n%FSLANX*XAYAMOMM*%\n"
-            )
+            front.starts_with("G04 front copper layer generated by PCBCraft *\n")
+                && front.contains("%TF.FileFunction,Copper,L1,Top*%")
+                && front.contains("%FSLANX*XAYAMOMM*%\n")
         );
         assert!(front.contains("%ADD10C,0.001000*%\n"), "zone fill aperture");
         assert!(
@@ -11018,6 +11098,7 @@ mod tests {
         assert!(back.contains("%TF.FileFunction,Copper,L2,Bot*%"));
         Ok(())
     }
+<<<<<<< HEAD
 
     fn sample_board_with_two_by_two_panel() -> Result<pcbcraft_doc::Project, String> {
         let json = include_str!("../tests/fixtures/sample_led_panel_base.json");
@@ -11226,6 +11307,90 @@ mod tests {
             text.contains("T2,3.000,0.000,no,2"),
             "locating pegs are unplated hits"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn four_layer_board_exports_all_copper_plots_and_packages() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.layer_records = vec![
+            pcbcraft_doc::LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+            pcbcraft_doc::LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: Some("plane".into()),
+            },
+            pcbcraft_doc::LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+            },
+            pcbcraft_doc::LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+        ];
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(10.0, 0.0),
+            width: 0.25,
+            layer: pcbcraft_doc::Layer::from_index(1)?,
+            arc: None,
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        for key in [
+            "pcb-F.Cu.gbr",
+            "pcb-In1.Cu.gbr",
+            "pcb-In2.Cu.gbr",
+            "pcb-B.Cu.gbr",
+        ] {
+            assert!(files.contains_key(key), "missing copper plot {key}");
+        }
+        assert!(files["pcb-F.Cu.gbr"].contains("%TF.FileFunction,Copper,L1,Top*%"));
+        assert!(files["pcb-In1.Cu.gbr"].contains("%TF.FileFunction,Copper,L2,Inr,Plane*%"));
+        assert!(files["pcb-In2.Cu.gbr"].contains("%TF.FileFunction,Copper,L3,Inr,Signal*%"));
+        assert!(files["pcb-B.Cu.gbr"].contains("%TF.FileFunction,Copper,L4,Bot*%"));
+        assert!(
+            files["pcb-In1.Cu.gbr"].contains("X0.000000Y0.000000D02"),
+            "inner-layer track must land on its plot"
+        );
+        let ipc = ipc2581_text(&project)?;
+        assert_eq!(ipc.matches("<LAYERREF ").count(), 4);
+        assert!(ipc.contains("<LAYER name=\"circuit2\" copper=\"In2.Cu\">"));
+        let stackup = stackup_text(&project)?;
+        assert!(stackup.contains("Copper,L2,Inr,Plane"));
+        let board = kicad_board(&project)?;
+        assert!(board.contains("(1 \"In1.Cu\" signal)"));
+        assert!(board.contains("(31 \"B.Cu\" signal)"));
+        Ok(())
+    }
+
+    #[test]
+    fn examples_validate_after_load() -> Result<(), String> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.extension().is_some_and(|e| e == "json" || e == "pcbcraft") {
+                load(&path)?;
+            }
+        }
         Ok(())
     }
 }

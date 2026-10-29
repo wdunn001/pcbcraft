@@ -685,7 +685,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.to_track",
             "Convert a drawn line or polyline into copper tracks, one segment per vertex pair, on a chosen net and layer; the graphic is replaced by the copper, and the width follows the stroke unless given",
             schema(
-                json!({"id":id_schema(),"net":id_schema(),"width":{"type":"number","exclusiveMinimum":0,"description":"track width, millimetres; default the graphic stroke width"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer, default F.Cu"}}),
+                json!({"id":id_schema(),"net":id_schema(),"width":{"type":"number","exclusiveMinimum":0,"description":"track width, millimetres; default the graphic stroke width"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup, default top"}}),
                 &["id", "net"],
             ),
         ),
@@ -693,7 +693,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "plot.to_schematic",
             "Plot the copper of one layer onto the schematic as editable drawing graphics (tracks become lines, vias become circles and board text joins the plot), shifted so the board origin lands on a chosen sheet point; the copper itself is untouched",
             schema(
-                json!({"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"origin":point_schema(),"include_text":{"type":"boolean","description":"also plot board text of that layer, default true"}}),
+                json!({"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"origin":point_schema(),"include_text":{"type":"boolean","description":"also plot board text of that layer, default true"}}),
                 &["layer"],
             ),
         ),
@@ -802,7 +802,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.fiducial_place",
             "Place an optical assembly mark: a bare copper disc the pick-and-place camera locates the board by, on either copper layer",
             schema(
-                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer, default F.Cu"}}),
+                json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup, default top"}}),
                 &["position", "diameter"],
             ),
         ),
@@ -818,7 +818,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.fiducial_set",
             "Resize a fiducial mark, move it to the other copper layer, or both at once; the mark keeps its identity and its place in the pick-and-place file, so a panel tune or a back-side build adjusts the existing mark instead of replacing it",
             schema(
-                json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","enum":["F.Cu","B.Cu"],"description":"copper layer"}}),
+                json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.2,"maximum":10,"description":"disc diameter, millimetres"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["id"],
             ),
         ),
@@ -900,7 +900,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "zone.place",
             "Place a poured copper zone: a closed polygon of copper on one layer bound to an existing net",
             schema(
-                json!({"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"outline":{"type":"array","minItems":4,"maxItems":257,"items":point_schema(),"description":"closed polygon, millimetres; first vertex repeated last"}}),
+                json!({"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"outline":{"type":"array","minItems":4,"maxItems":257,"items":point_schema(),"description":"closed polygon, millimetres; first vertex repeated last"}}),
                 &["net", "outline"],
             ),
         ),
@@ -916,7 +916,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "zone.set_layer",
             "Move a poured zone, with all its cutouts, to the other copper layer without moving its outline",
             schema(
-                json!({"id":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"id":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["id", "layer"],
             ),
         ),
@@ -977,7 +977,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "teardrop.add",
             "Grow teardrop copper where tracks meet pads and vias so junctions survive etching and hand soldering; filter by net or layer, and junctions that already have a teardrop are left alone",
             schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"depth":{"type":"number","description":"how far the teardrop runs along the track from the junction, millimetres; default 0.5"}}),
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"depth":{"type":"number","description":"how far the teardrop runs along the track from the junction, millimetres; default 0.5"}}),
                 &[],
             ),
         ),
@@ -985,7 +985,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "teardrop.remove",
             "Take teardrop copper away again from every junction it was grown on, optionally filtered by net or layer",
             schema(
-                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":{"type":"integer","minimum":1},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &[],
             ),
         ),
@@ -1099,7 +1099,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.add",
             "Add a straight copper segment; checks report clearance errors rather than hiding them",
             schema(
-                json!({"net":id_schema(),"start":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":id_schema(),"start":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["net", "start", "end"],
             ),
         ),
@@ -1107,7 +1107,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.add_arc",
             "Add a curved copper segment through three points (start, a point on the curve, end); clearance checks sample the arc and fabrication output draws a true arc",
             schema(
-                json!({"net":id_schema(),"start":point_schema(),"mid":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"net":id_schema(),"start":point_schema(),"mid":point_schema(),"end":point_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["net", "start", "mid", "end"],
             ),
         ),
@@ -1149,7 +1149,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.set_layer",
             "Move an existing track segment to the other copper layer without moving its ends",
             schema(
-                json!({"id":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"id":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["id", "layer"],
             ),
         ),
@@ -1165,7 +1165,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.set_layer_net",
             "Move every track segment of one net to the other copper layer in a single step, optionally only those currently on a given layer; reports how many segments moved",
             schema(
-                json!({"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"from_layer":{"oneOf":[{"type":"string","enum":["F.Cu","B.Cu"]},{"type":"null"}],"description":"only move segments starting on this layer; null moves all of them"}}),
+                json!({"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"from_layer":{"oneOf":[{"type":"string","maxLength":64},{"type":"null"}],"description":"only move segments starting on this layer; null moves all of them"}}),
                 &["net", "layer"],
             ),
         ),
@@ -1197,7 +1197,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "track.route",
             "Connect a same-net pad or point to another on the chosen copper layer. Default mode orthogonal is one right-angle bend with no obstacle checks. Mode octilinear routes 45-degree copper around other nets' pads, tracks and cutouts. Mode octilinear_shove walks around pads and cutouts and pushes other nets' tracks aside within fixed iteration limits. Refusals say why and change nothing. Single layer, no vias",
             schema(
-                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
+                json!({"from":endpoint_schema(),"to":endpoint_schema(),"width":{"type":"number","exclusiveMinimum":0},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"mode":{"type":"string","enum":["orthogonal","octilinear","octilinear_shove"]},"net":id_schema()}),
                 &["from", "to"],
             ),
         ),
@@ -1226,7 +1226,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "items.update",
             "Apply property changes to up to 128 placed board objects in one undo step: tracks take net, copper layer and width; vias take net, diameter and drill; labels take text, layer and size",
             schema(
-                json!({"items":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"width":{"type":"number"},"diameter":{"type":"number"},"drill":{"type":"number"},"text":{"type":"string","maxLength":1024},"size":{"type":"number"}},"required":["id"],"additionalProperties":false}}}),
+                json!({"items":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"width":{"type":"number"},"diameter":{"type":"number"},"drill":{"type":"number"},"text":{"type":"string","maxLength":1024},"size":{"type":"number"}},"required":["id"],"additionalProperties":false}}}),
                 &["items"],
             ),
         ),
@@ -1322,6 +1322,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.remove_layer_record",
+            "Remove one board layer note by name",
+            schema(
+                json!({"name":{"type":"string","minLength":1,"maxLength":64}}),
+                &["name"],
+            ),
+        ),
+        (
             "board.set_machining",
             "Record machining notes for fabrication: whether edges are plated, the drill diameter tolerance and the rout dimension tolerance in millimetres; give at least one, each given value replaces its stored note",
             schema(
@@ -1398,7 +1406,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "items.find",
             "List object IDs by kind (track, via, zone, pad, footprint, text or component) with optional net and copper-layer filters",
             schema(
-                json!({"kind":{"type":"string","enum":["track","via","zone","pad","footprint","text","component"]},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"kind":{"type":"string","enum":["track","via","zone","pad","footprint","text","component"]},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["kind"],
             ),
         ),
@@ -1459,7 +1467,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.area_add",
             "Add a rectangular rule area that demands a stricter minimum copper separation for copper whose midpoints lie inside it; optionally narrowed to one net and one copper layer, which apply when either side of a pair matches",
             schema(
-                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
+                json!({"name":{"type":"string","maxLength":64,"description":"optional note describing the area"},"net":id_schema(),"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100,"description":"minimum separation inside the area, in millimetres"},"x":{"type":"number","minimum":-1000,"maximum":1000,"description":"lower-left corner in millimetres"},"y":{"type":"number","minimum":-1000,"maximum":1000},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"height":{"type":"number","exclusiveMinimum":0,"maximum":1000},"max_height":{"type":"number","minimum":0.1,"maximum":100,"description":"optional maximum component height inside the area, in millimetres"}}),
                 &["clearance", "x", "y", "width", "height"],
             ),
         ),
@@ -1737,7 +1745,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "text.place",
             "Place a text label on the board with a size in millimetres and a layer",
             schema(
-                json!({"text":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"size":{"type":"number","minimum":0.1,"maximum":50,"description":"glyph height in millimetres, default 1.0"},"layer":{"type":"string","enum":["F.Cu","B.Cu"]}}),
+                json!({"text":{"type":"string","minLength":1,"maxLength":128},"position":point_schema(),"size":{"type":"number","minimum":0.1,"maximum":50,"description":"glyph height in millimetres, default 1.0"},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"}}),
                 &["text", "position"],
             ),
         ),
@@ -1753,7 +1761,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "text.set",
             "Change a board text label's string, size, layer, or rotation",
             schema(
-                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","enum":["F.Cu","B.Cu"]},"rotation":{"type":"number","description":"text angle in degrees about the anchor"}}),
+                json!({"id":id_schema(),"text":{"type":"string","minLength":1,"maxLength":128},"size":{"type":"number","minimum":0.1,"maximum":50},"layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},"rotation":{"type":"number","description":"text angle in degrees about the anchor"}}),
                 &["id"],
             ),
         ),
@@ -3351,6 +3359,13 @@ struct LayerRecordParams {
     name: String,
     kind: String,
     thickness: f64,
+    #[serde(default)]
+    copper_role: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LayerRecordNameParams {
+    name: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4319,6 +4334,37 @@ fn bus_members(
 fn missing() -> Error {
     Error::Invalid("object not found".into())
 }
+fn resolve_layer_param(p: &Project, s: &str) -> Result<Layer, Error> {
+    p.resolve_copper_layer(s).map_err(Error::Invalid)
+}
+fn command_layer(p: &Project, params: &Value, parsed: Layer) -> Result<Layer, Error> {
+    if let Some(s) = params.get("layer").and_then(|v| v.as_str()) {
+        resolve_layer_param(p, s)
+    } else {
+        Ok(parsed)
+    }
+}
+fn optional_command_layer(p: &Project, params: &Value) -> Result<Option<Layer>, Error> {
+    match params.get("layer") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => resolve_layer_param(p, s).map(Some),
+        _ => Err(Error::Invalid("layer must be a string".into())),
+    }
+}
+fn copper_count_in_records(records: &[LayerRecord]) -> u8 {
+    let n = records.iter().filter(|r| r.kind == "copper").count();
+    if n == 0 {
+        2
+    } else {
+        n as u8
+    }
+}
+fn refuse_stack_shrink(p: &Project, new_count: u8) -> Result<(), Error> {
+    if let Some(msg) = p.stack_shrink_blocked_reason(new_count) {
+        return Err(Error::Invalid(msg));
+    }
+    Ok(())
+}
 fn assign(p: &mut Project, net: Id, pins: &[PinRef]) -> Result<(), Error> {
     if pins.is_empty() || pins.len() > 128 || !p.nets.iter().any(|n| n.id == net) {
         return Err(Error::Invalid("invalid pin list or unknown net".into()));
@@ -4357,16 +4403,23 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .iter()
         .find(|pad| pad.number == r.pad)
         .ok_or_else(missing)?;
+    let layer_name = p.layer_name(layer);
     let on_layer = pad
         .geometry
         .as_ref()
-        .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
+        .map(|g| {
+            g.layers.iter().any(|l| {
+                l == "*.Cu"
+                    || l == &layer_name
+                    || l == layer.name()
+                    || p.resolve_copper_layer(l).ok() == Some(layer)
+            })
+        })
         .unwrap_or(layer == Layer::Front);
     if !on_layer {
         return Err(Error::Invalid(format!(
             "pad {} has no copper on {}",
-            r.pad,
-            layer.name()
+            r.pad, layer_name
         )));
     }
     let net = f
@@ -7915,6 +7968,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "graphic.to_track" => {
             let a: GraphicToTrackParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if p.nets.iter().all(|n| n.id != a.net) {
                 return Err(Error::Invalid("unknown net".into()));
             }
@@ -7953,7 +8007,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     start: pair[0],
                     end: pair[1],
                     width,
-                    layer: a.layer,
+                    layer,
                     arc: None,
                 });
                 ids.push(id);
@@ -7963,12 +8017,13 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "plot.to_schematic" => {
             let a: PlotToSchematicParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if !a.origin.valid() {
                 return Err(Error::Invalid("plot origin is out of range".into()));
             }
             let shift = |point: Point| Point::new(point.x + a.origin.x, point.y + a.origin.y);
             let mut items: Vec<(String, Vec<Point>, f64, String)> = Vec::new();
-            for track in p.board.tracks.iter().filter(|t| t.layer == a.layer) {
+            for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
                 items.push((
                     "line".into(),
                     vec![shift(track.start), shift(track.end)],
@@ -7991,7 +8046,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     .board
                     .texts
                     .iter()
-                    .filter(|t| t.layer == a.layer && !t.text.is_empty())
+                    .filter(|t| t.layer == layer && !t.text.is_empty())
                 {
                     items.push((
                         "text".into(),
@@ -8564,11 +8619,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 id,
                 position: a.position,
                 diameter: a.diameter,
-                layer: match a.layer.as_deref() {
-                    None | Some("F.Cu") => pcbcraft_doc::Layer::Front,
-                    Some("B.Cu") => pcbcraft_doc::Layer::Back,
-                    Some(_) => return Err(Error::Invalid("fiducials sit on F.Cu or B.Cu".into())),
-                },
+                layer: command_layer(p, params, Layer::Front)?,
             });
             Ok(json!({"id":id}))
         }
@@ -8598,13 +8649,10 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "fiducial discs must be 0.2 to 10 millimetres".into(),
                 ));
             }
-            let layer = match a.layer.as_deref() {
-                None => None,
-                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
-                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
-                Some(_) => {
-                    return Err(Error::Invalid("fiducials sit on F.Cu or B.Cu".into()));
-                }
+            let layer = if params.get("layer").is_some() {
+                Some(command_layer(p, params, Layer::Front)?)
+            } else {
+                None
             };
             let fiducial = p
                 .board
@@ -8622,7 +8670,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             Ok(json!({
                 "id": a.id,
                 "diameter": diameter,
-                "layer": if layer == pcbcraft_doc::Layer::Back { "B.Cu" } else { "F.Cu" },
+                "layer": p.layer_name(layer),
             }))
         }
         "board.fiducial_remove" => {
@@ -8900,6 +8948,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "zone.place" => {
             let a: ZoneParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
@@ -8908,7 +8957,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             p.board.zones.push(pcbcraft_doc::CopperZone {
                 id,
                 net: a.net,
-                layer: a.layer,
+                layer,
                 outline: a.outline,
                 cutouts: vec![],
                 filled: true,
@@ -8944,16 +8993,17 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "zone.set_layer" => {
             let a: ZoneLayerParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             let zone = p
                 .board
                 .zones
                 .iter_mut()
                 .find(|z| z.id == a.id)
                 .ok_or_else(missing)?;
-            if zone.layer == a.layer {
+            if zone.layer == layer {
                 return Err(Error::Invalid("that zone is already on the layer".into()));
             }
-            zone.layer = a.layer;
+            zone.layer = layer;
             Ok(json!({"id":a.id,"layer":zone.layer}))
         }
         "zone.set_net" => {
@@ -9113,6 +9163,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "teardrop.add" => {
             let a: TeardropParams = parse(params)?;
+            let layer_filter = optional_command_layer(p, params)?;
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
                 return Err(missing());
             }
@@ -9123,7 +9174,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             }
             let mut junctions: Vec<Junction> = Vec::new();
             for track in &p.board.tracks {
-                if a.layer.is_some_and(|layer| track.layer != layer)
+                if layer_filter.is_some_and(|layer| track.layer != layer)
                     || a.net.is_some_and(|net| track.net != net)
                 {
                     continue;
@@ -9222,11 +9273,12 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "teardrop.remove" => {
             let a: TeardropRemoveParams = parse(params)?;
+            let layer_filter = optional_command_layer(p, params)?;
             let before = p.board.zones.len();
             p.board.zones.retain(|zone| {
                 !(zone.kind.as_deref() == Some("teardrop")
                     && a.net.is_none_or(|net| zone.net == net)
-                    && a.layer.is_none_or(|layer| zone.layer == layer))
+                    && layer_filter.is_none_or(|layer| zone.layer == layer))
             });
             let removed = before - p.board.zones.len();
             if removed == 0 {
@@ -9567,12 +9619,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if a.net.is_some_and(|id| !p.nets.iter().any(|n| n.id == id)) {
                 return Err(Error::Invalid("unknown net".into()));
             }
-            let layer = match a.layer.as_deref() {
-                None => None,
-                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
-                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
-                _ => return Err(Error::Invalid("layer must be one of F.Cu, B.Cu".into())),
-            };
+            let layer = optional_command_layer(p, params)?;
             let matches_layer = |l: &pcbcraft_doc::Layer| layer.is_none_or(|w| *l == w);
             let refs: std::collections::BTreeMap<Id, String> = p
                 .components
@@ -9959,29 +10006,72 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 )
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
+                || a.copper_role.as_ref().is_some_and(|r| {
+                    !matches!(
+                        r.as_str(),
+                        "signal" | "plane" | "mixed" | "hatched"
+                    )
+                })
             {
                 return Err(Error::Invalid(
                     "layer record needs a short name, a known role and a thickness within 100mm"
                         .into(),
                 ));
             }
-            let records = &mut p.board.layer_records;
-            if let Some(existing) = records.iter_mut().find(|l| l.name == name) {
-                existing.kind = a.kind;
+            let mut trial = p.board.layer_records.clone();
+            if let Some(existing) = trial.iter_mut().find(|l| l.name == name) {
+                existing.kind = a.kind.clone();
                 existing.thickness = a.thickness;
+                existing.copper_role = a.copper_role.clone();
             } else {
-                if records.len() >= 32 {
+                if trial.len() >= 32 {
                     return Err(Error::Invalid(
                         "a board records at most 32 layer notes".into(),
                     ));
                 }
+                trial.push(pcbcraft_doc::LayerRecord {
+                    name: name.clone(),
+                    kind: a.kind.clone(),
+                    thickness: a.thickness,
+                    copper_role: a.copper_role.clone(),
+                });
+            }
+            refuse_stack_shrink(p, copper_count_in_records(&trial))?;
+            let records = &mut p.board.layer_records;
+            if let Some(existing) = records.iter_mut().find(|l| l.name == name) {
+                existing.kind = a.kind;
+                existing.thickness = a.thickness;
+                existing.copper_role = a.copper_role;
+            } else {
                 records.push(pcbcraft_doc::LayerRecord {
                     name: name.clone(),
                     kind: a.kind,
                     thickness: a.thickness,
+                    copper_role: a.copper_role,
                 });
-                records.sort_by(|x, y| x.name.cmp(&y.name));
             }
+            Ok(json!({"name": name, "count": p.board.layer_records.len()}))
+        }
+        "board.remove_layer_record" => {
+            let a: LayerRecordNameParams = parse(params)?;
+            let name = a.name.trim();
+            if name.is_empty() || name.len() > 64 {
+                return Err(Error::Invalid(
+                    "layer record name must be 1 to 64 characters".into(),
+                ));
+            }
+            let mut trial: Vec<_> = p
+                .board
+                .layer_records
+                .iter()
+                .filter(|r| r.name != name)
+                .cloned()
+                .collect();
+            if trial.len() == p.board.layer_records.len() {
+                return Err(missing());
+            }
+            refuse_stack_shrink(p, copper_count_in_records(&trial))?;
+            p.board.layer_records = trial;
             Ok(json!({"name": name, "count": p.board.layer_records.len()}))
         }
         "board.clear_layer_records" => {
@@ -9990,6 +10080,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "board.clear_layer_records takes an empty object".into(),
                 ));
             }
+            refuse_stack_shrink(p, copper_count_in_records(&[]))?;
             let removed = p.board.layer_records.len();
             p.board.layer_records.clear();
             Ok(json!({"removed": removed}))
@@ -10511,12 +10602,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "area height limits must be 0.1 to 100 millimetres".into(),
                 ));
             }
-            let layer = match a.layer.as_deref() {
-                None => None,
-                Some("F.Cu") => Some(pcbcraft_doc::Layer::Front),
-                Some("B.Cu") => Some(pcbcraft_doc::Layer::Back),
-                Some(_) => return Err(Error::Invalid("layer must be F.Cu or B.Cu".into())),
-            };
+            let layer = optional_command_layer(p, params)?;
             if p.board.rule_areas.len() >= 64 {
                 return Err(Error::Invalid(
                     "a board carries at most 64 rule areas".into(),
@@ -11936,6 +12022,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.add" => {
             let a: TrackParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, a.net));
             if !positive(width) {
                 return Err(Error::Invalid("width must be positive".into()));
@@ -11947,13 +12034,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 start: a.start,
                 end: a.end,
                 width,
-                layer: a.layer,
+                layer,
                 arc: None,
             });
             Ok(json!({"id":id, "width": width}))
         }
         "track.add_arc" => {
             let a: TrackArcParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if !a.start.valid() || !a.mid.valid() || !a.end.valid() {
                 return Err(Error::Invalid("track points are out of range".into()));
             }
@@ -11973,7 +12061,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 start: a.start,
                 end: a.end,
                 width,
-                layer: a.layer,
+                layer,
                 arc: Some(a.mid),
             });
             Ok(json!({
@@ -12171,7 +12259,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.route" => {
             let a: Route = parse(params)?;
-            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, a.layer)?;
+            let layer = command_layer(p, params, a.layer)?;
+            let (start, end, net) = route::resolve(p, &a.from, &a.to, a.net, layer)?;
             let width = a.width.unwrap_or_else(|| class_width(p, net));
             if start.distance(end) < 1e-6 || !positive(width) {
                 return Err(Error::Invalid(
@@ -12179,7 +12268,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 ));
             }
             if a.mode != route::Mode::Orthogonal {
-                return route::run(p, next, start, end, net, width, a.layer, a.mode);
+                return route::run(p, next, start, end, net, width, layer, a.mode);
             }
             let bend = Point::new(end.x, start.y);
             let mut ids = vec![];
@@ -12193,7 +12282,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         start: from,
                         end: to,
                         width,
-                        layer: a.layer,
+                        layer,
                         arc: None,
                     });
                 }
@@ -12741,16 +12830,17 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.set_layer" => {
             let a: TrackLayerParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             let track = p
                 .board
                 .tracks
                 .iter_mut()
                 .find(|t| t.id == a.id)
                 .ok_or_else(missing)?;
-            if track.layer == a.layer {
+            if track.layer == layer {
                 return Err(Error::Invalid("that track is already on the layer".into()));
             }
-            track.layer = a.layer;
+            track.layer = layer;
             Ok(json!({"id":a.id,"layer":track.layer}))
         }
         "track.set_width_net" => {
@@ -12772,16 +12862,26 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "track.set_layer_net" => {
             let a: TrackNetLayerParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
+            let from_layer = match params.get("from_layer") {
+                None | Some(Value::Null) => a.from_layer,
+                Some(Value::String(s)) => Some(resolve_layer_param(p, s)?),
+                _ => {
+                    return Err(Error::Invalid(
+                        "from_layer must be a string or null".into(),
+                    ));
+                }
+            };
             if !p.nets.iter().any(|n| n.id == a.net) {
                 return Err(missing());
             }
             let mut changed = 0usize;
             for track in p.board.tracks.iter_mut() {
                 if track.net == a.net
-                    && track.layer != a.layer
-                    && a.from_layer.is_none_or(|from| track.layer == from)
+                    && track.layer != layer
+                    && from_layer.is_none_or(|from| track.layer == from)
                 {
-                    track.layer = a.layer;
+                    track.layer = layer;
                     changed += 1;
                 }
             }
@@ -12838,6 +12938,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
         }
         "text.place" => {
             let a: TextPlaceParams = parse(params)?;
+            let layer = command_layer(p, params, a.layer)?;
             if a.text.is_empty() || a.text.len() > 128 {
                 return Err(Error::Invalid("text must be 1 to 128 bytes".into()));
             }
@@ -12860,7 +12961,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 text: a.text,
                 position: a.position,
                 size: a.size,
-                layer: a.layer,
+                layer,
                 rotation: 0.0,
                 component: None,
             });
@@ -12917,8 +13018,8 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             if let Some(size) = a.size {
                 text.size = size;
             }
-            if let Some(layer) = a.layer {
-                text.layer = layer;
+            if params.get("layer").is_some() {
+                text.layer = command_layer(p, params, text.layer)?;
             }
             if let Some(rotation) = a.rotation {
                 text.rotation = rotation;
@@ -15892,7 +15993,7 @@ mod tests {
         assert_eq!(records[0]["name"], "Core");
         assert_eq!(records[0]["kind"], "prepreg");
         assert_eq!(records[0]["thickness"], 0.2);
-        assert_eq!(records[1]["name"], "F.Cu", "notes stay ordered by name");
+        assert_eq!(records[1]["name"], "F.Cu", "notes stay in stack order");
         for bad in [
             json!({"name":"  ","kind":"core","thickness":1.0}),
             json!({"name":"L1","kind":"bronze","thickness":1.0}),
@@ -28186,6 +28287,86 @@ mod tests {
                 .any(|p| p.geometry.as_ref().is_some_and(|g| g.polygon.len() == 3))
         );
         s.project.validate()?;
+        Ok(())
+    }
+    #[test]
+    fn two_layer_example_project_round_trips_byte_stable() -> Result<(), Error> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
+        for name in ["led-indicator.json", "route-led.json", "shaped-pads.json"] {
+            let path = dir.join(name);
+            let raw = std::fs::read_to_string(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+            let project: Project =
+                serde_json::from_str(&raw).map_err(|e| Error::Invalid(e.to_string()))?;
+            project.validate().map_err(Error::Invalid)?;
+            let again = serde_json::to_string(&project).map_err(|e| Error::Invalid(e.to_string()))?;
+            let reparsed: Project =
+                serde_json::from_str(&again).map_err(|e| Error::Invalid(e.to_string()))?;
+            assert_eq!(project, reparsed, "{name} should round-trip");
+        }
+        Ok(())
+    }
+    #[test]
+    fn track_add_on_inner_layer_validates_against_stackup() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        assert!(s.project.validate().is_ok());
+        assert!(
+            s.execute(
+                "board.remove_layer_record",
+                json!({"name":"B.Cu"}),
+                None,
+            )
+            .is_err(),
+            "shrinking the stack while bottom copper still carries a track is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn clear_layer_records_refused_when_inner_copper_used() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (name, thickness) in [
+            ("F.Cu", 0.035),
+            ("In1.Cu", 0.0175),
+            ("In2.Cu", 0.0175),
+            ("B.Cu", 0.035),
+        ] {
+            s.execute(
+                "board.set_layer_record",
+                json!({"name":name,"kind":"copper","thickness":thickness}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"In2.Cu"}),
+            None,
+        )?;
+        assert!(
+            s.execute("board.clear_layer_records", json!({}), None).is_err(),
+            "clearing stack notes is refused while inner copper is in use"
+        );
         Ok(())
     }
 }

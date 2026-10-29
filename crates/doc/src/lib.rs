@@ -6,7 +6,9 @@ pub use panel::{
 };
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub type Id = u64;
@@ -802,27 +804,108 @@ impl Footprint {
         self.position.offset(pad.offset.rotate(-self.rotation))
     }
 }
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Layer {
-    #[serde(rename = "F.Cu")]
-    Front,
-    #[serde(rename = "B.Cu")]
-    Back,
-}
+/// Index of a copper layer: 0 is top, the highest index is bottom.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Layer(u8);
+
+/// Maximum copper layers the document model supports.
+pub const MAX_COPPER_LAYERS: u8 = 32;
+
 impl Layer {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Front => "F.Cu",
-            Self::Back => "B.Cu",
+    pub const Front: Layer = Layer(0);
+    pub const Back: Layer = Layer(1);
+
+    pub fn from_index(index: u8) -> Result<Self, String> {
+        if index >= MAX_COPPER_LAYERS {
+            Err(format!(
+                "copper layer index must be below {MAX_COPPER_LAYERS}"
+            ))
+        } else {
+            Ok(Layer(index))
         }
     }
-    /// Plain-English layer name for people who have never seen copper-layer
-    /// shorthand; file formats keep using [`Self::name`].
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Front => "Top",
-            Self::Back => "Bottom",
+
+    pub fn index(self) -> u8 {
+        self.0
+    }
+
+    /// Legacy two-layer shorthand; prefer [`Project::layer_name`] when the
+    /// stackup may carry inner copper.
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            0 => "F.Cu",
+            1 => "B.Cu",
+            _ => "F.Cu",
         }
+    }
+
+    /// Plain-English layer name for people who have never seen copper-layer
+    /// shorthand; file formats keep using stackup-aware names from the project.
+    pub fn label(self) -> &'static str {
+        match self.0 {
+            0 => "Top",
+            1 => "Bottom",
+            _ => "Inner",
+        }
+    }
+
+    fn from_file_str(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("copper layer name is empty".into());
+        }
+        if s == "F.Cu" {
+            return Ok(Layer::Front);
+        }
+        if s == "B.Cu" {
+            return Ok(Layer::Back);
+        }
+        if let Some(rest) = s.strip_prefix('L')
+            && let Ok(n) = rest.parse::<u32>()
+            && (1..=MAX_COPPER_LAYERS as u32).contains(&n)
+        {
+            return Layer::from_index((n - 1) as u8);
+        }
+        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
+            && let Ok(n) = rest.parse::<u8>()
+            && n > 0
+            && n < MAX_COPPER_LAYERS
+        {
+            return Layer::from_index(n);
+        }
+        Err(format!("unknown copper layer {s:?}"))
+    }
+
+    fn to_file_str(self) -> String {
+        if self.0 == 0 {
+            "F.Cu".into()
+        } else if self.0 == 1 {
+            "B.Cu".into()
+        } else {
+            format!("In{}.Cu", self.0)
+        }
+    }
+}
+
+impl Serialize for Layer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_file_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Layer {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct LayerVisitor;
+        impl Visitor<'_> for LayerVisitor {
+            type Value = Layer;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a copper layer name such as F.Cu, B.Cu, In1.Cu or L1")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Layer, E> {
+                Layer::from_file_str(v).map_err(de::Error::custom)
+            }
+        }
+        deserializer.deserialize_str(LayerVisitor)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -1042,6 +1125,9 @@ pub struct LayerRecord {
     pub kind: String,
     /// Layer thickness in millimetres.
     pub thickness: f64,
+    /// Copper plane style for fabrication output: signal, plane, mixed or hatched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copper_role: Option<String>,
 }
 impl LayerRecord {
     fn valid(&self) -> bool {
@@ -1053,6 +1139,12 @@ impl LayerRecord {
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
+            && self.copper_role.as_ref().is_none_or(|r| {
+                matches!(
+                    r.as_str(),
+                    "signal" | "plane" | "mixed" | "hatched"
+                )
+            })
     }
 }
 /// What a drawn layer tells a machine to do: a cutter follows cut and
@@ -1237,7 +1329,7 @@ pub struct Board {
     /// Origin that drill file coordinates are measured from, in millimetres.
     #[serde(default = "board_origin")]
     pub drill_origin: Point,
-    /// Recorded per-layer fabrication notes, ordered by layer name.
+    /// Recorded per-layer fabrication notes in physical stack order (top to bottom).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_records: Vec<LayerRecord>,
     /// Machining notes for fabrication, absent when none were recorded.
@@ -1804,6 +1896,151 @@ impl Project {
             .find(|n| n.id == id)
             .map(|n| n.name.as_str())
             .unwrap_or("unassigned")
+    }
+    /// Copper layer rows from the stackup table, in top-to-bottom order.
+    pub fn copper_layer_records(&self) -> impl Iterator<Item = &LayerRecord> {
+        self.board
+            .layer_records
+            .iter()
+            .filter(|r| r.kind == "copper")
+    }
+    /// How many routable copper layers exist. With no copper rows recorded,
+    /// a board is treated as two layers (top and bottom).
+    pub fn copper_layer_count(&self) -> u8 {
+        let n = self.copper_layer_records().count();
+        if n == 0 {
+            2
+        } else if n > MAX_COPPER_LAYERS as usize {
+            MAX_COPPER_LAYERS
+        } else {
+            n as u8
+        }
+    }
+    /// Ordered copper layer indices from top (0) to bottom.
+    pub fn copper_layers(&self) -> Vec<Layer> {
+        (0..self.copper_layer_count()).filter_map(|i| Layer::from_index(i).ok()).collect()
+    }
+    /// Gerber-style copper name for a layer index on this board.
+    pub fn layer_name(&self, layer: Layer) -> String {
+        let idx = layer.index();
+        let copper: Vec<_> = self.copper_layer_records().collect();
+        if !copper.is_empty() {
+            if let Some(rec) = copper.get(idx as usize) {
+                return rec.name.clone();
+            }
+        } else if idx == 0 {
+            return "F.Cu".into();
+        } else if idx == 1 {
+            return "B.Cu".into();
+        }
+        if idx == 0 {
+            "F.Cu".into()
+        } else if idx + 1 == self.copper_layer_count() {
+            "B.Cu".into()
+        } else {
+            format!("In{}.Cu", idx)
+        }
+    }
+    /// Map a copper layer string from a command or file to a layer index.
+    pub fn resolve_copper_layer(&self, s: &str) -> Result<Layer, String> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err("copper layer name is empty".into());
+        }
+        let count = self.copper_layer_count();
+        if s == "F.Cu" {
+            return Ok(Layer::Front);
+        }
+        if s == "B.Cu" {
+            if count <= 2 {
+                return Ok(Layer::Back);
+            }
+            return Layer::from_index(count - 1);
+        }
+        if let Some(rest) = s.strip_prefix('L')
+            && let Ok(n) = rest.parse::<u32>()
+            && n >= 1
+            && n <= count as u32
+        {
+            return Layer::from_index((n - 1) as u8);
+        }
+        if let Some(rest) = s.strip_prefix("In").and_then(|r| r.strip_suffix(".Cu"))
+            && let Ok(n) = rest.parse::<u8>()
+            && n < count
+        {
+            return Layer::from_index(n);
+        }
+        for (i, rec) in self.copper_layer_records().enumerate() {
+            if rec.name == s {
+                return Layer::from_index(i as u8);
+            }
+        }
+        Err(format!("unknown copper layer {s:?}"))
+    }
+    fn copper_layer_valid(&self, layer: Layer) -> bool {
+        layer.index() < self.copper_layer_count()
+    }
+    /// Highest copper index referenced by board objects, if any.
+    pub fn max_copper_layer_index_used(&self) -> Option<u8> {
+        let mut max: Option<u8> = None;
+        let mut bump = |layer: Layer| {
+            max = Some(max.map_or(layer.index(), |m| m.max(layer.index())));
+        };
+        for t in &self.board.tracks {
+            bump(t.layer);
+        }
+        for z in &self.board.zones {
+            bump(z.layer);
+        }
+        for t in &self.board.texts {
+            bump(t.layer);
+        }
+        for f in &self.board.fiducials {
+            bump(f.layer);
+        }
+        for a in &self.board.rule_areas {
+            if let Some(l) = a.layer {
+                bump(l);
+            }
+        }
+        max
+    }
+    /// Plain reason when shrinking the stack would orphan board objects.
+    pub fn stack_shrink_blocked_reason(&self, new_copper_count: u8) -> Option<String> {
+        let max = self.max_copper_layer_index_used()?;
+        if new_copper_count == 0 || max >= new_copper_count {
+            let mut kinds = Vec::new();
+            let limit = new_copper_count;
+            if self.board.tracks.iter().any(|t| t.layer.index() >= limit) {
+                kinds.push("track");
+            }
+            if self.board.zones.iter().any(|z| z.layer.index() >= limit) {
+                kinds.push("zone");
+            }
+            if self.board.texts.iter().any(|t| t.layer.index() >= limit) {
+                kinds.push("text");
+            }
+            if self
+                .board
+                .fiducials
+                .iter()
+                .any(|f| f.layer.index() >= limit)
+            {
+                kinds.push("fiducial");
+            }
+            if self.board.rule_areas.iter().any(|a| {
+                a.layer.is_some_and(|l| l.index() >= limit)
+            }) {
+                kinds.push("rule area");
+            }
+            Some(format!(
+                "copper stack shrink blocked by {} on layer index {}",
+                kinds.join(", "),
+                max
+            ))
+        } else {
+            None
+        }
     }
     /// The net class a net belongs to, if it belongs to one.
     pub fn net_class(&self, net: Id) -> Option<&NetClass> {
@@ -2580,6 +2817,71 @@ impl Project {
             || b.machining.as_ref().is_some_and(|m| !m.valid())
         {
             return Err("invalid board dimensions/rules".into());
+        }
+        let copper_rows: Vec<_> = self.copper_layer_records().collect();
+        if copper_rows.len() > MAX_COPPER_LAYERS as usize {
+            return Err(format!(
+                "a board defines at most {MAX_COPPER_LAYERS} copper layers"
+            ));
+        }
+        let mut copper_names = BTreeSet::new();
+        for rec in &copper_rows {
+            if !copper_names.insert(rec.name.as_str()) {
+                return Err("copper layer names must be unique".into());
+            }
+        }
+        let copper_count = self.copper_layer_count();
+        if copper_count == 0 || copper_count > MAX_COPPER_LAYERS {
+            return Err(format!(
+                "copper layer count must be 1 to {MAX_COPPER_LAYERS}"
+            ));
+        }
+        for t in &b.tracks {
+            if !self.copper_layer_valid(t.layer) {
+                return Err(format!(
+                    "track {} sits on copper index {} but the board has {copper_count} copper layers",
+                    t.id,
+                    t.layer.index()
+                ));
+            }
+        }
+        for z in &b.zones {
+            if !self.copper_layer_valid(z.layer) {
+                return Err(format!(
+                    "zone {} sits on copper index {} but the board has {copper_count} copper layers",
+                    z.id,
+                    z.layer.index()
+                ));
+            }
+        }
+        for t in &b.texts {
+            if !self.copper_layer_valid(t.layer) {
+                return Err(format!(
+                    "board text {} sits on copper index {} but the board has {copper_count} copper layers",
+                    t.id,
+                    t.layer.index()
+                ));
+            }
+        }
+        for f in &b.fiducials {
+            if !self.copper_layer_valid(f.layer) {
+                return Err(format!(
+                    "fiducial {} sits on copper index {} but the board has {copper_count} copper layers",
+                    f.id,
+                    f.layer.index()
+                ));
+            }
+        }
+        for a in &b.rule_areas {
+            if let Some(l) = a.layer
+                && !self.copper_layer_valid(l)
+            {
+                return Err(format!(
+                    "rule area {} filters copper index {} but the board has {copper_count} copper layers",
+                    a.id,
+                    l.index()
+                ));
+            }
         }
         if let Some(points) = &b.outline {
             let distinct: BTreeSet<(u64, u64)> = points
@@ -3443,6 +3745,86 @@ mod drill_tests {
         assert!(!pad.outline_is_convex());
         assert_eq!(pad.outline_points().len(), 7);
         assert!((pad.bounding_radius() - 2.0_f64.sqrt()).abs() < 1e-12);
+        Ok(())
+    }
+    #[test]
+    fn two_layer_default_stackup_maps_legacy_names() -> Result<(), String> {
+        let p = Project::default();
+        assert_eq!(p.copper_layer_count(), 2);
+        assert_eq!(p.resolve_copper_layer("F.Cu")?, Layer::Front);
+        assert_eq!(p.resolve_copper_layer("B.Cu")?, Layer::Back);
+        let track = Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        };
+        let json = serde_json::to_string(&track.layer).map_err(|e| e.to_string())?;
+        assert_eq!(json, "\"F.Cu\"");
+        let back: Layer = serde_json::from_str("\"B.Cu\"").map_err(|e| e.to_string())?;
+        assert_eq!(back, Layer::Back);
+        Ok(())
+    }
+    #[test]
+    fn four_layer_stackup_accepts_inner_track_index() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.layer_records = vec![
+            LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+            LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: Some("plane".into()),
+            },
+            LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+            },
+            LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+            },
+        ];
+        assert_eq!(p.copper_layer_count(), 4);
+        p.board.tracks.push(Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::from_index(1)?,
+            arc: None,
+        });
+        p.validate()?;
+        Ok(())
+    }
+    #[test]
+    fn track_on_inner_layer_refused_on_two_layer_board() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.tracks.push(Track {
+            id: 1,
+            net: 1,
+            start: Point::new(0.0, 0.0),
+            end: Point::new(1.0, 0.0),
+            width: 0.2,
+            layer: Layer::Back,
+            arc: None,
+        });
+        p.validate()?;
+        p.board.tracks[0].layer = Layer::from_index(2)?;
+        assert!(p.validate().is_err());
         Ok(())
     }
     #[test]
