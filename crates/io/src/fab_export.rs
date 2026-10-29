@@ -269,6 +269,7 @@ impl GerberLayer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn arc_segment(
         &mut self,
         code: u32,

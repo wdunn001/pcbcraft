@@ -12,8 +12,10 @@ mod board_mesh;
 mod drawn;
 mod fab_export;
 mod gerber;
+mod gerber_job;
 mod layers;
 mod library_render;
+mod package;
 mod panel_export;
 mod raster;
 pub use board_mesh::{
@@ -22,11 +24,16 @@ pub use board_mesh::{
 };
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use gerber::gerber_copper;
+pub use gerber_job::{gerber_job, gerber_zip};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
 };
 use library_render::*;
+pub use package::{
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
+    package_zip,
+};
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
 pub use raster::{
@@ -80,6 +87,67 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 pub fn atomic_write(_path: &Path, _bytes: &[u8]) -> Result<(), String> {
     Err("host filesystem writes are unavailable in the browser; download support is planned".into())
 }
+
+/// Build a stored-mode ZIP from ordered `(name, bytes)` pairs.
+pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    let count = u16::try_from(entries.len())
+        .map_err(|_| "a stored ZIP holds at most 65535 entries".to_string())?;
+    let mut zip: Vec<u8> = Vec::new();
+    let mut central: Vec<u8> = Vec::new();
+    let mut offset = 0u32;
+    for (name, data) in entries {
+        if name.is_empty() || name.len() > 255 {
+            return Err("archive entry names are 1 to 255 bytes".into());
+        }
+        let size = u32::try_from(data.len())
+            .map_err(|_| format!("{name} is larger than the 4 GiB a stored ZIP address"))?;
+        let name_len = u16::try_from(name.len())
+            .map_err(|_| format!("{name} has a name longer than 255 bytes"))?;
+        let crc = crc32(data);
+        let mut local = Vec::new();
+        local.extend_from_slice(b"PK\x03\x04");
+        local.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        local.extend_from_slice(&crc.to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&size.to_le_bytes());
+        local.extend_from_slice(&name_len.to_le_bytes());
+        local.extend_from_slice(&0u16.to_le_bytes());
+        local.extend_from_slice(name.as_bytes());
+        local.extend_from_slice(data);
+        let mut dir = Vec::new();
+        dir.extend_from_slice(b"PK\x01\x02");
+        dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&crc.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&size.to_le_bytes());
+        dir.extend_from_slice(&name_len.to_le_bytes());
+        dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        dir.extend_from_slice(&offset.to_le_bytes());
+        dir.extend_from_slice(name.as_bytes());
+        zip.extend_from_slice(&local);
+        central.extend_from_slice(&dir);
+        offset = offset
+            .checked_add(
+                u32::try_from(local.len())
+                    .map_err(|_| format!("{name} makes the archive too large"))?,
+            )
+            .ok_or_else(|| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
+    }
+    let directory_start = u32::try_from(zip.len())
+        .map_err(|_| "the archive is larger than the 4 GiB of a stored ZIP".to_string())?;
+    let central_size = u32::try_from(central.len())
+        .map_err(|_| "the archive directory is larger than a stored ZIP allows".to_string())?;
+    zip.extend_from_slice(&central);
+    zip.extend_from_slice(b"PK\x05\x06");
+    zip.extend_from_slice(&[0, 0, 0, 0]);
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&count.to_le_bytes());
+    zip.extend_from_slice(&central_size.to_le_bytes());
+    zip.extend_from_slice(&directory_start.to_le_bytes());
+    zip.extend_from_slice(&0u16.to_le_bytes());
+    Ok(zip)
+}
+
 pub fn save(project: &Project, path: &Path) -> Result<(), String> {
     project.validate()?;
     let bytes = serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?;
@@ -147,7 +215,7 @@ fn footprint_bounds(p: &Project, f: &pcbcraft_doc::Footprint) -> (Point, Point) 
 }
 
 /// CRC-32 (IEEE, reflected polynomial) over a byte slice, for ZIP entries.
-fn crc32(bytes: &[u8]) -> u32 {
+pub fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0u32;
     for byte in bytes {
         crc = (crc >> 8) ^ CRC_TABLE[((crc as u8) ^ byte) as usize];
@@ -2424,6 +2492,30 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     if !files.contains_key("pcb-Plated.drl") {
         files.insert("pcb-Plated.drl".into(), plated_drill);
     }
+    let mut names: Vec<String> = files.keys().cloned().collect();
+    names.push("README-fabrication.txt".into());
+    names.sort();
+    files.insert(
+        "README-fabrication.txt".into(),
+        fab_export::fab_readme_text(p, &names)?,
+    );
+    let job = gerber_job::gerber_job_at(p, &files, &gerber_job::now_utc())?;
+    files.insert("pcb-job.gbrjob".into(), job);
+    names = files.keys().cloned().collect();
+    names.push("README-fabrication.txt".into());
+    names.sort();
+    files.insert(
+        "README-fabrication.txt".into(),
+        fab_export::fab_readme_text(p, &names)?,
+    );
+    Ok(files)
+}
+
+/// Fabrication files with a pinned Gerber job creation timestamp for packages.
+pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
+    let mut files = gerber_files(p)?;
+    let job = gerber_job::gerber_job_at(p, &files, creation)?;
+    files.insert("pcb-job.gbrjob".into(), job);
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
@@ -8106,6 +8198,7 @@ mod tests {
                 "pcb-F.Paste.gbr",
                 "pcb-NPTH.drl",
                 "pcb-Plated.drl",
+                "pcb-job.gbrjob",
             ]
         );
         for key in files.keys() {
