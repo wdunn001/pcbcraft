@@ -1,0 +1,15 @@
+---
+description: PCBCraft invariants for every agent session
+alwaysApply: true
+---
+
+# PCBCraft core
+
+Full rules: repository root `AGENTS.md`. Architecture: `docs/architecture.md`.
+
+- **Base:** fork `wdunn001/pcbcraft` `main`. Issues on `tangency-labs/pcbcraft`.
+- **CI proof:** green GitHub Actions on the fork for your pushed commit (required). Local `cargo xtask ci` optional (`docs/ci.md`).
+- **Engine:** typed commands only; invalid batches leave state untouched; no production panics/unwrap.
+- **UI shell lane:** do not edit `crates/ui-egui/src/lib.rs` unless issue tag `conflict:ui-egui-lib` and you hold that lane.
+- **One window, MCP-first, crate layering** — see AGENTS.md (no egui in lower crates).
+- **Never** name other EDA products; **never** open PRs or push to `main` as a worker.

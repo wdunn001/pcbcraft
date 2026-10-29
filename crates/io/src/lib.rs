@@ -6,10 +6,15 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod board_mesh;
 mod dxf;
 mod gerber;
 mod library_render;
 mod stencil;
+pub use board_mesh::{
+    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
+    ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
+};
 pub use gerber::gerber_copper;
 pub use stencil::{
     cut_path_export_text, cut_paths, cut_paths_dxf, cut_paths_svg, stencil_apertures,
