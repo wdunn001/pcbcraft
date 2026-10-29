@@ -1,0 +1,67 @@
+# Snap package (pcbcraft-<dist-tag>-linux-<arch>.snap on GitHub release drafts). Build with
+# packaging/linux/snap-pack.sh. Repackages the Linux tarball from package.sh instead of
+# compiling Rust in snapcraft. snap-pack.sh unpacks the tarball into stage/ and writes the
+# package version to version.txt.
+# Adapted from SolidCraft packaging (bherbruck/solidcraft; MIT OR Apache-2.0; see ATTRIBUTION.md).
+name: pcbcraft
+title: PCBCraft
+summary: Open-source Rust PCB design
+description: |
+  PCBCraft is an open-source PCB design application written in Rust. Capture schematics,
+  place and route a board, run design checks, and export fabrication-ready output.
+
+  - Unified schematic and PCB editing in one window
+  - Symbol and footprint libraries with import workflows
+  - Routing, design rules, and headless checks via pcbcraft-cli
+  - MCP server for agent-driven workflows
+
+  The command-line tool is `pcbcraft.cli` (for example `pcbcraft.cli help`).
+adopt-info: pcbcraft
+license: GPL-3.0-or-later
+contact: https://github.com/tangency-labs/pcbcraft/issues
+website: https://github.com/tangency-labs/pcbcraft
+source-code: https://github.com/tangency-labs/pcbcraft
+issues: https://github.com/tangency-labs/pcbcraft/issues
+icon: stage/share/icons/hicolor/512x512/apps/io.github.tangency-labs.pcbcraft.png
+base: core24
+grade: stable
+confinement: strict
+compression: lzo
+platforms:
+  amd64:
+  arm64:
+
+apps:
+  pcbcraft:
+    command: usr/bin/pcbcraft
+    desktop: usr/share/applications/io.github.tangency-labs.pcbcraft.desktop
+    common-id: io.github.tangency-labs.pcbcraft
+    extensions: [gnome]
+    plugs:
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - opengl
+      - home
+      - removable-media
+      - network
+      - network-bind
+  cli:
+    command: usr/bin/pcbcraft-cli
+    plugs: [home, removable-media, network, network-bind]
+
+parts:
+  pcbcraft:
+    plugin: dump
+    source: stage
+    organize:
+      bin/: usr/bin/
+      share/: usr/share/
+    override-pull: |
+      craftctl default
+      craftctl set version="$(cat "$CRAFT_PROJECT_DIR/version.txt")"
+    override-prime: |
+      craftctl default
+      sed -i 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/256x256/apps/io.github.tangency-labs.pcbcraft.png|' \
+        usr/share/applications/io.github.tangency-labs.pcbcraft.desktop
