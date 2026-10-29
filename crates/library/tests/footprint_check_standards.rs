@@ -94,6 +94,8 @@ fn symbol_duplicate_position_is_reported() {
         electrical_type: "passive".into(),
         unit: 1,
         body_style: 1,
+        graphical_style: "line".into(),
+        visible: true,
     };
     let def = SymbolDefinition {
         name: "U".into(),
@@ -138,6 +140,8 @@ fn symbol_side_warning_for_top_pins() {
                 electrical_type: "passive".into(),
                 unit: 1,
                 body_style: 1,
+                graphical_style: "line".into(),
+                visible: true,
             })
             .collect(),
         graphics: vec![],

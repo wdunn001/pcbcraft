@@ -149,6 +149,8 @@ mod tests {
             electrical_type: electrical_type.into(),
             unit: 1,
             body_style: 1,
+            graphical_style: "line".into(),
+            visible: true,
         }
     }
 
