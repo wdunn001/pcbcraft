@@ -340,7 +340,7 @@ pub fn zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     Ok(zip)
 }
 
-/// Build a stored (uncompressed) ZIP file from named byte entries.
+/// Build a stored ZIP from named byte entries (wasm and browser hosts).
 pub fn zip_named(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>, String> {
     zip_entries(entries)
 }
