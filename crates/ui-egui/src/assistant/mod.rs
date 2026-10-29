@@ -27,7 +27,9 @@ pub(crate) fn tab_label(waiting: usize) -> String {
 }
 
 /// Tooltip of the Assistant tab.
-pub(crate) const TAB_TIP: &str = text::TAB_TIP;
+pub(crate) fn tab_tip() -> String {
+    text::tab_tip()
+}
 
 /// What the desktop or web shell offers the assistant. `None` means the shell has no such thing.
 #[derive(Clone, Default)]
@@ -55,10 +57,24 @@ pub(crate) struct State {
     sent: Option<pcbcraft_assistant::Sent>,
     /// The text of the last context note (shown under "Show what was sent").
     pub(crate) last_note: String,
+    /// Items in the saved file, to report only a change.
+    saved_items: usize,
+    /// Rows and height at the last frame, to scroll to the newest row when they change.
+    pub(crate) seen: (usize, i32),
+    /// Waiting for the answer to "Forget this conversation?".
+    pub(crate) confirm_forget: bool,
+    /// Open the Assistant part of Settings on the next frame.
+    pub(crate) settings_open: bool,
     pub(crate) host: Host,
     backend: Option<Box<dyn ChatBackend>>,
     ready: bool,
     busy: bool,
+    /// The last message was stopped by the user.
+    stopped: bool,
+    /// The last message ended because the endpoint failed.
+    pub(crate) failed: bool,
+    /// The last message sent, for Retry.
+    last_prompt: String,
     turn: Option<Turn>,
     tools: (Sender<ToolRequest>, Receiver<ToolRequest>),
     waiting: Vec<Waiting>,
@@ -81,10 +97,17 @@ impl Default for State {
             attach: false,
             sent: None,
             last_note: String::new(),
+            saved_items: 0,
+            seen: (0, 0),
+            confirm_forget: false,
+            settings_open: false,
             host: Host::default(),
             backend: None,
             ready: false,
             busy: false,
+            stopped: false,
+            failed: false,
+            last_prompt: String::new(),
             turn: None,
             tools: channel(),
             waiting: Vec::new(),
@@ -106,6 +129,7 @@ pub(crate) enum Phase {
     Ready,
     Working,
     Waiting,
+    Stopped,
 }
 
 impl State {
@@ -122,6 +146,8 @@ impl State {
             Phase::Off
         } else if !self.waiting.is_empty() {
             Phase::Waiting
+        } else if self.ready && self.stopped {
+            Phase::Stopped
         } else if self.busy {
             Phase::Working
         } else if self.ready {
@@ -242,6 +268,9 @@ impl App {
 
     /// Show or hide the Assistant tab (Ctrl+Shift+A).
     pub(crate) fn assistant_toggle(&mut self) {
+        if !shown(self) {
+            return;
+        }
         self.preferences.aside_lower_tab = u8::from(self.preferences.aside_lower_tab != 1);
     }
 
@@ -267,6 +296,9 @@ impl App {
     }
 
     fn assistant_prompt(&mut self, text: String) {
+        self.assistant.stopped = false;
+        self.assistant.failed = false;
+        self.assistant.last_prompt = text.clone();
         let (revision, history) = self
             .session
             .lock()
@@ -380,8 +412,19 @@ impl App {
         for id in waiting {
             self.assistant_answer(id, false, false);
         }
+        if self.assistant.busy {
+            self.assistant.stopped = true;
+        }
         if let Some(b) = self.assistant.backend.as_mut() {
             b.cancel();
+        }
+    }
+
+    /// Send the last message again after the endpoint failed.
+    pub(crate) fn assistant_retry(&mut self) {
+        let text = self.assistant.last_prompt.clone();
+        if self.assistant.failed && !text.is_empty() && !self.assistant.busy {
+            self.assistant_prompt(text);
         }
     }
 
@@ -424,7 +467,7 @@ impl App {
             let change = pcbcraft_assistant::edits_design(&held.request.name, &held.request.args);
             self.assistant_admit_and_run(held.request, change);
         } else {
-            let _ = held.request.reply.send(error_result(text::DENIED_NOTE));
+            let _ = held.request.reply.send(error_result(&text::denied_note()));
         }
     }
 
@@ -564,6 +607,7 @@ impl App {
                 undone: false,
             });
         }
+        self.assistant_save();
     }
 
     /// Called once per frame: apply what the backend reported and answer its tool calls.
@@ -577,7 +621,10 @@ impl App {
         for event in events {
             match event {
                 Event::Ready { .. } => self.assistant.ready = true,
-                Event::TurnEnded { .. } => self.assistant_finish_turn(),
+                Event::TurnEnded { reason } => {
+                    self.assistant.failed = reason == "error";
+                    self.assistant_finish_turn();
+                }
                 Event::Exited { .. } => {
                     self.assistant_finish_turn();
                     self.assistant.backend = None;
@@ -603,19 +650,87 @@ impl App {
         }
     }
 
-    /// A design was opened or replaced: questions about the old one are declined.
-    pub(crate) fn assistant_design_opened(&mut self) {
-        if self.assistant.transcript.items.is_empty() && self.assistant.waiting.is_empty() {
-            return;
-        }
+    /// A design was opened or replaced: questions about the old one are declined. Opening a
+    /// file brings back that design's saved conversation; a new or example design starts empty.
+    pub(crate) fn assistant_design_opened(&mut self, name: &str) {
         let waiting: Vec<u64> = self.assistant.waiting.iter().map(|w| w.id).collect();
         for id in waiting {
             self.assistant_answer(id, false, false);
         }
-        self.assistant.transcript.push(Item::Note {
-            text: text::NEW_DESIGN_NOTE.into(),
-            error: false,
-        });
+        if name == "open" {
+            self.assistant_load();
+        } else if !self.assistant.transcript.items.is_empty() {
+            self.assistant.transcript.push(Item::Note {
+                text: text::new_design_note(),
+                error: false,
+            });
+        }
+    }
+
+    fn transcript_file(&self) -> Option<std::path::PathBuf> {
+        pcbcraft_assistant::transcript_path(Some(self.path.as_str()))
+    }
+
+    /// Write this design's conversation outside the design file. Does nothing for a design
+    /// without a path or an empty conversation.
+    pub(crate) fn assistant_save(&mut self) {
+        let Some(file) = self.transcript_file() else {
+            return;
+        };
+        if self.assistant.transcript.items.is_empty() {
+            return;
+        }
+        match pcbcraft_assistant::save_transcript(&self.assistant.transcript.items, &file) {
+            Ok(n) if n != self.assistant.saved_items => {
+                self.assistant.saved_items = n;
+                self.message = text::transcript_saved(n);
+            }
+            Ok(_) => {}
+            Err(e) => self.message = e,
+        }
+    }
+
+    /// Replace the conversation with the one saved for the current design (empty when none).
+    pub(crate) fn assistant_load(&mut self) {
+        let items = self
+            .transcript_file()
+            .map(|f| pcbcraft_assistant::load_transcript(&f).0)
+            .unwrap_or_default();
+        self.assistant.saved_items = items.len();
+        self.assistant.transcript.items = items;
+    }
+
+    /// Forget the conversation and its file; the design is untouched.
+    pub(crate) fn assistant_forget(&mut self) {
+        self.assistant.transcript.items.clear();
+        self.assistant.saved_items = 0;
+        if let Some(file) = self.transcript_file() {
+            pcbcraft_assistant::clear_transcript(&file);
+        }
+    }
+
+    /// Save the conversation as Markdown beside the design (or in the home folder when the
+    /// design has no path yet) and say where it went.
+    pub(crate) fn assistant_export(&mut self) {
+        let name = self.project.name.clone();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let markdown =
+            pcbcraft_assistant::export_markdown(&self.assistant.transcript.items, &name, now);
+        let folder = std::path::Path::new(&self.path)
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(std::env::temp_dir);
+        let target = folder.join(format!(
+            "{}-assistant.md",
+            name.replace(['/', '\\', ' '], "-")
+        ));
+        self.message = match std::fs::write(&target, markdown) {
+            Ok(()) => text::exported(&target.display().to_string()),
+            Err(e) => e.to_string(),
+        };
     }
 
     /// Undo the last message's changes with one `undo` (the Undo button of a finished message).
