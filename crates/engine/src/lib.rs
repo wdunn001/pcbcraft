@@ -2,6 +2,7 @@
 mod authoring;
 pub mod library;
 pub mod recents;
+pub mod recovery;
 mod route;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
@@ -2012,30 +2013,24 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                     }
                 }
             }
-            "part count above"
-                if p.components.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} parts, over the limit of {} in \"{}\"",
-                            p.components.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
-            "via count above"
-                if p.board.vias.len() as f64 > c.limit => {
-                    breach(
-                        vec![],
-                        format!(
-                            "The board has {} vias, over the limit of {} in \"{}\"",
-                            p.board.vias.len(),
-                            c.limit as u32,
-                            c.name
-                        ),
-                    )
-                }
+            "part count above" if p.components.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} parts, over the limit of {} in \"{}\"",
+                    p.components.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
+            "via count above" if p.board.vias.len() as f64 > c.limit => breach(
+                vec![],
+                format!(
+                    "The board has {} vias, over the limit of {} in \"{}\"",
+                    p.board.vias.len(),
+                    c.limit as u32,
+                    c.name
+                ),
+            ),
             "net track count above" => {
                 for n in &p.nets {
                     let count = p.board.tracks.iter().filter(|t| t.net == n.id).count();
@@ -26895,33 +26890,6 @@ mod tests {
             json!({"name": "LM358", "pin": pin("9", "NC", 5.08)}),
             None,
         )?;
-        eprintln!(
-            "dbg start={start} nums={:?}",
-            s.project.library.symbols[0]
-                .pins
-                .iter()
-                .map(|q| q.number.clone())
-                .collect::<Vec<_>>()
-        );
-        eprintln!("dbg added={added:?}");
-        eprintln!(
-            "dbg post nums={:?}",
-            s.project.library.symbols[0]
-                .pins
-                .iter()
-                .map(|q| (q.number.clone(), q.name.clone(), q.unit, q.body_style))
-                .collect::<Vec<_>>()
-        );
-        eprintln!(
-            "dbg symbols={} names={:?}",
-            s.project.library.symbols.len(),
-            s.project
-                .library
-                .symbols
-                .iter()
-                .map(|q| (q.name.clone(), q.pins.len()))
-                .collect::<Vec<_>>()
-        );
         assert_eq!(added["result"]["added"], json!(true));
         assert_eq!(added["result"]["pins"], json!(start + 1));
         assert_eq!(pin_name(&s, "9").as_deref(), Some("NC"));

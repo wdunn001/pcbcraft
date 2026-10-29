@@ -9,21 +9,21 @@ use std::path::Path;
 mod board_mesh;
 mod gerber;
 mod library_render;
+mod migrate;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use gerber::gerber_copper;
 use library_render::*;
+pub use migrate::{CURRENT_VERSION, migrate, read_project};
 pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Read a design file, running its format migrations first.
 pub fn load(path: &Path) -> Result<Project, String> {
-    let text = read_text(path)?;
-    let project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    project.validate()?;
-    Ok(project)
+    read_project(&read_text(path)?)
 }
 pub fn read_text(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
@@ -265,12 +265,7 @@ pub fn archive_project(bytes: &[u8]) -> Result<Project, String> {
     }
     let design = design.ok_or_else(|| "archive holds no design.json".to_string())?;
     let text = std::str::from_utf8(design).map_err(|_| "design.json is not UTF-8".to_string())?;
-    let project: Project =
-        serde_json::from_str(text).map_err(|e| format!("design.json is invalid: {e}"))?;
-    project
-        .validate()
-        .map_err(|e| format!("archived design is invalid: {e}"))?;
-    Ok(project)
+    read_project(text).map_err(|e| format!("design.json is invalid: {e}"))
 }
 
 /// A small vector PDF writer: the drawing is collected as path and text

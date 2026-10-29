@@ -668,8 +668,152 @@ pub struct App {
     capture: Option<String>,
     frames: u32,
     library: library::Browser,
+    /// This design's autosave slot, while the desktop has a recovery folder.
+    autosave: Option<pcbcraft_engine::recovery::Autosaver>,
+    /// Snapshots a killed app left behind, newest first.
+    recovery_offer: Vec<pcbcraft_engine::recovery::Entry>,
+    /// True while the offer window is up for the designer to answer.
+    recovery_open: bool,
+    /// The folder this window autosaves into and offers snapshots from.
+    recovery_dir: Option<std::path::PathBuf>,
 }
 impl App {
+    /// How long ago a snapshot was written, in words.
+    fn ago(saved_at: u64) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let seconds = now.saturating_sub(saved_at);
+        match seconds {
+            0..=59 => "just now".into(),
+            60..=3599 => format!("{} minutes ago", seconds / 60),
+            3600..=86399 => format!("{} hours ago", seconds / 3600),
+            _ => format!("{} days ago", seconds / 86400),
+        }
+    }
+
+    /// The window that offers work a killed app left behind, newest first. It
+    /// asks rather than restoring silently, and answering either way clears the
+    /// snapshot it names.
+    fn recovery_window(&mut self, ui: &mut egui::Ui) {
+        if !self.recovery_open {
+            return;
+        }
+        let Some(dir) = self.recovery_dir.clone() else {
+            self.recovery_open = false;
+            return;
+        };
+        let entries = self.recovery_offer.clone();
+        let mut open = true;
+        let mut chose: Option<(String, bool)> = None;
+        let muted = self.muted();
+        egui::Window::new("Pick up where you left off")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ui, |ui| {
+                ui.label(
+                    "PCBCraft closed before this work was saved. Recover it, or throw the snapshot away.",
+                );
+                ui.add_space(6.0);
+                if entries.is_empty() {
+                    ui.label("Nothing is left to recover.");
+                }
+                for entry in &entries {
+                    let what = match &entry.path {
+                        Some(path) => format!("{} · {} · {} pads", entry.name, path, entry.pads),
+                        None => format!("{} · never saved · {} pads", entry.name, entry.pads),
+                    };
+                    egui::Frame::group(ui.style())
+                        .inner_margin(10.0)
+                        .show(ui, |ui| {
+                            ui.label(egui::RichText::new(what).strong());
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "saved {} · revision {}",
+                                    Self::ago(entry.saved_at),
+                                    entry.revision
+                                ))
+                                .small()
+                                .color(muted),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .button("Recover")
+                                    .on_hover_text(
+                                        "Open this snapshot as the design, as unsaved work you can keep editing or save.",
+                                    )
+                                    .clicked()
+                                {
+                                    chose = Some((entry.id.clone(), true));
+                                }
+                                if ui
+                                    .button("Discard")
+                                    .on_hover_text(
+                                        "Delete this snapshot and its record; the design file on disk is not touched.",
+                                    )
+                                    .clicked()
+                                {
+                                    chose = Some((entry.id.clone(), false));
+                                }
+                            });
+                        });
+                }
+            });
+        if !open {
+            self.recovery_open = false;
+            return;
+        }
+        match chose {
+            Some((id, true)) => self.recover_entry(&dir, &id),
+            Some((id, false)) => {
+                match pcbcraft_engine::recovery::remove(&dir, &id) {
+                    Ok(()) => self.message = "recovery snapshot discarded".into(),
+                    Err(e) => self.message = e,
+                }
+                self.recovery_offer = pcbcraft_engine::recovery::orphans(&dir);
+                self.recovery_open = !self.recovery_offer.is_empty();
+            }
+            None => {}
+        }
+    }
+
+    /// Open one snapshot as the design, counted as unsaved work so a save or a
+    /// further edit decides what happens to the file it came from.
+    fn recover_entry(&mut self, dir: &std::path::Path, id: &str) {
+        let (project, entry) = match pcbcraft_engine::recovery::load(dir, id) {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                self.message = e;
+                self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
+                self.recovery_open = !self.recovery_offer.is_empty();
+                return;
+            }
+        };
+        let replaced = self
+            .session
+            .lock()
+            .map_err(|_| "the design is busy".to_string())
+            .and_then(|mut s| s.replace(project).map_err(|e| e.to_string()));
+        match replaced {
+            Ok(_) => {
+                let _ = pcbcraft_engine::recovery::remove(dir, id);
+                self.saved_revision = None;
+                self.needs_fit = true;
+                self.refresh();
+                self.message = format!(
+                    "recovered {} from {}",
+                    entry.name,
+                    Self::ago(entry.saved_at)
+                );
+            }
+            Err(e) => self.message = e,
+        }
+        self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
+        self.recovery_open = !self.recovery_offer.is_empty();
+    }
+
     /// One library part offered as a small card: its name to pick, and a
     /// plain line saying what it is and what it answers to when searched.
     fn part_card(&mut self, ui: &mut egui::Ui, definition: &pcbcraft_library::SymbolDefinition) {
@@ -844,12 +988,14 @@ impl App {
         if light {
             preferences.dark = false;
         }
+        // The browser has no recovery folder, so it keeps one slot in the
+        // page's own storage. Everywhere else the offer window asks first.
+        #[cfg(target_arch = "wasm32")]
         if let Some(text) = cc
             .storage
             .and_then(|storage| storage.get_string("recovery"))
             && text.len() <= pcbcraft_io_limit()
-            && let Ok(project) = serde_json::from_str::<Project>(&text)
-            && project.validate().is_ok()
+            && let Ok(project) = pcbcraft_io::read_project(&text)
             && let Ok(mut current) = session.lock()
             && current.revision == 0
             && current.project.components.is_empty()
@@ -859,6 +1005,7 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
+        app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         app
     }
     fn create(
@@ -867,6 +1014,19 @@ impl App {
         capture: Option<String>,
         tab: Option<&str>,
     ) -> Self {
+        Self::create_with_recovery(session, preferences, capture, tab, recovery_dir())
+    }
+
+    /// `create` with the recovery folder named, so a test can point the offer
+    /// at its own folder without touching the machine's.
+    fn create_with_recovery(
+        session: SharedSession,
+        preferences: Preferences,
+        capture: Option<String>,
+        tab: Option<&str>,
+        recovery: Option<std::path::PathBuf>,
+    ) -> Self {
+        let (autosave, recovery_offer) = recovery_slots(recovery.as_deref());
         let project = session
             .lock()
             .map(|s| s.project.clone())
@@ -1008,16 +1168,34 @@ impl App {
             capture,
             frames: 0,
             library,
+            autosave,
+            recovery_open: !recovery_offer.is_empty(),
+            recovery_offer,
+            recovery_dir: recovery,
         }
     }
     fn refresh(&mut self) {
+        // The autosave goes out with the same lock that takes the snapshot, so
+        // what lands in the recovery folder is a revision the window has seen.
+        let mut autosave = self.autosave.take();
+        let saved = self.saved_revision;
+        let mut autosave_error: Option<String> = None;
         let snapshot = self.session.lock().ok().and_then(|s| {
             if s.revision != self.revision {
+                if let Some(slot) = autosave.as_mut()
+                    && let Err(e) = slot.tick(&s, saved)
+                {
+                    autosave_error = Some(e);
+                }
                 Some((s.project.clone(), s.revision, s.checks()))
             } else {
                 None
             }
         });
+        self.autosave = autosave;
+        if let Some(error) = autosave_error {
+            self.message = format!("autosave: {error}");
+        }
         if let Some((p, r, checks)) = snapshot {
             self.project = p;
             self.revision = r;
@@ -6334,6 +6512,7 @@ impl App {
         self.shortcuts(&ctx);
         self.header(ui);
         self.footer(ui);
+        self.recovery_window(ui);
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -6373,6 +6552,9 @@ impl eframe::App for App {
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, "preferences", &self.preferences);
+        // The desktop autosaves into the recovery folder (see `recovery`);
+        // only the browser still needs the page's own storage for it.
+        #[cfg(target_arch = "wasm32")]
         if let Ok(session) = self.session.lock()
             && let Ok(text) = serde_json::to_string(&session.project)
             && text.len() <= pcbcraft_io_limit()
@@ -6381,6 +6563,59 @@ impl eframe::App for App {
         }
     }
 }
+
+/// Closing the window with everything saved leaves no recovery entry behind;
+/// closing with unsaved work leaves it for the next launch to offer.
+impl Drop for App {
+    fn drop(&mut self) {
+        let Some(slot) = self.autosave.take() else {
+            return;
+        };
+        let saved = self.saved_revision;
+        match self.session.lock() {
+            Ok(session) => slot.close(&session, saved),
+            Err(_) => slot.discard(),
+        }
+    }
+}
+/// The recovery folder this build reads and writes: the real one on a desktop,
+/// and in a test run only a folder a test pointed the override at, so a test
+/// never sees or writes the user's own snapshots.
+#[cfg(not(target_arch = "wasm32"))]
+fn recovery_dir() -> Option<std::path::PathBuf> {
+    let pointed = pcbcraft_engine::recovery::override_dir();
+    if cfg!(test) {
+        pointed
+    } else {
+        pointed.or_else(|| pcbcraft_engine::recovery::default_dir().ok())
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn recovery_dir() -> Option<std::path::PathBuf> {
+    None
+}
+
+/// This design's autosave slot, and the snapshots a killed app left in the same
+/// folder, newest first. The offer is read before the slot takes its own lock,
+/// so this session's empty entry is never one of them.
+fn recovery_slots(
+    dir: Option<&std::path::Path>,
+) -> (
+    Option<pcbcraft_engine::recovery::Autosaver>,
+    Vec<pcbcraft_engine::recovery::Entry>,
+) {
+    let Some(dir) = dir else {
+        return (None, Vec::new());
+    };
+    let offer = pcbcraft_engine::recovery::orphans(dir);
+    match pcbcraft_engine::recovery::Autosaver::new(dir) {
+        Ok(slot) => (Some(slot), offer),
+        Err(_) => (None, offer),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
 }
@@ -6785,7 +7020,11 @@ mod tests {
         authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         assert!(
-            app.project.board.outline.is_none_or(|o| o.len() < 3),
+            app.project
+                .board
+                .outline
+                .as_ref()
+                .is_none_or(|o| o.len() < 3),
             "the board is a plain rectangle again"
         );
         let _ = std::fs::remove_file(&file);
@@ -8175,6 +8414,250 @@ mod tests {
             "each checks group should say in plain words what it looks at: {}",
             app.message
         );
+        Ok(())
+    }
+
+    /// A board of ten thousand pads: forty packages of 256 pads each, spread
+    /// over the board with a track between neighbours, so the checks and a
+    /// window frame have real work to do.
+    fn large_board() -> Result<Project, String> {
+        let mut project = Project::default();
+        project.board.width = 240.0;
+        project.board.height = 180.0;
+        for net in 1..=8 {
+            project.nets.push(pcbcraft_doc::Net {
+                id: net,
+                name: format!("net {net}"),
+                ..Default::default()
+            });
+        }
+        // A package is a component of 64 pins and the placed footprint that
+        // holds them, laid out as an 8 by 8 pad grid.
+        let (columns, rows, spacing, packages) = (8u64, 8u64, 1.2, 160u64);
+        for package in 0..packages {
+            let id = 10 + package;
+            let origin = Point::new(
+                8.0 + (package % 16) as f64 * 14.0,
+                8.0 + (package / 16) as f64 * 17.0,
+            );
+            let mut pins = Vec::new();
+            let mut pads = Vec::new();
+            for pad in 0..columns * rows {
+                let number = (pad + 1).to_string();
+                let net = 1 + (pad % 8);
+                let offset = Point::new(
+                    (pad % columns) as f64 * spacing,
+                    (pad / columns) as f64 * spacing,
+                );
+                pins.push(pcbcraft_doc::Pin {
+                    number: number.clone(),
+                    name: number.clone(),
+                    offset,
+                    net: Some(net),
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                });
+                pads.push(pcbcraft_doc::Pad {
+                    number,
+                    offset,
+                    diameter: 0.8,
+                    net: Some(net),
+                    castellated: None,
+                    geometry: None,
+                });
+            }
+            project.components.push(pcbcraft_doc::Component {
+                id,
+                reference: format!("J{id}"),
+                value: "header".into(),
+                kind: "connector".into(),
+                position: origin,
+                rotation: 0.0,
+                pins,
+                units: Vec::new(),
+                library_symbol: None,
+                library_footprint: None,
+                fields: Vec::new(),
+                sheet: 0,
+            });
+            project.board.footprints.push(pcbcraft_doc::Footprint {
+                id: 2000 + package,
+                component: id,
+                position: origin,
+                rotation: 0.0,
+                locked: None,
+                pads,
+            });
+        }
+        // Copper between neighbours, so the airwire pass has work too.
+        for track in 0..400u64 {
+            let start = Point::new(
+                8.0 + (track % 16) as f64 * 14.0,
+                16.0 + (track / 16) as f64 * 17.0,
+            );
+            project.board.tracks.push(pcbcraft_doc::Track {
+                id: 5000 + track,
+                net: 1 + (track % 8),
+                start,
+                end: Point::new(start.x + 6.0, start.y),
+                width: 0.25,
+                layer: pcbcraft_doc::Layer::Front,
+                arc: None,
+            });
+        }
+        project.validate()?;
+        Ok(project)
+    }
+
+    /// The large-board bench: ten thousand pads through the copper checks and
+    /// a selection and pan frame, inside a budget that a shared runner can
+    /// still meet. Ignored in the normal run because the dev profile has no
+    /// optimisation; `cargo xtask bench` runs it in release.
+    #[test]
+    #[ignore = "timed bench: run with cargo xtask bench"]
+    fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
+        use std::time::{Duration, Instant};
+        let project = large_board()?;
+        let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
+        assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
+        // The structural promise of the broad phase: neighbouring copper only.
+        let (pairs, items) = pcbcraft_rules::copper_pair_candidates(&project);
+        assert!(
+            pairs <= items * 40,
+            "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
+        );
+        let started = Instant::now();
+        let findings = pcbcraft_rules::drc(&project);
+        let checks = started.elapsed();
+        assert!(
+            !findings.is_empty(),
+            "the bench board is dense enough to report findings"
+        );
+        let started = Instant::now();
+        let airwires = pcbcraft_rules::airwires(&project);
+        let wires = started.elapsed();
+        assert!(
+            airwires.len() <= items,
+            "one airwire per extra island at most"
+        );
+        eprintln!(
+            "bench: {items} copper items, {pairs} candidate pairs, checks {checks:?}, airwires {wires:?} ({} wires)",
+            airwires.len()
+        );
+        // A window frame with this board on the PCB tab: paint, then a pan.
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        shared
+            .lock()
+            .map_err(|_| "the design is busy".to_string())?
+            .replace(project)
+            .map_err(|e| e.to_string())?;
+        let mut app =
+            App::create_with_recovery(shared, Preferences::default(), None, Some("pcb"), None);
+        app.refresh();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let started = Instant::now();
+        for step in 0..5 {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(egui::pos2(600.0 + step as f32, 500.0)),
+                    egui::Event::PointerButton {
+                        pos: egui::pos2(600.0, 500.0),
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+                egui::Modifiers::NONE,
+            );
+        }
+        let painted = started.elapsed();
+        // Generous ceilings: a shared runner is several times slower than a
+        // workstation, and a regression of the old quadratic scans is minutes.
+        assert!(
+            checks < Duration::from_secs(20),
+            "the copper checks on ten thousand pads took {checks:?}"
+        );
+        assert!(
+            painted < Duration::from_secs(20),
+            "five selection frames on ten thousand pads took {painted:?}"
+        );
+        eprintln!("bench: five frames {painted:?}");
+        Ok(())
+    }
+
+    /// A killed app leaves a snapshot behind; the next launch asks before it
+    /// opens it, and saying yes brings the work back as unsaved changes.
+    #[test]
+    fn a_newcomer_gets_offered_the_work_a_crash_left_behind() -> Result<(), String> {
+        let dir = std::env::temp_dir().join(format!("pcbcraft-ui-recovery-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // A design somebody was drawing when the app died: one connection and
+        // one track, autosaved, and then the process went away.
+        let crashed = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        {
+            let mut session = crashed
+                .lock()
+                .map_err(|_| "the design is busy".to_string())?;
+            let net = session
+                .execute("net.create", json!({"name": "SIG"}), None)
+                .map_err(|e| e.to_string())?["result"]["id"]
+                .as_u64()
+                .ok_or("a new connection has an id")?;
+            session
+                .execute(
+                    "track.add",
+                    json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.3,"layer":"F.Cu"}),
+                    None,
+                )
+                .map_err(|e| e.to_string())?;
+            let mut slot = pcbcraft_engine::recovery::Autosaver::new(&dir)?;
+            slot.tick(&session, None)?;
+            // Dropping the slot is the crash: the lock goes, the snapshot stays.
+        }
+        assert!(
+            !pcbcraft_engine::recovery::orphans(&dir).is_empty(),
+            "the snapshot outlives the app"
+        );
+
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create_with_recovery(
+            shared,
+            Preferences::default(),
+            None,
+            None,
+            Some(dir.clone()),
+        );
+        let ctx = egui::Context::default();
+        assert!(
+            paints_text(&ctx, &mut app, "Pick up where you left off")?,
+            "the next launch should ask instead of restoring silently"
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "never saved")?,
+            "the offer should say what is in the snapshot: {}",
+            app.message
+        );
+        authoring::tests::tap(&ctx, &mut app, "Recover")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert_eq!(
+            app.project.board.tracks.len(),
+            1,
+            "the snapshot is open again: {}",
+            app.message
+        );
+        assert_eq!(
+            app.saved_revision, None,
+            "recovered work counts as unsaved until it is saved"
+        );
+        assert!(
+            pcbcraft_engine::recovery::orphans(&dir).is_empty(),
+            "the snapshot that was opened is not offered again"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
 

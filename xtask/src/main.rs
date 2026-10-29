@@ -13,6 +13,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
+  bench        timed large-board bench (release, ignored tests)
   wasm         WebAssembly check of the shared UI and browser entry point
   docs         rustdoc with warnings denied
   deny         cargo-deny licenses, advisories, bans and sources
@@ -104,6 +105,23 @@ fn clippy() -> Result<(), String> {
         "--",
         "-D",
         "warnings",
+    ])
+}
+
+fn bench() -> Result<(), String> {
+    // Release, because the dev profile has no optimisation and the budget is
+    // about the real build. The bench boards live in the UI crate's tests,
+    // where every layer is reachable, and are ignored in the normal run.
+    cargo(&[
+        "test",
+        "--release",
+        "--locked",
+        "-p",
+        "pcbcraft-ui-egui",
+        "--lib",
+        "--",
+        "--ignored",
+        "large_board_",
     ])
 }
 
@@ -424,6 +442,7 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "bench" => bench()?,
         "wasm" => wasm()?,
         "docs" => docs()?,
         "deny" => deny()?,
