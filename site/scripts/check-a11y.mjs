@@ -3,7 +3,7 @@
 // Context: needs playwright-core and axe-core (see PW_DIR below); run on the build host inside the
 // Playwright image, not on the laptop. Serves dist/ under the configured base like a project
 // Pages site. Exits 1 on any axe violation of impact serious or critical, or any broken click.
-// Run: PW_DIR=/tmp/pw SITE_BASE=/pcbcraft/ node scripts/check-a11y.mjs [--shots out/]
+// Run: PW_DIR=/tmp/pw SITE_BASE=/ node scripts/check-a11y.mjs [--shots out/]
 // Do not: relax the impact filter to pass; fix the page.
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -16,7 +16,7 @@ const { chromium } = require('playwright-core');
 const axeSource = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
 
 const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const rawBase = process.env.SITE_BASE || '/pcbcraft/';
+const rawBase = process.env.SITE_BASE || '/';
 const base = rawBase === '/' ? '/' : `/${rawBase.replace(/^\/+|\/+$/g, '')}/`;
 const shotsIdx = process.argv.indexOf('--shots');
 const shotsDir = shotsIdx > 0 ? process.argv[shotsIdx + 1] : null;

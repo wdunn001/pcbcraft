@@ -1,14 +1,14 @@
 // Link gate over the built site. Context: reads every dist/**/*.html, takes each href and src
-// that starts with the configured base (SITE_BASE, default /pcbcraft/) and checks the target
+// that starts with the configured base (SITE_BASE, default /) and checks the target
 // file exists in dist/. Also fails on root-absolute links that skip the base.
-// Run: `SITE_BASE=/pcbcraft/ node scripts/check-links.mjs` after `npm run build`.
+// Run: `SITE_BASE=/ node scripts/check-links.mjs` after `npm run build`.
 // Do not: follow external links (no network in CI for this check).
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
-const rawBase = process.env.SITE_BASE || '/pcbcraft/';
+const rawBase = process.env.SITE_BASE || '/';
 const base = rawBase === '/' ? '/' : `/${rawBase.replace(/^\/+|\/+$/g, '')}/`;
 
 function* walk(dir) {

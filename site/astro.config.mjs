@@ -1,14 +1,15 @@
 // Astro + Starlight config. Context: static site for PCBCraft, marketing front at `/`
 // (src/pages), documentation under `/docs/` (src/content/docs/docs).
 // Rules: `site` and `base` come from SITE_URL and SITE_BASE so one dist/ fits any host.
-// Defaults are the owner's choice: GitHub Pages on the fork, https://wdunn001.github.io/pcbcraft/.
+// Defaults are the owner's choice: https://pcbcraft.net served from the owner's server at /.
+// Both stay overridable (a project Pages host needs SITE_BASE=/pcbcraft/).
 // Every internal link goes through url() in src/lib/site.ts so the base is always honoured.
 // Do not add src/content/docs/index.mdx: it would take over `/` from the marketing page.
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-const site = process.env.SITE_URL || 'https://wdunn001.github.io';
-const rawBase = process.env.SITE_BASE || '/pcbcraft/';
+const site = process.env.SITE_URL || 'https://pcbcraft.net';
+const rawBase = process.env.SITE_BASE || '/';
 const base = rawBase === '/' ? '/' : `/${rawBase.replace(/^\/+|\/+$/g, '')}/`;
 
 export default defineConfig({
