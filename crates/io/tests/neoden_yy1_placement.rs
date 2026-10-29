@@ -89,7 +89,7 @@ fn make_component(id: u64, ref_name: &str, kind: &str) -> Component {
 fn native_layout_has_preamble_and_placement_rows() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Native, false)?;
@@ -115,7 +115,7 @@ fn native_layout_has_preamble_and_placement_rows() -> Result<(), String> {
 fn import_layout_has_11_columns() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
@@ -133,7 +133,7 @@ fn import_layout_has_11_columns() -> Result<(), String> {
 fn bottom_side_x_mirrored() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_bottom_footprint(1, 1, 20.0, 15.0, 0.0));
+    p.board.footprints.push(make_bottom_footprint(100, 1, 20.0, 15.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
@@ -148,7 +148,7 @@ fn bottom_side_x_mirrored() -> Result<(), String> {
 fn bottom_side_rotation_negated() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_bottom_footprint(1, 1, 10.0, 10.0, 90.0));
+    p.board.footprints.push(make_bottom_footprint(100, 1, 10.0, 10.0, 90.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
@@ -163,7 +163,7 @@ fn bottom_side_rotation_negated() -> Result<(), String> {
 fn rotation_normalized_to_0_360() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 450.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 450.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
@@ -179,8 +179,8 @@ fn through_hole_parts_omitted() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
     p.components.push(make_component(2, "J1", "Connector"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
-    p.board.footprints.push(make_tht_footprint(2, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_tht_footprint(101, 2, 20.0, 20.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
@@ -198,8 +198,8 @@ fn dnp_parts_skipped_by_default() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
     p.components.push(make_component(2, "U2", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
-    p.board.footprints.push(make_top_footprint(2, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(101, 2, 20.0, 20.0, 0.0));
 
     // Create variant with U2 as DNP
     p.variants.push(Variant {
@@ -225,8 +225,8 @@ fn dnp_parts_included_when_requested() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
     p.components.push(make_component(2, "U2", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
-    p.board.footprints.push(make_top_footprint(2, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(101, 2, 20.0, 20.0, 0.0));
 
     // Create variant with U2 as DNP
     p.variants.push(Variant {
@@ -251,7 +251,7 @@ fn board_size_validation_width() -> Result<(), String> {
     let mut p = make_project();
     p.board.width = 400.0; // Exceeds 350 mm limit
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false);
@@ -269,7 +269,7 @@ fn board_size_validation_height() -> Result<(), String> {
     let mut p = make_project();
     p.board.height = 300.0; // Exceeds 249 mm limit
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false);
@@ -288,9 +288,9 @@ fn feeder_sheet_groups_by_footprint() -> Result<(), String> {
     p.components.push(make_component(1, "R1", "Resistor"));
     p.components.push(make_component(2, "R2", "Resistor"));
     p.components.push(make_component(3, "C1", "Capacitor"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
-    p.board.footprints.push(make_top_footprint(2, 2, 20.0, 20.0, 0.0));
-    p.board.footprints.push(make_top_footprint(3, 3, 30.0, 30.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(101, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(102, 3, 30.0, 30.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::feeder_sheet_neoden_yy1(&p)?;
@@ -311,8 +311,8 @@ fn feeder_sheet_omits_through_hole() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "R1", "Resistor"));
     p.components.push(make_component(2, "J1", "Connector"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
-    p.board.footprints.push(make_tht_footprint(2, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_tht_footprint(101, 2, 20.0, 20.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::feeder_sheet_neoden_yy1(&p)?;
@@ -330,8 +330,8 @@ fn feeder_sheet_omits_dnp() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "R1", "Resistor"));
     p.components.push(make_component(2, "R2", "Resistor"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.0, 10.0, 0.0));
-    p.board.footprints.push(make_top_footprint(2, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(101, 2, 20.0, 20.0, 0.0));
 
     // Create variant with R2 as DNP
     p.variants.push(Variant {
@@ -356,7 +356,7 @@ fn feeder_sheet_omits_dnp() -> Result<(), String> {
 fn coordinates_are_two_decimal_places() -> Result<(), String> {
     let mut p = make_project();
     p.components.push(make_component(1, "U1", "IC"));
-    p.board.footprints.push(make_top_footprint(1, 1, 10.123, 15.456, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 10.123, 15.456, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
@@ -374,9 +374,9 @@ fn multiple_parts_sorted_by_reference() -> Result<(), String> {
     p.components.push(make_component(1, "U2", "IC"));
     p.components.push(make_component(2, "U1", "IC"));
     p.components.push(make_component(3, "R1", "Resistor"));
-    p.board.footprints.push(make_top_footprint(1, 1, 30.0, 30.0, 0.0));
-    p.board.footprints.push(make_top_footprint(2, 2, 20.0, 20.0, 0.0));
-    p.board.footprints.push(make_top_footprint(3, 3, 10.0, 10.0, 0.0));
+    p.board.footprints.push(make_top_footprint(100, 1, 30.0, 30.0, 0.0));
+    p.board.footprints.push(make_top_footprint(101, 2, 20.0, 20.0, 0.0));
+    p.board.footprints.push(make_top_footprint(102, 3, 10.0, 10.0, 0.0));
     p.validate()?;
 
     let result = pcbcraft_io::placement_neoden_yy1(&p, pcbcraft_io::PlacementLayout::Import, false)?;
