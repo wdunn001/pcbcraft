@@ -2,9 +2,9 @@
 mod authoring;
 mod canvas;
 mod library;
-pub use library::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use craft_ui::buttons::{ButtonVisuals, IconButton, IconButtonStyle};
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
+pub use library::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
