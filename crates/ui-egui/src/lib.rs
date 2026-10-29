@@ -3740,7 +3740,7 @@ impl App {
         self.compare_diff = Some(diff);
         self.refresh_compare_tints();
         self.message = if count == 0 {
-            t!("menu.file.compare.matches_baseline").into()
+            t!("menu.file.compare.matches_baseline")
         } else {
             self.catalog
                 .plural("menu.file.compare.changes", count as u64)

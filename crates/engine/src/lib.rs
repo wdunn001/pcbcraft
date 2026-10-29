@@ -15988,10 +15988,29 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn disable_auto_sync(s: &mut Session) {
-        if s.project.auto_sync {
-            s.execute("project.set_auto_sync", json!({"auto_sync": false}), None)
-                .expect("test fixture disables automatic sync");
-        }
+        s.project.auto_sync = false;
+    }
+
+    fn move_footprint_to_component(s: &mut Session, component: Id) -> Result<(), Error> {
+        let position = s
+            .project
+            .component(component)
+            .ok_or_else(missing)?
+            .position;
+        let footprint = s
+            .project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == component)
+            .ok_or_else(missing)?
+            .id;
+        s.execute(
+            "footprint.move",
+            json!({"id": footprint, "position": {"x": position.x, "y": position.y}}),
+            None,
+        )?;
+        Ok(())
     }
 
     static SYM_REFRESH_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -20976,6 +20995,7 @@ mod tests {
             json!({"net":b,"pins":[{"component":r,"pin":"2"}]}),
             None,
         )?;
+        move_footprint_to_component(&mut s, r)?;
         s.execute(
             "track.add",
             json!({"net":b,"start":[8.175,9],"end":[8.175,11],"width":0.2}),
@@ -26744,6 +26764,9 @@ mod tests {
                 None,
             )?;
         }
+        for component in [j1, j2] {
+            move_footprint_to_component(s, component)?;
+        }
         let fp_j1 = s
             .project
             .board
@@ -26768,6 +26791,7 @@ mod tests {
         let gap = 0.3;
         let width = 0.2;
         let mut s = Session::default();
+        disable_auto_sync(&mut s);
         let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
         let before = s.project.board.tracks.len();
         s.execute(
@@ -26819,6 +26843,7 @@ mod tests {
         let (gap, width) = (0.3, 0.2);
         for (mode, want_diagonal) in [(None, true), (Some("octilinear"), true)] {
             let mut s = Session::default();
+            disable_auto_sync(&mut s);
             let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
             s.execute(
                 "footprint.move",
