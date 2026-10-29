@@ -1476,14 +1476,35 @@ impl App {
             for pin in library.definition.pins.iter().filter(|p| {
                 (p.unit == 0 && library.unit == 1 || p.unit == library.unit) && p.body_style <= 1
             }) {
-                let end = pin.position.offset(Point::new(
-                    pin.length * pin.angle.to_radians().cos(),
-                    -pin.length * pin.angle.to_radians().sin(),
-                ));
-                painter.line_segment([at(pin.position), at(end)], stroke);
+                if pin.visible {
+                    let end = pin.stem_end();
+                    painter.line_segment([at(pin.position), at(end)], stroke);
+                    for (center, radius) in pin.decoration_bubbles() {
+                        painter.circle_stroke(
+                            at(center),
+                            (radius * f64::from(camera.zoom)) as f32,
+                            stroke,
+                        );
+                    }
+                    for path in pin.decoration_paths() {
+                        if path.len() >= 3 {
+                            painter.add(egui::Shape::closed_line(
+                                path.iter().map(|p| at(*p)).collect(),
+                                stroke,
+                            ));
+                        } else if path.len() == 2 {
+                            painter.line_segment([at(path[0]), at(path[1])], stroke);
+                        }
+                    }
+                }
                 if pin.name != "~" && !pin.name.is_empty() {
+                    let label_at = if pin.visible {
+                        pin.stem_end()
+                    } else {
+                        pin.position
+                    };
                     painter.text(
-                        at(end) + Vec2::new(3.0, -3.0),
+                        at(label_at) + Vec2::new(3.0, -3.0),
                         Align2::LEFT_BOTTOM,
                         &pin.name,
                         FontId::monospace(10.0),

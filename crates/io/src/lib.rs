@@ -9,12 +9,14 @@ use std::path::Path;
 mod board_mesh;
 mod gerber;
 mod library_render;
+mod panel_export;
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use gerber::gerber_copper;
 use library_render::*;
+pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use pcbcraft_doc::Layer;
 
 pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -1901,6 +1903,158 @@ fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ProjectDrillHit {
+    d: u64,
+    span: u64,
+    x: f64,
+    y: f64,
+    ux: f64,
+    uy: f64,
+    plated: bool,
+}
+
+fn project_drill_hits(p: &Project) -> Result<Vec<ProjectDrillHit>, String> {
+    const MAX_HITS: usize = 50_000;
+    let mut hits = Vec::new();
+    let push = |hit: ProjectDrillHit, hits: &mut Vec<ProjectDrillHit>| {
+        hits.push(hit);
+    };
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            push(
+                ProjectDrillHit {
+                    d: (v.drill * 1_000.0).round() as u64,
+                    span: 0,
+                    x: v.position.x,
+                    y: v.position.y,
+                    ux: 0.0,
+                    uy: 0.0,
+                    plated: true,
+                },
+                &mut hits,
+            );
+        }
+    }
+    for h in &p.board.holes {
+        push(
+            ProjectDrillHit {
+                d: (h.diameter * 1_000.0).round() as u64,
+                span: 0,
+                x: h.position.x,
+                y: h.position.y,
+                ux: 0.0,
+                uy: 0.0,
+                plated: false,
+            },
+            &mut hits,
+        );
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let Some(drill) = g.drill.as_ref() else {
+                continue;
+            };
+            let (wide, narrow) = (
+                drill.size.x.max(drill.size.y),
+                drill.size.x.min(drill.size.y),
+            );
+            let d = (narrow * 1_000.0).round() as u64;
+            if d == 0 {
+                continue;
+            }
+            let span = ((wide - narrow) * 1_000.0).round() as u64;
+            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
+            let world = f.position.offset(local.rotate(-f.rotation));
+            let (ux, uy) = if span == 0 {
+                (0.0, 0.0)
+            } else {
+                let axis = if drill.size.x >= drill.size.y {
+                    Point::new((wide - narrow) / 2.0, 0.0)
+                } else {
+                    Point::new(0.0, (wide - narrow) / 2.0)
+                };
+                let dir = axis.rotate(-(g.rotation + f.rotation));
+                (dir.x, dir.y)
+            };
+            push(
+                ProjectDrillHit {
+                    d,
+                    span,
+                    x: world.x,
+                    y: world.y,
+                    ux,
+                    uy,
+                    plated: g.pad_type == "thru_hole",
+                },
+                &mut hits,
+            );
+        }
+    }
+    if hits.len() > MAX_HITS {
+        return Err("gerber export exceeds the drill hit limit".into());
+    }
+    Ok(hits)
+}
+
+fn excellon_drill_file(
+    hits: &[ProjectDrillHit],
+    origin: Point,
+    inch: bool,
+    scale: f64,
+    plated_filter: Option<bool>,
+) -> String {
+    type DrillHit = (f64, f64, f64, f64);
+    let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
+    for hit in hits {
+        if plated_filter.is_some_and(|plated| hit.plated != plated) {
+            continue;
+        }
+        drills
+            .entry((hit.d, hit.span))
+            .or_default()
+            .push((hit.x, hit.y, hit.ux, hit.uy));
+    }
+    let (drill_header, drill_prec) = if inch {
+        ("INCH,TZ", 4)
+    } else {
+        ("METRIC,TZ", 3)
+    };
+    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
+    for (n, (d, _)) in drills.keys().enumerate() {
+        drill.push_str(&format!(
+            "T{}C{:.drill_prec$}\n",
+            n + 1,
+            *d as f64 / 1000.0 * scale
+        ));
+    }
+    drill.push_str("%\nG90\nG05\n");
+    for (n, holes) in drills.values().enumerate() {
+        drill.push_str(&format!("T{}\n", n + 1));
+        for (x, y, ux, uy) in holes {
+            let (x, y) = (x - origin.x, y - origin.y);
+            let (x, y) = (x * scale, y * scale);
+            let (ux, uy) = (ux * scale, uy * scale);
+            if ux == 0.0 && uy == 0.0 {
+                drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
+            } else {
+                drill.push_str(&format!(
+                    "X{a:.drill_prec$}Y{b:.drill_prec$}G85X{c:.drill_prec$}Y{d:.drill_prec$}\n",
+                    a = x - ux,
+                    b = y - uy,
+                    c = x + ux,
+                    d = y + uy
+                ));
+            }
+        }
+    }
+    drill.push_str("M30\n");
+    drill
+}
+
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
 /// text. Copper layers carry zones, tracks, via and pad copper; the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
@@ -1911,7 +2065,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
-    const MAX_HITS: usize = 50_000;
     // An inch project gets imperial fabrication files; coordinates are still
     // stored in millimetres, so every written value is rescaled here.
     let inch = p.unit == "inch";
@@ -2104,33 +2257,42 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
-            let world = f.position.offset(pad.offset.rotate(-f.rotation));
-            let through = pad
-                .geometry
-                .as_ref()
-                .is_some_and(|g| g.drill.is_some() || g.pad_type.starts_with("thru_hole"));
-            let is_back = pad.geometry.as_ref().is_some_and(|g| {
-                !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."))
-            });
-            let ap = match &pad.geometry {
-                Some(g) => {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            if g.pad_type == "unplated" {
+                continue;
+            }
+            let world = f.pad_world_position(pad);
+            let through = g.pad_type == "thru_hole" || g.drill.is_some();
+            let is_back = !g.layers.is_empty() && !g.layers.iter().any(|l| l.starts_with("F."));
+            let ap = match g.shape.as_str() {
+                "circle" => {
+                    let w = (g.size.x * 1_000.0).round() as u64;
+                    Ap::Circle(w.max(1))
+                }
+                "rect" => {
                     let w = (g.size.x * 1_000.0).round() as u64;
                     let h = (g.size.y * 1_000.0).round() as u64;
-                    match g.shape.as_str() {
-                        "circle" => Ap::Circle(w.max(1)),
-                        "rect" => Ap::Rect(w.max(1), h.max(1)),
-                        "oval" => Ap::Obround(w.max(1), h.max(1)),
-                        "roundrect" => Ap::Round(
-                            w.max(1),
-                            h.max(1),
-                            ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
-                                .round()
-                                .max(1.0)) as u64,
-                        ),
-                        _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
-                    }
+                    Ap::Rect(w.max(1), h.max(1))
                 }
-                None => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
+                "oval" => {
+                    let w = (g.size.x * 1_000.0).round() as u64;
+                    let h = (g.size.y * 1_000.0).round() as u64;
+                    Ap::Obround(w.max(1), h.max(1))
+                }
+                "roundrect" => {
+                    let w = (g.size.x * 1_000.0).round() as u64;
+                    let h = (g.size.y * 1_000.0).round() as u64;
+                    Ap::Round(
+                        w.max(1),
+                        h.max(1),
+                        ((w.min(h) as f64 * g.roundrect_ratio.unwrap_or(0.0))
+                            .round()
+                            .max(1.0)) as u64,
+                    )
+                }
+                _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
             };
             let (front_code, back_code) = if through {
                 (front.code(ap.clone())?, back.code(ap.clone())?)
@@ -2173,115 +2335,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             0.0
         ));
     }
-    type DrillHit = (f64, f64, f64, f64);
-    let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
-    let mut add_hole = |d: u64, span: u64, x: f64, y: f64, ux: f64, uy: f64| {
-        drills.entry((d, span)).or_default().push((x, y, ux, uy));
-    };
-    for v in &p.board.vias {
-        if v.drill > 0.0 {
-            add_hole(
-                (v.drill * 1_000.0).round() as u64,
-                0,
-                v.position.x,
-                v.position.y,
-                0.0,
-                0.0,
-            );
-        }
-    }
-    for h in &p.board.holes {
-        add_hole(
-            (h.diameter * 1_000.0).round() as u64,
-            0,
-            h.position.x,
-            h.position.y,
-            0.0,
-            0.0,
-        );
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let (wide, narrow) = (
-                drill.size.x.max(drill.size.y),
-                drill.size.x.min(drill.size.y),
-            );
-            let d = (narrow * 1_000.0).round() as u64;
-            if d == 0 {
-                continue;
-            }
-            let span = ((wide - narrow) * 1_000.0).round() as u64;
-            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
-            let world = f.position.offset(local.rotate(-f.rotation));
-            let (ux, uy) = if span == 0 {
-                (0.0, 0.0)
-            } else {
-                let axis = if drill.size.x >= drill.size.y {
-                    Point::new((wide - narrow) / 2.0, 0.0)
-                } else {
-                    Point::new(0.0, (wide - narrow) / 2.0)
-                };
-                let dir = axis.rotate(-(g.rotation + f.rotation));
-                (dir.x, dir.y)
-            };
-            add_hole(d, span, world.x, world.y, ux, uy);
-        }
-    }
-    let total: usize = drills.values().map(|v| v.len()).sum();
-    if total > MAX_HITS {
-        return Err("gerber export exceeds the drill hit limit".into());
-    }
-    let (drill_header, drill_prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
-    for (n, (d, _)) in drills.keys().enumerate() {
-        drill.push_str(&format!(
-            "T{}C{:.drill_prec$}\n",
-            n + 1,
-            *d as f64 / 1000.0 * scale
-        ));
-    }
-    drill.push_str("%\nG90\nG05\n");
+    let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    for (n, holes) in drills.values().enumerate() {
-        drill.push_str(&format!("T{}\n", n + 1));
-        for (x, y, ux, uy) in holes {
-            let (x, y) = (x - origin.x, y - origin.y);
-            let (x, y) = (x * scale, y * scale);
-            let (ux, uy) = (ux * scale, uy * scale);
-            if ux == 0.0 && uy == 0.0 {
-                drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
-            } else {
-                drill.push_str(&format!(
-                    "X{a:.drill_prec$}Y{b:.drill_prec$}G85X{c:.drill_prec$}Y{d:.drill_prec$}\n",
-                    a = x - ux,
-                    b = y - uy,
-                    c = x + ux,
-                    d = y + uy
-                ));
-            }
-        }
-    }
-    drill.push_str("M30\n");
+    let drill = excellon_drill_file(&hits, origin, inch, scale, None);
+    let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true));
+    let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
     let mut map = outline.clone();
     let marker = map.code(Ap::Circle(100))?;
-    for holes in drills.values() {
-        for &(x, y, ux, uy) in holes {
-            let (x, y) = (x - origin.x, y - origin.y);
-            if ux == 0.0 && uy == 0.0 {
-                map.flash(marker, x, y)?;
-            } else {
-                map.stroke(marker, &[(x - ux, y - uy), (x + ux, y + uy)], false)?;
-            }
+    for hit in &hits {
+        let (x, y) = (hit.x - origin.x, hit.y - origin.y);
+        if hit.ux == 0.0 && hit.uy == 0.0 {
+            map.flash(marker, x, y)?;
+        } else {
+            map.stroke(
+                marker,
+                &[(x - hit.ux, y - hit.uy), (x + hit.ux, y + hit.uy)],
+                false,
+            )?;
         }
     }
     let mut files = BTreeMap::new();
@@ -2302,6 +2372,8 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         map.finish(false, "drill hole map"),
     );
     files.insert("pcb-Drill.drl".into(), drill);
+    files.insert("pcb-Plated.drl".into(), plated_drill);
+    files.insert("pcb-NPTH.drl".into(), npth_drill);
     Ok(files)
 }
 /// Bill of materials as CSV: identical parts collapsed into one row with a
@@ -2766,46 +2838,15 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 pub fn drill_chart_csv(p: &Project) -> Result<String, String> {
     p.validate()?;
     const MAX_TOOLS: usize = 64;
-    const MAX_HITS: usize = 50_000;
+    let hits = project_drill_hits(p)?;
     let mut tools: BTreeMap<(u64, u64, bool), usize> = BTreeMap::new();
-    let add = |d: u64, span: u64, plated: bool, tools: &mut BTreeMap<(u64, u64, bool), usize>| {
-        *tools.entry((d, span, plated)).or_default() += 1;
-    };
-    for v in &p.board.vias {
-        if v.drill > 0.0 {
-            add((v.drill * 1_000.0).round() as u64, 0, true, &mut tools);
-        }
-    }
-    for h in &p.board.holes {
-        add((h.diameter * 1_000.0).round() as u64, 0, false, &mut tools);
-    }
-    for f in &p.board.footprints {
-        for pad in &f.pads {
-            let Some(g) = pad.geometry.as_ref() else {
-                continue;
-            };
-            let Some(drill) = g.drill.as_ref() else {
-                continue;
-            };
-            let (wide, narrow) = (
-                drill.size.x.max(drill.size.y),
-                drill.size.x.min(drill.size.y),
-            );
-            let d = (narrow * 1_000.0).round() as u64;
-            if d == 0 {
-                continue;
-            }
-            let span = ((wide - narrow) * 1_000.0).round() as u64;
-            add(d, span, g.pad_type == "thru_hole", &mut tools);
-        }
+    for hit in hits {
+        *tools.entry((hit.d, hit.span, hit.plated)).or_default() += 1;
     }
     if tools.len() > MAX_TOOLS {
         return Err("drill chart needs 64 or fewer distinct drill tools".into());
     }
     let total: usize = tools.values().sum();
-    if total > MAX_HITS {
-        return Err("drill chart exceeds the drill hit limit".into());
-    }
     let title = if p.name.trim().is_empty() {
         "untitled board"
     } else {
@@ -5488,11 +5529,10 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                     (pin.unit == 0 && library.unit == 1 || pin.unit == library.unit)
                         && pin.body_style <= 1
                 }) {
-                    let angle = pin.angle.to_radians();
-                    let end = pin.position.offset(Point::new(
-                        pin.length * angle.cos(),
-                        -pin.length * angle.sin(),
-                    ));
+                    if !pin.visible {
+                        continue;
+                    }
+                    let end = pin.stem_end();
                     line(
                         &mut image,
                         to_pixel(c.position.offset(pin.position.rotate(-c.rotation))),
@@ -5500,6 +5540,9 @@ pub fn preview_png(p: &Project, view: &str) -> Result<Vec<u8>, String> {
                         0.7,
                         [219, 231, 242],
                     );
+                    schematic_pin_decorations_png(&mut image, pin, &|point| {
+                        to_pixel(c.position.offset(point.rotate(-c.rotation)))
+                    });
                 }
                 continue;
             }
@@ -5873,16 +5916,22 @@ pub fn symbol_library_text(symbol: &pcbcraft_library::SymbolDefinition) -> Resul
             .iter()
             .filter(|p| p.unit == unit && p.body_style == body_style)
         {
-            out.push_str(&format!(
-                "      (pin {} line (at {} {} {}) (length {}) (name {}) (number {}))\n",
+            let mut pin_line = format!(
+                "      (pin {} {} (at {} {} {}) (length {}) (name {}) (number {})",
                 lib_token(&pin.electrical_type, "passive"),
+                lib_token(&pin.graphical_style, "line"),
                 pin.position.x,
                 -pin.position.y,
                 pin.angle,
                 pin.length,
                 lib_text(&pin.name),
                 lib_text(&pin.number)
-            ));
+            );
+            if !pin.visible {
+                pin_line.push_str(" (hide yes)");
+            }
+            pin_line.push_str(")\n");
+            out.push_str(&pin_line);
         }
         for graphic in symbol
             .graphics
@@ -6031,6 +6080,94 @@ pub fn footprint_svg(footprint: &pcbcraft_library::FootprintDefinition) -> Resul
     Ok(svg_document(&footprint.name, box_min, box_max, body))
 }
 
+fn symbol_pin_svg(
+    pin: &pcbcraft_library::SymbolPin,
+    body: &mut String,
+    grow: &mut impl FnMut(Point),
+) {
+    grow(pin.position);
+    let end = pin.stem_end();
+    grow(end);
+    if pin.visible {
+        body.push_str(&format!(
+            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.25\"/>\n",
+            svg_num(pin.position.x),
+            svg_num(pin.position.y),
+            svg_num(end.x),
+            svg_num(end.y)
+        ));
+        for (center, radius) in pin.decoration_bubbles() {
+            grow(center);
+            grow(center.offset(Point::new(radius, radius)));
+            grow(center.offset(Point::new(-radius, -radius)));
+            body.push_str(&format!(
+                "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"none\" stroke=\"black\" stroke-width=\"0.12\"/>\n",
+                svg_num(center.x),
+                svg_num(center.y),
+                svg_num(radius)
+            ));
+        }
+        for path in pin.decoration_paths() {
+            for p in &path {
+                grow(*p);
+            }
+            if path.len() >= 3 {
+                let coords = path
+                    .iter()
+                    .map(|p| format!("{},{}", svg_num(p.x), svg_num(p.y)))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                body.push_str(&format!(
+                    "<polygon points=\"{coords}\" fill=\"none\" stroke=\"black\" stroke-width=\"0.12\"/>\n"
+                ));
+            } else if path.len() == 2 {
+                body.push_str(&format!(
+                    "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.12\"/>\n",
+                    svg_num(path[0].x),
+                    svg_num(path[0].y),
+                    svg_num(path[1].x),
+                    svg_num(path[1].y)
+                ));
+            }
+        }
+    }
+    body.push_str(&format!(
+        "<text x=\"{}\" y=\"{}\" font-size=\"0.8\" text-anchor=\"middle\" fill=\"black\">{}</text>\n",
+        svg_num(pin.position.x),
+        svg_num(pin.position.y),
+        lib_svg_escape(&pin.number)
+    ));
+}
+
+fn schematic_pin_decorations_png(
+    image: &mut image::RgbImage,
+    pin: &pcbcraft_library::SymbolPin,
+    map: &impl Fn(Point) -> Point,
+) {
+    let ink = [219, 231, 242];
+    for (center, radius) in pin.decoration_bubbles() {
+        let center_px = map(center);
+        let edge_px = map(center.offset(Point::new(radius, 0.0)));
+        disk(image, center_px, center_px.distance(edge_px), ink);
+    }
+    for path in pin.decoration_paths() {
+        if path.len() >= 3 {
+            let points: Vec<Point> = path.iter().map(|p| map(*p)).collect();
+            fill_polygon(image, &points, ink);
+            for pair in points.windows(2) {
+                if let (Some(a), Some(b)) = (pair.first(), pair.get(1)) {
+                    line(image, *a, *b, 0.35, ink);
+                }
+            }
+            if let (Some(first), Some(last)) = (points.first(), points.last()) {
+                line(image, *last, *first, 0.35, ink);
+            }
+        } else if path.len() == 2 {
+            line(image, map(path[0]), map(path[1]), 0.35, ink);
+        }
+    }
+}
+
 /// Render one library symbol as a standalone SVG preview: body and unit
 /// artwork with pin lines and pin numbers, in millimetre coordinates drawn
 /// y-up like the schematic sheet.
@@ -6051,26 +6188,7 @@ pub fn symbol_svg(symbol: &pcbcraft_library::SymbolDefinition) -> Result<String,
         lib_svg_graphic(&g.primitive, &mut body, &mut grow);
     }
     for pin in symbol.pins.iter().filter(|pin| pin.body_style <= 1) {
-        grow(pin.position);
-        let angle = pin.angle.to_radians();
-        let end = pin.position.offset(Point::new(
-            pin.length * angle.cos(),
-            -pin.length * angle.sin(),
-        ));
-        grow(end);
-        body.push_str(&format!(
-            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"black\" stroke-width=\"0.25\"/>\n",
-            svg_num(pin.position.x),
-            svg_num(pin.position.y),
-            svg_num(end.x),
-            svg_num(end.y)
-        ));
-        body.push_str(&format!(
-            "<text x=\"{}\" y=\"{}\" font-size=\"0.8\" text-anchor=\"middle\" fill=\"black\">{}</text>\n",
-            svg_num(pin.position.x),
-            svg_num(pin.position.y),
-            lib_svg_escape(&pin.number)
-        ));
+        symbol_pin_svg(pin, &mut body, &mut grow);
     }
     Ok(svg_document(&symbol.name, box_min, box_max, body))
 }
@@ -7643,7 +7761,9 @@ mod tests {
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
-                "pcb-F.Cu.gbr"
+                "pcb-F.Cu.gbr",
+                "pcb-NPTH.drl",
+                "pcb-Plated.drl",
             ]
         );
         let map = &files["pcb-DrillMap.gbr"];
@@ -8559,6 +8679,7 @@ mod tests {
             target_length: None,
             length_tolerance: None,
             nets: vec![5],
+            profile: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -8643,6 +8764,7 @@ mod tests {
                 width: 10.0,
                 height: 8.0,
             },
+            profile: None,
         });
         let dsn = specctra_dsn(&project)?;
         assert!(
@@ -10319,6 +10441,174 @@ mod tests {
     }
 
     #[test]
+    fn symbol_library_text_round_trips_graphical_style_and_hide() -> Result<(), String> {
+        let symbol = pcbcraft_library::SymbolDefinition {
+            name: "DECO".into(),
+            reference: "U".into(),
+            value: "DECO".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![pcbcraft_library::SymbolPin {
+                number: "1".into(),
+                name: "CLK".into(),
+                position: Point::new(5.0, 0.0),
+                angle: 180.0,
+                length: 2.54,
+                electrical_type: "input".into(),
+                unit: 1,
+                body_style: 1,
+                graphical_style: "inverted_clock".into(),
+                visible: false,
+            }],
+            graphics: vec![pcbcraft_library::UnitGraphic {
+                unit: 1,
+                body_style: 1,
+                primitive: pcbcraft_library::Graphic::Rectangle {
+                    start: Point::new(-2.0, -2.0),
+                    end: Point::new(2.0, 2.0),
+                    width: 0.12,
+                    fill: "none".into(),
+                    layer: "symbol".into(),
+                },
+            }],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        symbol.validate().map_err(|e| e.to_string())?;
+        let text = symbol_library_text(&symbol)?;
+        assert!(text.contains("inverted_clock"));
+        assert!(text.contains("(hide yes)"));
+        let again = pcbcraft_library::read_symbols(&text).map_err(|e| e.to_string())?;
+        assert_eq!(again.len(), 1);
+        assert_eq!(again[0].pins, symbol.pins);
+        Ok(())
+    }
+
+    #[test]
+    fn symbol_svg_inverted_clock_pin_has_circle_at_connection() -> Result<(), String> {
+        let symbol = pcbcraft_library::SymbolDefinition {
+            name: "DECO".into(),
+            reference: "U".into(),
+            value: "DECO".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![pcbcraft_library::SymbolPin {
+                number: "1".into(),
+                name: "CLK".into(),
+                position: Point::new(0.0, 0.0),
+                angle: 0.0,
+                length: 2.54,
+                electrical_type: "input".into(),
+                unit: 1,
+                body_style: 1,
+                graphical_style: "inverted_clock".into(),
+                visible: true,
+            }],
+            graphics: vec![],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        let svg = symbol_svg(&symbol)?;
+        assert!(
+            svg.contains("<circle"),
+            "inverted clock bubble renders as a circle"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schematic_preview_png_shows_clock_wedge_pixels() -> Result<(), String> {
+        let definition = pcbcraft_library::SymbolPin {
+            number: "1".into(),
+            name: "CLK".into(),
+            position: Point::new(-5.0, 0.0),
+            angle: 0.0,
+            length: 2.54,
+            electrical_type: "input".into(),
+            unit: 1,
+            body_style: 1,
+            graphical_style: "clock".into(),
+            visible: true,
+        };
+        let symbol = pcbcraft_library::SymbolDefinition {
+            name: "CLKPART".into(),
+            reference: "U".into(),
+            value: "CLKPART".into(),
+            description: String::new(),
+            keywords: String::new(),
+            footprint: String::new(),
+            set: String::new(),
+            pins: vec![definition.clone()],
+            graphics: vec![pcbcraft_library::UnitGraphic {
+                unit: 1,
+                body_style: 1,
+                primitive: pcbcraft_library::Graphic::Rectangle {
+                    start: Point::new(-3.0, -3.0),
+                    end: Point::new(0.0, 3.0),
+                    width: 0.12,
+                    fill: "none".into(),
+                    layer: "symbol".into(),
+                },
+            }],
+            extends: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        symbol.validate().map_err(|e| e.to_string())?;
+        let mut project = Project::default();
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "U1".into(),
+            value: "CLKPART".into(),
+            kind: "library".into(),
+            position: Point::new(40.0, 30.0),
+            rotation: 0.0,
+            pins: vec![pcbcraft_doc::Pin {
+                number: definition.number.clone(),
+                name: definition.name.clone(),
+                offset: definition.position,
+                net: None,
+                electrical_type: definition.electrical_type.clone(),
+                direction: Some(definition.angle),
+                unit: definition.unit,
+            }],
+            units: vec![],
+            library_symbol: Some(pcbcraft_doc::LibrarySymbol {
+                library: "project".into(),
+                unit: 1,
+                definition: symbol,
+            }),
+            library_footprint: None,
+            fields: vec![],
+        });
+        project.validate()?;
+        let png = preview_png(&project, "schematic")?;
+        let image = image::load_from_memory(&png)
+            .map_err(|e| e.to_string())?
+            .to_rgb8();
+        let anchor = project.components[0].position.offset(definition.position);
+        let (min, max) = preview_bounds(&project, "schematic");
+        let scale =
+            (880.0 / (max.x - min.x + 8.0).max(1.0)).min(560.0 / (max.y - min.y + 8.0).max(1.0));
+        let px = (60.0 + (anchor.x - (min.x - 4.0)) * scale).round() as u32;
+        let py = (60.0 + (anchor.y - (min.y - 4.0)) * scale).round() as u32;
+        let pixel = image.get_pixel(px.min(999), py.min(679));
+        assert!(
+            pixel.0[0] > 40 || pixel.0[1] > 40,
+            "connection area should carry pin ink, got {:?}",
+            pixel.0
+        );
+        Ok(())
+    }
+
+    #[test]
     fn svg_entities_reads_shape_kinds_with_a_y_flip_and_unit_conversion() -> Result<(), String> {
         let drawing = "<svg width=\"2in\" height=\"5cm\">\
             <line x1=\"10mm\" y1=\"10mm\" x2=\"1pt\" y2=\"0mm\" stroke=\"#ff0000\"/>\
@@ -10726,6 +11016,216 @@ mod tests {
         let back = gerber_copper(&project, pcbcraft_doc::Layer::Back)?;
         assert!(!back.contains("D03*") && !back.contains("%AM"));
         assert!(back.contains("%TF.FileFunction,Copper,L2,Bot*%"));
+        Ok(())
+    }
+
+    fn sample_board_with_two_by_two_panel() -> Result<pcbcraft_doc::Project, String> {
+        let json = include_str!("../tests/fixtures/sample_led_panel_base.json");
+        let mut p: pcbcraft_doc::Project = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        p.validate()?;
+        p.panel.enabled = true;
+        p.panel.columns = 2;
+        p.panel.rows = 2;
+        p.panel.pitch_x = 60.0;
+        p.panel.pitch_y = 40.0;
+        p.panel.rail = 3.0;
+        Ok(p)
+    }
+
+    #[test]
+    fn panel_gerber_carries_part_array_attribute() -> Result<(), String> {
+        let p = sample_board_with_two_by_two_panel()?;
+        let files = panel_fabrication_files(&p)?;
+        for name in ["pcb-F.Cu.gbr", "pcb-B.Cu.gbr"] {
+            let copper = files.get(name).ok_or("missing copper layer")?;
+            assert!(
+                copper.contains("%TF.Part,Array*%"),
+                "{name} should declare an array panel"
+            );
+        }
+        Ok(())
+    }
+
+    fn peg_footprint_project() -> Result<Project, String> {
+        let peg = |x: f64, y: f64| pcbcraft_library::FootprintPad {
+            number: String::new(),
+            pad_type: "unplated".into(),
+            shape: "circle".into(),
+            position: Point::new(x, y),
+            rotation: 0.0,
+            size: Point::default(),
+            layers: vec![],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(3.0, 3.0),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let thru = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "PegConn".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                thru("1", -2.54),
+                thru("2", 2.54),
+                peg(-5.0, 5.0),
+                peg(5.0, 5.0),
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        pcbcraft_doc::validate_footprint_support(&definition)?;
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut component =
+            pcbcraft_doc::component_template("resistor", 2, "R1".into(), Point::default())
+                .ok_or("template")?;
+        component.pins[0].net = Some(1);
+        component.pins[1].net = Some(1);
+        component.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+            library: "test".into(),
+            definition: definition.clone(),
+        });
+        project.components.push(component);
+        let placed: Vec<pcbcraft_doc::Pad> = definition
+            .pads
+            .iter()
+            .map(|g| pcbcraft_doc::Pad {
+                number: g.number.clone(),
+                offset: g.position,
+                diameter: g.size.x.min(g.size.y),
+                net: project.components[0]
+                    .pins
+                    .iter()
+                    .find(|p| p.number == g.number)
+                    .and_then(|p| p.net),
+                castellated: None,
+                geometry: Some(g.clone()),
+            })
+            .collect();
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            pads: placed,
+        });
+        project.validate()?;
+        Ok(project)
+    }
+
+    #[test]
+    fn gerber_files_footprint_unplated_pegs_export_only_to_npth_drill() -> Result<(), String> {
+        let project = peg_footprint_project()?;
+        let files = gerber_files(&project)?;
+        let plated = &files["pcb-Plated.drl"];
+        let npth = &files["pcb-NPTH.drl"];
+        assert!(
+            plated.contains("T1C0.800\n"),
+            "numbered through-hole pads stay on the plated drill file"
+        );
+        assert!(
+            !plated.contains("X5.000Y15.000\n") && !plated.contains("X15.000Y15.000\n"),
+            "peg coordinates must not appear in the plated drill file: {plated}"
+        );
+        assert!(
+            npth.contains("T1C3.000\n"),
+            "both pegs share one unplated tool"
+        );
+        assert!(
+            npth.contains("X5.000Y15.000\n") && npth.contains("X15.000Y15.000\n"),
+            "peg hits land in the NPTH drill file: {npth}"
+        );
+        let front = &files["pcb-F.Cu.gbr"];
+        assert!(
+            !front.contains("X5.000000Y15.000000D03"),
+            "unplated pegs must not flash copper"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn panel_two_by_two_sample_board_drill_and_placement() -> Result<(), String> {
+        let p = sample_board_with_two_by_two_panel()?;
+        let single_drill = gerber_files(&p)?
+            .get("pcb-Drill.drl")
+            .ok_or("single-board drill missing")?
+            .clone();
+        let single_hits = single_drill
+            .lines()
+            .filter(|line| line.starts_with('X'))
+            .count();
+        let files = panel_fabrication_files(&p)?;
+        let drill = files
+            .get("pcb-Drill.drl")
+            .ok_or("panel drill file missing")?;
+        assert!(
+            drill.contains("MechanicalDrill,Breakout"),
+            "breakaway holes must carry the breakout aperture function"
+        );
+        assert!(
+            drill.contains("MechanicalDrill,Tooling"),
+            "tooling holes must carry the tooling aperture function"
+        );
+        let panel_hits = drill.lines().filter(|line| line.starts_with('X')).count();
+        assert!(
+            panel_hits > single_hits * 4,
+            "panel drill must repeat every board hit on each copy plus mechanical holes"
+        );
+        let placement = panel_placement_text(&p)?;
+        for reference in ["J1_1", "R1_2", "D1_3", "J1_4"] {
+            assert!(
+                placement.contains(reference),
+                "placement must suffix {reference}"
+            );
+        }
+        assert!(
+            !placement.contains("FID"),
+            "board fiducials must not be duplicated into panel placement"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn drill_chart_csv_lists_footprint_pegs_as_unplated() -> Result<(), String> {
+        let project = peg_footprint_project()?;
+        let text = drill_chart_csv(&project)?;
+        assert!(
+            text.contains("T1,0.800,0.000,yes,2"),
+            "numbered pads are plated hits"
+        );
+        assert!(
+            text.contains("T2,3.000,0.000,no,2"),
+            "locating pegs are unplated hits"
+        );
         Ok(())
     }
 }
