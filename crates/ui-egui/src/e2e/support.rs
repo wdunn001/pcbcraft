@@ -255,7 +255,8 @@ pub(crate) fn tap_strip_tool(
             return authoring::tests::tap_icon(ctx, app, id);
         }
     }
-    if paints_text(ctx, app, label)? && authoring::tests::tap(ctx, app, label).is_ok() {
+    if paints_text(ctx, app, label)? {
+        authoring::tests::tap(ctx, app, label)?;
         frame(ctx, app, vec![], egui::Modifiers::NONE);
         return Ok(());
     }
