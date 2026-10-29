@@ -19,12 +19,7 @@ pub struct Finding {
 }
 
 #[cfg(test)]
-fn finding(
-    code: &'static str,
-    severity: String,
-    message: String,
-    objects: Vec<Id>,
-) -> Finding {
+fn finding(code: &'static str, severity: String, message: String, objects: Vec<Id>) -> Finding {
     Finding {
         code,
         severity,
@@ -1149,6 +1144,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 group.tolerance
             ),
             objects: vec![longest.0, shortest.0],
+            hint: None,
         });
     }
     let classified: BTreeSet<Id> = project
