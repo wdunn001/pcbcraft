@@ -508,3 +508,62 @@ fn a_newcomer_sees_menus_and_windows_over_the_view_toggles() -> Result<(), Strin
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_pans_the_board_by_holding_space_and_dragging() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Pcb);
+    settled(&ctx, &mut app);
+    let before = app.pcb.center;
+    let selected_before = app.selected;
+    let at = egui::pos2(700.0, 450.0);
+    let space = |pressed: bool| egui::Event::Key {
+        key: egui::Key::Space,
+        physical_key: Some(egui::Key::Space),
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let button = |pressed: bool| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(
+        &ctx,
+        &mut app,
+        vec![egui::Event::PointerMoved(at), space(true)],
+        egui::Modifiers::NONE,
+    );
+    frame(&ctx, &mut app, vec![button(true)], egui::Modifiers::NONE);
+    for step in 1..=6 {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(
+                at + egui::vec2(10.0 * step as f32, 0.0),
+            )],
+            egui::Modifiers::NONE,
+        );
+    }
+    frame(
+        &ctx,
+        &mut app,
+        vec![button(false), space(false)],
+        egui::Modifiers::NONE,
+    );
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        (app.pcb.center.x - before.x).abs() > 1e-6,
+        "dragging with Space held moves the view sideways"
+    );
+    assert_eq!(
+        app.selected, selected_before,
+        "panning does not select or move anything"
+    );
+    Ok(())
+}

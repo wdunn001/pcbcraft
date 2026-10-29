@@ -437,7 +437,26 @@ impl App {
                     .offset(Point::new(before.x - after.x, before.y - after.y));
             }
         }
-        if response.dragged_by(egui::PointerButton::Middle) {
+        // Hold Space and drag with the main button to pan, like the middle
+        // button. The choice is made when the drag starts so letting go of
+        // Space mid-drag does not turn the pan into a selection.
+        let pan_key = egui::Id::new("canvas-space-pan");
+        let space_down = ui.input(|i| i.key_down(egui::Key::Space));
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            ui.ctx().data_mut(|d| d.insert_temp(pan_key, space_down));
+        }
+        let panning = ui.ctx().data(|d| d.get_temp::<bool>(pan_key)) == Some(true)
+            && (response.dragged() || response.drag_stopped());
+        if space_down && response.hovered() {
+            ui.ctx().set_cursor_icon(if response.dragged() {
+                egui::CursorIcon::Grabbing
+            } else {
+                egui::CursorIcon::Grab
+            });
+        }
+        if response.dragged_by(egui::PointerButton::Middle)
+            || (panning && response.dragged_by(egui::PointerButton::Primary))
+        {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
             let along = if camera.mirror { d.x } else { -d.x };
@@ -708,17 +727,20 @@ impl App {
         }
         self.paint_route_drag(ui, &painter, rect, camera, cursor);
         if response.drag_started_by(egui::PointerButton::Primary)
+            && !panning
             && let Some(pos) = cursor
         {
             self.begin_route_drag(pos, camera.zoom);
         }
         if response.drag_stopped_by(egui::PointerButton::Primary)
+            && !panning
             && self.route_drag.active()
             && let Some(pos) = cursor
         {
             self.end_route_drag(pos, camera.zoom);
         }
         if response.drag_started_by(egui::PointerButton::Primary)
+            && !panning
             && matches!(self.tool, Tool::Select)
             && !self.route_drag.active()
             && let Some(pos) = ui
@@ -732,11 +754,12 @@ impl App {
         }
         self.keepout_drag(&response, cursor);
         if response.dragged_by(egui::PointerButton::Primary)
+            && !panning
             && let Some(pos) = cursor
         {
             self.press_move(pos, held);
         }
-        if response.drag_stopped_by(egui::PointerButton::Primary) {
+        if response.drag_stopped_by(egui::PointerButton::Primary) && !panning {
             self.press_end(cursor, camera.zoom, held);
         }
         if ui.input(|i| i.key_pressed(egui::Key::Enter))
