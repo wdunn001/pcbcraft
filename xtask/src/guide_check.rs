@@ -313,13 +313,13 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
             errors.push(format!("1: front matter is missing `{key}`"));
         }
     }
-    if let Some(kind) = page.front.get("kind") {
-        if !KINDS.contains(&kind.as_str()) {
-            errors.push(format!(
-                "1: kind `{kind}` must be one of {}",
-                KINDS.join(", ")
-            ));
-        }
+    if let Some(kind) = page.front.get("kind")
+        && !KINDS.contains(&kind.as_str())
+    {
+        errors.push(format!(
+            "1: kind `{kind}` must be one of {}",
+            KINDS.join(", ")
+        ));
     }
     let mut shots_used = 0usize;
     let front_shots: Vec<String> = page
@@ -353,10 +353,10 @@ pub fn check_page(page_path: &str, text: &str, ctx: &Context) -> Vec<String> {
         }
         for id in shot_refs(line) {
             shots_used += 1;
-            if let Some(known) = ctx.shots {
-                if !known.contains(&id) {
-                    errors.push(format!("{n}: shot `{id}` is not in {CATALOG_FILE}"));
-                }
+            if let Some(known) = ctx.shots
+                && !known.contains(&id)
+            {
+                errors.push(format!("{n}: shot `{id}` is not in {CATALOG_FILE}"));
             }
         }
         if line.contains('\u{2014}') || line.contains('\u{2013}') {
@@ -564,10 +564,10 @@ fn read_allowed(text: &str) -> Option<u64> {
         let t = line.trim();
         if t.starts_with('[') {
             in_section = t == "[guide_coverage]";
-        } else if let (true, Some((k, v))) = (in_section, t.split_once('=')) {
-            if k.trim() == "unmentioned" {
-                return v.trim().parse().ok();
-            }
+        } else if let (true, Some((k, v))) = (in_section, t.split_once('='))
+            && k.trim() == "unmentioned"
+        {
+            return v.trim().parse().ok();
         }
     }
     None
