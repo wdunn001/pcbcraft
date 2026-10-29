@@ -1,0 +1,17 @@
+schema = 1
+
+[profile]
+id = "uart"
+name = "UART async"
+category = "interface"
+summary = "UART async rule starting points."
+
+[[net_class]]
+name = "SIG"
+clearance = 0.15
+width = 0.2
+patterns = ["*"]
+
+[[value_source]]
+field = "net_class.width"
+source = "uart_default"

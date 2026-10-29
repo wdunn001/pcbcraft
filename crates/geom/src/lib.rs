@@ -1,4 +1,6 @@
 //! Small, bounded planar geometry. Units are millimetres.
+pub mod impedance;
+pub mod meander;
 use serde::{Deserialize, Serialize};
 
 pub mod hull;
