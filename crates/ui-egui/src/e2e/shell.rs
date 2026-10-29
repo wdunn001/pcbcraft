@@ -197,6 +197,180 @@ fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
 }
 
 #[test]
+fn board_layout_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "layers_tab"),
+        ("lib.rs", "board_anatomy_section"),
+        ("lib.rs", "stackup_section"),
+        ("lib.rs", "holes_section"),
+        ("lib.rs", "fiducials_section"),
+        ("lib.rs", "footer"),
+        ("lib.rs", "tool_strip"),
+        ("lib.rs", "draw_tool_options"),
+        ("lib.rs", "tool_hint"),
+        ("lib.rs", "inspector"),
+        ("canvas.rs", "canvas"),
+        ("canvas.rs", "paint_board"),
+        ("canvas.rs", "canvas_click"),
+        ("board3d.rs", "show"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn schematic_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "nets_tab"),
+        ("lib.rs", "part_card"),
+        ("lib.rs", "object_detail_rows"),
+        ("lib.rs", "type_note"),
+        ("lib.rs", "empty_state"),
+        ("canvas.rs", "paint_schematic"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn library_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("library.rs", "request"),
+        ("library.rs", "search"),
+        ("library.rs", "poll"),
+        ("library.rs", "collection_browser"),
+        ("library.rs", "library_preview"),
+        ("authoring.rs", "library_editor"),
+        ("authoring.rs", "project_library"),
+        ("authoring.rs", "library_workspaces"),
+        ("authoring.rs", "graphic"),
+        ("authoring.rs", "add_graphic"),
+        ("lib.rs", "browser"),
+        ("lib.rs", "library"),
+        ("lib.rs", "files_tab"),
+        ("library_quality.rs", "quality_badge"),
+        ("library_quality.rs", "library_checks_section"),
+        ("library_quality.rs", "refresh_footprint_quality"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn rules_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "rules_tab"),
+        ("lib.rs", "param_help"),
+        ("lib.rs", "field_help"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn checks_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "checks_view"),
+        ("lib.rs", "human_code"),
+        ("lib.rs", "custom_heading"),
+        ("lib.rs", "custom_measure_line"),
+        ("lib.rs", "empty_state"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn settings_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [("lib.rs", "settings_tab"), ("lib.rs", "shortcuts")] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn docks_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "dock_frame"),
+        ("lib.rs", "workbench_tabs"),
+        ("lib.rs", "builds_tab"),
+        ("lib.rs", "shortcut_rows"),
+        ("lib.rs", "command_tip"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn dialogs_strings_are_all_catalog_keys() -> Result<(), String> {
+    let listed = pcbcraft_text::scan::converted_fns();
+    for (file, function) in [
+        ("lib.rs", "start_home"),
+        ("lib.rs", "execute_palette_params"),
+        ("lib.rs", "params_template"),
+        ("lib.rs", "run"),
+        ("lib.rs", "run_and_keep"),
+        ("lib.rs", "tool_call"),
+        ("lib.rs", "refusal_text"),
+        ("editing.rs", "shift_click"),
+        ("editing.rs", "move_selection"),
+        ("editing.rs", "delete_selection"),
+        ("editing.rs", "duplicate_selection"),
+        ("editing.rs", "copy_selection"),
+        ("editing.rs", "paste_last_copy_at"),
+        ("editing.rs", "paste_text_at"),
+        ("editing.rs", "paste_last_copy"),
+        ("editing.rs", "measure_click"),
+        ("editing.rs", "cleanup_tracks"),
+        ("lib.rs", "write_make_files"),
+        ("lib.rs", "write_uv_print_files"),
+        ("lib.rs", "write_job_file"),
+        ("lib.rs", "capture"),
+        ("lib.rs", "copy_plot_to_clipboard"),
+    ] {
+        assert!(
+            listed.contains(&(file.to_string(), function.to_string())),
+            "{file} {function} is listed in converted-fns.txt"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(

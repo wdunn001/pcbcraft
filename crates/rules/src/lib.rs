@@ -8,6 +8,8 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod stub;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
     pub code: &'static str,
@@ -586,8 +588,7 @@ fn root(parent: &[usize], mut node: usize) -> usize {
     }
     node
 }
-pub fn airwires(project: &Project) -> Vec<Airwire> {
-    let items = copper(project);
+fn copper_components(items: &[Copper]) -> Vec<usize> {
     let mut parents: Vec<_> = (0..items.len()).collect();
     for (i, a) in items.iter().enumerate() {
         for (j, b) in items.iter().enumerate().skip(i + 1) {
@@ -600,6 +601,10 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
             }
         }
     }
+    parents
+}
+fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
+    let parents = copper_components(items);
     let mut groups: BTreeMap<Id, BTreeMap<usize, Vec<&Copper>>> = BTreeMap::new();
     for (i, item) in items
         .iter()
@@ -653,6 +658,9 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
         }
     }
     result
+}
+pub fn airwires(project: &Project) -> Vec<Airwire> {
+    airwires_from(&copper(project))
 }
 
 const DECOUPLING_EXCLUDED_KINDS: &[&str] = &["resistor", "capacitor", "connector", "led"];
@@ -1298,7 +1306,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             }
         }
     }
-    for wire in airwires(project) {
+    for wire in airwires_from(&items) {
         result.push(Finding {
             code: "unrouted",
             severity: project.rule_severity("unrouted", "warning"),
@@ -1685,6 +1693,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![],
         }),
     }
+    result.extend(stub::stub_length_findings(project, &items));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
