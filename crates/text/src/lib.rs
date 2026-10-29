@@ -235,6 +235,11 @@ impl Catalog {
         self.english.keys().map(String::as_str)
     }
 
+    /// True when English defines `key`.
+    pub fn defines(&self, key: &str) -> bool {
+        self.english.contains_key(key)
+    }
+
     /// The text for a key. A key the language lacks shows the English text;
     /// a key nobody defines shows the key itself. Either is reported once.
     pub fn get(&self, key: &str) -> String {
@@ -316,6 +321,22 @@ pub fn lookup(key: &str, args: &[(&str, &str)]) -> String {
     ACTIVE.with(|slot| match slot.borrow().as_ref() {
         Some(catalog) => catalog.format(key, args),
         None => Catalog::english().format(key, args),
+    })
+}
+
+/// Like [`lookup`], but `None` for a key English does not define, and
+/// without reporting it. For keys that are optional by design.
+pub fn lookup_known(key: &str) -> Option<String> {
+    ACTIVE.with(|slot| {
+        let fallback;
+        let catalog = match slot.borrow().as_ref() {
+            Some(catalog) => Arc::clone(catalog),
+            None => {
+                fallback = Arc::new(Catalog::english());
+                fallback
+            }
+        };
+        catalog.defines(key).then(|| catalog.get(key))
     })
 }
 
@@ -574,5 +595,144 @@ pub mod scan {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::*;
+
+    /// Every `t!` key used inside `fns` (`file function` pairs under
+    /// crates/ui-egui/src) exists in en.txt.
+    fn keys_exist(fns: &[(&str, &str)]) -> Result<(), String> {
+        let english: BTreeSet<String> = parse(ENGLISH).0.into_iter().map(|(k, _)| k).collect();
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui-egui/src");
+        for (file, function) in fns {
+            let text = std::fs::read_to_string(src.join(file)).map_err(|e| e.to_string())?;
+            let body = scan::fn_body(&text, function)
+                .ok_or_else(|| format!("{file}: no fn {function}"))?;
+            for key in scan::referenced_keys(body) {
+                assert!(english.contains(&key), "{file} {function}: key {key}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn every_key_used_by_board_layout_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "layers_tab"),
+            ("lib.rs", "board_anatomy_section"),
+            ("lib.rs", "stackup_section"),
+            ("lib.rs", "holes_section"),
+            ("lib.rs", "fiducials_section"),
+            ("lib.rs", "footer"),
+            ("lib.rs", "tool_strip"),
+            ("lib.rs", "draw_tool_options"),
+            ("lib.rs", "tool_hint"),
+            ("lib.rs", "inspector"),
+            ("canvas.rs", "canvas"),
+            ("canvas.rs", "paint_board"),
+            ("canvas.rs", "canvas_click"),
+            ("board3d.rs", "show"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_schematic_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "nets_tab"),
+            ("lib.rs", "part_card"),
+            ("lib.rs", "object_detail_rows"),
+            ("lib.rs", "type_note"),
+            ("lib.rs", "empty_state"),
+            ("canvas.rs", "paint_schematic"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_library_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("library.rs", "request"),
+            ("library.rs", "search"),
+            ("library.rs", "poll"),
+            ("library.rs", "collection_browser"),
+            ("library.rs", "library_preview"),
+            ("authoring.rs", "library_editor"),
+            ("authoring.rs", "project_library"),
+            ("authoring.rs", "library_workspaces"),
+            ("authoring.rs", "graphic"),
+            ("authoring.rs", "add_graphic"),
+            ("lib.rs", "browser"),
+            ("lib.rs", "library"),
+            ("lib.rs", "files_tab"),
+            ("library_quality.rs", "quality_badge"),
+            ("library_quality.rs", "library_checks_section"),
+            ("library_quality.rs", "refresh_footprint_quality"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_rules_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "rules_tab"),
+            ("lib.rs", "param_help"),
+            ("lib.rs", "field_help"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_checks_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "checks_view"),
+            ("lib.rs", "human_code"),
+            ("lib.rs", "custom_heading"),
+            ("lib.rs", "custom_measure_line"),
+            ("lib.rs", "empty_state"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_settings_exists() -> Result<(), String> {
+        keys_exist(&[("lib.rs", "settings_tab"), ("lib.rs", "shortcuts")])
+    }
+
+    #[test]
+    fn every_key_used_by_docks_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "dock_frame"),
+            ("lib.rs", "workbench_tabs"),
+            ("lib.rs", "builds_tab"),
+            ("lib.rs", "shortcut_rows"),
+            ("lib.rs", "command_tip"),
+        ])
+    }
+
+    #[test]
+    fn every_key_used_by_dialogs_exists() -> Result<(), String> {
+        keys_exist(&[
+            ("lib.rs", "start_home"),
+            ("lib.rs", "execute_palette_params"),
+            ("lib.rs", "params_template"),
+            ("lib.rs", "run"),
+            ("lib.rs", "run_and_keep"),
+            ("lib.rs", "tool_call"),
+            ("lib.rs", "refusal_text"),
+            ("editing.rs", "shift_click"),
+            ("editing.rs", "move_selection"),
+            ("editing.rs", "delete_selection"),
+            ("editing.rs", "duplicate_selection"),
+            ("editing.rs", "copy_selection"),
+            ("editing.rs", "paste_last_copy_at"),
+            ("editing.rs", "paste_text_at"),
+            ("editing.rs", "paste_last_copy"),
+            ("editing.rs", "measure_click"),
+            ("editing.rs", "cleanup_tracks"),
+            ("lib.rs", "write_make_files"),
+            ("lib.rs", "write_uv_print_files"),
+            ("lib.rs", "write_job_file"),
+            ("lib.rs", "capture"),
+            ("lib.rs", "copy_plot_to_clipboard"),
+        ])
     }
 }

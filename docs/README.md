@@ -6,7 +6,10 @@
 | [capabilities.md](capabilities.md) | What the app does today |
 | [architecture.md](architecture.md) | Crate layers and mutation rules |
 | [mcp.md](mcp.md) | MCP client config |
+| [assistant-backends.md](assistant-backends.md) | Assistant wire formats checked against each API, with gaps |
+| [mcp-conformance.md](mcp-conformance.md) | MCP spec conformance table and test list |
 | [ci.md](ci.md) | GitHub Actions jobs |
+| [tooltips.md](tooltips.md) | What every control tooltip must say |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |

@@ -361,18 +361,25 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         .min_size(150.0)
         .show(ui, |ui| {
             ui.add_space(8.0);
-            ui.label(egui::RichText::new("Parts").size(10.0).color(env.muted));
+            ui.label(
+                egui::RichText::new(t!("board.board3d.parts"))
+                    .size(10.0)
+                    .color(env.muted),
+            );
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for (name, id, note) in &bodies {
                     let row = ui
-                        .selectable_label(env.selected == Some(*id), format!("{name}  {note}"))
-                        .on_hover_text("Select this part. Its properties open in the inspector.");
+                        .selectable_label(
+                            env.selected == Some(*id),
+                            t!("board.board3d.name_note", name = name, note = note),
+                        )
+                        .on_hover_text(t!("board.board3d.name_note.tip"));
                     if row.clicked() {
                         picked = Some(*id);
                     }
                 }
                 if bodies.is_empty() {
-                    ui.label("No parts on this board yet.");
+                    ui.label(t!("board.board3d.no_parts_on_this_board"));
                 }
             });
         });
@@ -381,30 +388,28 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     ui.horizontal(|ui| {
         ui.add_space(12.0);
         if ui
-            .button("Reset view")
-            .on_hover_text("Fit the whole board in the window again.")
+            .button(t!("board.board3d.reset_view"))
+            .on_hover_text(t!("board.board3d.reset_view.tip"))
             .clicked()
         {
             view.fit();
         }
         if ui
-            .button("Top view")
-            .on_hover_text("Look straight down at the board.")
+            .button(t!("board.board3d.top_view"))
+            .on_hover_text(t!("board.board3d.top_view.tip"))
             .clicked()
         {
             view.yaw = -std::f64::consts::FRAC_PI_2;
             view.pitch = 1.5;
         }
         ui.label(
-            egui::RichText::new(
-                "Drag to turn the board. Right-drag or Shift-drag to move it. Scroll to zoom.",
-            )
-            .size(11.0)
-            .color(env.muted),
+            egui::RichText::new(t!("board.board3d.drag_to_turn_the_board"))
+                .size(11.0)
+                .color(env.muted),
         );
     });
     if let Some(e) = &view.error {
-        ui.label(format!("The 3D view could not be built: {e}"));
+        ui.label(t!("board.board3d.the_3d_view_could_not", e = e));
     }
     let size = ui.available_size_before_wrap();
     let (rect, response) = ui.allocate_exact_size(
@@ -412,9 +417,7 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         Sense::click_and_drag(),
     );
     view.rect = rect;
-    let response = response.on_hover_text(
-        "3D board. Drag to turn it, right-drag or Shift-drag to move it, scroll to zoom, click a part to select it.",
-    );
+    let response = response.on_hover_text(t!("board.board3d.3d_board_drag_to_turn.tip"));
     let (shift, secondary, scroll) = ui.input(|i| {
         (
             i.modifiers.shift,
@@ -444,11 +447,9 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     painter.rect_filled(rect, 0.0, env.bg);
     paint_mesh(view, &painter, rect, env);
     ui.label(
-        egui::RichText::new(
-            "Part bodies are default boxes sized from the pads. 3D model files are not loaded yet.",
-        )
-        .size(11.0)
-        .color(env.muted),
+        egui::RichText::new(t!("board.board3d.part_bodies_are_default_boxes"))
+            .size(11.0)
+            .color(env.muted),
     );
     picked
 }
