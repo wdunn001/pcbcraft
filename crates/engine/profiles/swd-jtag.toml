@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "swd-jtag"
+name = "SWD and JTAG"
+category = "general"
+summary = "Baseline routing defaults for SWD and JTAG."
+
+[[net_class]]
+name = "swd-jtag"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"

@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "mipi"
+name = "MIPI"
+category = "general"
+summary = "Baseline routing defaults for MIPI."
+
+[[net_class]]
+name = "mipi"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"

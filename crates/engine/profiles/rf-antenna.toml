@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "rf-antenna"
+name = "RF and antenna"
+category = "general"
+summary = "Baseline routing defaults for RF and antenna."
+
+[[net_class]]
+name = "rf-antenna"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"

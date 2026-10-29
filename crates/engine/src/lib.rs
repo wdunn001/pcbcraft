@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod authoring;
 pub mod library;
+mod profiles;
 pub mod recents;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive};
@@ -1536,6 +1537,24 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
+            "rules.profile_list",
+            "List built-in interface rule profiles with id, name, category and summary",
+            schema(json!({}), &[]),
+        ),
+        (
+            "rules.profile_apply",
+            "Apply a built-in or on-disk rule profile: net classes, differential pairs, pair rules and rule areas in one undo step; dry_run returns the plan without changing the design",
+            schema(
+                json!({
+                    "id":{"type":"string","minLength":1,"maxLength":64,"description":"built-in profile id"},
+                    "path":{"type":"string","minLength":1,"maxLength":1024,"description":"profile TOML file on disk"},
+                    "nets_override":{"type":"array","items":{"type":"string","minLength":1,"maxLength":128},"maxItems":256,"description":"only assign nets whose names appear here"},
+                    "dry_run":{"type":"boolean","description":"when true, return the plan without mutating the design"}
+                }),
+                &["dry_run"],
+            ),
+        ),
+        (
             "bom.set_fields",
             "Define the extra bill-of-materials columns this project prints: each column names a component property and the header to show, falling back to the property key; at most 16 columns",
             schema(
@@ -1775,6 +1794,25 @@ impl Session {
         params: Value,
         expected: Option<u64>,
     ) -> Result<Value, Error> {
+        if id == "rules.profile_apply" {
+            let a: ProfileApplyParams = parse(&params)?;
+            if a.dry_run {
+                self.check_revision(expected)?;
+                profiles::validate_nets_override(a.nets_override.as_deref())?;
+                let (text, label) =
+                    profiles::load_profile_source(a.id.clone(), a.path.clone())?;
+                let parsed = profiles::parse_profile_text(&text, &label)?;
+                let plan = profiles::plan_profile(
+                    &self.project,
+                    &parsed,
+                    a.nets_override.as_deref(),
+                )?;
+                return Ok(json!({
+                    "revision": self.revision,
+                    "result": profiles::plan_to_json(&plan),
+                }));
+            }
+        }
         let result = self.batch(
             &[Command {
                 command: id.into(),
@@ -3185,6 +3223,18 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProfileApplyParams {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default)]
+    nets_override: Option<Vec<String>>,
+    dry_run: bool,
+}
+
 struct RuleAreaParams {
     #[serde(default)]
     name: Option<String>,
@@ -5550,6 +5600,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 target_length: None,
                 length_tolerance: None,
                 nets: a.nets,
+                profile: None,
             });
             Ok(json!({"id": id}))
         }
@@ -10335,6 +10386,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     width: a.width,
                     height: a.height,
                 },
+                profile: None,
             });
             Ok(json!({"id": id}))
         }
@@ -10362,6 +10414,44 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 return Err(missing());
             }
             Ok(json!({"id": a.id}))
+        }
+        "rules.profile_list" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "rules.profile_list takes an empty object".into(),
+                ));
+            }
+            Ok(profiles::list_built_ins())
+        }
+        "rules.profile_apply" => {
+            let a: ProfileApplyParams = parse(params)?;
+            if a.dry_run {
+                return Err(Error::Invalid(
+                    "dry_run profile apply must not enter a batch".into(),
+                ));
+            }
+            profiles::validate_nets_override(a.nets_override.as_deref())?;
+            let (text, label) =
+                profiles::load_profile_source(a.id.clone(), a.path.clone())?;
+            let parsed = profiles::parse_profile_text(&text, &label)?;
+            let plan = profiles::plan_profile(
+                p,
+                &parsed,
+                a.nets_override.as_deref(),
+            )?;
+            profiles::apply_plan(p, next, &plan)?;
+            Ok(json!({
+                "profile_id": plan.profile_id,
+                "classes": plan.classes.len(),
+                "pairs": plan.pairs.len(),
+                "unsupported": plan.unsupported.iter().map(|u| json!({"path": u.path, "value": u.value})).collect::<Vec<_>>(),
+                "value_sources": plan.value_sources.iter().map(|v| json!({
+                    "field": v.field,
+                    "source": v.source,
+                    "confidence": v.confidence,
+                })).collect::<Vec<_>>(),
+                "unmatched_patterns": plan.unmatched_patterns,
+            }))
         }
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
@@ -10656,6 +10746,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     a: key.0,
                     b: key.1,
                     clearance,
+                    profile: None,
                 });
                 rules.sort_by_key(|r| (r.a, r.b));
             }
@@ -10731,6 +10822,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 net_n: a.net_n,
                 gap: a.gap,
                 length_tolerance: a.length_tolerance,
+                profile: None,
             });
             Ok(json!({"id": id, "name": name}))
         }
@@ -12691,6 +12783,7 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
     fn library_fixture(name: &str) -> String {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../library/tests/fixtures")
@@ -27379,5 +27472,178 @@ mod tests {
         );
         s.project.validate()?;
         Ok(())
+    }
+
+    #[test]
+    fn applying_usb2_creates_the_pair_and_class_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"USB_DP"}), None)?;
+        s.execute("net.create", json!({"name":"USB_DM"}), None)?;
+        let rev_before = s.revision;
+        s.execute(
+            "rules.profile_apply",
+            json!({"id":"usb2","dry_run":false}),
+            None,
+        )?;
+        assert_eq!(s.project.net_classes.len(), 1);
+        assert_eq!(s.project.net_classes[0].name, "usb2");
+        assert_eq!(s.project.net_classes[0].profile.as_deref(), Some("usb2"));
+        assert_eq!(s.project.board.diff_pairs.len(), 1);
+        assert_eq!(s.project.board.diff_pairs[0].name, "USB_D");
+        assert_eq!(
+            s.project.board.diff_pairs[0].profile.as_deref(),
+            Some("usb2")
+        );
+        assert!(rev_before < s.revision);
+        s.undo()?;
+        assert!(s.project.net_classes.is_empty());
+        assert!(s.project.board.diff_pairs.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn applying_i2c_puts_sda_and_scl_in_one_class_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SDA"}), None)?;
+        s.execute("net.create", json!({"name":"SCL"}), None)?;
+        s.execute(
+            "rules.profile_apply",
+            json!({"id":"i2c","dry_run":false}),
+            None,
+        )?;
+        assert_eq!(s.project.net_classes.len(), 1);
+        let class = &s.project.net_classes[0];
+        assert_eq!(class.name, "i2c");
+        assert_eq!(class.nets.len(), 2);
+        s.undo()?;
+        assert!(s.project.net_classes.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn dry_run_changes_nothing() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"USB_DP"}), None)?;
+        s.execute("net.create", json!({"name":"USB_DM"}), None)?;
+        let rev = s.revision;
+        let out = s.execute(
+            "rules.profile_apply",
+            json!({"id":"usb2","dry_run":true}),
+            None,
+        )?;
+        assert_eq!(s.revision, rev);
+        assert!(s.project.net_classes.is_empty());
+        assert!(out["result"]["unsupported"].as_array().is_some_and(|a| !a.is_empty()));
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_fields_are_reported_not_dropped() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"USB_DP"}), None)?;
+        s.execute("net.create", json!({"name":"USB_DM"}), None)?;
+        let out = s.execute(
+            "rules.profile_apply",
+            json!({"id":"usb2","dry_run":false}),
+            None,
+        )?["result"]["unsupported"]
+            .as_array()
+            .ok_or_else(missing)?
+            .clone();
+        let paths: Vec<String> = out
+            .iter()
+            .filter_map(|v| v["path"].as_str().map(str::to_string))
+            .collect();
+        assert!(paths.iter().any(|p| p == "limits.max_vias"));
+        assert!(paths.iter().any(|p| p.starts_with("companion")));
+        assert_eq!(s.project.net_classes.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn profile_provenance_survives_save_and_load() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"SDA"}), None)?;
+        s.execute("net.create", json!({"name":"SCL"}), None)?;
+        s.execute(
+            "rules.profile_apply",
+            json!({"id":"i2c","dry_run":false}),
+            None,
+        )?;
+        let zip = pcbcraft_io::archive_zip(&s.project).map_err(Error::Invalid)?;
+        let loaded = pcbcraft_io::archive_project(&zip).map_err(Error::Invalid)?;
+        assert_eq!(
+            loaded.net_classes[0].profile.as_deref(),
+            Some("i2c")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn applying_twice_updates_values_without_duplicating_classes() -> Result<(), Error> {
+        let mut s = Session::default();
+        s.execute("net.create", json!({"name":"USB_DP"}), None)?;
+        s.execute("net.create", json!({"name":"USB_DM"}), None)?;
+        s.execute(
+            "rules.profile_apply",
+            json!({"id":"usb2","dry_run":false}),
+            None,
+        )?;
+        s.execute(
+            "rules.profile_apply",
+            json!({"id":"usb2","dry_run":false}),
+            None,
+        )?;
+        assert_eq!(s.project.net_classes.len(), 1);
+        assert_eq!(s.project.board.diff_pairs.len(), 1);
+        assert!((s.project.net_classes[0].clearance - 0.76).abs() < 1e-9);
+        Ok(())
+    }
+
+    #[test]
+    fn every_built_in_profile_toml_parses() -> Result<(), Error> {
+        profiles::every_built_in_parses()
+    }
+
+    #[test]
+    fn value_source_fields_name_known_schema_keys() -> Result<(), Error> {
+        let keys: BTreeSet<String> = profiles::SCHEMA_KEYS
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        profiles::for_each_built_in(|_id, parsed| {
+            for row in &parsed.value_sources {
+                if !keys.contains(&row.field) {
+                    return Err(Error::Invalid(format!(
+                        "unknown value_source field {}",
+                        row.field
+                    )));
+                }
+            }
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn manifest_source_slugs_exist() -> Result<(), Error> {
+        let slugs: BTreeSet<String> = profiles::SOURCE_SLUGS
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect();
+        profiles::for_each_built_in(|_id, parsed| {
+            for row in &parsed.value_sources {
+                if !slugs.contains(&row.source) {
+                    return Err(Error::Invalid(format!(
+                        "unknown source slug {}",
+                        row.source
+                    )));
+                }
+            }
+            Ok(())
+        })
     }
 }

@@ -8554,6 +8554,7 @@ mod tests {
             target_length: None,
             length_tolerance: None,
             nets: vec![5],
+            profile: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -8632,6 +8633,7 @@ mod tests {
             layer: None,
             clearance: 0.5,
             max_height: None,
+            profile: None,
             region: pcbcraft_doc::RuleRegion {
                 x: 5.0,
                 y: 5.0,

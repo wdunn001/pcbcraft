@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "i2c"
+name = "I2C"
+category = "bus"
+summary = "Open-drain clock and data with shared class rules."
+
+[[net_class]]
+name = "i2c"
+clearance = 0.2
+width = 0.25
+nets = ["SDA", "SCL"]
+
+[[value_source]]
+field = "width"
+source = "i2c-default"
+confidence = "medium"

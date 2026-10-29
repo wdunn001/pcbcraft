@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "usb3"
+name = "USB 3.x"
+category = "general"
+summary = "Baseline routing defaults for USB 3.x."
+
+[[net_class]]
+name = "usb3"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"

@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "spi-qspi"
+name = "SPI and QSPI"
+category = "general"
+summary = "Baseline routing defaults for SPI and QSPI."
+
+[[net_class]]
+name = "spi-qspi"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"

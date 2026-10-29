@@ -230,6 +230,9 @@ pub struct NetClass {
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
+    /// Built-in or file profile that last wrote this class, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.
@@ -240,6 +243,9 @@ pub struct NetPairRule {
     pub b: Id,
     /// Minimum copper separation between the two nets, in millimetres.
     pub clearance: f64,
+    /// Profile that last wrote this pair rule, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 impl NetPairRule {
     fn valid(&self) -> bool {
@@ -269,6 +275,9 @@ pub struct DiffPair {
     /// means length matching is not checked for this pair.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Profile that last wrote this differential pair, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 impl DiffPair {
     fn valid(&self) -> bool {
@@ -312,6 +321,9 @@ pub struct RuleArea {
     pub max_height: Option<f64>,
     /// The rectangle itself.
     pub region: RuleRegion,
+    /// Profile that last wrote this rule area, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 impl RuleArea {
     fn valid(&self) -> bool {
@@ -2028,6 +2040,10 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || c
+                    .profile
+                    .as_ref()
+                    .is_some_and(|p| p.is_empty() || p.len() > 64)
             {
                 return Err("invalid net class".into());
             }
@@ -2077,6 +2093,11 @@ impl Project {
                 || !nets.contains(&d.net_n)
                 || !pair_names.insert(d.name.as_str())
             {
+                || d
+                    .profile
+                    .as_ref()
+                    .is_some_and(|p| p.is_empty() || p.len() > 64)
+            {
                 return Err(
                     "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
                         .into(),
@@ -2084,7 +2105,13 @@ impl Project {
             }
         }
         for r in &self.board.rule_areas {
-            if !r.valid() || r.net.is_some_and(|n| !nets.contains(&n)) {
+            if !r.valid()
+                || r.net.is_some_and(|n| !nets.contains(&n))
+                || r
+                    .profile
+                    .as_ref()
+                    .is_some_and(|p| p.is_empty() || p.len() > 64)
+            {
                 return Err("rule areas need a valid rectangle, a sane gap and a known net".into());
             }
         }
@@ -2100,7 +2127,15 @@ impl Project {
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
         for r in &self.board.pair_rules {
             let key = (r.a.min(r.b), r.a.max(r.b));
-            if !r.valid() || !nets.contains(&r.a) || !nets.contains(&r.b) || !paired.insert(key) {
+            if !r.valid()
+                || !nets.contains(&r.a)
+                || !nets.contains(&r.b)
+                || !paired.insert(key)
+                || r
+                    .profile
+                    .as_ref()
+                    .is_some_and(|p| p.is_empty() || p.len() > 64)
+            {
                 return Err(
                     "net pair clearance rules need known distinct nets, one rule per pair".into(),
                 );

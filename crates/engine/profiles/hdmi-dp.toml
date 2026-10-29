@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "hdmi-dp"
+name = "HDMI and DisplayPort"
+category = "general"
+summary = "Baseline routing defaults for HDMI and DisplayPort."
+
+[[net_class]]
+name = "hdmi-dp"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"

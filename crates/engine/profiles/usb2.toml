@@ -1,0 +1,36 @@
+schema = 1
+
+[profile]
+id = "usb2"
+name = "USB 2.0"
+category = "usb"
+summary = "Full-speed differential data with matched route lengths."
+
+[[net_class]]
+name = "usb2"
+clearance = 0.76
+width = 0.8
+patterns = ["USB_D?"]
+
+[[pair]]
+name = "USB_D"
+net_p = "USB_DP"
+net_n = "USB_DM"
+gap = 0.15
+length_tolerance = 1.27
+
+[limits]
+max_vias = 4
+
+[[companion]]
+role = "series_resistor"
+
+[[value_source]]
+field = "gap"
+source = "usb2-default"
+confidence = "high"
+
+[[value_source]]
+field = "clearance"
+source = "usb2-default"
+confidence = "medium"

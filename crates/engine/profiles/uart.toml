@@ -1,0 +1,18 @@
+schema = 1
+
+[profile]
+id = "uart"
+name = "UART"
+category = "general"
+summary = "Baseline routing defaults for UART."
+
+[[net_class]]
+name = "uart"
+clearance = 0.25
+width = 0.3
+patterns = ["*"]
+
+[[value_source]]
+field = "clearance"
+source = "netrules-default"
+confidence = "low"
