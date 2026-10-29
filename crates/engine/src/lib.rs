@@ -273,6 +273,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "components.update",
+            "Change reference, value or named properties on up to 128 components in one undo step; the whole batch is refused when any row fails validation or would duplicate a reference",
+            schema(
+                json!({"updates":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"object","properties":{"id":id_schema(),"reference":{"type":"string"},"value":{"type":"string"},"field":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":["string","null"]}},"required":["key"],"additionalProperties":false}},"required":["id"],"additionalProperties":false}}}),
+                &["updates"],
+            ),
+        ),
+        (
+            "components.table.export",
+            "Export the parts table as CSV: one row per component sorted by reference, grouped like the bill of materials, or one row per placed footprint with layout columns",
+            schema(
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64},"mode":{"type":"string","enum":["parts","grouped","layout"]}}),
+                &[],
+            ),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -3351,6 +3367,39 @@ struct UpdateItem {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ComponentUpdateField {
+    key: String,
+    #[serde(default)]
+    value: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentUpdateEntry {
+    id: Id,
+    #[serde(default)]
+    reference: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    field: Option<ComponentUpdateField>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentsUpdateParams {
+    updates: Vec<ComponentUpdateEntry>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentsTableExportParams {
+    #[serde(default)]
+    fields: Vec<String>,
+    #[serde(default)]
+    variant: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ItemsUpdateParams {
     items: Vec<UpdateItem>,
 }
@@ -4255,6 +4304,93 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .ok_or_else(|| Error::Invalid("pad has no net".into()))?;
     Ok((position, net))
 }
+fn apply_component_updates(
+    p: &mut Project,
+    updates: &[ComponentUpdateEntry],
+) -> Result<usize, Error> {
+    if updates.is_empty() || updates.len() > 128 {
+        return Err(Error::Invalid(
+            "components.update accepts 1 to 128 updates".into(),
+        ));
+    }
+    for entry in updates {
+        let changes = entry.reference.is_some() || entry.value.is_some() || entry.field.is_some();
+        if !changes {
+            return Err(Error::Invalid(
+                "each update changes at least one property".into(),
+            ));
+        }
+        if !p.components.iter().any(|c| c.id == entry.id) {
+            return Err(Error::Invalid(format!("no component has id {}", entry.id)));
+        }
+        if let Some(reference) = entry.reference.as_ref() {
+            if reference.is_empty() || reference.len() > 64 {
+                return Err(Error::Invalid("reference must be 1 to 64 bytes".into()));
+            }
+        }
+        if let Some(value) = entry.value.as_ref() {
+            if value.len() > 256 {
+                return Err(Error::Invalid("value must be at most 256 bytes".into()));
+            }
+        }
+        if let Some(field) = entry.field.as_ref() {
+            if field.key.is_empty() || field.key.len() > 64 {
+                return Err(Error::Invalid("field name must be 1 to 64 bytes".into()));
+            }
+            if field.value.as_ref().is_some_and(|v| v.len() > 256) {
+                return Err(Error::Invalid(
+                    "field value must be at most 256 bytes".into(),
+                ));
+            }
+        }
+    }
+    for entry in updates {
+        let component = p
+            .components
+            .iter_mut()
+            .find(|c| c.id == entry.id)
+            .ok_or_else(missing)?;
+        if let Some(reference) = entry.reference.clone() {
+            component.reference = reference;
+        }
+        if let Some(value) = entry.value.clone() {
+            component.value = value;
+        }
+        if let Some(field) = entry.field.clone() {
+            let existing = component.fields.iter().position(|f| f.key == field.key);
+            match (&field.value, existing) {
+                (Some(value), Some(index)) => {
+                    component.fields[index].value = value.clone();
+                }
+                (Some(value), None) => {
+                    if component.fields.len() >= 32 {
+                        return Err(Error::Invalid(
+                            "a component carries at most 32 fields".into(),
+                        ));
+                    }
+                    component.fields.push(ComponentField {
+                        key: field.key,
+                        value: value.clone(),
+                    });
+                }
+                (None, Some(index)) => {
+                    component.fields.remove(index);
+                }
+                (None, None) => {
+                    return Err(Error::Invalid("component has no such field".into()));
+                }
+            }
+        }
+    }
+    let mut refs = std::collections::BTreeSet::new();
+    for c in &p.components {
+        if !refs.insert(c.reference.clone()) {
+            return Err(Error::Invalid("reference already in use".into()));
+        }
+    }
+    Ok(updates.len())
+}
+
 fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<Value, Error> {
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
@@ -5105,6 +5241,52 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 }
             };
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "components.update" => {
+            let a: ComponentsUpdateParams = parse(params)?;
+            let mut trial = p.clone();
+            let changed = apply_component_updates(&mut trial, &a.updates)?;
+            trial
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            let changed = apply_component_updates(p, &a.updates)?;
+            Ok(json!({"changed": changed}))
+        }
+        "components.table.export" => {
+            let a: ComponentsTableExportParams = parse(params)?;
+            let mode = a.mode.as_deref().unwrap_or("parts");
+            if !matches!(mode, "parts" | "grouped" | "layout") {
+                return Err(Error::Invalid(
+                    "mode must be parts, grouped or layout".into(),
+                ));
+            }
+            for key in &a.fields {
+                if key.is_empty() || key.len() > 64 {
+                    return Err(Error::Invalid(
+                        "property names must be 1 to 64 bytes".into(),
+                    ));
+                }
+            }
+            if a.fields.len() > 16 {
+                return Err(Error::Invalid(
+                    "a parts table lists at most 16 properties".into(),
+                ));
+            }
+            let variant = a.variant.as_deref();
+            let csv = match mode {
+                "grouped" => {
+                    pcbcraft_io::parts_table_csv(p, &a.fields, variant, true).map_err(|e| {
+                        Error::Invalid(e)
+                    })?
+                }
+                "layout" => pcbcraft_io::parts_table_csv_layout(p, variant).map_err(|e| {
+                    Error::Invalid(e)
+                })?,
+                _ => pcbcraft_io::parts_table_csv(p, &a.fields, variant, false).map_err(|e| {
+                    Error::Invalid(e)
+                })?,
+            };
+            Ok(json!({"csv": csv, "mode": mode}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -19390,6 +19572,154 @@ mod tests {
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
         assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn components_update_sets_one_field_on_filtered_ids_in_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = Vec::new();
+        for reference in ["R1", "R2", "R3"] {
+            ids.push(
+                s.execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":reference,"value":"10k","position":{"x":10.0,"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                    .as_u64()
+                    .ok_or_else(missing)?,
+            );
+        }
+        let updates: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({"id": id, "field": {"key": "MPN", "value": "RC0603"}}))
+            .collect();
+        let out = s.execute("components.update", json!({"updates": updates}), None)?["result"]
+            .clone();
+        assert_eq!(out["changed"], 3);
+        for id in &ids {
+            assert_eq!(
+                s.project.component(*id)?.field("MPN"),
+                Some("RC0603")
+            );
+        }
+        assert_eq!(s.inspect()["history"]["undo"], 1);
+        s.undo()?;
+        for id in &ids {
+            assert_eq!(s.project.component(*id)?.field("MPN"), None);
+        }
+        Ok(())
+    }
+    #[test]
+    fn components_update_rejects_invalid_field_and_leaves_project_unchanged() -> Result<(), Error> {
+        let mut s = Session::default();
+        let id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["project"].clone();
+        assert!(
+            s.execute(
+                "components.update",
+                json!({"updates":[{"id":id,"field":{"key":"Missing"}},{"id":id,"field":{"key":"MPN","value":"x".repeat(257)}}]}),
+                None,
+            )
+            .is_err()
+        );
+        assert_eq!(s.inspect()["project"], before);
+        Ok(())
+    }
+    #[test]
+    fn components_update_rejects_duplicate_reference_in_batch() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R2","value":"10k","position":{"x":20.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let before = s.inspect()["project"].clone();
+        for params in [
+            json!({"updates":[{"id":r1,"reference":"R2"}]}),
+            json!({"updates":[{"id":r1,"reference":"R9"},{"id":r2,"reference":"R9"}]}),
+        ] {
+            assert!(s.execute("components.update", params, None).is_err());
+        }
+        assert_eq!(s.inspect()["project"], before);
+        Ok(())
+    }
+    #[test]
+    fn components_table_export_writes_one_row_per_component_and_skips_variant_dnp(
+    ) -> Result<(), Error> {
+        let mut s = Session::default();
+        for (reference, value) in [("R2", "10k"), ("R1", "1k")] {
+            s.execute(
+                "component.add",
+                json!({"kind":"resistor","reference":reference,"value":value,"position":{"x":10.0,"y":10.0}}),
+                None,
+            )?;
+        }
+        let r3 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R3","value":"10k","position":{"x":30.0,"y":10.0}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "bom.set_fields",
+            json!({"fields":[{"key":"MPN","label":"Part"}]}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r3,"key":"MPN","value":"RC0603"}),
+            None,
+        )?;
+        s.execute(
+            "variant.create",
+            json!({"name":"Slim","dnp":[r3]}),
+            None,
+        )?;
+        let plain = s.execute("components.table.export", json!({}), None)?["result"]["csv"]
+            .as_str()
+            .ok_or_else(missing)?;
+        let lines: Vec<&str> = plain.lines().collect();
+        assert_eq!(
+            lines.first(),
+            Some(&"reference,value,footprint,Part"),
+            "project columns follow bom field labels"
+        );
+        assert_eq!(lines.len(), 4, "one header and three component rows");
+        assert_eq!(lines[1], "R1,1k,starter pads,");
+        assert_eq!(lines[2], "R2,10k,starter pads,");
+        assert_eq!(lines[3], "R3,10k,starter pads,RC0603");
+        let slim = s.execute(
+            "components.table.export",
+            json!({"variant":"Slim"}),
+            None,
+        )?["result"]["csv"]
+            .as_str()
+            .ok_or_else(missing)?;
+        assert_eq!(
+            slim.lines().count(),
+            3,
+            "variant DNP leaves one header and two rows like bom_csv"
+        );
+        assert!(
+            !slim.contains("R3"),
+            "the skipped part never appears in the export"
+        );
         Ok(())
     }
     #[test]

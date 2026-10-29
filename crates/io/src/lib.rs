@@ -2305,59 +2305,14 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// printed under their labels.
 pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<String, String> {
     p.validate()?;
-    if fields.len() > 16 {
-        return Err("a bill of materials lists at most 16 properties".into());
-    }
-    for key in fields {
-        if key.is_empty() || key.len() > 64 {
-            return Err("property names must be 1 to 64 bytes".into());
-        }
-    }
-    let variant = match variant.map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| format!("no variant named {name}"))?,
-        ),
-    };
-    // Columns come from the caller's list, or from the columns the project
-    // itself defines when the caller asks for none.
-    let columns: Vec<(String, String)> = if fields.is_empty() {
-        p.bom_fields
-            .iter()
-            .map(|f| {
-                (
-                    f.key.clone(),
-                    if f.label.is_empty() {
-                        f.key.clone()
-                    } else {
-                        f.label.clone()
-                    },
-                )
-            })
-            .collect()
-    } else {
-        fields
-            .iter()
-            .map(|key| (key.clone(), key.clone()))
-            .collect()
-    };
+    let variant = resolve_bom_variant(p, variant)?;
+    let columns = bom_field_columns(p, fields)?;
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
         if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }
-        let footprint = match variant
-            .and_then(|v| v.footprints.iter().find(|o| o.component == c.id))
-        {
-            Some(swap) => swap.footprint.clone(),
-            None => match &c.library_footprint {
-                Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
-                None => "starter pads".into(),
-            },
-        };
+        let footprint = component_footprint_export(c, variant);
         let values: Vec<String> = columns
             .iter()
             .map(|(key, _)| c.field(key).unwrap_or("").to_string())
@@ -2385,6 +2340,153 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
             out.push(',');
             out.push_str(&csv_cell(&value));
         }
+        out.push('\n');
+    }
+    Ok(out)
+}
+fn resolve_bom_variant<'a>(
+    p: &'a Project,
+    variant: Option<&str>,
+) -> Result<Option<&'a pcbcraft_doc::Variant>, String> {
+    match variant.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(name) => Ok(Some(
+            p.variants
+                .iter()
+                .find(|v| v.name == name)
+                .ok_or_else(|| format!("no variant named {name}"))?,
+        )),
+    }
+}
+fn bom_field_columns(p: &Project, fields: &[String]) -> Result<Vec<(String, String)>, String> {
+    if fields.len() > 16 {
+        return Err("a bill of materials lists at most 16 properties".into());
+    }
+    for key in fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err("property names must be 1 to 64 bytes".into());
+        }
+    }
+    Ok(if fields.is_empty() {
+        p.bom_fields
+            .iter()
+            .map(|f| {
+                (
+                    f.key.clone(),
+                    if f.label.is_empty() {
+                        f.key.clone()
+                    } else {
+                        f.label.clone()
+                    },
+                )
+            })
+            .collect()
+    } else {
+        fields
+            .iter()
+            .map(|key| (key.clone(), key.clone()))
+            .collect()
+    })
+}
+fn component_footprint_export(
+    c: &pcbcraft_doc::Component,
+    variant: Option<&pcbcraft_doc::Variant>,
+) -> String {
+    match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
+        Some(swap) => swap.footprint.clone(),
+        None => match &c.library_footprint {
+            Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
+            None => "starter pads".into(),
+        },
+    }
+}
+/// Parts table CSV with one row per component sorted by reference, or grouped like
+/// [`bom_csv`]. Variant DNP skips match the bill of materials export.
+pub fn parts_table_csv(
+    p: &Project,
+    fields: &[String],
+    variant: Option<&str>,
+    grouped: bool,
+) -> Result<String, String> {
+    if grouped {
+        return bom_csv(p, fields, variant);
+    }
+    p.validate()?;
+    let variant = resolve_bom_variant(p, variant)?;
+    let columns = bom_field_columns(p, fields)?;
+    let mut rows: Vec<(&pcbcraft_doc::Component, String)> = Vec::new();
+    for c in &p.components {
+        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+            continue;
+        }
+        rows.push((c, component_footprint_export(c, variant)));
+    }
+    rows.sort_by(|a, b| a.0.reference.cmp(&b.0.reference));
+    let mut out = String::from("reference,value,footprint");
+    for (_, header) in &columns {
+        out.push(',');
+        out.push_str(&csv_cell(header));
+    }
+    out.push('\n');
+    for (c, footprint) in rows {
+        out.push_str(&csv_cell(&c.reference));
+        out.push(',');
+        out.push_str(&csv_cell(&c.value));
+        out.push(',');
+        out.push_str(&csv_cell(&footprint));
+        for (key, _) in &columns {
+            out.push(',');
+            out.push_str(&csv_cell(c.field(key).unwrap_or("")));
+        }
+        out.push('\n');
+    }
+    Ok(out)
+}
+/// Layout parts table CSV: one row per placed footprint with side, rotation, lock and position.
+pub fn parts_table_csv_layout(p: &Project, variant: Option<&str>) -> Result<String, String> {
+    p.validate()?;
+    const MAX_PLACED: usize = 5_000;
+    if p.board.footprints.len() > MAX_PLACED {
+        return Err("parts table exceeds the placed-object limit".into());
+    }
+    let variant = resolve_bom_variant(p, variant)?;
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for f in &p.board.footprints {
+        let c = refs
+            .get(&f.component)
+            .ok_or("footprint references an unknown component")?;
+        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+            continue;
+        }
+        let package = match &c.library_footprint {
+            Some(footprint) => footprint.definition.name.clone(),
+            None => c.kind.clone(),
+        };
+        let side = pcbcraft_doc::footprint_assembly_side(f);
+        let locked = if f.locked.unwrap_or(false) {
+            "true"
+        } else {
+            "false"
+        };
+        let line = format!(
+            "{},{},{},{},{:.3},{},{:.3},{:.3}",
+            csv_cell(&c.reference),
+            csv_cell(&c.value),
+            csv_cell(&package),
+            side,
+            f.rotation.rem_euclid(360.0),
+            locked,
+            f.position.x,
+            f.position.y
+        );
+        rows.push((c.reference.clone(), line));
+    }
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut out = String::from("reference,value,package,side,rotation,locked,x_mm,y_mm\n");
+    for (_, line) in rows {
+        out.push_str(&line);
         out.push('\n');
     }
     Ok(out)
@@ -9334,6 +9436,130 @@ mod tests {
         assert!(
             bom_csv(&project, &[], Some("")).is_ok(),
             "a blank variant name prints the plain bill"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn parts_table_csv_lists_one_row_per_component() -> Result<(), String> {
+        let mut project = Project::default();
+        for (id, reference, value) in [(1, "R2", "10k"), (2, "R1", "1k")] {
+            project.components.push(pcbcraft_doc::Component {
+                sheet: 0,
+                id,
+                reference: reference.into(),
+                value: value.into(),
+                kind: "resistor".into(),
+                position: Point::new(10.0, 10.0),
+                rotation: 0.0,
+                pins: [(-1.0, "1"), (1.0, "2")]
+                    .map(|(x, number)| pcbcraft_doc::Pin {
+                        number: number.into(),
+                        name: String::new(),
+                        offset: Point::new(x, 0.0),
+                        net: None,
+                        electrical_type: "passive".into(),
+                        direction: None,
+                        unit: 1,
+                    })
+                    .to_vec(),
+                units: vec![],
+                library_symbol: None,
+                library_footprint: None,
+                fields: vec![],
+            });
+        }
+        project.validate()?;
+        let text = parts_table_csv(&project, &[], None, false)?;
+        assert_eq!(
+            text.lines().collect::<Vec<_>>(),
+            vec![
+                "reference,value,footprint",
+                "R1,1k,starter pads",
+                "R2,10k,starter pads",
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn parts_table_csv_layout_includes_side_rotation_and_lock() -> Result<(), String> {
+        let back_pad = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["B.Cu".into()],
+            drill: None,
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        let mut project = Project::default();
+        project.components.push(pcbcraft_doc::Component {
+            sheet: 0,
+            id: 1,
+            reference: "U1".into(),
+            value: "MCU".into(),
+            kind: "resistor".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            pins: [(-1.0, "1"), (1.0, "2")]
+                .map(|(x, number)| pcbcraft_doc::Pin {
+                    number: number.into(),
+                    name: String::new(),
+                    offset: Point::new(x, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                })
+                .to_vec(),
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(pcbcraft_doc::LibraryFootprint {
+                library: "Package".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "QFN-16".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            }),
+            fields: vec![],
+        });
+        project.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 2,
+            component: 1,
+            position: Point::new(5.0, 7.0),
+            rotation: 90.0,
+            locked: Some(true),
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::new(0.0, 0.0),
+                diameter: 1.0,
+                net: None,
+                castellated: None,
+                geometry: Some(back_pad),
+            }],
+        });
+        project.validate()?;
+        let text = parts_table_csv_layout(&project, None)?;
+        assert!(
+            text.contains("reference,value,package,side,rotation,locked,x_mm,y_mm"),
+            "layout header lists placement columns"
+        );
+        assert!(
+            text.contains("U1,MCU,QFN-16,back,90.000,true,5.000,7.000"),
+            "layout row carries side, rotation, lock and position"
         );
         Ok(())
     }
