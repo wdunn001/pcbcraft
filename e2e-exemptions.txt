@@ -255,3 +255,5 @@ story | textinput:Datum name | no story yet, tracked in #520
 tooltip | textinput:what to print | missing tooltip, tracked in #520
 tooltip | button:Pour copper | missing tooltip, tracked in #520
 story | button:#% | no story yet, tracked in #520
+tooltip | button:Attach PNG | missing tooltip, tracked in #520
+tooltip | textinput:PNG file path | missing tooltip, tracked in #520
