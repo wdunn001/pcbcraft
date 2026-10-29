@@ -41,6 +41,82 @@ const BUILT_INS: &[BuiltIn] = &[
         text: include_str!("../profiles/usb2.toml"),
     },
     BuiltIn {
+        id: "spi",
+        text: include_str!("../profiles/spi.toml"),
+    },
+    BuiltIn {
+        id: "swd",
+        text: include_str!("../profiles/swd.toml"),
+    },
+    BuiltIn {
+        id: "jtag",
+        text: include_str!("../profiles/jtag.toml"),
+    },
+    BuiltIn {
+        id: "hdmi",
+        text: include_str!("../profiles/hdmi.toml"),
+    },
+    BuiltIn {
+        id: "ethernet-100",
+        text: include_str!("../profiles/ethernet-100.toml"),
+    },
+    BuiltIn {
+        id: "ethernet-1g",
+        text: include_str!("../profiles/ethernet-1g.toml"),
+    },
+    BuiltIn {
+        id: "pcie-gen2",
+        text: include_str!("../profiles/pcie-gen2.toml"),
+    },
+    BuiltIn {
+        id: "pcie-gen3",
+        text: include_str!("../profiles/pcie-gen3.toml"),
+    },
+    BuiltIn {
+        id: "mipi-dsi",
+        text: include_str!("../profiles/mipi-dsi.toml"),
+    },
+    BuiltIn {
+        id: "mipi-csi",
+        text: include_str!("../profiles/mipi-csi.toml"),
+    },
+    BuiltIn {
+        id: "sdio",
+        text: include_str!("../profiles/sdio.toml"),
+    },
+    BuiltIn {
+        id: "qspi",
+        text: include_str!("../profiles/qspi.toml"),
+    },
+    BuiltIn {
+        id: "ddr4",
+        text: include_str!("../profiles/ddr4.toml"),
+    },
+    BuiltIn {
+        id: "lpddr4",
+        text: include_str!("../profiles/lpddr4.toml"),
+    },
+    BuiltIn {
+        id: "power-3v3",
+        text: include_str!("../profiles/power-3v3.toml"),
+    },
+    BuiltIn {
+        id: "power-5v",
+        text: include_str!("../profiles/power-5v.toml"),
+    },
+    BuiltIn {
+        id: "power-12v",
+        text: include_str!("../profiles/power-12v.toml"),
+    },
+    BuiltIn {
+        id: "analog-audio",
+        text: include_str!("../profiles/analog-audio.toml"),
+    },
+    BuiltIn {
+        id: "rf-50ohm",
+        text: include_str!("../profiles/rf-50ohm.toml"),
+    },
+    BuiltIn {
         id: "usb3",
         text: include_str!("../profiles/usb3.toml"),
     },

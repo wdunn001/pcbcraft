@@ -2,17 +2,16 @@ schema = 1
 
 [profile]
 id = "i2c"
-name = "I2C"
+name = "I2C bus"
 category = "bus"
-summary = "Open-drain clock and data with shared class rules."
+summary = "Open-drain bus nets share one net class."
 
 [[net_class]]
-name = "i2c"
-clearance = 0.2
-width = 0.25
+name = "I2C"
+clearance = 0.15
+width = 0.15
 nets = ["SDA", "SCL"]
 
 [[value_source]]
-field = "width"
-source = "i2c-default"
-confidence = "medium"
+field = "net_class.clearance"
+source = "i2c_open_drain_default"

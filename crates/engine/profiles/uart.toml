@@ -2,17 +2,16 @@ schema = 1
 
 [profile]
 id = "uart"
-name = "UART"
-category = "general"
-summary = "Baseline routing defaults for UART."
+name = "UART async"
+category = "interface"
+summary = "UART async rule starting points."
 
 [[net_class]]
-name = "uart"
-clearance = 0.25
-width = 0.3
+name = "SIG"
+clearance = 0.15
+width = 0.2
 patterns = ["*"]
 
 [[value_source]]
-field = "clearance"
-source = "netrules-default"
-confidence = "low"
+field = "net_class.width"
+source = "uart_default"

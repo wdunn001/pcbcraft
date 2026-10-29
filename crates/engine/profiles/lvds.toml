@@ -2,17 +2,16 @@ schema = 1
 
 [profile]
 id = "lvds"
-name = "LVDS"
-category = "general"
-summary = "Baseline routing defaults for LVDS."
+name = "LVDS link"
+category = "interface"
+summary = "LVDS link rule starting points."
 
 [[net_class]]
-name = "lvds"
-clearance = 0.25
-width = 0.3
+name = "SIG"
+clearance = 0.15
+width = 0.2
 patterns = ["*"]
 
 [[value_source]]
-field = "clearance"
-source = "netrules-default"
-confidence = "low"
+field = "net_class.width"
+source = "lvds_default"

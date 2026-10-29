@@ -3,16 +3,15 @@ schema = 1
 [profile]
 id = "can"
 name = "CAN bus"
-category = "general"
-summary = "Baseline routing defaults for CAN bus."
+category = "interface"
+summary = "CAN bus rule starting points."
 
 [[net_class]]
-name = "can"
-clearance = 0.25
-width = 0.3
+name = "SIG"
+clearance = 0.15
+width = 0.2
 patterns = ["*"]
 
 [[value_source]]
-field = "clearance"
-source = "netrules-default"
-confidence = "low"
+field = "net_class.width"
+source = "can_default"

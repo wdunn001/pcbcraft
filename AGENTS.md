@@ -37,3 +37,10 @@ Green **GitHub Actions on the fork** for the commit you report is required proof
 ## Stuck
 
 Same build/test failure twice with identical output → post output, set `status:blocked`, stop (CONTRIBUTING.md §9).
+
+## Cloud Agent fleet (fork wdunn001/pcbcraft)
+
+**Workers:** push a `<kind>-<slug>` or `feature/<slug>-db36` branch only. Green **GitHub Actions on that branch** is the proof. Post the upstream build report ending with `PR pending owner review`. **Do not** open a pull request on the fork and **do not** use forge PR tools to create one—maintainer/integrator lands work on fork `main` with a merge commit after review.
+
+**Integrator (same fleet):** merge contributor branches into fork `main` with `git merge` (not `gh pr merge`). Close any stray worker-opened fork PRs with `closed` status so the branch + Actions run remain the record. Upstream PR to tangency-labs waits until fork `main` is green and the owner has run the packaged test gate—never ask the owner to close PRs or merge manually.
+

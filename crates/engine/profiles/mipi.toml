@@ -13,6 +13,6 @@ width = 0.3
 patterns = ["*"]
 
 [[value_source]]
-field = "clearance"
+field = "net_class.clearance"
 source = "netrules-default"
 confidence = "low"

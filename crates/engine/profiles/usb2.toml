@@ -2,35 +2,32 @@ schema = 1
 
 [profile]
 id = "usb2"
-name = "USB 2.0"
+name = "USB 2.0 full speed"
 category = "usb"
-summary = "Full-speed differential data with matched route lengths."
+summary = "Differential pair, class and pair clearance for USB 2.0 data."
 
 [[net_class]]
-name = "usb2"
-clearance = 0.76
-width = 0.8
-patterns = ["USB_D?"]
+name = "USB"
+clearance = 0.15
+width = 0.2
+patterns = ["USB_*"]
 
 [[pair]]
-name = "USB_D"
-net_p = "USB_DP"
-net_n = "USB_DM"
-gap = 0.15
-length_tolerance = 1.27
+name = "USB"
+net_p = "USB_D+"
+net_n = "USB_D-"
+gap = 0.2
+length_tolerance = 0.25
 
-[limits]
-max_vias = 4
-
-[[companion]]
-role = "series_resistor"
-
-[[value_source]]
-field = "gap"
-source = "usb2-default"
-confidence = "high"
+[[pair_rule]]
+net_a = "USB_D+"
+net_b = "USB_D-"
+clearance = 0.15
 
 [[value_source]]
-field = "clearance"
-source = "usb2-default"
-confidence = "medium"
+field = "net_class.width"
+source = "usb2_default_track"
+
+[[value_source]]
+field = "pair.gap"
+source = "usb2_coupling_gap"

@@ -2,17 +2,16 @@ schema = 1
 
 [profile]
 id = "ddr3"
-name = "DDR3"
-category = "general"
-summary = "Baseline routing defaults for DDR3."
+name = "DDR3 memory"
+category = "interface"
+summary = "DDR3 memory rule starting points."
 
 [[net_class]]
-name = "ddr3"
-clearance = 0.25
-width = 0.3
+name = "SIG"
+clearance = 0.15
+width = 0.2
 patterns = ["*"]
 
 [[value_source]]
-field = "clearance"
-source = "netrules-default"
-confidence = "low"
+field = "net_class.width"
+source = "ddr3_default"
