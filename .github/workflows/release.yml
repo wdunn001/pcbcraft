@@ -1,6 +1,10 @@
 # Tagged release: build every platform, attach checksums and GPL source
 # archives, and open a DRAFT GitHub Release. A maintainer reviews and
 # publishes it by hand; this workflow never publishes.
+#
+# Primary packages are also attached without the tag in their names
+# (pcbcraft-linux-x86_64.tar.gz, pcbcraft-windows-x86_64.zip, ...) so
+# releases/latest/download/<name> links keep working across releases.
 name: Release
 
 on:
@@ -115,11 +119,30 @@ jobs:
           pattern: dist-*
           path: dist
           merge-multiple: true
+      - name: Version-less copies for permanent download links
+        working-directory: dist
+        env:
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          for f in "pcbcraft-$TAG-"*; do
+            case "$f" in
+              *-source.tar.gz | *-source-vendored.tar.gz) ;;
+              *.tar.gz | *.zip | *.dmg)
+                cp -- "$f" "pcbcraft-${f#"pcbcraft-$TAG-"}" ;;
+            esac
+          done
+          for f in pcbcraft-linux-x86_64.tar.gz pcbcraft-linux-aarch64.tar.gz \
+            pcbcraft-windows-x86_64.zip pcbcraft-macos-universal.tar.gz \
+            pcbcraft-macos-universal.dmg pcbcraft-web.zip; do
+            test -s "$f" || { echo "missing version-less copy $f" >&2; exit 1; }
+          done
+          ls -l pcbcraft-linux-* pcbcraft-windows-* pcbcraft-macos-* pcbcraft-web.zip
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum -- * > SHA256SUMS
-          cat SHA256SUMS
+          sha256sum -- * | tee SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Changelog from commits since the previous tag
         env:
           TAG: ${{ needs.verify.outputs.tag }}
@@ -131,7 +154,7 @@ jobs:
             echo
             git log --no-merges --reverse --format='- %s (%h)' "$range"
             echo
-            echo "Binaries are not code-signed yet. Verify downloads against SHA256SUMS."
+            echo "Binaries are not code-signed yet. Verify downloads against SHA256SUMS.txt."
             echo "The source archives are the complete corresponding source under GPL-3.0-or-later."
           } > notes.md
           cat notes.md

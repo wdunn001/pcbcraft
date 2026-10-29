@@ -1,0 +1,2 @@
+# One exemption per line: control id = reason. The walk fails on an entry
+# that is no longer undersized, so this list can only shrink.
