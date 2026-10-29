@@ -1,6 +1,19 @@
 //! Repository automation. Every CI job calls one of these subcommands, so a
 //! failing job can be reproduced locally with the same command.
-//! See docs/ci.md.
+//!
+//! # Rules
+//! - Every CI job calls one subcommand; add the subcommand here before the job.
+//! - Subcommands print what they run and fail with a non-zero exit code.
+//!
+//! # Dependencies
+//! - .github/workflows/ci.yml
+//! - docs/ci.md
+//! - xtask/src/doc_check.rs
+//!
+//! # Do not
+//! - Add a CI step that has no `cargo xtask` command behind it.
+mod doc_check;
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
@@ -15,6 +28,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   test         workspace tests (cargo-nextest when installed) and doctests
   wasm         WebAssembly check of the shared UI and browser entry point
   docs         rustdoc with warnings denied
+  docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
   deny         cargo-deny licenses, advisories, bans and sources
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
@@ -60,6 +74,7 @@ const VIEWS: [(&str, &[&str]); 8] = [
     ),
 ];
 
+/// Prints and runs a program, returning its exit status.
 fn status(program: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<ExitStatus, String> {
     println!("+ {program} {}", args.join(" "));
     let mut command = Command::new(program);
@@ -72,6 +87,7 @@ fn status(program: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<ExitSta
         .map_err(|e| format!("{program} {}: {e}", args.join(" ")))
 }
 
+/// Runs a program with extra environment variables and fails on a non-zero exit.
 fn run_env(program: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<(), String> {
     if status(program, args, envs)?.success() {
         Ok(())
@@ -80,10 +96,12 @@ fn run_env(program: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<(), St
     }
 }
 
+/// Runs cargo with the given arguments.
 fn cargo(args: &[&str]) -> Result<(), String> {
     run_env("cargo", args, &[])
 }
 
+/// True when `cargo <name> --version` succeeds.
 fn has_cargo_subcommand(name: &str) -> bool {
     Command::new("cargo")
         .args([name, "--version"])
@@ -91,10 +109,12 @@ fn has_cargo_subcommand(name: &str) -> bool {
         .is_ok_and(|output| output.status.success())
 }
 
+/// Checks formatting of the whole workspace.
 fn fmt() -> Result<(), String> {
     cargo(&["fmt", "--all", "--", "--check"])
 }
 
+/// Runs clippy on all targets with warnings denied.
 fn clippy() -> Result<(), String> {
     cargo(&[
         "clippy",
@@ -107,6 +127,7 @@ fn clippy() -> Result<(), String> {
     ])
 }
 
+/// Runs workspace tests with nextest when installed, plus doctests.
 fn test() -> Result<(), String> {
     if has_cargo_subcommand("nextest") {
         cargo(&[
@@ -123,6 +144,7 @@ fn test() -> Result<(), String> {
     }
 }
 
+/// Checks the wasm packages for the wasm32 target.
 fn wasm() -> Result<(), String> {
     let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
@@ -131,6 +153,7 @@ fn wasm() -> Result<(), String> {
     cargo(&args)
 }
 
+/// Builds rustdoc with warnings denied. The documentation standard check is `doc_check::run`.
 fn docs() -> Result<(), String> {
     run_env(
         "cargo",
@@ -139,6 +162,7 @@ fn docs() -> Result<(), String> {
     )
 }
 
+/// Runs cargo-deny for licenses, advisories, bans and sources.
 fn deny() -> Result<(), String> {
     if !has_cargo_subcommand("deny") {
         return Err("cargo-deny is not installed: cargo install --locked cargo-deny".into());
@@ -146,6 +170,7 @@ fn deny() -> Result<(), String> {
     cargo(&["deny", "--workspace", "--all-features", "check"])
 }
 
+/// Reads `cargo metadata` for the workspace without dependencies.
 fn workspace_metadata() -> Result<serde_json::Value, String> {
     let output = Command::new("cargo")
         .args(["metadata", "--no-deps", "--format-version", "1"])
@@ -164,6 +189,7 @@ fn str_field<'a>(value: &'a serde_json::Value, key: &str) -> Result<&'a str, Str
         .ok_or_else(|| format!("missing metadata field {key}"))
 }
 
+/// Checks that every crate inherits the workspace rust-version and builds with that toolchain.
 fn msrv() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let manifest =
@@ -202,6 +228,7 @@ fn msrv() -> Result<(), String> {
     ])
 }
 
+/// Fails when a crate depends on a higher layer or a UI crate from below the UI layer.
 fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
@@ -242,6 +269,7 @@ fn layers() -> Result<(), String> {
     Ok(())
 }
 
+/// The repository root, one level above the xtask manifest directory.
 fn root() -> Result<PathBuf, String> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").map_err(|e| e.to_string())?;
     Path::new(&manifest_dir)
@@ -250,6 +278,7 @@ fn root() -> Result<PathBuf, String> {
         .ok_or_else(|| "xtask has no parent directory".into())
 }
 
+/// Collects every `.rs` file under a directory, skipping `target`.
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
         let path = entry.map_err(|e| e.to_string())?.path();
@@ -333,6 +362,7 @@ fn lint_policy() -> Result<(), String> {
     }
 }
 
+/// The value after a `--key` argument, if present.
 fn option_value(args: &[String], key: &str) -> Option<String> {
     args.iter()
         .position(|a| a == key)
@@ -403,6 +433,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// Dispatches the subcommand named on the command line; `ci` is the default.
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let action = args.first().map(String::as_str).unwrap_or("ci");
@@ -415,6 +446,7 @@ fn run() -> Result<(), String> {
             test()?;
             wasm()?;
             docs()?;
+            doc_check::run(&[])?;
         }
         "policy" => {
             layers()?;
@@ -425,6 +457,9 @@ fn run() -> Result<(), String> {
         "clippy" => clippy()?,
         "test" => test()?,
         "wasm" => wasm()?,
+        "docs" if args.get(1).map(String::as_str) == Some("check") => {
+            doc_check::run(args.get(2..).unwrap_or(&[]))?;
+        }
         "docs" => docs()?,
         "deny" => deny()?,
         "msrv" => msrv()?,
@@ -440,6 +475,7 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// Runs the chosen subcommand and exits non-zero with the message on failure.
 fn main() {
     if let Err(e) = run() {
         eprintln!("{e}");
