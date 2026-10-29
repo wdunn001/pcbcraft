@@ -6,26 +6,38 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
 mod fab_export;
 mod gerber;
 mod gerber_job;
+mod laser;
 mod layers;
 mod library_render;
 mod package;
 mod panel_export;
 mod plot_read;
 mod raster;
+pub use bitmap_trace::{
+    MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
+    decode_embedded_png, decode_png, embedded_bytes,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart,
     ModelPlacement, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
 };
 pub use diff::{DesignChange, DesignDiff, project_diff};
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
-pub use gerber::gerber_copper;
+pub use gerber::{gerber_copper, gerber_silk};
 pub use gerber_job::{gerber_job, gerber_zip};
+pub use image::RgbaImage;
+pub use laser::{
+    LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
+    laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
+    laser_job_validate_work_area, laser_job_work_area_mm,
+};
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
     fabrication_point, gerber_copper_counts, layer_shapes,
@@ -2332,15 +2344,26 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             continue;
         }
         let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let fill = pcbcraft_doc::zone_fill(p, z)?;
         let file = if is_back { &mut back } else { &mut front };
         let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .chain(z.cutouts.iter().flatten())
-            .map(|q| mirror(q.x, q.y, is_back))
-            .collect();
-        file.fill(code, &outline)?;
+        // The fill is what ships: gaps round foreign copper, thermal spokes and
+        // the island policy are already applied. Each piece is one G36 region
+        // and each hole is cleared with LPC immediately after it, before any
+        // track or pad is drawn, because LPC would clear those too.
+        for piece in &fill.pieces {
+            for (index, ring) in piece.iter().enumerate() {
+                let points: Vec<(f64, f64)> =
+                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
+                if index > 0 {
+                    file.body.push_str("%LPC*%\n");
+                }
+                file.fill(code, &points)?;
+                if index > 0 {
+                    file.body.push_str("%LPD*%\n");
+                }
+            }
+        }
     }
     for t in &p.board.tracks {
         let is_back = t.layer == pcbcraft_doc::Layer::Back;
@@ -6633,6 +6656,7 @@ mod tests {
         project.files.push(pcbcraft_doc::EmbeddedFile {
             name: "notes.txt".into(),
             data: "hello from the archive".into(),
+            encoding: String::new(),
         });
         let zip = archive_zip(&project)?;
         assert!(
@@ -7872,6 +7896,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -8038,6 +8064,8 @@ mod tests {
             filled: true,
 
             kind: None,
+
+            pour: None,
         });
         project.board.cutouts.push(pcbcraft_doc::Cutout {
             id: 6,
@@ -8199,7 +8227,7 @@ mod tests {
             "through-hole pad aperture"
         );
         assert!(
-            front.contains("G36*") && front.contains("X5.000000Y5.000000D02*\n"),
+            front.contains("G36*") && front.contains("G37*"),
             "the poured zone must appear as a filled region"
         );
         assert!(
@@ -9214,6 +9242,7 @@ mod tests {
             net: None,
             layer: None,
             clearance: 0.5,
+            keepout: None,
             max_height: None,
             region: pcbcraft_doc::RuleRegion {
                 x: 5.0,
@@ -9515,6 +9544,7 @@ mod tests {
             ],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -9523,6 +9553,7 @@ mod tests {
             points: vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -9650,6 +9681,7 @@ mod tests {
             points: vec![Point::new(1.0, 2.0), Point::new(9.0, 2.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -10670,6 +10702,7 @@ mod tests {
             points: vec![Point::new(10.0, 10.0), Point::new(20.0, 15.0)],
             width: 0.2,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -10678,6 +10711,7 @@ mod tests {
             points: vec![Point::new(12.0, 12.0)],
             width: 1.5,
             text: "REV B".into(),
+            sublayer: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -10686,6 +10720,7 @@ mod tests {
             points: vec![Point::new(30.0, 20.0)],
             width: 4.0,
             text: String::new(),
+            sublayer: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
@@ -12485,6 +12520,133 @@ mod tests {
         assert!(
             drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count() == 2,
             "one tool per covering: {drill}"
+        );
+        Ok(())
+    }
+    fn pour_board() -> Result<Project, String> {
+        let mut p = Project::default();
+        p.board.width = 40.0;
+        p.board.height = 40.0;
+        p.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        let ring = |x0: f64, y0: f64, x1: f64, y1: f64| {
+            vec![
+                Point::new(x0, y0),
+                Point::new(x1, y0),
+                Point::new(x1, y1),
+                Point::new(x0, y1),
+                Point::new(x0, y0),
+            ]
+        };
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 10,
+            net: 1,
+            layer: pcbcraft_doc::Layer::Front,
+            outline: ring(5.0, 5.0, 35.0, 35.0),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p.validate()?;
+        Ok(p)
+    }
+    fn front_copper(p: &Project) -> Result<String, String> {
+        gerber_files(p)?
+            .into_iter()
+            .find(|(name, _)| name == "pcb-F.Cu.gbr")
+            .map(|(_, body)| body)
+            .ok_or_else(|| "no front copper file".to_string())
+    }
+    #[test]
+    fn gerber_zone_cutout_is_a_hole_not_a_joined_contour() -> Result<(), String> {
+        let mut p = pour_board()?;
+        p.board.zones[0].cutouts.push(vec![
+            Point::new(15.0, 15.0),
+            Point::new(25.0, 15.0),
+            Point::new(25.0, 25.0),
+            Point::new(15.0, 25.0),
+            Point::new(15.0, 15.0),
+        ]);
+        p.validate()?;
+        let front = front_copper(&p)?;
+        assert_eq!(front.matches("G36*").count(), 2, "outer region plus hole");
+        let clear = front
+            .find("%LPC*%")
+            .ok_or("no clear polarity for the hole")?;
+        let hole = front[clear..].find("G36*").ok_or("hole is not a region")?;
+        assert!(hole > 0);
+        assert!(front.contains("%LPD*%"), "polarity returns to dark");
+        Ok(())
+    }
+    #[test]
+    fn gerber_relief_shows_four_spokes() -> Result<(), String> {
+        let mut p = pour_board()?;
+        let g = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(pcbcraft_library::Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        if let Some(mut c) =
+            pcbcraft_doc::component_template("resistor", 4, "R4".into(), Point::new(20.0, 20.0))
+        {
+            c.pins.truncate(1);
+            for pin in &mut c.pins {
+                pin.net = Some(1);
+            }
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "PTH".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![g.clone()],
+                    graphics: vec![],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+            p.components.push(c);
+        }
+        p.board.footprints.push(pcbcraft_doc::Footprint {
+            id: 20,
+            component: 4,
+            position: Point::new(20.0, 20.0),
+            rotation: 0.0,
+            locked: None,
+            pads: vec![pcbcraft_doc::Pad {
+                number: "1".into(),
+                offset: Point::default(),
+                diameter: 1.6,
+                net: Some(1),
+                castellated: None,
+                geometry: Some(g),
+            }],
+        });
+        p.validate()?;
+        let front = front_copper(&p)?;
+        // Four spokes cut the gap ring round the pad into four separate holes.
+        assert_eq!(
+            front.matches("%LPC*%").count(),
+            4,
+            "four gaps between four spokes"
         );
         Ok(())
     }

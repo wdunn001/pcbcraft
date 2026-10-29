@@ -292,7 +292,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Settings")?;
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 700.0)?,
         "the board panel should offer printed words: {}",
         app.message
     );
@@ -301,7 +301,7 @@ fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
     app.label_y = 2.0;
     app.label_size = 1.2;
     app.label_front = false;
-    scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
+    scrolled_to_at(&ctx, &mut app, "Add label", 700.0)?;
     authoring::tests::tap(&ctx, &mut app, "Add label")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.refresh();
@@ -383,7 +383,7 @@ fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
         );
     }
     assert!(
-        scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
+        scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 700.0)?,
         "the rules page should offer stricter corners: {}",
         app.message
     );
