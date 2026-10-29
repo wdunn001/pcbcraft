@@ -2998,6 +2998,7 @@ struct HolePlaceParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct FiducialPlaceParams {
     position: Point,
     diameter: f64,
@@ -3094,6 +3095,7 @@ struct ZoneParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct TeardropParams {
     #[serde(default)]
     net: Option<Id>,
@@ -3128,6 +3130,7 @@ fn teardrop_depth() -> f64 {
 type Junction = (Point, (f64, f64), f64, f64, f64, Id, Layer);
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct TeardropRemoveParams {
     #[serde(default)]
     net: Option<Id>,
@@ -3504,6 +3507,7 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct RuleAreaParams {
     #[serde(default)]
     name: Option<String>,
@@ -3682,6 +3686,7 @@ struct ItemsUpdateParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(dead_code)]
 struct ItemFindParams {
     kind: String,
     #[serde(default)]
@@ -4666,11 +4671,7 @@ fn optional_command_layer(p: &Project, params: &Value) -> Result<Option<Layer>, 
 }
 fn copper_count_in_records(records: &[LayerRecord]) -> u8 {
     let n = records.iter().filter(|r| r.kind == "copper").count();
-    if n == 0 {
-        2
-    } else {
-        n as u8
-    }
+    if n == 0 { 2 } else { n as u8 }
 }
 fn refuse_stack_shrink(p: &Project, new_count: u8) -> Result<(), Error> {
     if let Some(msg) = p.stack_shrink_blocked_reason(new_count) {
@@ -11415,10 +11416,7 @@ fn run_command(
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
                 || a.copper_role.as_ref().is_some_and(|r| {
-                    !matches!(
-                        r.as_str(),
-                        "signal" | "plane" | "mixed" | "hatched"
-                    )
+                    !matches!(r.as_str(), "signal" | "plane" | "mixed" | "hatched")
                 })
             {
                 return Err(Error::Invalid(
@@ -11468,7 +11466,7 @@ fn run_command(
                     "layer record name must be 1 to 64 characters".into(),
                 ));
             }
-            let mut trial: Vec<_> = p
+            let trial: Vec<_> = p
                 .board
                 .layer_records
                 .iter()
@@ -14414,9 +14412,7 @@ fn run_command(
                 None | Some(Value::Null) => a.from_layer,
                 Some(Value::String(s)) => Some(resolve_layer_param(p, s)?),
                 _ => {
-                    return Err(Error::Invalid(
-                        "from_layer must be a string or null".into(),
-                    ));
+                    return Err(Error::Invalid("from_layer must be a string or null".into()));
                 }
             };
             if !p.nets.iter().any(|n| n.id == a.net) {
@@ -14553,6 +14549,22 @@ fn run_command(
             {
                 return Err(Error::Invalid("invalid text rotation".into()));
             }
+            let layer = if params.get("layer").is_some() {
+                let current = p
+                    .board
+                    .texts
+                    .iter()
+                    .find(|t| t.id == a.id)
+                    .ok_or_else(missing)?;
+                command_layer(p, params, current.layer)?
+            } else {
+                p.board
+                    .texts
+                    .iter()
+                    .find(|t| t.id == a.id)
+                    .ok_or_else(missing)?
+                    .layer
+            };
             let text = p
                 .board
                 .texts
@@ -14565,9 +14577,7 @@ fn run_command(
             if let Some(size) = a.size {
                 text.size = size;
             }
-            if params.get("layer").is_some() {
-                text.layer = command_layer(p, params, text.layer)?;
-            }
+            text.layer = layer;
             if let Some(rotation) = a.rotation {
                 text.rotation = rotation;
             }
@@ -17030,13 +17040,10 @@ mod tests {
 
     #[test]
     fn symbol_refresh_propagates_symbol_edits_to_every_placed_copy() -> Result<(), Error> {
-        let folder = std::env::temp_dir()
-            .join(format!(
-                "pcbcraft-symrefresh-{}-{}",
-                std::process::id(),
-                SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed)
-            ))
-            .join("amps");
+        let tag = SYM_REFRESH_SEQ.fetch_add(1, Ordering::Relaxed);
+        let lib = format!("amps{tag}");
+        let tmp = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let folder = tmp.path().join(&lib);
         std::fs::create_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
         let file = folder.join("amps.kicad_sym");
         let fixture = library_fixture("lm358.kicad_sym");
@@ -17044,12 +17051,13 @@ mod tests {
         let mut s = Session::default();
         s.execute(
             "library.link",
-            json!({"name":"amps","path":folder.to_string_lossy().to_string()}),
+            json!({"name":lib,"path":folder.to_string_lossy().to_string()}),
             None,
         )?;
+        let sym_path = format!("{lib}/amps.kicad_sym");
         let chip = s.execute(
             "component.place_library",
-            json!({"path":"amps/amps.kicad_sym","symbol":"LM358","position":{"x":20.0,"y":40.0}}),
+            json!({"path":sym_path,"symbol":"LM358","position":{"x":20.0,"y":40.0}}),
             None,
         )?["result"]["id"]
             .as_u64()
@@ -17084,7 +17092,7 @@ mod tests {
             .map_err(|e| Error::Invalid(e.to_string()))?;
         let refreshed = s.execute(
             "symbol.refresh",
-            json!({"path":"amps/amps.kicad_sym","symbol":"LM358"}),
+            json!({"path":sym_path,"symbol":"LM358"}),
             None,
         )?;
         assert_eq!(
@@ -17118,7 +17126,7 @@ mod tests {
         assert!(
             s.execute(
                 "symbol.refresh",
-                json!({"path":"amps/amps.kicad_sym","symbol":"NOPE"}),
+                json!({"path":sym_path,"symbol":"NOPE"}),
                 None
             )
             .is_err()
@@ -17650,7 +17658,7 @@ mod tests {
             .clone();
         assert_eq!(set["drill_origin"]["x"], 20.0);
         assert_eq!(set["drill_origin"]["y"], 10.0);
-        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Drill.drl"].clone();
+        let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
             drill.contains("X10.000Y10.000\n"),
             "the recorded origin moves drill coordinates"
@@ -26550,11 +26558,15 @@ mod tests {
         assert_eq!(
             out["files"],
             json!([
+                "README-fabrication.txt",
                 "pcb-B.Cu.gbr",
-                "pcb-Drill.drl",
+                "pcb-B.Mask.gbr",
+                "pcb-B.Paste.gbr",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
                 "pcb-F.Cu.gbr",
+                "pcb-F.Mask.gbr",
+                "pcb-F.Paste.gbr",
                 "pcb-NPTH.drl",
                 "pcb-Plated.drl",
                 "pcb.dxf"
@@ -26563,11 +26575,13 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-F.Mask.gbr",
             "pcb-NPTH.drl",
             "pcb-Plated.drl",
+            "README-fabrication.txt",
             "pcb.dxf",
         ] {
             assert!(
@@ -26618,7 +26632,7 @@ mod tests {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
             "pcb-Edge.gbr",
             "pcb-NPTH.drl",
             "pcb-Plated.drl",
@@ -30889,14 +30903,13 @@ mod tests {
 
     #[test]
     fn two_layer_example_project_round_trips_byte_stable() -> Result<(), Error> {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
-        for name in ["led-indicator.json", "route-led.json", "shaped-pads.json"] {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        for name in ["dual-amplifier.pcbcraft", "kicad-library-rc.pcbcraft"] {
             let path = dir.join(name);
-            let raw = std::fs::read_to_string(&path).map_err(|e| Error::Invalid(e.to_string()))?;
-            let project: Project =
-                serde_json::from_str(&raw).map_err(|e| Error::Invalid(e.to_string()))?;
+            let project = pcbcraft_io::load(&path).map_err(Error::Invalid)?;
             project.validate().map_err(Error::Invalid)?;
-            let again = serde_json::to_string(&project).map_err(|e| Error::Invalid(e.to_string()))?;
+            let again =
+                serde_json::to_string(&project).map_err(|e| Error::Invalid(e.to_string()))?;
             let reparsed: Project =
                 serde_json::from_str(&again).map_err(|e| Error::Invalid(e.to_string()))?;
             assert_eq!(project, reparsed, "{name} should round-trip");
@@ -30928,12 +30941,8 @@ mod tests {
         )?;
         assert!(s.project.validate().is_ok());
         assert!(
-            s.execute(
-                "board.remove_layer_record",
-                json!({"name":"B.Cu"}),
-                None,
-            )
-            .is_err(),
+            s.execute("board.remove_layer_record", json!({"name":"B.Cu"}), None,)
+                .is_err(),
             "shrinking the stack while bottom copper still carries a track is refused"
         );
         Ok(())
@@ -30962,7 +30971,8 @@ mod tests {
             None,
         )?;
         assert!(
-            s.execute("board.clear_layer_records", json!({}), None).is_err(),
+            s.execute("board.clear_layer_records", json!({}), None)
+                .is_err(),
             "clearing stack notes is refused while inner copper is in use"
         );
         Ok(())

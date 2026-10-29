@@ -1190,7 +1190,9 @@ mod tests {
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
             "pcb-Edge.gbr",
-            "pcb-Drill.drl",
+            "pcb-Plated.drl",
+            "pcb-DrillMap.gbr",
+            "README-fabrication.txt",
         ] {
             let text =
                 std::fs::read_to_string(directory.path().join(name)).map_err(|e| e.to_string())?;
@@ -1198,6 +1200,10 @@ mod tests {
         }
         let front = std::fs::read_to_string(directory.path().join("pcb-F.Cu.gbr"))
             .map_err(|e| e.to_string())?;
+        assert!(
+            front.contains("%TF.FileFunction,Copper,L1,Top*%"),
+            "front copper carries its file function attribute"
+        );
         assert!(
             front.contains("X10.000000Y10.000000D02*\n"),
             "the exported copper should contain the drawn track"
