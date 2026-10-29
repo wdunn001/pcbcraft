@@ -646,3 +646,50 @@ fn a_newcomer_sees_why_impossible_numbers_cannot_make_a_footprint() -> Result<()
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_makes_a_chamfered_pad_and_then_a_custom_pad() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Pad 1 · thru_hole")?;
+    authoring::tests::tap(&ctx, &mut app, "circle")?;
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top left")?,
+        "a chamfered pad offers its corners by name"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Top right")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    let chamfer = draft.pads[0].chamfer.ok_or("the chamfer was not created")?;
+    assert_eq!(draft.pads[0].shape, "chamfered");
+    assert!(chamfer.corners.top_left && chamfer.corners.top_right);
+    assert!(!chamfer.corners.bottom_left && !chamfer.corners.bottom_right);
+    assert!(
+        (chamfer.ratio - 0.25).abs() < 1e-9,
+        "default cut is a quarter"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        let saved = &session.project.library.footprints[0].pads[0];
+        assert_eq!(saved.shape, "chamfered", "the cut pad reaches the project");
+        assert_eq!(saved.chamfer, Some(chamfer));
+    }
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    authoring::tests::tap(&ctx, &mut app, "Custom polygon")?;
+    authoring::tests::tap(&ctx, &mut app, "Add point")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    assert_eq!(draft.pads[0].shape, "custom");
+    assert!(draft.pads[0].chamfer.is_none(), "the cuts go away");
+    assert_eq!(
+        draft.pads[0].polygon.len(),
+        5,
+        "four corners plus the added point"
+    );
+    Ok(())
+}

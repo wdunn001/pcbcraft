@@ -2,7 +2,8 @@ use super::*;
 use egui::{Pos2, Sense};
 use pcbcraft_geom::point_segment;
 use pcbcraft_library::{
-    Drill, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+    ChamferCorners, Drill, FootprintDefinition, FootprintPad, Graphic, MAX_PAD_POLYGON_VERTICES,
+    PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
 /// Most pads the editor lists one by one; a 40 by 40 BGA fits.
@@ -199,6 +200,181 @@ fn new_footprint() -> FootprintDefinition {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+    }
+}
+/// Plain label for a pad shape in the shape list.
+///
+/// # Rules
+/// - Words come from the text catalog; unknown shapes show as stored.
+///
+/// # Dependencies
+/// - `crates/text/strings/en.txt` keys `library.library_editor.shape_*`.
+///
+/// # Do not
+/// - Change the stored shape names; the library and the writers match them.
+fn pad_shape_label(shape: &str) -> String {
+    match shape {
+        "circle" => t!("library.library_editor.shape_circle"),
+        "rect" => t!("library.library_editor.shape_rect"),
+        "oval" => t!("library.library_editor.shape_oval"),
+        "roundrect" => t!("library.library_editor.shape_roundrect"),
+        "chamfered" => t!("library.library_editor.shape_chamfered"),
+        "custom" => t!("library.library_editor.shape_custom"),
+        other => other.to_string(),
+    }
+}
+/// Shape list for one pad, with the extra controls the chosen shape needs.
+///
+/// Choosing chamfered starts a quarter-size cut on the top left corner
+/// (the usual pin 1 mark). Choosing custom starts from the pad's own
+/// rectangle so the outline is valid at once. Leaving a shape drops the
+/// data that only that shape uses.
+///
+/// # Rules
+/// - Every control has a tooltip and a screen reader name.
+/// - Outline problems show in red from `pcbcraft_library::custom_polygon_error`.
+///
+/// # Dependencies
+/// - `crates/library/src/lib.rs` for `PadChamfer`, `ChamferCorners`,
+///   `MAX_PAD_POLYGON_VERTICES` and `custom_polygon_error`.
+/// - `crates/ui-egui/src/a11y.rs` for `name_control`.
+///
+/// # Do not
+/// - Save from here; the footprint editor's save button validates.
+fn pad_shape_controls(ui: &mut egui::Ui, pad: &mut FootprintPad) {
+    let before = pad.shape.clone();
+    egui::ComboBox::from_id_salt("pad-shape")
+        .selected_text(pad_shape_label(&pad.shape))
+        .show_ui(ui, |ui| {
+            for shape in ["circle", "rect", "oval", "roundrect", "chamfered", "custom"] {
+                let tip = match shape {
+                    "chamfered" => t!("library.library_editor.shape_chamfered.tip"),
+                    "custom" => t!("library.library_editor.shape_custom.tip"),
+                    _ => t!("library.library_editor.copper_outline_of_the_pad.tip"),
+                };
+                ui.selectable_value(&mut pad.shape, shape.into(), pad_shape_label(shape))
+                    .on_hover_text(tip);
+            }
+        });
+    if before != pad.shape {
+        if pad.shape == "chamfered" && pad.chamfer.is_none() {
+            pad.chamfer = Some(PadChamfer {
+                ratio: 0.25,
+                corners: ChamferCorners {
+                    top_left: true,
+                    ..ChamferCorners::default()
+                },
+            });
+        }
+        if pad.shape == "custom" && pad.polygon.is_empty() {
+            let (hx, hy) = (pad.size.x / 2.0, pad.size.y / 2.0);
+            pad.polygon = vec![
+                Point::new(-hx, -hy),
+                Point::new(hx, -hy),
+                Point::new(hx, hy),
+                Point::new(-hx, hy),
+            ];
+        }
+    }
+    if pad.shape == "roundrect" {
+        let response = ui
+            .add(
+                egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
+                    .range(0.0..=0.5)
+                    .speed(0.01)
+                    .prefix(format!("{} ", t!("library.library_editor.corner_ratio"))),
+            )
+            .on_hover_text(t!("library.library_editor.corner_ratio.tip"));
+        crate::a11y::name_control(&response, &t!("library.library_editor.corner_ratio"), None);
+    } else {
+        pad.roundrect_ratio = None;
+    }
+    if pad.shape == "chamfered" {
+        if let Some(chamfer) = &mut pad.chamfer {
+            let response = ui
+                .add(
+                    egui::DragValue::new(&mut chamfer.ratio)
+                        .range(0.01..=0.5)
+                        .speed(0.01)
+                        .prefix(format!("{} ", t!("library.library_editor.cut_size"))),
+                )
+                .on_hover_text(t!("library.library_editor.cut_size.tip"));
+            crate::a11y::name_control(&response, &t!("library.library_editor.cut_size"), None);
+            let corners = &mut chamfer.corners;
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut corners.top_left,
+                    t!("library.library_editor.corner_top_left"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_top_left.tip"));
+                ui.checkbox(
+                    &mut corners.top_right,
+                    t!("library.library_editor.corner_top_right"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_top_right.tip"));
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut corners.bottom_left,
+                    t!("library.library_editor.corner_bottom_left"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_bottom_left.tip"));
+                ui.checkbox(
+                    &mut corners.bottom_right,
+                    t!("library.library_editor.corner_bottom_right"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_bottom_right.tip"));
+            });
+            if !corners.any() {
+                ui.label(t!("library.library_editor.pick_a_corner"));
+            }
+        }
+    } else {
+        pad.chamfer = None;
+    }
+    if pad.shape == "custom" {
+        ui.label(t!("library.library_editor.outline_points"));
+        let mut remove = None;
+        let count = pad.polygon.len();
+        for (i, vertex) in pad
+            .polygon
+            .iter_mut()
+            .enumerate()
+            .take(MAX_PAD_POLYGON_VERTICES)
+        {
+            ui.push_id(("vertex", i), |ui| {
+                point(
+                    ui,
+                    &t!("library.library_editor.point_v0", v0 = i + 1),
+                    vertex,
+                );
+                if count > 3
+                    && ui
+                        .button(t!("library.library_editor.delete_point"))
+                        .on_hover_text(t!("library.library_editor.delete_point.tip"))
+                        .clicked()
+                {
+                    remove = Some(i);
+                }
+            });
+        }
+        if let Some(i) = remove {
+            pad.polygon.remove(i);
+        }
+        if pad.polygon.len() < MAX_PAD_POLYGON_VERTICES
+            && ui
+                .button(t!("library.library_editor.add_point"))
+                .on_hover_text(t!("library.library_editor.add_point.tip"))
+                .clicked()
+        {
+            let last = pad.polygon.last().copied().unwrap_or_default();
+            pad.polygon.push(Point::new(last.x + 0.1, last.y + 0.1));
+        }
+        if let Some(reason) = pcbcraft_library::custom_polygon_error(pad.size, &pad.polygon) {
+            ui.colored_label(Color32::LIGHT_RED, reason);
+        }
+    } else {
+        pad.polygon.clear();
     }
 }
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
@@ -1526,32 +1702,7 @@ impl App {
                                     pad.drill = None;
                                 }
                             }
-                            egui::ComboBox::from_id_salt("pad-shape")
-                                .selected_text(&pad.shape)
-                                .show_ui(ui, |ui| {
-                                    for shape in ["circle", "rect", "oval", "roundrect"] {
-                                        ui.selectable_value(&mut pad.shape, shape.into(), shape)
-                                            .on_hover_text(
-                                                t!("library.library_editor.copper_outline_of_the_pad.tip"),
-                                            );
-                                    }
-                                });
-                            if pad.shape == "roundrect" {
-                                ui.add(
-                                    egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
-                                        .range(0.0..=0.5)
-                                        .speed(0.01)
-                                        .prefix(format!("{} ", t!("library.library_editor.corner_ratio"))),
-                                );
-                            } else {
-                                pad.roundrect_ratio = None;
-                            }
-                            if pad.shape != "chamfered" {
-                                pad.chamfer = None;
-                            }
-                            if pad.shape != "custom" {
-                                pad.polygon.clear();
-                            }
+                            pad_shape_controls(ui, pad);
                             if let Some(drill) = &mut pad.drill {
                                 point(ui, &t!("library.library_editor.drill_size_oval_if_unequal"), &mut drill.size);
                                 point(ui, &t!("library.library_editor.drill_offset"), &mut drill.offset);
