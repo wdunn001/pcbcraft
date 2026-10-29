@@ -1,5 +1,7 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
+mod document_hub;
 use base64::Engine as _;
+pub use document_hub::DocumentHub;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -52,6 +54,8 @@ pub fn tool_list() -> Value {
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
+        json!({"name":"design.list_open","description":"List every design session open in the desktop app, with path, name, revision and dirty state","inputSchema":object(json!({}),&[])}),
+        json!({"name":"design.activate","description":"Switch the active design session by zero-based index or by filesystem path","inputSchema":object(json!({"index":{"type":"integer","minimum":0},"path":{"type":"string"}}),&[])}),
         json!({"name":"library.sources","description":"List every library location the unified browser reads: folders the user added and installed locations, each with collection counts","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -78,10 +82,10 @@ pub fn tool_list() -> Value {
     }
     json!({"tools":tools})
 }
-fn text_result(value: Value) -> Value {
+pub(crate) fn text_result(value: Value) -> Value {
     json!({"content":[{"type":"text","text":value.to_string()}],"structuredContent":value,"isError":false})
 }
-fn error_result(error: String) -> Value {
+pub(crate) fn error_result(error: String) -> Value {
     json!({"content":[{"type":"text","text":error}],"isError":true})
 }
 fn string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
@@ -113,15 +117,12 @@ fn revision(args: &Value) -> Result<Option<u64>, String> {
 }
 
 pub fn call_tool(session: &SharedSession, name: &str, args: &Value) -> Value {
-    match invoke(session, name, args) {
+    match invoke_session(session, name, args) {
         Ok(v) => v,
         Err(e) => error_result(e),
     }
 }
-fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, String> {
-    if !args.is_object() {
-        return Err("arguments must be an object".into());
-    }
+pub(crate) fn validate_tool_schema(name: &str, args: &Value) -> Result<(), String> {
     let tools = tool_list();
     let schema = tools
         .get("tools")
@@ -132,7 +133,20 @@ fn invoke(session: &SharedSession, name: &str, args: &Value) -> Result<Value, St
         })
         .and_then(|tool| tool.get("inputSchema"))
         .ok_or("unknown tool")?;
-    validate_schema(args, schema, "arguments")?;
+    validate_schema(args, schema, "arguments")
+}
+pub(crate) fn invoke_session(
+    session: &SharedSession,
+    name: &str,
+    args: &Value,
+) -> Result<Value, String> {
+    if !args.is_object() {
+        return Err("arguments must be an object".into());
+    }
+    validate_tool_schema(name, args)?;
+    if matches!(name, "design.list_open" | "design.activate") {
+        return Err("multi-document tools require the desktop control bridge".into());
+    }
     if [
         "design.recents",
         "library.catalog",
@@ -629,7 +643,7 @@ fn validate_schema(value: &Value, schema: &Value, path: &str) -> Result<(), Stri
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-pub fn handle_rpc(session: &SharedSession, request: Value, connect: Option<&str>) -> Option<Value> {
+pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
@@ -711,7 +725,7 @@ pub fn handle_rpc(session: &SharedSession, request: Value, connect: Option<&str>
                     error_result("live bridge is unavailable in browser builds".into())
                 }
             } else {
-                call_tool(session, name, &args)
+                hub.call_tool(name, &args)
             }
         }
         _ => return Some(rpc_error(id, -32601, "method not found")),
@@ -738,7 +752,7 @@ fn read_message(reader: &mut impl BufRead) -> Result<Option<String>, String> {
 pub fn serve(
     reader: &mut impl BufRead,
     writer: &mut impl Write,
-    session: &SharedSession,
+    hub: &DocumentHub,
     connect: Option<&str>,
 ) -> Result<(), String> {
     let mut initialized = false;
@@ -752,7 +766,7 @@ pub fn serve(
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
                 } else {
                     let initialize = method == Some("initialize");
-                    let response = handle_rpc(session, request, connect);
+                    let response = handle_rpc(hub, request, connect);
                     if initialize && response.as_ref().is_some_and(|r| r.get("result").is_some()) {
                         initialized = true;
                     }
@@ -799,7 +813,7 @@ pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String> {
+pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     let listener = std::net::TcpListener::bind(loopback(address)?).map_err(|e| e.to_string())?;
     std::thread::Builder::new()
         .name("pcbcraft-control".into())
@@ -815,7 +829,7 @@ pub fn start_bridge(session: SharedSession, address: &str) -> Result<(), String>
                     let mut reader = BufReader::new(reader);
                     if let Ok(Some(line)) = read_message(&mut reader) {
                         let response = match serde_json::from_str(&line) {
-                            Ok(request) => handle_rpc(&session, request, None),
+                            Ok(request) => handle_rpc(&hub, request, None),
                             Err(_) => Some(rpc_error(Value::Null, -32700, "parse error")),
                         };
                         if let Some(response) = response {
@@ -2401,10 +2415,10 @@ mod tests {
         );
     }
     #[test]
-    fn protocol_negotiates_and_notifications_do_not_reply() {
-        let s = shared(Session::default());
+    fn protocol_negotiates_and_notifications_do_not_reply() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
         let response = handle_rpc(
-            &s,
+            &hub,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
             None,
         );
@@ -2416,16 +2430,17 @@ mod tests {
         );
         assert!(
             handle_rpc(
-                &s,
+                &hub,
                 json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
                 None
             )
             .is_none()
         );
+        Ok(())
     }
     #[test]
-    fn tool_errors_are_recoverable_and_stdout_is_json_lines() {
-        let s = shared(Session::default());
+    fn tool_errors_are_recoverable_and_stdout_is_json_lines() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
         let mut output = vec![];
         let initialize = json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}});
         let edit = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"component.move","arguments":{"id":999,"position":{"x":0,"y":0}}}});
@@ -2435,7 +2450,7 @@ mod tests {
             serve(
                 &mut BufReader::new(messages.as_bytes()),
                 &mut output,
-                &s,
+                &hub,
                 None
             )
             .is_ok()
@@ -2454,5 +2469,117 @@ mod tests {
             values.get(3).and_then(|v| v.pointer("/result/isError")),
             Some(&json!(false))
         );
+        Ok(())
+    }
+    #[test]
+    fn design_list_open_reports_two_slots_after_second_open() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let first = directory.path().join("first.pcbcraft");
+        let second = directory.path().join("second.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &first)?;
+        let mut other = Session::default();
+        other
+            .execute("net.create", json!({"name":"SECOND"}), None)
+            .map_err(|e| e.to_string())?;
+        pcbcraft_io::save(&other.project, &second)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":first.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(listed.get("isError"), Some(&json!(false)), "{listed}");
+        assert_eq!(
+            listed
+                .pointer("/structuredContent/documents")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        Ok(())
+    }
+    #[test]
+    fn design_activate_by_path_routes_execute_to_that_session() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let first = directory.path().join("a.pcbcraft");
+        let second = directory.path().join("b.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &first)?;
+        let mut touched = Session::default();
+        touched
+            .execute("net.create", json!({"name":"B"}), None)
+            .map_err(|e| e.to_string())?;
+        pcbcraft_io::save(&touched.project, &second)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":first.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let rev0_before = hub.session_revision(0)?;
+        assert_eq!(
+            hub.call_tool("design.activate", &json!({"path":second.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        assert_eq!(hub.active_index()?, 1);
+        let edit = hub.call_tool(
+            "execute",
+            &json!({"command":"net.create","params":{"name":"ACTIVE"}}),
+        );
+        assert_eq!(edit.get("isError"), Some(&json!(false)), "{edit}");
+        assert_eq!(hub.session_revision(0)?, rev0_before);
+        assert!(hub.session_revision(1)? > rev0_before);
+        Ok(())
+    }
+    #[test]
+    fn design_activate_rejects_out_of_range_index() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let before = hub.active_index()?;
+        let bad = hub.call_tool("design.activate", &json!({"index":99}));
+        assert_eq!(bad.get("isError"), Some(&json!(true)));
+        assert_eq!(hub.active_index()?, before);
+        Ok(())
+    }
+    #[test]
+    fn inspect_design_includes_active_path_and_name_after_activation() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().join("named.pcbcraft");
+        let mut session = Session::default();
+        session.project.name = "Bench supply".into();
+        pcbcraft_io::save(&session.project, &path)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path":path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let inspect = hub.call_tool("inspect_design", &json!({}));
+        assert_eq!(inspect.get("isError"), Some(&json!(false)), "{inspect}");
+        assert_eq!(
+            inspect.pointer("/structuredContent/name"),
+            Some(&json!("Bench supply"))
+        );
+        assert_eq!(
+            inspect.pointer("/structuredContent/active_index"),
+            Some(&json!(0))
+        );
+        assert!(
+            inspect
+                .pointer("/structuredContent/path")
+                .and_then(Value::as_str)
+                .is_some_and(|p| !p.is_empty())
+        );
+        Ok(())
     }
 }

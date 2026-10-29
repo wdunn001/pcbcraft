@@ -1,5 +1,7 @@
 # Reviewer brief
 
+Getting started: [../getting-started.md](../getting-started.md).
+
 - **Input:** worker build report with green fork Actions for the same commit.
 - **Open** `### Review` with `Base: fork/main at <sha>`.
 - **Check:** acceptance list, enrichment tests, section 5 rules, conflict lane respected, tooltips, no forbidden product names.
