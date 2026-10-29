@@ -215,7 +215,8 @@ impl ImportCtx {
         board: &mut pcbcraft_doc::Board,
     ) -> Result<(), String> {
         let slice = &self.source[node.span.clone()];
-        let definition = read_footprint(slice).map_err(|e| library_error(&self.source, e))?;
+        let mut definition = read_footprint(slice).map_err(|e| library_error(&self.source, e))?;
+        definition.unsupported.clear();
         let reference = property(node, "Reference").unwrap_or_else(|| "REF".into());
         let value = property(node, "Value").unwrap_or_default();
         let comp_id = self.component_id(&reference)?;
@@ -665,11 +666,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn malformed_board_reports_line_number() {
+    fn malformed_board_reports_line_number() -> Result<(), String> {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
-        match read_board_interchange(text) {
-            Err(err) => assert!(err.contains("line"), "expected a line number in {err:?}"),
-            Ok(_) => panic!("expected malformed board import to fail"),
-        }
+        let err = read_board_interchange(text).err().ok_or("expected malformed board import to fail")?;
+        assert!(err.contains("line"), "expected a line number in {err:?}");
+        Ok(())
     }
 }

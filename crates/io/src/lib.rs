@@ -9946,10 +9946,10 @@ mod tests {
     #[test]
     fn board_import_malformed_refuses_with_line_number() -> Result<(), String> {
         let text = "(kicad_pcb\n (segment (start 0 0) (end 1))\n)\n";
-        match read_board_interchange(text) {
-            Err(err) => assert!(err.contains("line"), "expected a line number in {err:?}"),
-            Ok(_) => panic!("expected malformed board import to fail"),
-        }
+        let err = read_board_interchange(text)
+            .err()
+            .ok_or("expected malformed board import to fail")?;
+        assert!(err.contains("line"), "expected a line number in {err:?}");
         Ok(())
     }
 
