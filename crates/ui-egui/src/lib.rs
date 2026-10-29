@@ -2,6 +2,7 @@
 mod authoring;
 mod canvas;
 mod library;
+mod plot_viewer;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
 use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
@@ -427,6 +428,7 @@ enum Tab {
     Rules,
     Checks,
     Settings,
+    PlotFiles,
 }
 /// What the board canvas draws at each pad centre.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -645,6 +647,7 @@ pub struct App {
     needs_fit: bool,
     schematic: Camera,
     pcb: Camera,
+    plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     drag_offset: Point,
     cursor: Option<Point>,
@@ -885,6 +888,7 @@ impl App {
             tab: match tab {
                 Some("pcb") => Tab::Pcb,
                 Some("checks") => Tab::Checks,
+                Some("plots") => Tab::PlotFiles,
                 Some("libraries" | "project-library" | "symbol-editor" | "footprint-editor") => {
                     Tab::Libraries
                 }
@@ -985,6 +989,7 @@ impl App {
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
+            plot_viewer: plot_viewer::State::default(),
             drag: None,
             drag_offset: Point::default(),
             cursor: None,
@@ -2586,6 +2591,7 @@ impl App {
                     (Tab::Rules, "Rules"),
                     (Tab::Checks, "Checks"),
                     (Tab::Settings, "Settings"),
+                    (Tab::PlotFiles, "Plot files"),
                 ] {
                     let (_, rect) = ui.allocate_space(Vec2::new(132.0, 30.0));
                     let selected = self.tab == tab;
@@ -2617,6 +2623,11 @@ impl App {
                         });
                     if response.clicked() {
                         self.change_tab(tab);
+                    }
+                    if tab == Tab::PlotFiles {
+                        response.on_hover_text(
+                            "Open and inspect copper, outline, and drill files before ordering.",
+                        );
                     }
                 }
                 ui.add_enabled(false, egui::Button::new("3D Board"))
@@ -6360,6 +6371,27 @@ impl App {
                     Tab::Settings => {
                         egui::ScrollArea::vertical()
                             .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
+                    }
+                    Tab::PlotFiles => {
+                        egui::ScrollArea::vertical()
+                            .show(ui, |ui| {
+                                Self::margined(ui, |ui| {
+                                    let theme = plot_viewer::Theme {
+                                        surface: self.surface(),
+                                        muted: self.muted(),
+                                        ink: self.ink(),
+                                        accent: self.accent(),
+                                    };
+                                    plot_viewer::ui(
+                                        &mut self.plot_viewer,
+                                        ui,
+                                        theme,
+                                        &mut self.message,
+                                        self.make_dir.trim(),
+                                    );
+                                });
+                            })
+                            .inner
                     }
                 });
         }

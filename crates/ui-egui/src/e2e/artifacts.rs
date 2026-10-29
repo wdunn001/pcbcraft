@@ -294,3 +294,48 @@ use serde_json::json;
         );
         Ok(())
     }
+
+    #[test]
+    fn a_newcomer_opens_their_factory_zip_and_hides_a_layer() -> Result<(), String> {
+        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+        let mut app = App::create(shared, Preferences::default(), None, None);
+        app.refresh();
+        app.tool_call("sample_design", json!({}));
+        let directory = std::env::temp_dir().join(format!("pcbcraft-fab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        app.make_dir = directory.to_string_lossy().into_owned();
+        let ctx = egui::Context::default();
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap(&ctx, &mut app, "Settings")?;
+        tap(&ctx, &mut app, "Copper & drill files")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        tap(&ctx, &mut app, "Plot files")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        app.plot_viewer.folder_path = directory.to_string_lossy().into_owned();
+        tap(&ctx, &mut app, "Load")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "pcb-F.Cu.gbr")?,
+            "front copper should appear in the layer list: {}",
+            app.message
+        );
+        assert!(
+            paints_text(&ctx, &mut app, "pcb-B.Cu.gbr")?,
+            "back copper should appear in the layer list: {}",
+            app.message
+        );
+        let visible_before = app.plot_viewer.visible_layer_count();
+        assert!(visible_before >= 2, "at least two layers should show");
+        tap(&ctx, &mut app, "pcb-F.Cu.gbr")?;
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        assert!(
+            paints_text(&ctx, &mut app, "pcb-F.Cu.gbr (hidden)")?,
+            "turning a layer off should mark it hidden in the list"
+        );
+        assert!(
+            app.plot_viewer.visible_layer_count() < visible_before,
+            "one fewer layer should be visible on the canvas"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
