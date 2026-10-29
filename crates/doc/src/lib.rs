@@ -179,6 +179,9 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// Largest total routed length allowed for this net, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<f64>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -227,6 +230,9 @@ pub struct NetClass {
     /// millimetres. Defaults to zero, an exact match.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Largest total routed length allowed for member nets, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -282,6 +288,48 @@ impl DiffPair {
             && self
                 .length_tolerance
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+    }
+}
+/// A length-match group: named nets whose routed totals must agree within
+/// a tolerance, optionally measured against one reference net, optionally
+/// all on one copper layer.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LengthGroup {
+    pub id: Id,
+    pub name: String,
+    pub nets: Vec<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<Id>,
+    pub tolerance: f64,
+    pub same_layer: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+}
+impl LengthGroup {
+    fn valid(&self) -> bool {
+        let name = self.name.trim();
+        if name.is_empty() || name.len() > 64 {
+            return false;
+        }
+        if self.nets.len() < 2 || self.nets.len() > 256 {
+            return false;
+        }
+        let unique: BTreeSet<Id> = self.nets.iter().copied().collect();
+        if unique.len() != self.nets.len() || self.nets.iter().any(|&n| n == 0) {
+            return false;
+        }
+        if !self.tolerance.is_finite() || !(0.0..=1000.0).contains(&self.tolerance) {
+            return false;
+        }
+        if self
+            .reference
+            .is_some_and(|r| r == 0 || !self.nets.contains(&r))
+        {
+            return false;
+        }
+        self.profile
+            .as_ref()
+            .is_none_or(|p| !p.is_empty() && p.len() <= 64)
     }
 }
 /// A rectangular board area that demands a stricter minimum copper
@@ -1412,6 +1460,9 @@ pub struct Project {
     /// Checks the designer wrote themselves, in the order they were made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub custom_checks: Vec<CustomCheck>,
+    /// Length-match groups, ordered by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub length_groups: Vec<LengthGroup>,
     /// Free-form project metadata such as title, revision, company or notes,
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1540,6 +1591,7 @@ impl Default for Project {
             bom_fields: vec![],
             output_jobs: vec![],
             custom_checks: vec![],
+            length_groups: vec![],
             files: vec![],
             variants: vec![],
             graphic_groups: vec![],
@@ -1859,6 +1911,7 @@ impl Project {
             .chain(self.board.fiducials.iter().map(|x| x.id))
             .chain(self.board.netties.iter().map(|x| x.id))
             .chain(self.board.diff_pairs.iter().map(|x| x.id))
+            .chain(self.length_groups.iter().map(|x| x.id))
             .chain(self.board.rule_areas.iter().map(|x| x.id))
             .chain(self.board.user_layers.iter().map(|x| x.id))
             .chain(self.board.texts.iter().map(|x| x.id))
@@ -1996,6 +2049,9 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 100_000.0)
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
+                || n
+                    .max_length
+                    .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
             {
                 return Err("invalid net length target or tolerance".into());
             }
@@ -2028,6 +2084,9 @@ impl Project {
                 || c.length_tolerance
                     .is_some_and(|t| !t.is_finite() || t < 0.0 || t > 1000.0)
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
+                || c
+                    .max_length
+                    .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
             {
                 return Err("invalid net class".into());
             }
@@ -2081,6 +2140,27 @@ impl Project {
                     "differential pairs name two known nets with a unique name and a 0.02 to 10 mm gap"
                         .into(),
                 );
+            }
+        }
+        if self.length_groups.len() > 64 {
+            return Err("a project carries at most 64 length-match groups".into());
+        }
+        let mut group_names: BTreeSet<&str> = BTreeSet::new();
+        let mut grouped_nets: BTreeSet<Id> = BTreeSet::new();
+        for g in &self.length_groups {
+            if !g.valid()
+                || g.nets.iter().any(|n| !nets.contains(n))
+                || !group_names.insert(g.name.trim())
+            {
+                return Err(
+                    "length-match groups need a unique trimmed name, 2 to 256 known nets, a sane tolerance and a reference that is a member when set"
+                        .into(),
+                );
+            }
+            for net in &g.nets {
+                if !grouped_nets.insert(*net) {
+                    return Err("each net belongs to at most one length-match group".into());
+                }
             }
         }
         for r in &self.board.rule_areas {
@@ -3120,6 +3200,78 @@ mod drill_tests {
             offset: Point::new(0.6, 0.6),
         });
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn length_groups_and_ceilings_survive_a_save_round_trip() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.extend([
+            Net {
+                id: 1,
+                name: "A".into(),
+                ..Default::default()
+            },
+            Net {
+                id: 2,
+                name: "B".into(),
+                ..Default::default()
+            },
+            Net {
+                id: 3,
+                name: "C".into(),
+                ..Default::default()
+            },
+            Net {
+                id: 4,
+                name: "D".into(),
+                ..Default::default()
+            },
+        ]);
+        p.length_groups.extend([
+            LengthGroup {
+                id: 10,
+                name: "G1".into(),
+                nets: vec![1, 2],
+                reference: None,
+                tolerance: 0.5,
+                same_layer: false,
+                profile: None,
+            },
+            LengthGroup {
+                id: 11,
+                name: "G2".into(),
+                nets: vec![3, 4],
+                reference: Some(3),
+                tolerance: 0.1,
+                same_layer: true,
+                profile: Some("ddr3".into()),
+            },
+        ]);
+        p.net_classes.push(NetClass {
+            id: 20,
+            name: "HIGH".into(),
+            clearance: 0.2,
+            width: 0.3,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_length: Some(100.0),
+            nets: vec![1],
+        });
+        let text = serde_json::to_string(&p).map_err(|e| e.to_string())?;
+        let back: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(back.length_groups, p.length_groups);
+        assert_eq!(back.net_classes[0].max_length, Some(100.0));
+        p.validate().map_err(|e| e.to_string())?;
+        back.validate().map_err(|e| e.to_string())?;
+        let plain = serde_json::to_string(&Project::default()).map_err(|e| e.to_string())?;
+        let old: Project = serde_json::from_str(&plain).map_err(|e| e.to_string())?;
+        assert!(
+            old.length_groups.is_empty(),
+            "designs saved before length groups load with none"
+        );
         Ok(())
     }
 

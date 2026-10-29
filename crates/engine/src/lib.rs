@@ -334,9 +334,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "net.set_length",
-            "Set a target routed length and tolerance for one net, or clear the target by omitting it; nets in a class follow their own target when they have one",
+            "Set a target routed length, tolerance and optional ceiling for one net, or clear fields by omitting them; nets in a class follow their own values when they have them",
             schema(
-                json!({"id":id_schema(),"target":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100000},"tolerance":{"type":["number","null"],"minimum":0,"maximum":100000}}),
+                json!({"id":id_schema(),"target":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100000},"tolerance":{"type":["number","null"],"minimum":0,"maximum":100000},"max_length":{"type":["number","null"],"exclusiveMinimum":0,"maximum":10000}}),
                 &["id"],
             ),
         ),
@@ -387,9 +387,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "netclass.length_rules",
-            "Set the target routed length and tolerance a net class demands; omitted values stay as they were",
+            "Set the target routed length, tolerance and optional ceiling a net class demands; omitted values stay as they were",
             schema(
-                json!({"class":id_schema(),"target_length":{"type":["number","null"],"exclusiveMinimum":0,"maximum":10000},"length_tolerance":{"type":["number","null"],"minimum":0,"maximum":1000}}),
+                json!({"class":id_schema(),"target_length":{"type":["number","null"],"exclusiveMinimum":0,"maximum":10000},"length_tolerance":{"type":["number","null"],"minimum":0,"maximum":1000},"max_length":{"type":["number","null"],"exclusiveMinimum":0,"maximum":10000}}),
                 &["class"],
             ),
         ),
@@ -1536,6 +1536,19 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
+            "rules.length_group_set",
+            "Create or replace a length-match group by name: member nets, optional reference net, tolerance and same-layer flag",
+            schema(
+                json!({"name":{"type":"string","maxLength":64},"nets":{"type":"array","items":id_schema(),"minItems":2,"maxItems":256},"reference":id_schema(),"tolerance":{"type":"number","minimum":0,"maximum":1000},"same_layer":{"type":"boolean"},"profile":{"type":"string","maxLength":64},"id":id_schema()}),
+                &["name", "nets", "tolerance", "same_layer"],
+            ),
+        ),
+        (
+            "rules.length_group_remove",
+            "Remove a length-match group by id",
+            schema(json!({"id":id_schema()}), &["id"]),
+        ),
+        (
             "bom.set_fields",
             "Define the extra bill-of-materials columns this project prints: each column names a component property and the header to show, falling back to the property key; at most 16 columns",
             schema(
@@ -1842,7 +1855,7 @@ impl Session {
         Ok(json!({"revision":self.revision}))
     }
     pub fn inspect(&self) -> Value {
-        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, and a single net can carry its own target that takes priority over its class; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted and differential-pair findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
+        json!({"revision":self.revision,"project":self.project,"history":{"undo":self.undo.len(),"redo":self.redo.len()},"capabilities":{"meta":"project metadata entries such as title, revision, company and notes, recorded, replaced and cleared by key, travelling with the saved design, and the measurement unit the design is read in (millimetres, mils or inches) recorded in one step, echoed in the board statistics and honoured by inch drill and gerber fabrication output","schematic":"flat explicit pin nets with named net labels that can be retyped or pointed at another net in place, junctions and no-connect flags that can be raised or cleared across a whole component in one step, and pins that can be released from a net again, and nets that can be merged into one another or have just their names exchanged, with drawn wires that slide whole or bend vertex by vertex while their junctions follow, and drawn graphics whose layer, stroke, text and individual vertices stay editable and that scale about any anchor by a factor with the stroke following or held and convert into copper tracks on a chosen net, and the copper of one layer plotted back onto the sheet as a shifted editable overlay that leaves the copper itself untouched, and graphic groups that shift many graphics together in one step, including linear dimensions drawn from witness lines and measured text that can be re-measured to new ends in place and radial dimensions that measure a circle with a leader and an R or diameter label; embedded multi-unit packages with independent unit placement and one physical pin map; references renumbered per prefix in placement order, with a dry run and collision refusal, and series chains through two-pin parts traceable from any pin with the reason the walk ended, and a parts table of the current components, one row each sorted by reference, drawn as ordinary graphics that stay editable, and a one-step schematic tidy that merges junctions repeating the same net at one point and trims wire vertices that repeat themselves or run straight through while leaving any vertex a junction still depends on, and named schematic pages that can be added, renamed and removed with components reassigned page to page while their positions stay put, and bus wires and bus labels written in stem*count notation that fan out into numbered member nets created on demand and rename in place while their point and angle stay put, and named hierarchy ports placed on pages that hand one net between pages, moving, renaming and removing without touching the net, and a sheet file read from disk that arrives as a new page with template components, properties and ports that join existing nets by name","pcb":"front SMD and plated through-hole circle/rect/roundrect/oval/chamfered/custom-polygon pads, circular/oval offset drills, with placed pads repositionable by their local offset and plain round pads resizable, and placed pads flaggable castellated for edge-soldered mezzanine builds, two copper layers, simple tracks including curved segments through three points, existing runs bent to a new midpoint or straightened back with ends, width, layer and net held, whose clearance checks sample the arc and whose fabrication output draws a true arc, and plated through-hole vias including stitch grids, and unplated mounting or clearance drills with no copper and no net that move and resize and keep copper and the board edge clear and appear in the drill file, with copper sizes editable after placement and placed copper switchable between nets, tracks movable between the two copper layers with either end draggable and any placed board object slidable by a distance, and placed tracks, vias and labels batch-editable by property with up to 128 objects in one undo step, and every track on one net thickened or moved between copper layers together in one step, or a whole net's tracks and vias ripped up together while the net itself stays, or the entire board's copper ripped up in one step while pads and zones stay, and placed footprints found by reference wildcard, component value or lock state, a table of reference-to-footprint-file rows applied in one undo step with every row reported as assigned, skipped or not found, or the same rows read from a text file in one step, and every placed copy of a library package refreshed from the linked library folder or from a project library footprint of the same name in one step so package edits propagate while components whose pins no longer match the pads are skipped and reported, and placed symbols refreshed from their library file in one step so symbol artwork and pin geometry edits propagate while components whose pin numbers or units no longer match are skipped and reported, named assembly variants flagging chosen components do-not-populate and swapping in alternative footprints per component, with a bill of materials printable for one variant using those skips and swaps, and a per-variant description note that can be reworded or cleared in one step, placed footprints step-and-repeatable across a grid in one undoable array with numbered references and dockable flush against any board edge as edge connectors and lockable in place so no placement command can disturb them, poured copper zones with cutouts that can also switch copper layer and are editable vertex by vertex, including inserting and removing corners, that can be re-bound to another net in place without moving their copper, rectangular outline and circular cutouts that stay editable after placement, and zones that can be taken out of the copper as bare outlines and poured back in, free text labels on either copper side, turnable to any angle about their anchor, Code 39 barcodes drawn as editable bar graphics on either layer, named net classes carrying per-class clearance and default track width, retunable or deleted in place, and a named pair of nets carrying its own stricter clearance, and rectangular rule areas that optionally narrow to one net and copper layer and demand a stricter gap for copper whose midpoints fall inside them, or cap component height inside the rectangle for boards that must fit under a cover, with those height-restricted areas listed in the board statistics report; bills of materials grouped by value and footprint with named component properties, and the extra columns themselves definable and clearable as a project setting; project-wide find-and-replace over references, values, properties, net names and free text, with a dry run and collision refusal; classes filled by name pattern with * and ? wildcards; classes can demand target routed lengths within a tolerance, optional routed length ceilings, and a single net can carry its own target or ceiling that takes priority over its class; length-match groups over many nets with spread or reference tolerance and optional same-layer enforcement can be recorded and updated by name; a board statistics report counts objects and totals per layer, a panelisation report lays the board out in a copy grid with gaps and rails and lists every copy origin without touching the design, and the board surface finish is recorded for fabrication notes and, with the recorded dielectric thickness and permittivity, for impedance estimates, and each board layer's role and thickness can be recorded and cleared as named fabrication notes, with machining notes for edge plating and drill and rout tolerances, and a free-form closed board outline traced from 3 to 64 vertices that edge clearance and fabrication layers follow while the rectangle resizes to its bounding box, and net ties: two touching pads bridging exactly two named nets, placeable, movable, re-aimed to another net pair or resized, and removable, where DRC reports the declared bridge as the crossing point instead of a short, and named differential pairs over two nets with a coupling gap that side-by-side copper must respect and an optional length-match tolerance that reports skew between the two routed sides, and teardrop copper grown where tracks meet pads and vias in one pass over a chosen net or layer with a settable depth, tagged so the same pass can find, skip or remove its own shapes Designers can also write their own one-line checks (a wire thinner or longer than a limit, more parts, more vias or more wires on one net than a limit), recorded in the design and re-run beside the built-ins. Designers can also draw their own machine layers: named cut, perforation, silk, mask or reference art made of lines, rectangles, circles, closed outlines and pen text, dotted for snap lines and hideable, for laser, mill and printer output.","library":"native project-library symbol/footprint authoring, reusable .pcbcraft-lib collections, embedded placed copies, footprint 3D model references with placement transforms that read, edit and export but never render, and per-footprint design rule overrides where a local clearance tightens checks while solder mask and paste margins are recorded and exported, plus one-command courtyard rectangles grown from a footprint's own pads and artwork that replace themselves on regeneration and travel with embedded copies, and ordered pad and pin renumbering maps that refuse collisions and carry embedded copies, placed pads and pins and their no-connect flags along, single pads added, replaced by number or removed on library footprints so custom packages grow exposed pads or extra terminals in one step while placed instances refresh on demand, library footprints and symbols cloned under new names as the starting point for custom variants while originals and placed copies stay untouched, single symbol pins added, replaced by number or removed so custom symbols grow extra terminals or corrected pin names in one step while placed instances refresh on demand, and single symbol pins slid, turned about the origin or flipped about the vertical axis by their number so one misplaced or wrongly aimed lead is corrected without disturbing the rest of the symbol, and single footprint pads slid, turned about the origin or flipped about the vertical axis by their number, copper and drill moving together, so one misplaced or wrongly angled terminal is corrected without disturbing the rest of the package, footprint artwork drawn one graphic at a time or cleared by layer so packages gain silk and fab art without rewriting the definition, and symbol unit artwork drawn or cleared per unit the same way, symbol reference prefixes, values, descriptions, keywords, set names and linked footprint names and footprint descriptions and keywords retyped one field at a time so imported items get cleaned up without rewriting the definition, and each symbol can name a set it belongs to so the parts list groups parts under that name and each group can be hidden while adding parts, and library items renamed in place so a typo fixed at the source never needs a delete and re-upsert, and symbol inheritance links set or cleared one symbol at a time so derived symbols document where their geometry comes from, and whole library symbols and footprints turned about their origin or flipped about the vertical axis in one undoable step so imported geometry facing the wrong way is re-aimed without rewriting the definition, and whole library symbols and footprints slid by an offset in one undoable step so an import whose origin sits in the wrong place can be re-centred without rewriting the definition, and whole library symbols and footprints scaled about their origin by one factor in one undoable step so an import drawn at the wrong unit scale is rescued without rewriting the definition, and single library graphics replaced, removed, slid, turned, flipped or resized about the origin by their position in the artwork list so one stale, misplaced or wrongly scaled drawing element is corrected without clearing or disturbing the rest, embedded packages and symbols adopted from placed parts into the project library under chosen names so they become editable and reusable, and fiducial marks: bare copper discs placed, moved, resized or re-layered and removed on either copper layer that ride along in the pick-and-place file so the assembly camera can find the board; text files attach to the project and travel with saved designs, a project library table maps nicknames to library folders so designs stay portable across machines, and named reusable padstacks define one pad copper shape, size and optional drill that any placed pad can adopt, converting surface pads to plated through-holes and back, and a report showing which stacks placed pads carry and which sit unused, and an SVG drawing reader that brings lines, polygons, rectangles, circles, simple paths and text in as editable board graphics, optionally tracing a closed polygon as the board outline, a whole library folders of footprint or symbol text files added or replaced in the project library in one step, and project footprints or symbols written out as library text files or SVG vector previews for viewing and annotation without touching the design","checks":"initial pin assignment with no-connect flag suppression and conservative copper bounds honouring net class, net-pair, rule-area and footprint-local clearances, with same-pad plated layer bridges and drilled-hole contact tests, plus routed copper length totals per net and per-check-code severity overrides, with per-object and per-region exclusions that silence accepted findings, and a copper-only quick pass that narrows the report to clearance, width, unrouted, differential-pair, length-match group, layer-change and routed-length ceiling findings for mid-layout checks; not comprehensive ERC/DRC","kicad":"native library reading, router design-session net-map import and limited PCB export, plus RS-274X Gerber with a drill hole map layer and Excellon drill fabrication output, oval holes as spanned slots and unplated drills measured from a recorded drill origin, a plain-text netlist, a bill-of-materials CSV, a DXF board drawing, a pick-and-place centroid file, an IPC-D-356A style in-circuit test netlist and a Specctra-style board file for external autorouters, and a simulation netlist CSV naming every net with its reference.pin members for circuit simulators, and a legacy board interchange text listing components, pins in mils and nets by index for EDA bridges, and a legacy board trace file listing every pad position in mils with a front or back layer code and every net's pad membership, and a single-file IPC-2581 style assembly exchange XML with outline, nets, placement, holes and copper by layer, a GenCAD assembly exchange, a per-layer plot report CSV, a plain-text design report summarizing the board, every part and every net's pins, and a PostScript drawing of either view, and an ODB++ style board package ZIP with a layer matrix, polygon pad symbols, per-layer copper features and placed components, an HP-GL pen plotter drawing of either view, a board stackup report listing recorded layer notes with finish, substrate and machining tolerances, a drill tool chart counting holes per tool, a board statistics summary of parts, nets and routing, and a board-level mechanical drawing with part positions, sides and rotations for enclosure tools, a one-page vector PDF drawing of either view with copper, pads, zones and text as real PDF paths, and an AP214 STEP model extruding the outline and every pad into solid prisms, and a VRML 2.0 scene with the same solids for mechanical viewers, all written straight to disk, with named output jobs recording any combination of those exports as a recipe that re-runs in one step after further edits, and a DXF drawing reader that brings lines, arcs, circles, polylines and text in as editable board graphics, optionally tracing a closed polyline as the board outline, and a project-library footprint or symbol written back out as a library text file that reads straight back with the same pads, pins and artwork; no general project import and no whole-library-directory writer","archive":"the whole design, including its attached text files, exports to one self-contained archive file and opens back from it in a single undoable command; the archive is a standard ZIP container holding the design document and each attached file as its own entry","routing":"orthogonal routes on chosen copper layer; no obstacle avoidance or shove","3d":false}})
     }
     pub fn checks(&self) -> Value {
         let mut drc: Vec<Value> = serde_json::to_value(pcbcraft_rules::drc(&self.project))
@@ -1851,7 +1864,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Length-match groups report spread or reference skew and layer changes when members must stay on one copper side; routed length targets and ceilings sum track segments only and via barrels are excluded from routed length. Conservative false findings remain possible. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2976,6 +2989,8 @@ struct LengthRulesParams {
     target_length: Option<f64>,
     #[serde(default)]
     length_tolerance: Option<f64>,
+    #[serde(default)]
+    max_length: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3005,6 +3020,8 @@ struct NetLengthParams {
     target: Option<f64>,
     #[serde(default)]
     tolerance: Option<f64>,
+    #[serde(default)]
+    max_length: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3272,6 +3289,25 @@ struct DiffPairParams {
 struct DiffPairRenameParams {
     id: Id,
     name: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LengthGroupSetParams {
+    name: String,
+    nets: Vec<Id>,
+    tolerance: f64,
+    same_layer: bool,
+    #[serde(default)]
+    reference: Option<Id>,
+    #[serde(default)]
+    profile: Option<String>,
+    #[serde(default)]
+    id: Option<Id>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LengthGroupRemoveParams {
+    id: Id,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5404,9 +5440,16 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "length tolerance must be between 0 and 100000 millimetres".into(),
                 ));
             }
-            if a.target.is_none() && a.tolerance.is_some() {
+            if params.get("target").is_some() && a.target.is_none() && a.tolerance.is_some() {
                 return Err(Error::Invalid(
                     "a length tolerance needs a length target".into(),
+                ));
+            }
+            if a.max_length
+                .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
+            {
+                return Err(Error::Invalid(
+                    "length ceiling must be above 0 and at most 10000 mm".into(),
                 ));
             }
             let net = p
@@ -5414,16 +5457,26 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .iter_mut()
                 .find(|n| n.id == a.id)
                 .ok_or_else(missing)?;
-            net.target_length = a.target;
-            net.length_tolerance = if a.target.is_some() {
-                a.tolerance
-            } else {
-                None
-            };
+            if params.get("target").is_some() {
+                net.target_length = a.target;
+                net.length_tolerance = if a.target.is_some() {
+                    a.tolerance
+                } else {
+                    None
+                };
+            } else if a.tolerance.is_some() {
+                return Err(Error::Invalid(
+                    "a length tolerance needs a length target".into(),
+                ));
+            }
+            if params.get("max_length").is_some() {
+                net.max_length = a.max_length;
+            }
             Ok(json!({
                 "id":a.id,
                 "target":net.target_length,
                 "tolerance":net.length_tolerance.unwrap_or(0.0),
+                "max_length":net.max_length,
             }))
         }
         "net.connect" => {
@@ -5634,8 +5687,17 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     "length tolerance must be between 0 and 1000 mm".into(),
                 ));
             }
-            if a.target_length.is_none() && a.length_tolerance.is_none() {
-                return Err(Error::Invalid("give a target length or a tolerance".into()));
+            if a.max_length
+                .is_some_and(|m| !m.is_finite() || m <= 0.0 || m > 10_000.0)
+            {
+                return Err(Error::Invalid(
+                    "length ceiling must be above 0 and at most 10000 mm".into(),
+                ));
+            }
+            if a.target_length.is_none() && a.length_tolerance.is_none() && a.max_length.is_none() {
+                return Err(Error::Invalid(
+                    "give a target length, a tolerance or a ceiling".into(),
+                ));
             }
             let class = p
                 .net_classes
@@ -5644,17 +5706,19 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 .ok_or_else(missing)?;
             let target_length = a.target_length.or(class.target_length);
             let length_tolerance = a.length_tolerance.or(class.length_tolerance);
-            if length_tolerance.is_some() && target_length.is_none() {
+            if a.length_tolerance.is_some() && target_length.is_none() {
                 return Err(Error::Invalid(
                     "a length tolerance needs a target length".into(),
                 ));
             }
             class.target_length = target_length;
             class.length_tolerance = length_tolerance;
+            class.max_length = a.max_length.or(class.max_length);
             Ok(json!({
                 "class": a.class,
                 "target_length": class.target_length,
                 "length_tolerance": class.length_tolerance,
+                "max_length": class.max_length,
             }))
         }
         "netclass.clearance" => {
@@ -10359,6 +10423,120 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
             let before = p.board.rule_areas.len();
             p.board.rule_areas.retain(|r| r.id != a.id);
             if p.board.rule_areas.len() == before {
+                return Err(missing());
+            }
+            Ok(json!({"id": a.id}))
+        }
+        "rules.length_group_set" => {
+            let a: LengthGroupSetParams = parse(params)?;
+            let name = a.name.trim().to_string();
+            if name.is_empty() || name.len() > 64 {
+                return Err(Error::Invalid(
+                    "a length-match group needs a name of 1 to 64 characters".into(),
+                ));
+            }
+            if a.nets.len() < 2 || a.nets.len() > 256 {
+                return Err(Error::Invalid(
+                    "a length-match group needs 2 to 256 nets".into(),
+                ));
+            }
+            let unique: std::collections::BTreeSet<Id> = a.nets.iter().copied().collect();
+            if unique.len() != a.nets.len() {
+                return Err(Error::Invalid(
+                    "a length-match group lists each net once".into(),
+                ));
+            }
+            for net in &a.nets {
+                if *net == 0 || !p.nets.iter().any(|n| n.id == *net) {
+                    return Err(Error::Invalid(
+                        "length-match groups name only known nets".into(),
+                    ));
+                }
+            }
+            if !a.tolerance.is_finite() || a.tolerance < 0.0 || a.tolerance > 1000.0 {
+                return Err(Error::Invalid(
+                    "length-match tolerance must be between 0 and 1000 mm".into(),
+                ));
+            }
+            if a
+                .reference
+                .is_some_and(|r| r == 0 || !a.nets.contains(&r))
+            {
+                return Err(Error::Invalid(
+                    "the reference net must be a member of the group".into(),
+                ));
+            }
+            if a.profile.as_ref().is_some_and(|s| s.is_empty() || s.len() > 64) {
+                return Err(Error::Invalid(
+                    "a profile name must be 1 to 64 characters".into(),
+                ));
+            }
+            let groups = &mut p.length_groups;
+            let updating_id = a
+                .id
+                .or_else(|| groups.iter().find(|g| g.name.trim() == name).map(|g| g.id));
+            for other in groups.iter().filter(|g| Some(g.id) != updating_id) {
+                if other.nets.iter().any(|n| a.nets.contains(n)) {
+                    return Err(Error::Invalid(
+                        "each net belongs to at most one length-match group".into(),
+                    ));
+                }
+            }
+            let profile = a
+                .profile
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            if let Some(existing) = groups.iter_mut().find(|g| g.name.trim() == name) {
+                existing.nets = a.nets.clone();
+                existing.reference = a.reference;
+                existing.tolerance = a.tolerance;
+                existing.same_layer = a.same_layer;
+                existing.profile = profile;
+                return Ok(json!({"id": existing.id, "name": name}));
+            }
+            if let Some(id) = a.id {
+                if !groups.iter().any(|g| g.id == id) {
+                    return Err(missing());
+                }
+                if groups.iter().any(|g| g.id != id && g.name.trim() == name) {
+                    return Err(Error::Invalid(format!(
+                        "a length-match group named {name} already exists"
+                    )));
+                }
+                let group = groups.iter_mut().find(|g| g.id == id).ok_or_else(missing)?;
+                group.name = name.clone();
+                group.nets = a.nets.clone();
+                group.reference = a.reference;
+                group.tolerance = a.tolerance;
+                group.same_layer = a.same_layer;
+                group.profile = profile;
+                return Ok(json!({"id": id, "name": name}));
+            }
+            if groups.len() >= 64 {
+                return Err(Error::Invalid(
+                    "a project carries at most 64 length-match groups".into(),
+                ));
+            }
+            let id = allocate(next)?;
+            groups.push(pcbcraft_doc::LengthGroup {
+                id,
+                name: name.clone(),
+                nets: a.nets.clone(),
+                reference: a.reference,
+                tolerance: a.tolerance,
+                same_layer: a.same_layer,
+                profile,
+            });
+            groups.sort_by_key(|g| g.id);
+            Ok(json!({"id": id, "name": name}))
+        }
+        "rules.length_group_remove" => {
+            let a: LengthGroupRemoveParams = parse(params)?;
+            let before = p.length_groups.len();
+            p.length_groups.retain(|g| g.id != a.id);
+            if p.length_groups.len() == before {
                 return Err(missing());
             }
             Ok(json!({"id": a.id}))
@@ -18779,6 +18957,144 @@ mod tests {
         assert!(s.project.validate().is_ok());
         let before = s.inspect();
         assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    #[test]
+    fn length_match_groups_and_ceilings_run_through_checks() -> Result<(), Error> {
+        let mut s = Session::default();
+        let n1 = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n2 = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n3 = s.execute("net.create", json!({"name":"C"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        for (net, len) in [(n1, 10.0), (n2, 10.0), (n3, 13.0)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":len,"y":10.0},"width":0.3}),
+                None,
+            )?;
+        }
+        s.execute(
+            "rules.length_group_set",
+            json!({"name":"BYTE0","nets":[n1,n2,n3],"tolerance":1.0,"same_layer":false}),
+            None,
+        )?;
+        let skew = s.checks()["drc"]
+            .as_array()
+            .map_or(0, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "length_group_skew")
+                    .count()
+            });
+        assert_eq!(skew, 1, "13 mm against 10 mm nets breaches a 1 mm spread");
+        for net in [n1, n2] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":13.0,"y":10.0},"width":0.3}),
+                None,
+            )?;
+        }
+        assert_eq!(
+            s.checks()["drc"]
+                .as_array()
+                .map_or(0, |a| {
+                    a.iter()
+                        .filter(|f| f["code"] == "length_group_skew")
+                        .count()
+                }),
+            0,
+            "lengthening the shorter nets closes the spread"
+        );
+        s.execute(
+            "track.add",
+            json!({"net":n1,"start":{"x":13.0,"y":10.0},"end":{"x":133.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[n1]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.length_rules",
+            json!({"class":class,"max_length":100.0}),
+            None,
+        )?;
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|f| {
+                    f["code"] == "track_length"
+                        && f["message"]
+                            .as_str()
+                            .is_some_and(|m| m.contains("at most 100.000 mm"))
+                })),
+            "class ceiling flags the long net"
+        );
+        s.execute(
+            "net.set_length",
+            json!({"id":n1,"max_length":150.0}),
+            None,
+        )?;
+        assert!(
+            s.checks()["drc"]
+                .as_array()
+                .is_none_or(|a| {
+                    !a.iter().any(|f| {
+                        f["code"] == "track_length"
+                            && f["message"]
+                                .as_str()
+                                .is_some_and(|m| m.contains("at most"))
+                    })
+                }),
+            "the net ceiling overrides the class ceiling"
+        );
+        let before = s.inspect();
+        for params in [
+            json!({"name":"EMPTY","nets":[n1],"tolerance":1.0,"same_layer":false}),
+            json!({"name":"BADREF","nets":[n1,n2],"reference":n3,"tolerance":1.0,"same_layer":false}),
+            json!({"name":"NEGTOL","nets":[n1,n2],"tolerance":-1.0,"same_layer":false}),
+        ] {
+            assert!(
+                s.execute("rules.length_group_set", params, None).is_err(),
+                "invalid group params are refused"
+            );
+        }
+        assert_eq!(s.inspect(), before, "rejections change nothing");
+        Ok(())
+    }
+    #[test]
+    fn a_net_in_two_length_groups_is_rejected() -> Result<(), Error> {
+        let mut s = Session::default();
+        let n1 = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n2 = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n3 = s.execute("net.create", json!({"name":"C"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "rules.length_group_set",
+            json!({"name":"G1","nets":[n1,n2],"tolerance":1.0,"same_layer":false}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "rules.length_group_set",
+                json!({"name":"G2","nets":[n2,n3],"tolerance":1.0,"same_layer":false}),
+                None
+            )
+            .is_err(),
+            "a net cannot join two groups"
+        );
         Ok(())
     }
     #[test]
