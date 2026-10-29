@@ -76,157 +76,128 @@ pub struct LaserJobExportOptions {
     pub stencil_reduction_pct: f64,
 }
 
-/// Built-in galvo profiles until `MachineProfile` lands in doc (#389).
-pub fn laser_galvo_builtin_profile(profile_id: &str) -> Result<LaserGalvoProfile, String> {
-    if profile_id == "commarker-b6-mopa" {
-        return Ok(commarker_b6_mopa_profile());
-    }
-    if profile_id == "commarker-b6-mopa-150" {
-        let mut profile = commarker_b6_mopa_profile();
-        profile.id = "commarker-b6-mopa-150".into();
-        profile.fields.retain(|field| field.width_mm <= 150.0);
-        return Ok(profile);
-    }
-    Err(format!("unknown laser galvo profile \"{profile_id}\""))
-}
-
-/// Resolve a galvo profile for export. Today this reads built-ins; wire
-/// `Project::machine_profiles` here when issue #389 merges.
+/// Resolve a galvo laser profile by id, preferring the design's own copy.
+///
+/// The job reads the design's own copy (`Project.machine_profiles`) so edits
+/// apply; a built-in preset of the same id is the fallback.
+///
+/// # Rules
+/// - Only `laser_galvo` profiles qualify; any other kind is refused in plain words.
+///
+/// # Dependencies
+/// - crates/doc/src/machine_profile.rs
+/// - crates/io/src/machine_profile.rs
+///
+/// # Do not
+/// - Read a profile from anywhere but the design or the built-in presets.
 pub fn laser_galvo_profile_for_export(
     project: &Project,
     profile_id: &str,
 ) -> Result<LaserGalvoProfile, String> {
-    let _ = project;
+    if let Some(found) = project.machine_profiles.iter().find(|m| m.id == profile_id) {
+        return laser_galvo_from_machine(found);
+    }
     laser_galvo_builtin_profile(profile_id)
 }
 
-pub fn commarker_b6_mopa_profile() -> LaserGalvoProfile {
-    // Starting values from the shop research note for the B6 MOPA (forum
-    // reports and the store sheet). None are verified on the owner's unit.
-    struct Row {
-        name: &'static str,
-        fill: bool,
-        speed: f64,
-        power: f64,
-        freq: f64,
-        pulse: f64,
-        passes: u32,
-        interval: f64,
-        angle: f64,
-        kerf: f64,
+/// Resolve a built-in galvo preset by id without consulting a design.
+///
+/// # Dependencies
+/// - crates/io/src/machine_profile.rs
+pub fn laser_galvo_builtin_profile(profile_id: &str) -> Result<LaserGalvoProfile, String> {
+    if profile_id == "commarker-b6-mopa-150" {
+        let mut profile = commarker_b6_mopa_profile()?;
+        profile.id = "commarker-b6-mopa-150".into();
+        profile.fields.retain(|field| field.width_mm <= 150.0);
+        return Ok(profile);
     }
-    let mk = |r: Row| LaserGalvoOperation {
-        name: r.name.into(),
-        mode: if r.fill { "fill" } else { "line" }.into(),
-        speed_mm_s: r.speed,
-        power_min: r.power,
-        power_max: r.power,
-        passes: r.passes,
-        frequency_khz: r.freq,
-        q_pulse_width_ns: r.pulse,
-        line_interval_mm: r.fill.then_some(r.interval),
-        hatch_angle_deg: r.fill.then_some(r.angle),
-        angle_increment_deg: r.fill.then_some(90.0),
-        kerf_offset_mm: (!r.fill).then_some(r.kerf),
-        verified: false,
-    };
-    let row = |name, fill, speed, power, freq, pulse, passes, interval, angle, kerf| Row {
-        name,
-        fill,
-        speed,
-        power,
-        freq,
-        pulse,
-        passes,
-        interval,
-        angle,
-        kerf,
-    };
-    LaserGalvoProfile {
-        id: "commarker-b6-mopa".into(),
-        kind: "laser_galvo".into(),
-        fields: vec![
-            LaserGalvoField {
-                width_mm: 150.0,
-                height_mm: 150.0,
-                label: "F-theta 150 mm".into(),
-            },
-            LaserGalvoField {
-                width_mm: 300.0,
-                height_mm: 300.0,
-                label: "F-theta 300 mm (unverified)".into(),
-            },
-        ],
-        frequency_khz_min: 1.0,
-        frequency_khz_max: 4000.0,
-        pulse_width_ns_min: 2.0,
-        pulse_width_ns_max: 350.0,
-        operations: vec![
-            mk(row(
-                "fiducials",
-                false,
-                750.0,
-                100.0,
-                25.0,
-                200.0,
-                2,
-                0.0,
-                0.0,
-                0.0,
-            )),
-            mk(row(
-                "isolation-cut",
-                false,
-                750.0,
-                100.0,
-                25.0,
-                200.0,
-                2,
-                0.0,
-                0.0,
-                0.0,
-            )),
-            mk(row(
-                "copper-rubout",
-                true,
-                750.0,
-                100.0,
-                25.0,
-                200.0,
-                2,
-                0.025,
-                45.0,
-                0.0,
-            )),
-            mk(row(
-                "mask-open",
-                true,
-                1500.0,
-                30.0,
-                60.0,
-                50.0,
-                1,
-                0.03,
-                0.0,
-                0.0,
-            )),
-            mk(row(
-                "legend", true, 1500.0, 35.0, 60.0, 50.0, 1, 0.03, 0.0, 0.0,
-            )),
-            mk(row(
-                "stencil-cut",
-                false,
-                300.0,
-                100.0,
-                30.0,
-                350.0,
-                10,
-                0.0,
-                0.0,
-                0.02,
-            )),
-        ],
+    if crate::builtin_machine_profile_ids().contains(&profile_id) {
+        return laser_galvo_from_machine(&crate::builtin_machine_profile(profile_id)?);
     }
+    Err(format!("unknown laser galvo profile \"{profile_id}\""))
+}
+
+/// The ComMarker B6 MOPA preset as a galvo job profile.
+///
+/// # Dependencies
+/// - machine-profiles/commarker-b6-mopa.toml
+pub fn commarker_b6_mopa_profile() -> Result<LaserGalvoProfile, String> {
+    laser_galvo_from_machine(&crate::builtin_machine_profile("commarker-b6-mopa")?)
+}
+
+/// Convert a stored machine profile into what the job writers read.
+///
+/// # Rules
+/// - Refuses a profile that is not `laser_galvo` or lacks a field size or
+///   frequency and pulse ranges, naming what is missing.
+/// - Lens sizes other than the profile's own field are labelled unverified.
+fn laser_galvo_from_machine(m: &pcbcraft_doc::MachineProfile) -> Result<LaserGalvoProfile, String> {
+    if m.kind != "laser_galvo" {
+        return Err(format!("machine profile \"{}\" is not a galvo laser", m.id));
+    }
+    m.validate()?;
+    let laser = &m.laser;
+    let field = laser
+        .field_x_mm
+        .ok_or_else(|| format!("machine profile \"{}\" has no field size", m.id))?;
+    let lenses: Vec<f64> = if laser.lens_options_mm.is_empty() {
+        vec![field]
+    } else {
+        laser.lens_options_mm.clone()
+    };
+    let range = |low: Option<f64>, high: Option<f64>, what: &str| match (low, high) {
+        (Some(low), Some(high)) => Ok((low, high)),
+        _ => Err(format!("machine profile \"{}\" has no {what} range", m.id)),
+    };
+    let (frequency_khz_min, frequency_khz_max) = range(
+        laser.frequency_khz_min,
+        laser.frequency_khz_max,
+        "frequency",
+    )?;
+    let (pulse_width_ns_min, pulse_width_ns_max) = range(
+        laser.pulse_width_ns_min,
+        laser.pulse_width_ns_max,
+        "pulse width",
+    )?;
+    Ok(LaserGalvoProfile {
+        id: m.id.clone(),
+        kind: m.kind.clone(),
+        fields: lenses
+            .into_iter()
+            .map(|size| LaserGalvoField {
+                width_mm: size,
+                height_mm: size,
+                label: if (size - field).abs() < 1e-9 {
+                    format!("F-theta {size} mm")
+                } else {
+                    format!("F-theta {size} mm (unverified)")
+                },
+            })
+            .collect(),
+        frequency_khz_min,
+        frequency_khz_max,
+        pulse_width_ns_min,
+        pulse_width_ns_max,
+        operations: laser
+            .operation
+            .iter()
+            .map(|o| LaserGalvoOperation {
+                name: o.name.clone(),
+                mode: o.mode.clone(),
+                speed_mm_s: o.speed_mm_s,
+                power_min: o.power_percent,
+                power_max: o.power_percent,
+                passes: o.passes,
+                frequency_khz: o.frequency_khz,
+                q_pulse_width_ns: o.pulse_width_ns,
+                line_interval_mm: o.line_interval_mm,
+                hatch_angle_deg: o.hatch_angle_deg,
+                angle_increment_deg: o.angle_increment_deg,
+                kerf_offset_mm: o.kerf_offset_mm,
+                verified: o.verified,
+            })
+            .collect(),
+    })
 }
 
 pub fn laser_job_work_area_mm(p: &Project, margin_mm: f64) -> Result<(f64, f64), String> {
@@ -980,7 +951,7 @@ pub mod tests {
     fn laser_job_svg_two_pad_one_track_matches_golden() -> Result<(), String> {
         let project = laser_job_two_pad_one_track_project();
         project.validate()?;
-        let profile = commarker_b6_mopa_profile();
+        let profile = commarker_b6_mopa_profile()?;
         let options = default_options();
         let svg = laser_job_svg(&project, Layer::Front, &profile, &options)?;
         assert!(svg.contains("width=\"22mm\""));
@@ -1029,7 +1000,7 @@ pub mod tests {
     #[test]
     fn laser_job_svg_paths_are_closed_simple_rings() -> Result<(), String> {
         let project = laser_job_two_pad_one_track_project();
-        let profile = commarker_b6_mopa_profile();
+        let profile = commarker_b6_mopa_profile()?;
         let svg = laser_job_svg(&project, Layer::Front, &profile, &default_options())?;
         let mut rings = 0;
         for chunk in svg.split(" d=\"").skip(1) {
@@ -1061,7 +1032,7 @@ pub mod tests {
     #[test]
     fn laser_job_lcproj_matches_golden_and_has_full_galvo_blocks() -> Result<(), String> {
         let project = laser_job_two_pad_one_track_project();
-        let profile = commarker_b6_mopa_profile();
+        let profile = commarker_b6_mopa_profile()?;
         let text = laser_job_lcproj(&project, Layer::Front, &profile, &default_options())?;
         check_golden("laser_job_two_pad_one_track.lcproj", &text)?;
         let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
@@ -1086,7 +1057,7 @@ pub mod tests {
     fn laser_job_lcproj_parse_has_cut_setting_per_group() -> Result<(), String> {
         let project = laser_job_two_pad_one_track_project();
         project.validate()?;
-        let profile = commarker_b6_mopa_profile();
+        let profile = commarker_b6_mopa_profile()?;
         let options = default_options();
         let text = laser_job_lcproj(&project, Layer::Front, &profile, &options)?;
         let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
@@ -1119,7 +1090,7 @@ pub mod tests {
     #[test]
     fn laser_job_lcproj_frequency_and_pulse_width_stay_in_profile_range() -> Result<(), String> {
         let project = laser_job_two_pad_one_track_project();
-        let profile = commarker_b6_mopa_profile();
+        let profile = commarker_b6_mopa_profile()?;
         let text = laser_job_lcproj(&project, Layer::Front, &profile, &default_options())?;
         let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         for setting in value["cut_settings"].as_array().into_iter().flatten() {
@@ -1157,7 +1128,7 @@ pub mod tests {
             layer: Layer::Back,
         });
         project.validate()?;
-        let profile = commarker_b6_mopa_profile();
+        let profile = commarker_b6_mopa_profile()?;
         let mut front_ops = BTreeSet::new();
         front_ops.insert("fiducials".into());
         let front_opts = LaserJobExportOptions {
@@ -1209,5 +1180,23 @@ pub mod tests {
             cy += pair[1];
         }
         Ok(Point::new(cx / count as f64, cy / count as f64))
+    }
+
+    #[test]
+    fn laser_job_reads_the_profile_recorded_on_the_design() -> Result<(), String> {
+        let mut project = laser_job_two_pad_one_track_project();
+        let mut mine = crate::builtin_machine_profile("commarker-b6-mopa")?;
+        mine.id = "my-laser".into();
+        for op in &mut mine.laser.operation {
+            op.speed_mm_s = 111.0;
+        }
+        project.machine_profiles.push(mine);
+        let resolved = laser_galvo_profile_for_export(&project, "my-laser")?;
+        assert!(resolved.operations.iter().all(|o| o.speed_mm_s == 111.0));
+        let fallback = laser_galvo_profile_for_export(&project, "commarker-b6-mopa")?;
+        assert_eq!(fallback.operations[1].speed_mm_s, 750.0);
+        assert!(laser_galvo_profile_for_export(&project, "neoden-yy1").is_err());
+        assert!(laser_galvo_profile_for_export(&project, "nope").is_err());
+        Ok(())
     }
 }
