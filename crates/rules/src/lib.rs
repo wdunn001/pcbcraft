@@ -1614,6 +1614,7 @@ mod tests {
             position: Point::new(12.1, 10.0),
             diameter: 1.4,
             drill: 0.4,
+            covering: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -1800,6 +1801,7 @@ mod tests {
                 position: Point::new(12.0 + column as f64 * 0.5, 10.0),
                 diameter: 1.4,
                 drill: 0.4,
+                covering: None,
             });
         }
         p.validate()?;
@@ -2553,6 +2555,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.8,
             drill: 0.4,
+            covering: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -2622,6 +2625,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             diameter: 0.8,
             drill: 0.4,
+            covering: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and

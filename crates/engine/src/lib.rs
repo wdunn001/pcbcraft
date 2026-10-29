@@ -1308,6 +1308,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "via.set_covering",
+            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
+            schema(
+                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "board.set_via_covering_default",
+            "Set the covering every via follows unless it has its own: open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered or filled_capped",
+            schema(
+                json!({"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
+                &["covering"],
+            ),
+        ),
+        (
             "track.move",
             "Translate an existing copper segment by a delta; both ends move together",
             schema(
@@ -4083,6 +4099,18 @@ struct TrackEndParams {
 enum TrackEnd {
     Start,
     End,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringParams {
+    id: Id,
+    #[serde(default)]
+    covering: Option<pcbcraft_doc::ViaCovering>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ViaCoveringDefaultParams {
+    covering: pcbcraft_doc::ViaCovering,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10423,6 +10451,7 @@ fn run_command(
                 position: a.position,
                 diameter,
                 drill,
+                covering: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -10498,6 +10527,7 @@ fn run_command(
                         position,
                         diameter: a.diameter,
                         drill: a.drill,
+                        covering: None,
                     });
                     ids.push(id);
                 }
@@ -14465,6 +14495,30 @@ fn run_command(
                 "position": *moved,
             }))
         }
+        "via.set_covering" => {
+            let a: ViaCoveringParams = parse(params)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            if via.drill <= 0.0
+                && a.covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
+                ));
+            }
+            via.covering = a.covering;
+            Ok(json!({"id":a.id,"covering":via.covering}))
+        }
+        "board.set_via_covering_default" => {
+            let a: ViaCoveringDefaultParams = parse(params)?;
+            p.board.via_covering_default = a.covering;
+            Ok(json!({"covering":p.board.via_covering_default}))
+        }
         "via.set_size" => {
             let a: ViaSizeParams = parse(params)?;
             if !a.diameter.is_finite() || a.diameter <= 0.0 || a.diameter > 100.0 {
@@ -14482,6 +14536,15 @@ fn run_command(
             if !drill.is_finite() || drill < 0.0 || drill >= a.diameter {
                 return Err(Error::Invalid(
                     "via drill must be smaller than its pad".into(),
+                ));
+            }
+            if drill <= 0.0
+                && via
+                    .covering
+                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+            {
+                return Err(Error::Invalid(
+                    "a tented, plugged or filled via needs a drilled hole".into(),
                 ));
             }
             via.diameter = a.diameter;
@@ -22699,6 +22762,96 @@ mod tests {
         assert!((pin.y - 14.5).abs() < 1e-6);
         Ok(())
     }
+    #[test]
+    fn via_covering_commands_set_default_and_override_with_bounds() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("net id".into()))?;
+        let via = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":5.0,"y":5.0},"diameter":0.6,"drill":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        s.execute(
+            "board.set_via_covering_default",
+            json!({"covering":"tented"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.via_covering_default,
+            pcbcraft_doc::ViaCovering::Tented
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"filled_capped"}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.vias[0].covering,
+            Some(pcbcraft_doc::ViaCovering::FilledCapped)
+        );
+        s.execute("via.set_covering", json!({"id":via}), None)?;
+        assert_eq!(
+            s.project.board.vias[0].covering, None,
+            "omitted follows the default"
+        );
+        let before = s.inspect();
+        for (command, params) in [
+            ("via.set_covering", json!({"id":via,"covering":"glued"})),
+            ("via.set_covering", json!({"id":9999,"covering":"tented"})),
+            (
+                "board.set_via_covering_default",
+                json!({"covering":"glued"}),
+            ),
+            ("board.set_via_covering_default", json!({})),
+        ] {
+            assert!(
+                s.execute(command, params, None).is_err(),
+                "{command} must refuse"
+            );
+        }
+        assert_eq!(
+            s.inspect(),
+            before,
+            "refused commands leave the design untouched"
+        );
+        let blind = s.execute(
+            "via.place",
+            json!({"net":net,"position":{"x":9.0,"y":5.0},"diameter":0.6,"drill":0.0}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("via id".into()))?;
+        assert!(
+            s.execute(
+                "via.set_covering",
+                json!({"id":blind,"covering":"plugged"}),
+                None
+            )
+            .is_err(),
+            "a via with no drilled hole cannot be plugged"
+        );
+        s.execute(
+            "via.set_covering",
+            json!({"id":via,"covering":"plugged"}),
+            None,
+        )?;
+        assert!(
+            s.execute(
+                "via.set_size",
+                json!({"id":via,"diameter":0.6,"drill":0.0}),
+                None
+            )
+            .is_err(),
+            "removing the hole of a plugged via is refused"
+        );
+        s.undo()?;
+        Ok(())
+    }
+
     #[test]
     fn failed_batch_is_atomic_and_stale_edits_reject() {
         let mut s = Session::default();
