@@ -134,10 +134,13 @@ fn applying_twice_updates_values_without_duplicating_classes() -> Result<(), Err
 fn every_built_in_profile_toml_parses() {
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
         let parsed = toml::from_str::<toml::Value>(builtin.toml);
-        assert!(parsed.is_ok(), "{:?}", parsed.err());
-        let doc = parsed
-            .ok()
-            .unwrap_or(toml::Value::Table(Default::default()));
+        assert!(
+            parsed.is_ok(),
+            "{} must parse: {:?}",
+            builtin.id,
+            parsed.err()
+        );
+        let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
         assert_eq!(doc["schema"].as_integer(), Some(1));
         assert_eq!(doc["profile"]["id"].as_str(), Some(builtin.id));
     }
@@ -152,10 +155,8 @@ fn value_source_fields_name_known_schema_keys() {
             .collect();
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
         let parsed = toml::from_str::<toml::Value>(builtin.toml);
-        assert!(parsed.is_ok(), "{:?}", parsed.err());
-        let doc = parsed
-            .ok()
-            .unwrap_or(toml::Value::Table(Default::default()));
+        assert!(parsed.is_ok(), "{}", builtin.id);
+        let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
         if let Some(rows) = doc.get("value_source").and_then(|v| v.as_array()) {
             for row in rows {
                 let field = row["field"].as_str().unwrap_or("");

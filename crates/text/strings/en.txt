@@ -1,0 +1,92 @@
+# English base catalog. One `key = value` per line, # starts a comment.
+# Keys are stable ids: lowercase letters, digits, dots, dashes, underscores.
+# Values may hold {name} placeholders. A control's tooltip uses the same key
+# with a `.tip` suffix. Translators copy this file and change only the values.
+language.name = English
+
+app.name = PCBCraft
+app.brand.tip = Back to the start screen, where you open or begin a design.
+app.home = Home
+app.home.tip = Open the start screen.
+app.version = PCBCraft {version}
+app.version.tip = The version of PCBCraft you are running.
+app.report_bug = Report a bug
+app.report_bug.tip = Open a prefilled bug report with your version filled in.
+
+menu.file = File
+menu.file.tip = Start, open, save, export and share this design.
+menu.file.new = New
+menu.file.new.tip = Start a fresh empty design.
+menu.file.open = Open
+menu.file.open.tip = Choose a design to open; your recent designs are listed on the screen that appears.
+menu.file.save = Save
+menu.file.save.tip = Write the design to its file on disk. (Ctrl+S works too.)
+menu.file.export = Export
+menu.file.export.tip = Write the board out so other design tools can open it.
+menu.file.copy_picture = Copy picture
+menu.file.copy_picture.tip = Copy a PNG snapshot of the current view so it can be pasted into a document.
+
+menu.edit = Edit
+menu.edit.tip = Step back and forward, copy and paste, sync the board, and start the wiring over on one connection or the whole board.
+menu.edit.undo = Undo
+menu.edit.undo.tip = Step back one action; every edit here is one undoable step.
+menu.edit.undo.none = Nothing to undo yet: make an edit first.
+menu.edit.copy = Copy  Ctrl+C
+menu.edit.copy.tip = Copy the selected objects as text; paste them here or in another window.
+menu.edit.paste = Paste  Ctrl+V
+menu.edit.paste.tip = Paste the last copy a little to the side, with new reference numbers.
+menu.edit.cleanup = Clean up tracks
+menu.edit.cleanup.tip = Remove zero-length and dangling pieces and join straight neighbours. One undo puts it all back.
+menu.edit.redo = Redo
+menu.edit.redo.tip = Step forward to the action you undid.
+menu.edit.redo.none = Nothing to redo: undo an action first.
+menu.edit.sync = Update board from schematic
+menu.edit.sync.tip = Copy every symbol, wire and net onto the board, then show the board.
+menu.edit.clear_net = Clear wiring on {name}
+menu.edit.clear_net.tip = Lift every piece of copper drawn for the lit connection. The connection itself stays.
+menu.edit.clear_all = Clear all wiring
+menu.edit.clear_all.tip = Start the copper over on the whole board. Parts, connections and copper zones stay.
+
+menu.settings = Settings
+menu.settings.tip = Theme, grid, language and library folders.
+menu.settings.appearance = Appearance & settings…
+menu.settings.appearance.tip = Open the settings page: theme, accent colour and everything for the project.
+menu.settings.theme_light = Switch to the light theme
+menu.settings.theme_dark = Switch to the dark theme
+menu.settings.theme.tip = Change between the dark and light look.
+menu.settings.grid_hide = Hide the grid
+menu.settings.grid_show = Show the grid
+menu.settings.grid.tip = Show or hide the placement grid in the work area.
+menu.settings.route_on = Route on
+menu.settings.route_on.tip = Choose which copper layer new tracks are drawn on.
+menu.settings.route_top = Top
+menu.settings.route_bottom = Bottom
+menu.settings.pad_labels = Pad labels
+menu.settings.pad_labels.tip = Pick what sits at each pad centre on the board: its number, its net, or nothing.
+menu.settings.pad_labels.number.tip = Draw each pad's own number on the board.
+menu.settings.pad_labels.net.tip = Draw the net name on each pad, useful when debugging.
+menu.settings.pad_labels.off.tip = Hide the pad labels for a clean picture.
+menu.settings.library_sources = Library sources…
+menu.settings.library_sources.tip = Manage the folders that feed the component list.
+menu.settings.language = Language
+menu.settings.language.tip = Choose the language of menus and messages. The change applies at once.
+menu.settings.language.system = System default
+menu.settings.language.system.tip = Follow the language of this computer.
+menu.settings.language.pick.tip = Show the app in this language.
+
+menu.help = Help
+menu.help.tip = Shortcuts, the command search and bug reports.
+menu.help.shortcuts = Shortcuts
+menu.help.shortcuts.tip = Show every keyboard shortcut and mouse gesture in one list.
+menu.help.commands = Commands
+menu.help.commands.tip = Search every command by name and run it, with its parameters explained.
+
+pad_labels.number = Pads: number
+pad_labels.net = Pads: net
+pad_labels.off = Pads: off
+
+unit.mm = mm
+unit.mil = mil
+unit.inch = in
+cmp.count.one = {count} part
+cmp.count.other = {count} parts
