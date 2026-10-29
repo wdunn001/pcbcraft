@@ -5,6 +5,7 @@ pub(crate) mod support;
 
 mod artifacts;
 mod board;
+mod board3d;
 mod builds;
 mod checks;
 mod editing;
@@ -16,4 +17,5 @@ mod rules;
 mod settings;
 mod shell;
 mod via_covering;
+mod vias;
 mod workbench;
