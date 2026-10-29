@@ -7307,7 +7307,7 @@ impl App {
         tip: String,
         selected: bool,
     ) -> egui::Response {
-        let response = icons::icon_label_button(ui, icon, &label, &tip, selected);
+        let response = icons::strip_button(ui, icon, &label, &tip, selected);
         self.record_icon(id, response.rect);
         response
     }
@@ -7440,6 +7440,7 @@ impl App {
             return;
         }
         ui.spacing_mut().interact_size.y = 28.0;
+        icons::set_compact(ui, self.tab == Tab::Pcb && ui.available_width() < 1500.0);
         ui.horizontal(|ui| {
             ui.add_space(Self::PAGE_GUTTER);
             if self

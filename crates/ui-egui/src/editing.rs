@@ -703,7 +703,7 @@ impl App {
 
     /// The pick filter chips and the measure button, in the tool strip.
     pub(super) fn editing_controls(&mut self, ui: &mut egui::Ui) {
-        if crate::icons::icon_label_button(
+        if crate::icons::strip_button(
             ui,
             "measure",
             "Measure",

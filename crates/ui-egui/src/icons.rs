@@ -166,7 +166,6 @@ pub(crate) fn icon_inline(ui: &mut Ui, name: &str) -> Response {
 
 /// An icon-only button. The tip is required: it is the hover text and the
 /// screen-reader name.
-#[expect(dead_code, reason = "wired in the tree and rail steps that follow")]
 pub(crate) fn icon_button(ui: &mut Ui, name: &str, tip: &str, selected: bool) -> Response {
     let button = egui::Button::image(image(ui, name, ICON_SIZE, selected))
         .selected(selected)
@@ -189,6 +188,39 @@ pub(crate) fn icon_label_button(
     let response = ui.add(button).on_hover_text(tip);
     crate::a11y::name_control(&response, label, Some(selected));
     response
+}
+
+fn compact_id() -> egui::Id {
+    egui::Id::new("icons-strip-compact")
+}
+
+/// Tell the strip buttons below this `ui` whether to drop their labels.
+pub(crate) fn set_compact(ui: &Ui, compact: bool) {
+    ui.data_mut(|d| d.insert_temp(compact_id(), compact));
+}
+
+/// A toolbar button: icon and label, or the icon alone (label as tooltip and
+/// name) when the strip was marked compact because the row is too narrow.
+pub(crate) fn strip_button(
+    ui: &mut Ui,
+    name: &str,
+    label: &str,
+    tip: &str,
+    selected: bool,
+) -> Response {
+    let compact = ui
+        .data(|d| d.get_temp::<bool>(compact_id()))
+        .unwrap_or(false);
+    if compact {
+        let hover = if tip.is_empty() || tip == label {
+            label.to_owned()
+        } else {
+            format!("{label}. {tip}")
+        };
+        icon_button(ui, name, &hover, selected)
+    } else {
+        icon_label_button(ui, name, label, tip, selected)
+    }
 }
 
 #[cfg(test)]
