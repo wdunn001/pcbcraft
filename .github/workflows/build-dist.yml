@@ -1,6 +1,9 @@
 # Release builds for every platform. Called by nightly.yml and release.yml so
 # nightly runs exercise the exact packaging that a tagged release uses.
 # No build cache here: release artifacts are built from a clean state.
+#
+# docs-agent (D451): when Linux installers land, extend docs/ci.md Releases section with
+# AppImage (+ .zsync), .deb, and .rpm per arch; point packaging/linux/package.sh for repro.
 name: Build distributables
 
 on:
@@ -37,11 +40,13 @@ jobs:
       matrix:
         include:
           - platform: linux-x86_64
-            os: ubuntu-24.04
+            os: ubuntu-22.04
             targets: x86_64-unknown-linux-gnu
+            deb: amd64
           - platform: linux-aarch64
-            os: ubuntu-24.04-arm
+            os: ubuntu-22.04-arm
             targets: aarch64-unknown-linux-gnu
+            deb: arm64
           - platform: windows-x86_64
             os: windows-2025
             targets: x86_64-pc-windows-msvc
@@ -59,6 +64,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev \
             libx11-dev libxi-dev libxrandr-dev libxcursor-dev libgl1-mesa-dev
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        env:
+          NFPM_VERSION: 2.47.0
+        run: |
+          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm \
+            librsvg2-bin
+          curl -fsSL -o "$RUNNER_TEMP/nfpm.deb" \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${{ matrix.deb }}.deb"
+          sudo dpkg -i "$RUNNER_TEMP/nfpm.deb"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
@@ -70,6 +85,32 @@ jobs:
         run: |
           for target in ${TARGETS//,/ }; do
             cargo build --locked --release -p pcbcraft -p pcbcraft-cli --target "$target"
+          done
+      - name: Package Linux installers
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PCBCRAFT_DIST_TAG: ${{ inputs.version }}
+          DIST: ${{ github.workspace }}/dist
+          LINUX_TARGET: ${{ matrix.targets }}
+        run: packaging/linux/package.sh --skip-build
+      - name: Check Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          LINUX_TARGET: ${{ matrix.targets }}
+        run: |
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb | grep -E 'usr/bin/pcbcraft$|usr/bin/pcbcraft-cli$|metainfo|applications|ATTRIBUTION.md'
+          rpm -qip dist/*.rpm
+          rpm -qlp dist/*.rpm | grep -E '/usr/bin/pcbcraft$|ATTRIBUTION.md'
+          ldd "target/$LINUX_TARGET/release/pcbcraft"
+          for appimage in dist/*.AppImage; do
+            chmod +x "$appimage"
+            APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --help
+            "$appimage" --appimage-updateinformation | grep -F 'gh-releases-zsync|'
+            test -s "$appimage.zsync"
           done
       - name: Package
         shell: bash

@@ -1,7 +1,10 @@
 //! Small, bounded planar geometry. Units are millimetres.
+pub mod impedance;
+pub mod meander;
 use serde::{Deserialize, Serialize};
 
 pub mod hull;
+pub mod poly;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

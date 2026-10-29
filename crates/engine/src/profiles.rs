@@ -653,6 +653,7 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                     net,
                     layer,
                     clearance: area.clearance,
+                    keepout: None,
                     max_height: None,
                     region: RuleRegion {
                         x: area.x,
