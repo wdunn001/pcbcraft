@@ -2941,6 +2941,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pcbcraft-calc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "pcbcraft-cli"
 version = "0.1.0"
 dependencies = [
@@ -3003,6 +3011,7 @@ dependencies = [
  "png 0.18.1",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.21",
  "toml",
@@ -3083,6 +3092,7 @@ dependencies = [
  "eframe",
  "pcbcraft-engine",
  "pcbcraft-mcp",
+ "pcbcraft-text",
  "pcbcraft-ui-egui",
  "wasm-bindgen",
  "wasm-bindgen-futures",

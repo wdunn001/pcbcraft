@@ -1,11 +1,13 @@
 //! One window, shared project, tabbed workspaces. Edits use the engine exclusively.
 mod a11y;
+mod arrange;
 mod assistant;
 mod authoring;
 mod board3d;
 mod board_side;
 mod bottom_sheet;
 pub mod brand;
+mod browser;
 mod canvas;
 mod contrast;
 mod datums;
@@ -1048,6 +1050,8 @@ pub struct App {
     canvas_rect: Rect,
     canvas_menu: Option<(egui::Pos2, canvas::CanvasMenuKind)>,
     message: String,
+    /// True in the browser build, where disk actions are refused (see browser.rs).
+    browser: bool,
     value: String,
     x: f64,
     y: f64,
@@ -1588,7 +1592,12 @@ impl App {
             cursor: None,
             canvas_rect: Rect::NOTHING,
             canvas_menu: None,
-            message: t!("status.ready"),
+            message: if cfg!(target_arch = "wasm32") {
+                browser::start_message()
+            } else {
+                t!("status.ready")
+            },
+            browser: cfg!(target_arch = "wasm32"),
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -1742,6 +1751,10 @@ impl App {
         }
     }
     fn tool_call(&mut self, name: &str, args: Value) -> bool {
+        if self.browser && browser::needs_desktop(name) {
+            self.message = browser::refusal();
+            return false;
+        }
         let result = pcbcraft_mcp::call_tool(&self.session, name, &args);
         let success = result.get("isError").and_then(Value::as_bool) != Some(true);
         self.message = if success {
@@ -2911,6 +2924,8 @@ impl App {
             {
                 self.cleanup_tracks();
             }
+            ui.separator();
+            self.arrange_menu(ui);
             ui.separator();
             if ui
                 .button(t!("menu.edit.sync"))
@@ -6027,6 +6042,7 @@ impl App {
         }
         let about_muted = self.muted();
         brand::about_window(ui, &mut self.about_open, about_muted);
+        self.array_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))

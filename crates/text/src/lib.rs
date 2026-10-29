@@ -21,10 +21,15 @@ pub const ENGLISH: &str = include_str!("../strings/en.txt");
 pub const CONVERTED_FNS: &str = include_str!("../strings/converted-fns.txt");
 /// The Spanish catalog, the first real translation, shipped in every build.
 const SPANISH_ES: &str = include_str!("../strings/es.txt");
+/// The German catalog, shipped in every build.
+const GERMAN_DE: &str = include_str!("../strings/de.txt");
+/// The French catalog, shipped in every build.
+const FRENCH_FR: &str = include_str!("../strings/fr.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_FR: &str = include_str!("../strings/fixture-fr.txt");
 #[cfg(feature = "fixture")]
 const FIXTURE_RTL: &str = include_str!("../strings/fixture-rtl.txt");
+#[cfg(feature = "fixture")]
 const FIXTURE_DE: &str = include_str!("../strings/fixture-de.txt");
 
 /// Language tag meaning "follow the computer's language".
@@ -116,12 +121,16 @@ pub struct Language {
 /// # Rules
 /// - English comes first; every tag listed also resolves in `language_text`.
 /// - The `name` is the language's own name, read from its `language.name`.
+/// - A real translation owns its plain tag; fixtures use `qps-` pseudo tags
+///   so they never collide with a shipped language.
 /// # Dependencies
 /// - `crates/text/strings/en.txt`
 /// - `crates/text/strings/es.txt`
+/// - `crates/text/strings/de.txt`
+/// - `crates/text/strings/fr.txt`
 /// # Do not
 /// - Do not gate a real translation behind a feature; only the test
-///   fixture is optional.
+///   fixtures are optional.
 pub fn shipped_languages() -> Vec<Language> {
     let mut list = vec![
         Language {
@@ -132,6 +141,14 @@ pub fn shipped_languages() -> Vec<Language> {
             tag: "es".into(),
             name: language_name(SPANISH_ES),
         },
+        Language {
+            tag: "de".into(),
+            name: language_name(GERMAN_DE),
+        },
+        Language {
+            tag: "fr".into(),
+            name: language_name(FRENCH_FR),
+        },
     ];
     list.extend(fixture_languages());
     list
@@ -141,7 +158,7 @@ pub fn shipped_languages() -> Vec<Language> {
 fn fixture_languages() -> Vec<Language> {
     vec![
         Language {
-            tag: "fr".into(),
+            tag: FIXTURE_FR_TAG.into(),
             name: language_name(FIXTURE_FR),
         },
         Language {
@@ -149,7 +166,7 @@ fn fixture_languages() -> Vec<Language> {
             name: language_name(FIXTURE_RTL),
         },
         Language {
-            tag: "de".into(),
+            tag: FIXTURE_DE_TAG.into(),
             name: language_name(FIXTURE_DE),
         },
     ]
@@ -163,6 +180,14 @@ fn fixture_languages() -> Vec<Language> {
 /// Tag of the pseudo right-to-left fixture language.
 #[cfg(feature = "fixture")]
 pub const FIXTURE_RTL_TAG: &str = "qps-rtl";
+
+/// Tag of the partial French fixture, kept clear of the real `fr` catalog.
+#[cfg(feature = "fixture")]
+pub const FIXTURE_FR_TAG: &str = "qps-fr";
+
+/// Tag of the partial German fixture, kept clear of the real `de` catalog.
+#[cfg(feature = "fixture")]
+pub const FIXTURE_DE_TAG: &str = "qps-de";
 
 /// The way a language's text runs.
 ///
@@ -196,11 +221,14 @@ fn language_text(tag: &str) -> Option<&'static str> {
     match tag {
         "en" => Some(ENGLISH),
         "es" => Some(SPANISH_ES),
+        "de" => Some(GERMAN_DE),
+        "fr" => Some(FRENCH_FR),
         #[cfg(feature = "fixture")]
-        "fr" => Some(FIXTURE_FR),
+        FIXTURE_FR_TAG => Some(FIXTURE_FR),
         #[cfg(feature = "fixture")]
         FIXTURE_RTL_TAG => Some(FIXTURE_RTL),
-        "de" => Some(FIXTURE_DE),
+        #[cfg(feature = "fixture")]
+        FIXTURE_DE_TAG => Some(FIXTURE_DE),
         _ => None,
     }
 }
@@ -714,6 +742,64 @@ mod tests {
         assert!(
             spanish.missing_keys().is_empty(),
             "es.txt defines every key, so nothing falls back"
+        );
+    }
+
+    #[test]
+    fn loading_german_swaps_menu_labels_and_keeps_placeholders() {
+        let english = Catalog::english();
+        let german = Catalog::english().with_language("de", GERMAN_DE);
+        assert_eq!(english.get("menu.file"), "File");
+        assert_eq!(german.get("menu.file"), "Datei");
+        assert_eq!(german.get("menu.help"), "Hilfe");
+        assert_eq!(
+            german.format("menu.edit.clear_net", &[("name", "GND")]),
+            "Verdrahtung auf GND löschen",
+            "the name placeholder still fills"
+        );
+        assert_eq!(german.plural("cmp.count", 1), "1 Bauteil");
+        assert_eq!(german.plural("cmp.count", 7), "7 Bauteile");
+        assert_eq!(match_locale("de_DE.UTF-8"), "de");
+        for (key, value) in parse(GERMAN_DE).0 {
+            let base = english.get(&key);
+            assert_eq!(
+                placeholders(&base),
+                placeholders(&value),
+                "de.txt keeps the placeholders of {key}"
+            );
+        }
+        assert!(
+            german.missing_keys().is_empty(),
+            "de.txt defines every key, so nothing falls back"
+        );
+    }
+
+    #[test]
+    fn loading_french_swaps_menu_labels_and_keeps_placeholders() {
+        let english = Catalog::english();
+        let french = Catalog::english().with_language("fr", FRENCH_FR);
+        assert_eq!(english.get("menu.file"), "File");
+        assert_eq!(french.get("menu.file"), "Fichier");
+        assert_eq!(french.get("menu.help"), "Aide");
+        assert_eq!(
+            french.format("menu.edit.clear_net", &[("name", "GND")]),
+            "Effacer le câblage sur GND",
+            "the name placeholder still fills"
+        );
+        assert_eq!(french.plural("cmp.count", 1), "1 composant");
+        assert_eq!(french.plural("cmp.count", 7), "7 composants");
+        assert_eq!(match_locale("fr_FR.UTF-8"), "fr");
+        for (key, value) in parse(FRENCH_FR).0 {
+            let base = english.get(&key);
+            assert_eq!(
+                placeholders(&base),
+                placeholders(&value),
+                "fr.txt keeps the placeholders of {key}"
+            );
+        }
+        assert!(
+            french.missing_keys().is_empty(),
+            "fr.txt defines every key, so nothing falls back"
         );
     }
 
