@@ -3564,7 +3564,7 @@
             "y": -2.54
           },
           "net": 94,
-          "electrical_type": "power_out",
+          "electrical_type": "passive",
           "direction": 180.0,
           "unit": 1
         },
@@ -3602,7 +3602,7 @@
               },
               "angle": 180.0,
               "length": 2.54,
-              "electrical_type": "power_out",
+              "electrical_type": "passive",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -10314,7 +10314,7 @@
             "y": -7.62
           },
           "net": 58,
-          "electrical_type": "power_out",
+          "electrical_type": "power_in",
           "direction": 180.0,
           "unit": 1
         },
@@ -10350,31 +10350,31 @@
             "y": 0.0
           },
           "net": 88,
-          "electrical_type": "input",
-          "direction": 180.0,
-          "unit": 1
-        },
-        {
-          "number": "5",
-          "name": "TX",
-          "offset": {
-            "x": 8.89,
-            "y": 2.54
-          },
-          "net": 91,
           "electrical_type": "output",
           "direction": 180.0,
           "unit": 1
         },
         {
-          "number": "6",
+          "number": "5",
           "name": "RX",
+          "offset": {
+            "x": 8.89,
+            "y": 2.54
+          },
+          "net": 91,
+          "electrical_type": "input",
+          "direction": 180.0,
+          "unit": 1
+        },
+        {
+          "number": "6",
+          "name": "TX",
           "offset": {
             "x": 8.89,
             "y": 5.079999999999999
           },
           "net": 90,
-          "electrical_type": "input",
+          "electrical_type": "output",
           "direction": 180.0,
           "unit": 1
         },
@@ -10412,7 +10412,7 @@
               },
               "angle": 180.0,
               "length": 2.54,
-              "electrical_type": "power_out",
+              "electrical_type": "power_in",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -10457,21 +10457,6 @@
               },
               "angle": 180.0,
               "length": 2.54,
-              "electrical_type": "input",
-              "unit": 1,
-              "body_style": 1,
-              "graphical_style": "line",
-              "visible": true
-            },
-            {
-              "number": "5",
-              "name": "TX",
-              "position": {
-                "x": 8.89,
-                "y": 2.54
-              },
-              "angle": 180.0,
-              "length": 2.54,
               "electrical_type": "output",
               "unit": 1,
               "body_style": 1,
@@ -10479,15 +10464,30 @@
               "visible": true
             },
             {
-              "number": "6",
+              "number": "5",
               "name": "RX",
+              "position": {
+                "x": 8.89,
+                "y": 2.54
+              },
+              "angle": 180.0,
+              "length": 2.54,
+              "electrical_type": "input",
+              "unit": 1,
+              "body_style": 1,
+              "graphical_style": "line",
+              "visible": true
+            },
+            {
+              "number": "6",
+              "name": "TX",
               "position": {
                 "x": 8.89,
                 "y": 5.079999999999999
               },
               "angle": 180.0,
               "length": 2.54,
-              "electrical_type": "input",
+              "electrical_type": "output",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -11695,13 +11695,13 @@
       "pins": [
         {
           "number": "2",
-          "name": "SCK",
+          "name": "SCL",
           "offset": {
             "x": -10.16,
             "y": -5.08
           },
           "net": 66,
-          "electrical_type": "input",
+          "electrical_type": "bidirectional",
           "direction": 0.0,
           "unit": 1
         },
@@ -11737,7 +11737,7 @@
             "y": 2.54
           },
           "net": 65,
-          "electrical_type": "input",
+          "electrical_type": "passive",
           "direction": 0.0,
           "unit": 1
         },
@@ -11804,14 +11804,14 @@
           "pins": [
             {
               "number": "2",
-              "name": "SCK",
+              "name": "SCL",
               "position": {
                 "x": -10.16,
                 "y": -5.08
               },
               "angle": 0.0,
               "length": 2.54,
-              "electrical_type": "input",
+              "electrical_type": "bidirectional",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -11856,7 +11856,7 @@
               },
               "angle": 0.0,
               "length": 2.54,
-              "electrical_type": "input",
+              "electrical_type": "passive",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -12812,7 +12812,7 @@
             "y": -2.54
           },
           "net": 66,
-          "electrical_type": "input",
+          "electrical_type": "bidirectional",
           "direction": 0.0,
           "unit": 1
         },
@@ -12836,7 +12836,7 @@
             "y": 2.54
           },
           "net": 65,
-          "electrical_type": "input",
+          "electrical_type": "passive",
           "direction": 0.0,
           "unit": 1
         },
@@ -12898,7 +12898,7 @@
               },
               "angle": 0.0,
               "length": 2.54,
-              "electrical_type": "input",
+              "electrical_type": "bidirectional",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -12928,7 +12928,7 @@
               },
               "angle": 0.0,
               "length": 2.54,
-              "electrical_type": "input",
+              "electrical_type": "passive",
               "unit": 1,
               "body_style": 1,
               "graphical_style": "line",
@@ -32817,7 +32817,7 @@
         },
         "end": {
           "x": 18.85,
-          "y": 48.45
+          "y": 48.449999999999996
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -32858,7 +32858,7 @@
           "y": 26.25
         },
         "end": {
-          "x": 36.95,
+          "x": 36.949999999999996,
           "y": 25.65
         },
         "width": 0.2,
@@ -32872,7 +32872,7 @@
           "y": 29.75
         },
         "end": {
-          "x": 36.95,
+          "x": 36.949999999999996,
           "y": 30.35
         },
         "width": 0.2,
@@ -32929,7 +32929,7 @@
         },
         "end": {
           "x": 35.0,
-          "y": 33.35
+          "y": 33.33
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -32943,7 +32943,7 @@
         },
         "end": {
           "x": 45.85,
-          "y": 33.0
+          "y": 32.98
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -32957,7 +32957,7 @@
         },
         "end": {
           "x": 37.0,
-          "y": 22.35
+          "y": 22.330000000000002
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -32971,7 +32971,7 @@
         },
         "end": {
           "x": 44.0,
-          "y": 22.35
+          "y": 22.330000000000002
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -32985,7 +32985,7 @@
         },
         "end": {
           "x": 47.0,
-          "y": 22.65
+          "y": 22.650000000000002
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -32999,7 +32999,7 @@
         },
         "end": {
           "x": 41.0,
-          "y": 15.35
+          "y": 15.33
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33013,7 +33013,7 @@
         },
         "end": {
           "x": 49.9,
-          "y": 13.65
+          "y": 13.63
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33040,8 +33040,8 @@
           "y": 28.635
         },
         "end": {
-          "x": 56.9,
-          "y": 27.45
+          "x": 56.900000000000006,
+          "y": 27.435000000000002
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33055,7 +33055,7 @@
         },
         "end": {
           "x": 54.85,
-          "y": 27.35
+          "y": 27.365
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33068,8 +33068,8 @@
           "y": 26.095
         },
         "end": {
-          "x": 56.3,
-          "y": 25.5
+          "x": 56.300000000000004,
+          "y": 25.494999999999997
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33082,7 +33082,7 @@
           "y": 37.0
         },
         "end": {
-          "x": 52.25,
+          "x": 52.27,
           "y": 37.0
         },
         "width": 0.2,
@@ -33138,7 +33138,7 @@
           "y": 20.4
         },
         "end": {
-          "x": 64.65,
+          "x": 64.67,
           "y": 20.4
         },
         "width": 0.2,
@@ -33153,7 +33153,7 @@
         },
         "end": {
           "x": 70.0,
-          "y": 14.55
+          "y": 14.53
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33180,7 +33180,7 @@
           "y": 34.8
         },
         "end": {
-          "x": 64.65,
+          "x": 64.67,
           "y": 34.8
         },
         "width": 0.2,
@@ -33194,7 +33194,7 @@
           "y": 6.0
         },
         "end": {
-          "x": 62.85,
+          "x": 62.83,
           "y": 6.0
         },
         "width": 0.2,
@@ -33208,7 +33208,7 @@
           "y": 6.0
         },
         "end": {
-          "x": 65.65,
+          "x": 65.63,
           "y": 6.0
         },
         "width": 0.2,
@@ -33223,7 +33223,7 @@
         },
         "end": {
           "x": 67.85,
-          "y": 40.45
+          "y": 40.449999999999996
         },
         "width": 0.2,
         "layer": "F.Cu"
@@ -33679,7 +33679,7 @@
         "net": 58,
         "position": {
           "x": 18.85,
-          "y": 48.45
+          "y": 48.449999999999996
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33708,7 +33708,7 @@
         "id": 776,
         "net": 58,
         "position": {
-          "x": 36.95,
+          "x": 36.949999999999996,
           "y": 25.65
         },
         "diameter": 0.45,
@@ -33718,7 +33718,7 @@
         "id": 778,
         "net": 58,
         "position": {
-          "x": 36.95,
+          "x": 36.949999999999996,
           "y": 30.35
         },
         "diameter": 0.45,
@@ -33759,7 +33759,7 @@
         "net": 58,
         "position": {
           "x": 35.0,
-          "y": 33.35
+          "y": 33.33
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33769,7 +33769,7 @@
         "net": 58,
         "position": {
           "x": 45.85,
-          "y": 33.0
+          "y": 32.98
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33779,7 +33779,7 @@
         "net": 58,
         "position": {
           "x": 37.0,
-          "y": 22.35
+          "y": 22.330000000000002
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33789,7 +33789,7 @@
         "net": 58,
         "position": {
           "x": 44.0,
-          "y": 22.35
+          "y": 22.330000000000002
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33799,7 +33799,7 @@
         "net": 58,
         "position": {
           "x": 47.0,
-          "y": 22.65
+          "y": 22.650000000000002
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33809,7 +33809,7 @@
         "net": 58,
         "position": {
           "x": 41.0,
-          "y": 15.35
+          "y": 15.33
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33819,7 +33819,7 @@
         "net": 58,
         "position": {
           "x": 49.9,
-          "y": 13.65
+          "y": 13.63
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33838,8 +33838,8 @@
         "id": 802,
         "net": 58,
         "position": {
-          "x": 56.9,
-          "y": 27.45
+          "x": 56.900000000000006,
+          "y": 27.435000000000002
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33849,7 +33849,7 @@
         "net": 58,
         "position": {
           "x": 54.85,
-          "y": 27.35
+          "y": 27.365
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33858,8 +33858,8 @@
         "id": 806,
         "net": 58,
         "position": {
-          "x": 56.3,
-          "y": 25.5
+          "x": 56.300000000000004,
+          "y": 25.494999999999997
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33868,7 +33868,7 @@
         "id": 808,
         "net": 58,
         "position": {
-          "x": 52.25,
+          "x": 52.27,
           "y": 37.0
         },
         "diameter": 0.45,
@@ -33908,7 +33908,7 @@
         "id": 816,
         "net": 59,
         "position": {
-          "x": 64.65,
+          "x": 64.67,
           "y": 20.4
         },
         "diameter": 0.45,
@@ -33919,7 +33919,7 @@
         "net": 59,
         "position": {
           "x": 70.0,
-          "y": 14.55
+          "y": 14.53
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -33938,7 +33938,7 @@
         "id": 822,
         "net": 59,
         "position": {
-          "x": 64.65,
+          "x": 64.67,
           "y": 34.8
         },
         "diameter": 0.45,
@@ -33948,7 +33948,7 @@
         "id": 824,
         "net": 59,
         "position": {
-          "x": 62.85,
+          "x": 62.83,
           "y": 6.0
         },
         "diameter": 0.45,
@@ -33958,7 +33958,7 @@
         "id": 826,
         "net": 59,
         "position": {
-          "x": 65.65,
+          "x": 65.63,
           "y": 6.0
         },
         "diameter": 0.45,
@@ -33969,7 +33969,7 @@
         "net": 59,
         "position": {
           "x": 67.85,
-          "y": 40.45
+          "y": 40.449999999999996
         },
         "diameter": 0.45,
         "drill": 0.2
@@ -36238,7 +36238,7 @@
             },
             "angle": 180.0,
             "length": 2.54,
-            "electrical_type": "power_out",
+            "electrical_type": "passive",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",
@@ -36642,14 +36642,14 @@
         "pins": [
           {
             "number": "2",
-            "name": "SCK",
+            "name": "SCL",
             "position": {
               "x": -10.16,
               "y": -5.08
             },
             "angle": 0.0,
             "length": 2.54,
-            "electrical_type": "input",
+            "electrical_type": "bidirectional",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",
@@ -36694,7 +36694,7 @@
             },
             "angle": 0.0,
             "length": 2.54,
-            "electrical_type": "input",
+            "electrical_type": "passive",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",
@@ -37042,7 +37042,7 @@
             },
             "angle": 180.0,
             "length": 2.54,
-            "electrical_type": "power_out",
+            "electrical_type": "power_in",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",
@@ -37087,21 +37087,6 @@
             },
             "angle": 180.0,
             "length": 2.54,
-            "electrical_type": "input",
-            "unit": 1,
-            "body_style": 1,
-            "graphical_style": "line",
-            "visible": true
-          },
-          {
-            "number": "5",
-            "name": "TX",
-            "position": {
-              "x": 8.89,
-              "y": 2.54
-            },
-            "angle": 180.0,
-            "length": 2.54,
             "electrical_type": "output",
             "unit": 1,
             "body_style": 1,
@@ -37109,15 +37094,30 @@
             "visible": true
           },
           {
-            "number": "6",
+            "number": "5",
             "name": "RX",
+            "position": {
+              "x": 8.89,
+              "y": 2.54
+            },
+            "angle": 180.0,
+            "length": 2.54,
+            "electrical_type": "input",
+            "unit": 1,
+            "body_style": 1,
+            "graphical_style": "line",
+            "visible": true
+          },
+          {
+            "number": "6",
+            "name": "TX",
             "position": {
               "x": 8.89,
               "y": 5.079999999999999
             },
             "angle": 180.0,
             "length": 2.54,
-            "electrical_type": "input",
+            "electrical_type": "output",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",
@@ -37471,7 +37471,7 @@
             },
             "angle": 0.0,
             "length": 2.54,
-            "electrical_type": "input",
+            "electrical_type": "bidirectional",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",
@@ -37501,7 +37501,7 @@
             },
             "angle": 0.0,
             "length": 2.54,
-            "electrical_type": "input",
+            "electrical_type": "passive",
             "unit": 1,
             "body_style": 1,
             "graphical_style": "line",

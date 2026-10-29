@@ -72,9 +72,15 @@ pub fn check_stats() -> (usize, usize) {
 /// Count of design-rule findings that are not plain missing connections.
 pub fn bad_count(g: &Gen) -> usize {
     let started = std::time::Instant::now();
-    let n = pcbcraft_rules::drc(&g.s.project).iter().filter(|f| f.code != "unrouted").count();
+    let n = pcbcraft_rules::drc(&g.s.project)
+        .iter()
+        .filter(|f| f.code != "unrouted")
+        .count();
     CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    CHECK_MICROS.fetch_add(started.elapsed().as_micros() as usize, std::sync::atomic::Ordering::Relaxed);
+    CHECK_MICROS.fetch_add(
+        started.elapsed().as_micros() as usize,
+        std::sync::atomic::Ordering::Relaxed,
+    );
     n
 }
 
@@ -87,13 +93,25 @@ pub fn open_count(g: &Gen) -> usize {
 fn describe(g: &Gen, id: u64) -> String {
     let p = &g.s.project;
     if let Some(f) = p.board.footprints.iter().find(|f| f.id == id) {
-        return p.component(f.component).map_or(format!("#{id}"), |c| c.reference.clone());
+        return p
+            .component(f.component)
+            .map_or(format!("#{id}"), |c| c.reference.clone());
     }
     if let Some(t) = p.board.tracks.iter().find(|t| t.id == id) {
-        return format!("track {} ({:.1},{:.1})", p.net_name(t.net), t.start.x, t.start.y);
+        return format!(
+            "track {} ({:.1},{:.1})",
+            p.net_name(t.net),
+            t.start.x,
+            t.start.y
+        );
     }
     if let Some(v) = p.board.vias.iter().find(|v| v.id == id) {
-        return format!("via {} ({:.1},{:.1})", p.net_name(v.net), v.position.x, v.position.y);
+        return format!(
+            "via {} ({:.1},{:.1})",
+            p.net_name(v.net),
+            v.position.x,
+            v.position.y
+        );
     }
     format!("#{id}")
 }
@@ -102,7 +120,18 @@ fn messages(g: &Gen) -> Vec<String> {
     pcbcraft_rules::drc(&g.s.project)
         .iter()
         .filter(|f| f.code != "unrouted")
-        .map(|f| format!("{}: {} [{}]", f.code, f.message, f.objects.iter().map(|o| describe(g, *o)).collect::<Vec<_>>().join(", ")))
+        .map(|f| {
+            format!(
+                "{}: {} [{}]",
+                f.code,
+                f.message,
+                f.objects
+                    .iter()
+                    .map(|o| describe(g, *o))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
         .collect()
 }
 
@@ -110,7 +139,13 @@ fn messages(g: &Gen) -> Vec<String> {
 /// finding; otherwise the session is left exactly as it was.
 pub fn attempt(g: &mut Gen, steps: Vec<(&str, Value)>) -> bool {
     let before = bad_count(g);
-    let cmds: Vec<Command> = steps.into_iter().map(|(c, p)| Command { command: c.into(), params: p }).collect();
+    let cmds: Vec<Command> = steps
+        .into_iter()
+        .map(|(c, p)| Command {
+            command: c.into(),
+            params: p,
+        })
+        .collect();
     if g.s.batch(&cmds, None).is_err() {
         return false;
     }
@@ -124,14 +159,24 @@ pub fn attempt(g: &mut Gen, steps: Vec<(&str, Value)>) -> bool {
 /// Like `attempt`, but prints the first new finding when a batch is refused.
 pub fn attempt_verbose(g: &mut Gen, steps: Vec<(&str, Value)>, label: &str) -> bool {
     let before = messages(g);
-    let cmds: Vec<Command> = steps.into_iter().map(|(c, p)| Command { command: c.into(), params: p }).collect();
+    let cmds: Vec<Command> = steps
+        .into_iter()
+        .map(|(c, p)| Command {
+            command: c.into(),
+            params: p,
+        })
+        .collect();
     if let Err(e) = g.s.batch(&cmds, None) {
         println!("refused {label}: {e}");
         return false;
     }
     let after = messages(g);
     if after.len() > before.len() {
-        let new: Vec<&String> = after.iter().filter(|m| !before.contains(m)).take(2).collect();
+        let new: Vec<&String> = after
+            .iter()
+            .filter(|m| !before.contains(m))
+            .take(2)
+            .collect();
         println!("refused {label}: {new:?}");
         let _ = g.s.undo();
         return false;
@@ -140,18 +185,24 @@ pub fn attempt_verbose(g: &mut Gen, steps: Vec<(&str, Value)>, label: &str) -> b
 }
 
 pub const SIGNAL: f64 = 0.2;
-pub const POWER: f64 = 0.4;
 pub const VIA: f64 = 0.45;
 pub const DRILL: f64 = 0.2;
 
 fn net_id(g: &Gen, name: &str) -> Res<u64> {
-    g.nets.get(name).copied().ok_or_else(|| format!("unknown net {name}"))
+    g.nets
+        .get(name)
+        .copied()
+        .ok_or_else(|| format!("unknown net {name}"))
 }
 
 fn seg_dist(p: Point, a: Point, b: Point) -> f64 {
     let (dx, dy) = (b.x - a.x, b.y - a.y);
     let len2 = dx * dx + dy * dy;
-    let t = if len2 < 1e-12 { 0.0 } else { (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0) };
+    let t = if len2 < 1e-12 {
+        0.0
+    } else {
+        (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0)
+    };
     p.distance(Point::new(a.x + t * dx, a.y + t * dy))
 }
 
@@ -161,16 +212,28 @@ fn cross(o: Point, a: Point, b: Point) -> f64 {
 
 /// Distance between two segments, zero when they cross.
 fn seg_seg(a: Point, b: Point, c: Point, d: Point) -> f64 {
-    let (d1, d2, d3, d4) = (cross(a, b, c), cross(a, b, d), cross(c, d, a), cross(c, d, b));
+    let (d1, d2, d3, d4) = (
+        cross(a, b, c),
+        cross(a, b, d),
+        cross(c, d, a),
+        cross(c, d, b),
+    );
     if d1 * d2 < 0.0 && d3 * d4 < 0.0 {
         return 0.0;
     }
-    seg_dist(a, c, d).min(seg_dist(b, c, d)).min(seg_dist(c, a, b)).min(seg_dist(d, a, b))
+    seg_dist(a, c, d)
+        .min(seg_dist(b, c, d))
+        .min(seg_dist(c, a, b))
+        .min(seg_dist(d, a, b))
 }
 
 /// Distance from a segment to a pad outline, zero when it starts inside.
 fn seg_to_pad(from: Point, to: Point, f: &pcbcraft_doc::Footprint, pad: &pcbcraft_doc::Pad) -> f64 {
-    let ring: Vec<Point> = pad.outline_points().into_iter().map(|q| f.position.offset(q.rotate(-f.rotation))).collect();
+    let ring: Vec<Point> = pad
+        .outline_points()
+        .into_iter()
+        .map(|q| f.position.offset(q.rotate(-f.rotation)))
+        .collect();
     if ring.len() < 3 {
         return seg_dist(f.pad_world_position(pad), from, to) - pad.bounding_radius();
     }
@@ -191,7 +254,8 @@ pub fn stub_why(g: &Gen, net: u64, from: Point, via: Point) -> Option<String> {
 /// Same check with a chosen clearance margin in millimetres.
 pub fn stub_why_margin(g: &Gen, net: u64, from: Point, via: Point, margin: f64) -> Option<String> {
     let p = &g.s.project;
-    if net == g.nets.get("3V3").copied().unwrap_or(0) && via.x > 61.6 && via.y > 3.0 && via.y < 49.0 {
+    if net == g.nets.get("3V3").copied().unwrap_or(0) && via.x > 61.6 && via.y > 3.0 && via.y < 49.0
+    {
         return Some("inside the sensor rail".to_string());
     }
     if via.x < 0.9 || via.y < 0.9 || via.x > WIDTH - 0.9 || via.y > HEIGHT - 0.9 {
@@ -210,7 +274,9 @@ pub fn stub_why_margin(g: &Gen, net: u64, from: Point, via: Point, margin: f64) 
             if c.distance(from) - r - SIGNAL / 2.0 > 2.5 && c.distance(via) - r - VIA / 2.0 > 2.5 {
                 continue;
             }
-            if seg_to_pad(from, via, f, pad) - SIGNAL / 2.0 < margin || seg_to_pad(via, via, f, pad) - VIA / 2.0 < margin {
+            if seg_to_pad(from, via, f, pad) - SIGNAL / 2.0 < margin
+                || seg_to_pad(via, via, f, pad) - VIA / 2.0 < margin
+            {
                 return Some(format!("line {}", line!()));
             }
         }
@@ -233,15 +299,18 @@ pub fn stub_why_margin(g: &Gen, net: u64, from: Point, via: Point, margin: f64) 
     None
 }
 
-pub fn stub_fits(g: &Gen, net: u64, from: Point, via: Point) -> bool {
-    stub_why(g, net, from, via).is_none()
-}
-
 /// Eight compass directions, nearest to `prefer` first.
 fn directions(prefer: Point) -> Vec<(f64, f64)> {
     let diag = std::f64::consts::FRAC_1_SQRT_2;
     let mut d: Vec<(f64, f64)> = vec![
-        (1.0, 0.0), (diag, diag), (0.0, 1.0), (-diag, diag), (-1.0, 0.0), (-diag, -diag), (0.0, -1.0), (diag, -diag),
+        (1.0, 0.0),
+        (diag, diag),
+        (0.0, 1.0),
+        (-diag, diag),
+        (-1.0, 0.0),
+        (-diag, -diag),
+        (0.0, -1.0),
+        (diag, -diag),
     ];
     d.sort_by(|a, b| {
         let da = a.0 * prefer.x + a.1 * prefer.y;
@@ -257,18 +326,29 @@ fn snap(v: f64) -> f64 {
 
 /// Drop a via next to a pad, joined to it by a short top-layer stub.
 /// Returns the via centre when one fits.
-pub fn fanout(g: &mut Gen, net: &str, reference: &str, pad: &str, prefer: Point) -> Res<Option<Point>> {
-    fanout_with(g, net, reference, pad, prefer, true)
-}
-
 /// `fanout`, optionally without the full check per candidate (the
 /// geometric pre-check still applies; the caller checks the whole board).
-pub fn fanout_with(g: &mut Gen, net: &str, reference: &str, pad: &str, prefer: Point, verify: bool) -> Res<Option<Point>> {
+pub fn fanout_with(
+    g: &mut Gen,
+    net: &str,
+    reference: &str,
+    pad: &str,
+    prefer: Point,
+    verify: bool,
+) -> Res<Option<Point>> {
     let at = pad_at(g, reference, pad)?;
     let n = net_id(g, net)?;
     for dist in [0.85, 1.05, 1.3, 1.7, 2.2] {
         for (dx, dy) in directions(prefer) {
-            let v = Point::new(snap(at.x + dx * dist), snap(at.y + dy * dist));
+            // Axis stubs keep their length; diagonal stubs move the same
+            // distance along both axes so the stub stays at 45 degrees.
+            let (ox, oy) = if dx != 0.0 && dy != 0.0 {
+                let step = snap(dist * std::f64::consts::FRAC_1_SQRT_2);
+                (dx.signum() * step, dy.signum() * step)
+            } else {
+                (snap(dx * dist), snap(dy * dist))
+            };
+            let v = Point::new(at.x + ox, at.y + oy);
             if let Some(why) = stub_why(g, n, at, v) {
                 if std::env::var_os("SHOWCASE_DEBUG_STUB").is_some() {
                     println!("stub {reference}.{pad} {v:?}: {why}");
@@ -276,15 +356,27 @@ pub fn fanout_with(g: &mut Gen, net: &str, reference: &str, pad: &str, prefer: P
                 continue;
             }
             let steps = vec![
-                ("track.add", json!({"net": n, "start": pt(at.x, at.y), "end": pt(v.x, v.y), "width": SIGNAL, "layer": "F.Cu"})),
-                ("via.place", json!({"net": n, "position": pt(v.x, v.y), "diameter": VIA, "drill": DRILL})),
+                (
+                    "track.add",
+                    json!({"net": n, "start": pt(at.x, at.y), "end": pt(v.x, v.y), "width": SIGNAL, "layer": "F.Cu"}),
+                ),
+                (
+                    "via.place",
+                    json!({"net": n, "position": pt(v.x, v.y), "diameter": VIA, "drill": DRILL}),
+                ),
             ];
             if verify {
                 if attempt(g, steps) {
                     return Ok(Some(v));
                 }
             } else {
-                let cmds: Vec<Command> = steps.into_iter().map(|(c, p)| Command { command: c.into(), params: p }).collect();
+                let cmds: Vec<Command> = steps
+                    .into_iter()
+                    .map(|(c, p)| Command {
+                        command: c.into(),
+                        params: p,
+                    })
+                    .collect();
                 if g.s.batch(&cmds, None).is_ok() {
                     return Ok(Some(v));
                 }
@@ -297,68 +389,12 @@ pub fn fanout_with(g: &mut Gen, net: &str, reference: &str, pad: &str, prefer: P
 /// Pads of one net, from the design data.
 pub fn net_pads(net: &str) -> Vec<(&'static str, &'static str)> {
     PINS.iter()
-        .flat_map(|(r, pins)| pins.iter().filter(move |(_, n)| *n == net).map(move |(p, _)| (*r, *p)))
+        .flat_map(|(r, pins)| {
+            pins.iter()
+                .filter(move |(_, n)| *n == net)
+                .map(move |(p, _)| (*r, *p))
+        })
         .collect()
-}
-
-/// Edges of a minimum spanning tree over the pads, shortest edge first.
-fn spanning(g: &Gen, pads: &[(&'static str, &'static str)]) -> Res<Vec<(usize, usize)>> {
-    let pos: Vec<Point> = pads.iter().map(|(r, p)| pad_at(g, r, p)).collect::<Res<_>>()?;
-    let mut inside = vec![false; pads.len()];
-    if inside.is_empty() {
-        return Ok(vec![]);
-    }
-    inside[0] = true;
-    let mut edges = Vec::new();
-    for _ in 1..pads.len() {
-        let mut best: Option<(f64, usize, usize)> = None;
-        for i in (0..pads.len()).filter(|i| inside[*i]) {
-            for j in (0..pads.len()).filter(|j| !inside[*j]) {
-                let d = pos[i].distance(pos[j]);
-                if best.is_none_or(|b| d < b.0) {
-                    best = Some((d, i, j));
-                }
-            }
-        }
-        let Some((_, i, j)) = best else { break };
-        inside[j] = true;
-        edges.push((i, j));
-    }
-    Ok(edges)
-}
-
-/// Join two pads through a short stub and a via at each end and a
-/// bottom-layer run between them. Leaves the session untouched on failure.
-pub fn connect_bottom(g: &mut Gen, net: &str, a: (&str, &str), b: (&str, &str), width: f64) -> Res<bool> {
-    let n = net_id(g, net)?;
-    let (pa, pb) = (pad_at(g, a.0, a.1)?, pad_at(g, b.0, b.1)?);
-    let start = g.s.project.clone();
-    let Some(va) = fanout(g, net, a.0, a.1, Point::new(pb.x - pa.x, pb.y - pa.y))? else {
-        return Ok(false);
-    };
-    let Some(vb) = fanout(g, net, b.0, b.1, Point::new(pa.x - pb.x, pa.y - pb.y))? else {
-        let _ = g.s.replace(start);
-        return Ok(false);
-    };
-    if attempt(
-        g,
-        vec![("track.route", json!({"from": pt(va.x, va.y), "to": pt(vb.x, vb.y), "layer": "B.Cu", "width": width, "mode": "octilinear", "net": n}))],
-    ) {
-        return Ok(true);
-    }
-    let _ = g.s.replace(start);
-    Ok(false)
-}
-
-/// Connect all pads of a net, restricted to the ones listed, on the bottom layer.
-pub fn route_bottom(g: &mut Gen, net: &str, only: &[(&'static str, &'static str)], width: f64) -> Res<Vec<String>> {
-    let mut failed = Vec::new();
-    for (i, j) in spanning(g, only)? {
-        if !connect_bottom(g, net, only[i], only[j], width)? {
-            failed.push(format!("{net}: {}.{} to {}.{}", only[i].0, only[i].1, only[j].0, only[j].1));
-        }
-    }
-    Ok(failed)
 }
 
 /// Print findings by code, for the generator log.
@@ -371,22 +407,26 @@ pub fn report(g: &Gen) {
 }
 
 /// Give every pad of a plane net a short stub and a via, pointing away from its part.
-pub fn plane_vias(g: &mut Gen, net: &str, only: Option<&[(&str, &str)]>, verify: bool) -> Res<Vec<String>> {
+pub fn plane_vias(
+    g: &mut Gen,
+    net: &str,
+    only: Option<&[(&str, &str)]>,
+    verify: bool,
+) -> Res<Vec<String>> {
     let mut failed = Vec::new();
     for (r, p) in net_pads(net) {
         if only.is_some_and(|o| !o.contains(&(r, p))) {
             continue;
         }
         let at = pad_at(g, r, p)?;
-        let centre = g
-            .s
-            .project
-            .board
-            .footprints
-            .iter()
-            .find(|f| Some(f.component) == g.comp.get(r).copied())
-            .map(|f| f.position)
-            .unwrap_or(at);
+        let centre =
+            g.s.project
+                .board
+                .footprints
+                .iter()
+                .find(|f| Some(f.component) == g.comp.get(r).copied())
+                .map(|f| f.position)
+                .unwrap_or(at);
         let prefer = Point::new(at.x - centre.x, at.y - centre.y);
         if fanout_with(g, net, r, p, prefer, verify)?.is_none() {
             failed.push(format!("{net}: {r}.{p}"));
@@ -408,7 +448,10 @@ pub fn build(g: &mut Gen) -> Res<()> {
         ("Prepreg 2", "prepreg", 0.2104),
         ("B.Cu", "copper", 0.035),
     ] {
-        g.cmd("board.set_layer_record", json!({"name": name, "kind": kind, "thickness": t}))?;
+        g.cmd(
+            "board.set_layer_record",
+            json!({"name": name, "kind": kind, "thickness": t}),
+        )?;
     }
     g.cmd("board.set_finish", json!({"finish": "ENIG"}))?;
     g.cmd("board.rules.set", json!({"clearance": 0.15}))?;
@@ -426,7 +469,11 @@ pub fn build(g: &mut Gen) -> Res<()> {
             let line: Vec<String> = pins
                 .iter()
                 .filter(|(_, n)| !["GND", "3V3"].contains(n))
-                .filter_map(|(p, n)| pad_at(g, reference, p).ok().map(|a| format!("{p}:{n}({:.2},{:.2})", a.x, a.y)))
+                .filter_map(|(p, n)| {
+                    pad_at(g, reference, p)
+                        .ok()
+                        .map(|a| format!("{p}:{n}({:.2},{:.2})", a.x, a.y))
+                })
                 .collect();
             println!("pads {reference}: {}", line.join(" "));
         }
@@ -438,7 +485,11 @@ pub fn build(g: &mut Gen) -> Res<()> {
     super::finish::fittings(g)?;
     let started = std::time::Instant::now();
     let refused = super::routes::all(g)?;
-    println!("planned routes done {:?} refused {refused} checks {:?}", started.elapsed(), check_stats());
+    println!(
+        "planned routes done {:?} refused {refused} checks {:?}",
+        started.elapsed(),
+        check_stats()
+    );
     report(g);
     println!("open connections {}", open_count(g));
     if stage == "routes" {
@@ -450,11 +501,33 @@ pub fn build(g: &mut Gen) -> Res<()> {
     super::finish::artwork(g)?;
     super::finish::builds(g)?;
     report(g);
-    for f in pcbcraft_rules::drc(&g.s.project).iter().filter(|f| f.code != "unrouted") {
-        println!("finding {}: {} [{}]", f.code, f.message, f.objects.iter().map(|o| describe(g, *o)).collect::<Vec<_>>().join(", "));
+    for f in pcbcraft_rules::drc(&g.s.project)
+        .iter()
+        .filter(|f| f.code != "unrouted")
+    {
+        println!(
+            "finding {}: {} [{}]",
+            f.code,
+            f.message,
+            f.objects
+                .iter()
+                .map(|o| describe(g, *o))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    for f in pcbcraft_rules::erc(&g.s.project) {
+        println!("erc {}: {} {:?}", f.code, f.message, f.objects);
     }
     for w in pcbcraft_rules::airwires(&g.s.project) {
-        println!("open {} ({:.2},{:.2}) to ({:.2},{:.2})", g.s.project.net_name(w.net), w.from.x, w.from.y, w.to.x, w.to.y);
+        println!(
+            "open {} ({:.2},{:.2}) to ({:.2},{:.2})",
+            g.s.project.net_name(w.net),
+            w.from.x,
+            w.from.y,
+            w.to.x,
+            w.to.y
+        );
     }
     println!("open connections {}", open_count(g));
     Ok(())

@@ -31,11 +31,20 @@ fn closed_rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Value> {
 /// Mounting holes, a lanyard cutout and assembly marks.
 pub fn fittings(g: &mut Gen) -> Res<()> {
     for (x, y) in [(2.8, 2.8), (69.2, 2.8), (2.8, 57.2), (69.2, 57.2)] {
-        g.cmd("board.hole_place", json!({"position": pt(x, y), "diameter": 2.2}))?;
+        g.cmd(
+            "board.hole_place",
+            json!({"position": pt(x, y), "diameter": 2.2}),
+        )?;
     }
-    g.cmd("board.cutout.add", json!({"center": pt(42.0, 57.3), "radius": 1.5}))?;
+    g.cmd(
+        "board.cutout.add",
+        json!({"center": pt(42.0, 57.3), "radius": 1.5}),
+    )?;
     for (x, y) in [(14.0, 57.0), (57.0, 57.2), (69.4, 22.0)] {
-        g.cmd("board.fiducial_place", json!({"position": pt(x, y), "diameter": 1.0}))?;
+        g.cmd(
+            "board.fiducial_place",
+            json!({"position": pt(x, y), "diameter": 1.0}),
+        )?;
     }
     Ok(())
 }
@@ -43,28 +52,58 @@ pub fn fittings(g: &mut Gen) -> Res<()> {
 /// Net classes, the USB pair and the rule area.
 pub fn rules(g: &mut Gen) -> Res<()> {
     let id = |g: &Gen, n: &str| g.nets[n];
-    let power: Vec<u64> = ["VBUS_RAW", "VBUS", "VBAT"].iter().map(|n| id(g, n)).collect();
-    let r = g.cmd("netclass.add", json!({"name": "Power", "clearance": 0.15, "width": 0.4, "nets": power}))?;
+    let power: Vec<u64> = ["VBUS_RAW", "VBUS", "VBAT"]
+        .iter()
+        .map(|n| id(g, n))
+        .collect();
+    let r = g.cmd(
+        "netclass.add",
+        json!({"name": "Power", "clearance": 0.15, "width": 0.4, "nets": power}),
+    )?;
     let power_class = r["id"].as_u64().ok_or("class id")?;
-    g.cmd("netclass.width_rules", json!({"class": power_class, "min_width": 0.3}))?;
-    g.cmd("netclass.set", json!({"class": power_class, "via_diameter": 0.6, "via_drill": 0.3}))?;
+    g.cmd(
+        "netclass.width_rules",
+        json!({"class": power_class, "min_width": 0.3}),
+    )?;
+    g.cmd(
+        "netclass.set",
+        json!({"class": power_class, "via_diameter": 0.6, "via_drill": 0.3}),
+    )?;
     let usb = [id(g, "USB_DP"), id(g, "USB_DN")];
-    let r = g.cmd("netclass.add", json!({"name": "USB", "clearance": 0.15, "width": 0.2, "nets": usb}))?;
+    let r = g.cmd(
+        "netclass.add",
+        json!({"name": "USB", "clearance": 0.15, "width": 0.2, "nets": usb}),
+    )?;
     let usb_class = r["id"].as_u64().ok_or("class id")?;
-    g.cmd("netclass.set", json!({"class": usb_class, "pair_width": 0.2, "pair_gap": 0.3}))?;
+    g.cmd(
+        "netclass.set",
+        json!({"class": usb_class, "pair_width": 0.2, "pair_gap": 0.3}),
+    )?;
     g.cmd("board.set_diffpair", json!({"name": "USB", "net_p": usb[0], "net_n": usb[1], "gap": 0.3, "length_tolerance": 3.0}))?;
     let length = |g: &Gen, net: u64| -> f64 {
-        g.s.project.board.tracks.iter().filter(|t| t.net == net).map(|t| t.start.distance(t.end)).sum()
+        g.s.project
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.net == net)
+            .map(|t| t.start.distance(t.end))
+            .sum()
     };
     let target = length(g, usb[0]).max(length(g, usb[1])).ceil();
-    g.cmd("netclass.length_rules", json!({"class": usb_class, "target_length": target, "length_tolerance": 3.0}))?;
+    g.cmd(
+        "netclass.length_rules",
+        json!({"class": usb_class, "target_length": target, "length_tolerance": 3.0}),
+    )?;
     g.cmd("rules.area_add", json!({"name": "Under the cover", "clearance": 0.15, "x": 61.9, "y": 3.4, "width": 8.7, "height": 45.2, "max_height": 3.5}))?;
     Ok(())
 }
 
 fn zone(g: &mut Gen, layer: &str, net: &str, outline: Vec<Value>) -> Res<u64> {
     let n = g.nets[net];
-    let r = g.cmd("zone.place", json!({"net": n, "layer": layer, "outline": outline}))?;
+    let r = g.cmd(
+        "zone.place",
+        json!({"net": n, "layer": layer, "outline": outline}),
+    )?;
     let id = r["id"].as_u64().ok_or("zone id")?;
     g.cmd("zone.pour", json!({"id": id, "pad_connect": "solid", "via_connect": "solid", "min_width": 0.2, "islands": "keep"}))?;
     Ok(id)
@@ -78,7 +117,9 @@ fn stranded(g: &Gen, net: &str) -> Vec<(&'static str, &'static str)> {
         .into_iter()
         .filter(|(r, p)| {
             pad_at(g, r, p).is_ok_and(|at| {
-                wires.iter().any(|w| w.net == id && (w.from.distance(at) < 1e-3 || w.to.distance(at) < 1e-3))
+                wires.iter().any(|w| {
+                    w.net == id && (w.from.distance(at) < 1e-3 || w.to.distance(at) < 1e-3)
+                })
             })
         })
         .collect()
@@ -86,7 +127,10 @@ fn stranded(g: &Gen, net: &str) -> Vec<(&'static str, &'static str)> {
 
 /// Plane vias, the four pours, the pads the pours miss and the stitching.
 pub fn planes(g: &mut Gen) -> Res<()> {
-    let rest: Vec<(&str, &str)> = board::net_pads("3V3").into_iter().filter(|p| *p != ("U7", "1")).collect();
+    let rest: Vec<(&str, &str)> = board::net_pads("3V3")
+        .into_iter()
+        .filter(|p| *p != ("U7", "1"))
+        .collect();
     let mut failed = board::plane_vias(g, "3V3", Some(&rest), true)?;
     failed.extend(board::plane_vias(g, "3V3S", None, true)?);
     for f in &failed {
@@ -94,16 +138,23 @@ pub fn planes(g: &mut Gen) -> Res<()> {
     }
     let outline = board::closed_ring(0.5);
     let hole = |r: f64| -> Vec<Value> {
-        (0..=16).map(|i| {
-            let a = f64::from(i % 16) * std::f64::consts::TAU / 16.0;
-            pt(((42.0 + r * a.cos()) * 1000.0).round() / 1000.0, ((57.3 + r * a.sin()) * 1000.0).round() / 1000.0)
-        }).collect()
+        (0..=16)
+            .map(|i| {
+                let a = f64::from(i % 16) * std::f64::consts::TAU / 16.0;
+                pt(
+                    ((42.0 + r * a.cos()) * 1000.0).round() / 1000.0,
+                    ((57.3 + r * a.sin()) * 1000.0).round() / 1000.0,
+                )
+            })
+            .collect()
     };
     let z = zone(g, "In1.Cu", "GND", outline.clone())?;
     g.cmd("zone.cutout", json!({"zone": z, "outline": hole(2.2)}))?;
     // The sensor rail is an island of the inner power layer; the main 3V3 pour
     // leaves a gap round it.
-    let rail = |grow: f64| -> Vec<Value> { closed_rect(61.9 - grow, 3.4 - grow, 70.6 + grow, 48.6 + grow) };
+    let rail = |grow: f64| -> Vec<Value> {
+        closed_rect(61.9 - grow, 3.4 - grow, 70.6 + grow, 48.6 + grow)
+    };
     let z = zone(g, "In2.Cu", "3V3", outline.clone())?;
     g.cmd("zone.cutout", json!({"zone": z, "outline": hole(2.2)}))?;
     g.cmd("zone.cutout", json!({"zone": z, "outline": rail(0.5)}))?;
@@ -157,7 +208,11 @@ fn ring_edge_distance(ring: &[Point], p: Point) -> f64 {
         let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
         let (dx, dy) = (b.x - a.x, b.y - a.y);
         let len2 = dx * dx + dy * dy;
-        let t = if len2 < 1e-12 { 0.0 } else { (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0) };
+        let t = if len2 < 1e-12 {
+            0.0
+        } else {
+            (((p.x - a.x) * dx + (p.y - a.y) * dy) / len2).clamp(0.0, 1.0)
+        };
         best = best.min(p.distance(Point::new(a.x + t * dx, a.y + t * dy)));
     }
     best
@@ -173,8 +228,16 @@ fn join_islands(g: &mut Gen) -> Res<usize> {
         let fill = pcbcraft_doc::zone_fill(&project, zone).map_err(|e| e.to_string())?;
         for piece in &fill.pieces {
             let Some(outer) = piece.first() else { continue };
-            let touched = project.board.vias.iter().any(|v| v.net == zone.net && ring_has(outer, v.position))
-                || project.board.footprints.iter().any(|f| f.pads.iter().any(|p| p.net == Some(zone.net) && ring_has(outer, f.pad_world_position(p))));
+            let touched = project
+                .board
+                .vias
+                .iter()
+                .any(|v| v.net == zone.net && ring_has(outer, v.position))
+                || project.board.footprints.iter().any(|f| {
+                    f.pads.iter().any(|p| {
+                        p.net == Some(zone.net) && ring_has(outer, f.pad_world_position(p))
+                    })
+                });
             if touched {
                 continue;
             }
@@ -192,7 +255,11 @@ fn join_islands(g: &mut Gen) -> Res<usize> {
                 while x <= x1 {
                     let p = Point::new(x, y);
                     let in_hole = piece.iter().skip(1).any(|h| ring_has(h, p));
-                    if ring_has(outer, p) && !in_hole && ring_edge_distance(outer, p) > 0.5 && piece.iter().skip(1).all(|h| ring_edge_distance(h, p) > 0.5) {
+                    if ring_has(outer, p)
+                        && !in_hole
+                        && ring_edge_distance(outer, p) > 0.5
+                        && piece.iter().skip(1).all(|h| ring_edge_distance(h, p) > 0.5)
+                    {
                         found = Some(p);
                         break 'scan;
                     }
@@ -206,7 +273,10 @@ fn join_islands(g: &mut Gen) -> Res<usize> {
                 // Too thin for a via: take the sliver out of the pour instead.
                 cut.push((zone.id, closed_rect(x0 - 0.1, y0 - 0.1, x1 + 0.1, y1 + 0.1)));
             } else {
-                println!("no room for a via in a detached piece of zone {} ({x0:.1},{y0:.1})-({x1:.1},{y1:.1})", zone.id);
+                println!(
+                    "no room for a via in a detached piece of zone {} ({x0:.1},{y0:.1})-({x1:.1},{y1:.1})",
+                    zone.id
+                );
             }
         }
     }
@@ -238,7 +308,11 @@ fn stitch(g: &mut Gen) -> Res<()> {
             let in_rail = (60.0..71.5).contains(&x) && (2.5..49.5).contains(&y);
             let in_plate = (2.0..16.5).contains(&x) && (19.5..42.5).contains(&y);
             let near = placed.iter().any(|q| q.distance(p) < 3.0);
-            if !in_rail && !in_plate && !near && board::stub_why_margin(g, gnd, p, p, 0.45).is_none() {
+            if !in_rail
+                && !in_plate
+                && !near
+                && board::stub_why_margin(g, gnd, p, p, 0.45).is_none()
+            {
                 steps.push(Command { command: "via.place".into(), params: json!({"net": gnd, "position": pt(x, y), "diameter": board::VIA, "drill": board::DRILL}) });
                 placed.push(p);
             }
@@ -260,37 +334,82 @@ pub fn artwork(g: &mut Gen) -> Res<()> {
         ("PCBCraft showcase", 2.5, 24.6, 0.8),
         ("Rev A  CC BY-SA 4.0", 2.5, 40.5, 0.7),
     ] {
-        g.cmd("text.place", json!({"text": text, "position": pt(x, y), "size": size, "layer": "F.Cu"}))?;
+        g.cmd(
+            "text.place",
+            json!({"text": text, "position": pt(x, y), "size": size, "layer": "F.Cu"}),
+        )?;
     }
-    let logo = g.cmd("board.layer_add", json!({"name": "Logo", "kind": "silk"}))?["id"].as_u64().ok_or("layer id")?;
+    let logo = g.cmd("board.layer_add", json!({"name": "Logo", "kind": "silk"}))?["id"]
+        .as_u64()
+        .ok_or("layer id")?;
     // A leaf over three signal arcs, centred on the plate.
     let (cx, cy) = (9.0, 32.0);
-    g.cmd("board.layer_circle_add", json!({"layer": logo, "x": cx, "y": cy, "radius": 1.0}))?;
+    g.cmd(
+        "board.layer_circle_add",
+        json!({"layer": logo, "x": cx, "y": cy, "radius": 1.0}),
+    )?;
     for (i, r) in [3.0, 5.0, 7.0].iter().enumerate() {
         let mut pts: Vec<Value> = Vec::new();
         for k in 0..=12 {
             let a = (-50.0 + 100.0 * f64::from(k) / 12.0_f64).to_radians();
-            pts.push(json!([((cx + r * a.cos()) * 1000.0).round() / 1000.0, ((cy - r * a.sin() * 0.0 - r * a.sin()) * 1000.0).round() / 1000.0]));
+            pts.push(json!([
+                ((cx + r * a.cos()) * 1000.0).round() / 1000.0,
+                ((cy - r * a.sin() * 0.0 - r * a.sin()) * 1000.0).round() / 1000.0
+            ]));
         }
         let _ = i;
-        g.cmd("board.layer_poly_add", json!({"layer": logo, "points": pts}))?;
+        g.cmd(
+            "board.layer_poly_add",
+            json!({"layer": logo, "points": pts}),
+        )?;
     }
-    let cut = g.cmd("board.layer_add", json!({"name": "Cut line", "kind": "cut"}))?["id"].as_u64().ok_or("layer id")?;
-    for ((x1, y1), (x2, y2)) in [((3.0, 20.5), (15.5, 20.5)), ((15.5, 20.5), (15.5, 41.5)), ((15.5, 41.5), (3.0, 41.5)), ((3.0, 41.5), (3.0, 20.5))] {
-        g.cmd("board.layer_line_add", json!({"layer": cut, "x1": x1, "y1": y1, "x2": x2, "y2": y2}))?;
+    let cut = g.cmd(
+        "board.layer_add",
+        json!({"name": "Cut line", "kind": "cut"}),
+    )?["id"]
+        .as_u64()
+        .ok_or("layer id")?;
+    for ((x1, y1), (x2, y2)) in [
+        ((3.0, 20.5), (15.5, 20.5)),
+        ((15.5, 20.5), (15.5, 41.5)),
+        ((15.5, 41.5), (3.0, 41.5)),
+        ((3.0, 41.5), (3.0, 20.5)),
+    ] {
+        g.cmd(
+            "board.layer_line_add",
+            json!({"layer": cut, "x1": x1, "y1": y1, "x2": x2, "y2": y2}),
+        )?;
     }
     Ok(())
 }
 
 /// The two builds and the fabrication recipes.
 pub fn builds(g: &mut Gen) -> Res<()> {
-    g.cmd("variant.create", json!({"name": "Full", "note": "Every part fitted, including both sensors."}))?;
-    let sensors: Vec<u64> = ["U5", "C14", "C15", "U6", "C16", "R8", "R9"].iter().map(|r| g.comp[r]).collect();
+    g.cmd(
+        "variant.create",
+        json!({"name": "Full", "note": "Every part fitted, including both sensors."}),
+    )?;
+    let sensors: Vec<u64> = ["U5", "C14", "C15", "U6", "C16", "R8", "R9"]
+        .iter()
+        .map(|r| g.comp[r])
+        .collect();
     g.cmd("variant.create", json!({"name": "Lean", "note": "No sensors fitted; the input capacitor drops to a smaller package.", "dnp": sensors}))?;
     let c1 = g.comp["C1"];
-    g.cmd("variant.set_footprint", json!({"name": "Lean", "component": c1, "footprint": "Chip_0402"}))?;
-    g.cmd("output_job.add", json!({"name": "Fabrication", "kinds": ["gerbers", "drill_chart", "stackup", "ipc356"]}))?;
-    g.cmd("output_job.add", json!({"name": "Assembly", "kinds": ["bom", "placement", "netlist"]}))?;
-    g.cmd("output_job.add", json!({"name": "Documents", "kinds": ["pdf", "svg", "stats", "report"]}))?;
+    g.cmd(
+        "variant.set_footprint",
+        json!({"name": "Lean", "component": c1, "footprint": "Chip_0402"}),
+    )?;
+    g.cmd(
+        "output_job.add",
+        json!({"name": "Fabrication", "kinds": ["gerbers", "drill_chart", "stackup", "ipc356"]}),
+    )?;
+    g.cmd(
+        "output_job.add",
+        json!({"name": "Assembly", "kinds": ["bom", "placement", "netlist"]}),
+    )?;
+    g.cmd(
+        "output_job.add",
+        json!({"name": "Documents", "kinds": ["pdf", "svg", "stats", "report"]}),
+    )?;
     Ok(())
 }

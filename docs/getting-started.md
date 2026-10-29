@@ -68,6 +68,13 @@ join logical nets.
 `examples/dual-amplifier.pcbcraft` is a larger native sample (multi-unit op-amp,
 edited DIP8, front and back copper).
 
+`examples/showcase.pcbcraft` is the finished showcase board: a battery powered
+sensor node with 55 parts on three schematic pages, a four-layer board with
+ground and power pours, stitching vias, a USB pair, two builds and no check
+findings. Open it from the Start page (**Showcase board**). Regenerate it with
+`cargo xtask showcase`; `examples/showcase-with-findings.pcbcraft` is the same
+design with one error and two warnings, for reading the Checks page.
+
 ## Libraries
 
 Open **Libraries**. Search a symbol, preview it, **Place in schematic**. Select

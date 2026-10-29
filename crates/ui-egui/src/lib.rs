@@ -16,6 +16,7 @@ mod number_entry;
 mod palette;
 mod plot_viewer;
 mod reference_panel;
+mod showcase;
 mod sources;
 #[cfg(test)]
 mod target_size;
@@ -3296,6 +3297,31 @@ impl App {
                                 .clicked()
                             {
                                 self.tool_call("sample_design", json!({}));
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 64.0],
+                                    egui::Button::new((
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.showcase_board"
+                                        ))
+                                        .size(16.0)
+                                        .strong(),
+                                        egui::RichText::new(t!(
+                                            "dialogs.start_home.a_four_layer_sensor_node_with"
+                                        ))
+                                        .small()
+                                        .color(self.muted()),
+                                    )),
+                                )
+                                .on_hover_text(t!(
+                                    "dialogs.start_home.a_four_layer_sensor_node_with.tip"
+                                ))
+                                .clicked()
+                                && self.open_showcase()
+                            {
                                 self.home_open = false;
                             }
                             ui.add_space(6.0);

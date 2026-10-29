@@ -57,7 +57,7 @@ const REQUIRED_DENY: [&str; 6] = [
 ];
 
 /// Desktop views captured for review: (file stem, extra app arguments).
-const VIEWS: [(&str, &[&str]); 8] = [
+const VIEWS: [(&str, &[&str]); 11] = [
     ("01-schematic-dark", &["--sample", "--tab", "schematic"]),
     (
         "02-schematic-light",
@@ -70,6 +70,23 @@ const VIEWS: [(&str, &[&str]); 8] = [
     (
         "07-footprint-editor",
         &["--sample", "--tab", "footprint-editor"],
+    ),
+    (
+        "09-showcase-layout",
+        &["--project", "examples/showcase.pcbcraft", "--tab", "pcb"],
+    ),
+    (
+        "10-showcase-3d",
+        &["--project", "examples/showcase.pcbcraft", "--tab", "3d"],
+    ),
+    (
+        "11-showcase-schematic",
+        &[
+            "--project",
+            "examples/showcase.pcbcraft",
+            "--tab",
+            "schematic",
+        ],
     ),
     (
         "08-dual-amplifier-pcb",

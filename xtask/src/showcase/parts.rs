@@ -237,9 +237,24 @@ pub fn capacitor(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
 }
 
 /// Diode or light-emitting diode: pin 1 is the anode, pin 2 the cathode.
-pub fn diode(name: &str, prefix: &str, value: &str, footprint: &str, light: bool) -> SymbolDefinition {
+pub fn diode(
+    name: &str,
+    prefix: &str,
+    value: &str,
+    footprint: &str,
+    light: bool,
+) -> SymbolDefinition {
     let mut g = vec![
-        poly(1, &[(-1.27, -1.524), (-1.27, 1.524), (1.27, 0.0), (-1.27, -1.524)], "none"),
+        poly(
+            1,
+            &[
+                (-1.27, -1.524),
+                (-1.27, 1.524),
+                (1.27, 0.0),
+                (-1.27, -1.524),
+            ],
+            "none",
+        ),
         line(1, (1.27, -1.524), (1.27, 1.524)),
     ];
     if light {
@@ -407,12 +422,27 @@ fn grect(layer: &str, a: (f64, f64), b: (f64, f64), width: f64) -> Graphic {
 /// Courtyard and fabrication outline shared by every package.
 fn outline(body: (f64, f64), court: (f64, f64)) -> Vec<Graphic> {
     vec![
-        grect("F.CrtYd", (-court.0 / 2.0, -court.1 / 2.0), (court.0 / 2.0, court.1 / 2.0), 0.05),
-        grect("F.Fab", (-body.0 / 2.0, -body.1 / 2.0), (body.0 / 2.0, body.1 / 2.0), 0.1),
+        grect(
+            "F.CrtYd",
+            (-court.0 / 2.0, -court.1 / 2.0),
+            (court.0 / 2.0, court.1 / 2.0),
+            0.05,
+        ),
+        grect(
+            "F.Fab",
+            (-body.0 / 2.0, -body.1 / 2.0),
+            (body.0 / 2.0, body.1 / 2.0),
+            0.1,
+        ),
     ]
 }
 
-fn footprint(name: &str, description: &str, pads: Vec<FootprintPad>, graphics: Vec<Graphic>) -> FootprintDefinition {
+fn footprint(
+    name: &str,
+    description: &str,
+    pads: Vec<FootprintPad>,
+    graphics: Vec<Graphic>,
+) -> FootprintDefinition {
     FootprintDefinition {
         name: name.into(),
         description: description.into(),
@@ -427,20 +457,44 @@ fn footprint(name: &str, description: &str, pads: Vec<FootprintPad>, graphics: V
 }
 
 /// Two-terminal chip package: pad centre offset, pad size and body size.
-pub fn chip(name: &str, centre: f64, pad: (f64, f64), body: (f64, f64), led: bool) -> FootprintDefinition {
+pub fn chip(
+    name: &str,
+    centre: f64,
+    pad: (f64, f64),
+    body: (f64, f64),
+    led: bool,
+) -> FootprintDefinition {
     let mut g = outline(body, (2.0 * centre + pad.0 + 0.3, pad.1.max(body.1) + 0.3));
     let silk_y = pad.1 / 2.0 + 0.2;
     if body.1 > 0.0 {
-        g.push(gline("F.SilkS", (-centre * 0.6, -silk_y), (centre * 0.6, -silk_y), 0.12));
-        g.push(gline("F.SilkS", (-centre * 0.6, silk_y), (centre * 0.6, silk_y), 0.12));
+        g.push(gline(
+            "F.SilkS",
+            (-centre * 0.6, -silk_y),
+            (centre * 0.6, -silk_y),
+            0.12,
+        ));
+        g.push(gline(
+            "F.SilkS",
+            (-centre * 0.6, silk_y),
+            (centre * 0.6, silk_y),
+            0.12,
+        ));
     }
     if led {
-        g.push(gline("F.SilkS", (centre + pad.0 / 2.0 + 0.25, -pad.1 / 2.0), (centre + pad.0 / 2.0 + 0.25, pad.1 / 2.0), 0.2));
+        g.push(gline(
+            "F.SilkS",
+            (centre + pad.0 / 2.0 + 0.25, -pad.1 / 2.0),
+            (centre + pad.0 / 2.0 + 0.25, pad.1 / 2.0),
+            0.2,
+        ));
     }
     footprint(
         name,
         "Two-terminal chip package",
-        vec![smd("1", -centre, 0.0, pad.0, pad.1), smd("2", centre, 0.0, pad.0, pad.1)],
+        vec![
+            smd("1", -centre, 0.0, pad.0, pad.1),
+            smd("2", centre, 0.0, pad.0, pad.1),
+        ],
         g,
     )
 }
@@ -466,7 +520,13 @@ pub fn sot23(name: &str, leads: u8) -> FootprintDefinition {
     let mut g = outline((1.6, 2.9), (3.9, 3.3));
     g.push(gline("F.SilkS", (-0.8, -1.55), (0.8, -1.55), 0.12));
     g.push(gline("F.SilkS", (-0.8, 1.55), (0.8, 1.55), 0.12));
-    g.push(Graphic::Circle { center: pt(-2.2, -1.5), radius: 0.12, width: 0.12, fill: String::new(), layer: "F.SilkS".into() });
+    g.push(Graphic::Circle {
+        center: pt(-2.2, -1.5),
+        radius: 0.12,
+        width: 0.12,
+        fill: String::new(),
+        layer: "F.SilkS".into(),
+    });
     footprint(name, "Small-outline transistor package", pads, g)
 }
 
@@ -481,7 +541,13 @@ pub fn soic8(name: &str) -> FootprintDefinition {
     let mut g = outline((3.9, 4.9), (6.8, 5.4));
     g.push(gline("F.SilkS", (-1.95, -2.55), (1.95, -2.55), 0.12));
     g.push(gline("F.SilkS", (-1.95, 2.55), (1.95, 2.55), 0.12));
-    g.push(Graphic::Circle { center: pt(-3.9, -2.4), radius: 0.15, width: 0.12, fill: String::new(), layer: "F.SilkS".into() });
+    g.push(Graphic::Circle {
+        center: pt(-3.9, -2.4),
+        radius: 0.15,
+        width: 0.12,
+        fill: String::new(),
+        layer: "F.SilkS".into(),
+    });
     footprint(name, "Eight-lead small-outline package", pads, g)
 }
 
@@ -500,10 +566,25 @@ pub fn qfn32(name: &str) -> FootprintDefinition {
     ep.roundrect_ratio = Some(0.05);
     pads.push(ep);
     let mut g = outline((5.0, 5.0), (6.2, 6.2));
-    for (a, b) in [((-2.6, -2.1), (-2.6, -2.6)), ((-2.6, -2.6), (-2.1, -2.6)), ((2.6, -2.1), (2.6, -2.6)), ((2.6, -2.6), (2.1, -2.6)), ((-2.6, 2.1), (-2.6, 2.6)), ((-2.6, 2.6), (-2.1, 2.6)), ((2.6, 2.1), (2.6, 2.6)), ((2.6, 2.6), (2.1, 2.6))] {
+    for (a, b) in [
+        ((-2.6, -2.1), (-2.6, -2.6)),
+        ((-2.6, -2.6), (-2.1, -2.6)),
+        ((2.6, -2.1), (2.6, -2.6)),
+        ((2.6, -2.6), (2.1, -2.6)),
+        ((-2.6, 2.1), (-2.6, 2.6)),
+        ((-2.6, 2.6), (-2.1, 2.6)),
+        ((2.6, 2.1), (2.6, 2.6)),
+        ((2.6, 2.6), (2.1, 2.6)),
+    ] {
         g.push(gline("F.SilkS", a, b, 0.12));
     }
-    g.push(Graphic::Circle { center: pt(-3.3, -2.0), radius: 0.15, width: 0.12, fill: String::new(), layer: "F.SilkS".into() });
+    g.push(Graphic::Circle {
+        center: pt(-3.3, -2.0),
+        radius: 0.15,
+        width: 0.12,
+        fill: String::new(),
+        layer: "F.SilkS".into(),
+    });
     footprint(name, "Thirty-two pad quad flat no-lead package", pads, g)
 }
 
@@ -518,7 +599,13 @@ pub fn dfn8(name: &str) -> FootprintDefinition {
     let mut g = outline((2.5, 2.5), (3.4, 3.4));
     g.push(gline("F.SilkS", (-0.6, -1.4), (0.6, -1.4), 0.12));
     g.push(gline("F.SilkS", (-0.6, 1.4), (0.6, 1.4), 0.12));
-    g.push(Graphic::Circle { center: pt(-1.8, -1.2), radius: 0.12, width: 0.12, fill: String::new(), layer: "F.SilkS".into() });
+    g.push(Graphic::Circle {
+        center: pt(-1.8, -1.2),
+        radius: 0.12,
+        width: 0.12,
+        fill: String::new(),
+        layer: "F.SilkS".into(),
+    });
     footprint(name, "Eight-pad dual flat no-lead package", pads, g)
 }
 
@@ -543,7 +630,13 @@ pub fn tact(name: &str) -> FootprintDefinition {
     let mut g = outline((4.5, 3.6), (6.6, 4.0));
     g.push(gline("F.SilkS", (-1.6, -1.9), (1.6, -1.9), 0.12));
     g.push(gline("F.SilkS", (-1.6, 1.9), (1.6, 1.9), 0.12));
-    g.push(Graphic::Circle { center: pt(0.0, 0.0), radius: 1.0, width: 0.12, fill: String::new(), layer: "F.SilkS".into() });
+    g.push(Graphic::Circle {
+        center: pt(0.0, 0.0),
+        radius: 1.0,
+        width: 0.12,
+        fill: String::new(),
+        layer: "F.SilkS".into(),
+    });
     footprint(name, "Tactile switch, 4.5 by 3.6 mm", pads, g)
 }
 
@@ -552,16 +645,54 @@ pub fn header(name: &str, count: u32, pitch: f64, pad: f64, drill: f64) -> Footp
     let mut pads = Vec::new();
     for i in 0..count {
         let shape = if i == 0 { "roundrect" } else { "circle" };
-        pads.push(tht(&(i + 1).to_string(), shape, 0.0, f64::from(i) * pitch, pad, pad, drill));
+        pads.push(tht(
+            &(i + 1).to_string(),
+            shape,
+            0.0,
+            f64::from(i) * pitch,
+            pad,
+            pad,
+            drill,
+        ));
     }
     let len = f64::from(count - 1) * pitch;
     let g = vec![
-        grect("F.CrtYd", (-pad / 2.0 - 0.4, -pad / 2.0 - 0.4), (pad / 2.0 + 0.4, len + pad / 2.0 + 0.4), 0.05),
-        grect("F.Fab", (-pitch / 2.0, -pitch / 2.0), (pitch / 2.0, len + pitch / 2.0), 0.1),
-        gline("F.SilkS", (-pad / 2.0 - 0.25, -pad / 2.0 - 0.25), (pad / 2.0 + 0.25, -pad / 2.0 - 0.25), 0.12),
-        gline("F.SilkS", (-pad / 2.0 - 0.25, -pad / 2.0 - 0.25), (-pad / 2.0 - 0.25, len + pad / 2.0 + 0.25), 0.12),
-        gline("F.SilkS", (pad / 2.0 + 0.25, -pad / 2.0 - 0.25), (pad / 2.0 + 0.25, len + pad / 2.0 + 0.25), 0.12),
-        gline("F.SilkS", (-pad / 2.0 - 0.25, len + pad / 2.0 + 0.25), (pad / 2.0 + 0.25, len + pad / 2.0 + 0.25), 0.12),
+        grect(
+            "F.CrtYd",
+            (-pad / 2.0 - 0.4, -pad / 2.0 - 0.4),
+            (pad / 2.0 + 0.4, len + pad / 2.0 + 0.4),
+            0.05,
+        ),
+        grect(
+            "F.Fab",
+            (-pitch / 2.0, -pitch / 2.0),
+            (pitch / 2.0, len + pitch / 2.0),
+            0.1,
+        ),
+        gline(
+            "F.SilkS",
+            (-pad / 2.0 - 0.25, -pad / 2.0 - 0.25),
+            (pad / 2.0 + 0.25, -pad / 2.0 - 0.25),
+            0.12,
+        ),
+        gline(
+            "F.SilkS",
+            (-pad / 2.0 - 0.25, -pad / 2.0 - 0.25),
+            (-pad / 2.0 - 0.25, len + pad / 2.0 + 0.25),
+            0.12,
+        ),
+        gline(
+            "F.SilkS",
+            (pad / 2.0 + 0.25, -pad / 2.0 - 0.25),
+            (pad / 2.0 + 0.25, len + pad / 2.0 + 0.25),
+            0.12,
+        ),
+        gline(
+            "F.SilkS",
+            (-pad / 2.0 - 0.25, len + pad / 2.0 + 0.25),
+            (pad / 2.0 + 0.25, len + pad / 2.0 + 0.25),
+            0.12,
+        ),
     ];
     footprint(name, "Single-row through-hole header", pads, g)
 }
@@ -600,9 +731,20 @@ pub fn test_pad(name: &str) -> FootprintDefinition {
     p.polygon = polygon;
     let g = vec![
         grect("F.CrtYd", (-1.4, -1.4), (1.4, 1.4), 0.05),
-        Graphic::Circle { center: pt(0.0, 0.0), radius: 1.25, width: 0.12, fill: String::new(), layer: "F.SilkS".into() },
+        Graphic::Circle {
+            center: pt(0.0, 0.0),
+            radius: 1.25,
+            width: 0.12,
+            fill: String::new(),
+            layer: "F.SilkS".into(),
+        },
     ];
-    footprint(name, "Test pad with a chamfered custom copper shape", vec![p], g)
+    footprint(
+        name,
+        "Test pad with a chamfered custom copper shape",
+        vec![p],
+        g,
+    )
 }
 
 /// Mid-mount style USB receptacle with eight contact pads and four shell tabs.
@@ -615,9 +757,14 @@ pub fn usb_c(name: &str) -> FootprintDefinition {
         pad.roundrect_ratio = None;
         pads.push(pad);
     }
-    for (i, (sx, sy, h)) in [(-5.0, -1.6, 2.0), (5.0, -1.6, 2.0), (-5.0, -5.6, 1.6), (5.0, -5.6, 1.6)]
-        .iter()
-        .enumerate()
+    for (i, (sx, sy, h)) in [
+        (-5.0, -1.6, 2.0),
+        (5.0, -1.6, 2.0),
+        (-5.0, -5.6, 1.6),
+        (5.0, -5.6, 1.6),
+    ]
+    .iter()
+    .enumerate()
     {
         pads.push(tht(&(9 + i).to_string(), "oval", *sx, *sy, 1.0, *h, 0.6));
     }
@@ -628,5 +775,10 @@ pub fn usb_c(name: &str) -> FootprintDefinition {
         gline("F.SilkS", (-4.4, -7.4), (-4.4, -0.4), 0.12),
         gline("F.SilkS", (4.4, -7.4), (4.4, -0.4), 0.12),
     ];
-    footprint(name, "Power and USB 2.0 receptacle, simplified contact set", pads, g)
+    footprint(
+        name,
+        "Power and USB 2.0 receptacle, simplified contact set",
+        pads,
+        g,
+    )
 }

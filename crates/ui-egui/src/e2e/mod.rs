@@ -21,6 +21,7 @@ mod pairs;
 mod rules;
 mod settings;
 mod shell;
+mod showcase;
 mod via_covering;
 mod vias;
 mod workbench;

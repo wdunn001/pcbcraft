@@ -373,3 +373,42 @@ fn a_newcomer_jumps_from_a_finding_to_the_copper_it_names() -> Result<(), String
     }
     Ok(())
 }
+
+/// A newcomer opens the sample board that carries three known problems and
+/// reads them on the Checks page: one error and two warnings.
+#[test]
+fn a_newcomer_reads_the_showcase_findings() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("showcase-with-findings.pcbcraft");
+    let path = path.to_str().ok_or("the example path is text")?.to_owned();
+    assert!(
+        app.tool_call("open", json!({ "path": path })),
+        "the example opens: {}",
+        app.message
+    );
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let level = |name: &str| -> usize {
+        ["erc", "drc"]
+            .iter()
+            .filter_map(|key| app.checks.get(*key).and_then(serde_json::Value::as_array))
+            .flatten()
+            .filter(|f| f.get("severity").and_then(serde_json::Value::as_str) == Some(name))
+            .count()
+    };
+    assert_eq!(level("error"), 1, "one error is waiting");
+    assert_eq!(level("warning"), 2, "two warnings are waiting");
+    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Silk over pad")?,
+        "the error is named on the Checks page"
+    );
+    Ok(())
+}

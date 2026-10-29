@@ -49,7 +49,10 @@ fn unit(a: Point, b: Point) -> (Point, f64) {
 
 /// Lay one route; returns whether it was kept.
 pub fn lay(g: &mut Gen, net: &str, width: f64, w: &[W]) -> Res<bool> {
-    let n = *g.nets.get(net).ok_or_else(|| format!("unknown net {net}"))?;
+    let n = *g
+        .nets
+        .get(net)
+        .ok_or_else(|| format!("unknown net {net}"))?;
     let mut pts: Vec<(Point, bool)> = Vec::new();
     let mut layer = "F.Cu";
     for item in w {
@@ -93,9 +96,16 @@ pub fn lay(g: &mut Gen, net: &str, width: f64, w: &[W]) -> Res<bool> {
     }
     for pair in out.windows(2) {
         let (dx, dy) = (pair[1].0.x - pair[0].0.x, pair[1].0.y - pair[0].0.y);
-        let off = if dx.abs() < 1e-6 || dy.abs() < 1e-6 { 0.0 } else { (dx.abs() - dy.abs()).abs() };
+        let off = if dx.abs() < 1e-6 || dy.abs() < 1e-6 {
+            0.0
+        } else {
+            (dx.abs() - dy.abs()).abs()
+        };
         if off > 1e-3 {
-            println!("not 45 degrees: {net} ({:.2},{:.2}) to ({:.2},{:.2})", pair[0].0.x, pair[0].0.y, pair[1].0.x, pair[1].0.y);
+            println!(
+                "not 45 degrees: {net} ({:.2},{:.2}) to ({:.2},{:.2})",
+                pair[0].0.x, pair[0].0.y, pair[1].0.x, pair[1].0.y
+            );
         }
     }
     let mut steps: Vec<(&str, Value)> = Vec::new();

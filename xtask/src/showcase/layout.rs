@@ -105,8 +105,14 @@ pub fn audit(project: &pcbcraft_doc::Project) -> Vec<String> {
     let mut bodies: Vec<(String, Rect)> = Vec::new();
     let mut labels: Vec<(String, Rect)> = Vec::new();
     for f in &p.board.footprints {
-        let Some(c) = p.component(f.component) else { continue };
-        let pts: Vec<Point> = f.drawing_points(p).into_iter().map(|q| q.rotate(-f.rotation)).collect();
+        let Some(c) = p.component(f.component) else {
+            continue;
+        };
+        let pts: Vec<Point> = f
+            .drawing_points(p)
+            .into_iter()
+            .map(|q| q.rotate(-f.rotation))
+            .collect();
         let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
         for q in &pts {
             x0 = x0.min(q.x);
@@ -114,13 +120,34 @@ pub fn audit(project: &pcbcraft_doc::Project) -> Vec<String> {
             x1 = x1.max(q.x);
             y1 = y1.max(q.y);
         }
-        let body = (f.position.x + x0, f.position.y + y0, f.position.x + x1, f.position.y + y1);
+        let body = (
+            f.position.x + x0,
+            f.position.y + y0,
+            f.position.x + x1,
+            f.position.y + y1,
+        );
         bodies.push((c.reference.clone(), body));
         let cx = f.position.x + (x0 + x1) / 2.0;
         let rw = c.reference.chars().count() as f64 * 7.6 / s;
         let vw = c.value.chars().count() as f64 * 5.9 / s;
-        labels.push((format!("{} label", c.reference), (cx - rw / 2.0, body.1 - 26.0 / s, cx + rw / 2.0, body.1 - 12.0 / s)));
-        labels.push((format!("{} value", c.reference), (cx - vw / 2.0, body.3 + 12.0 / s, cx + vw / 2.0, body.3 + 24.0 / s)));
+        labels.push((
+            format!("{} label", c.reference),
+            (
+                cx - rw / 2.0,
+                body.1 - 26.0 / s,
+                cx + rw / 2.0,
+                body.1 - 12.0 / s,
+            ),
+        ));
+        labels.push((
+            format!("{} value", c.reference),
+            (
+                cx - vw / 2.0,
+                body.3 + 12.0 / s,
+                cx + vw / 2.0,
+                body.3 + 24.0 / s,
+            ),
+        ));
     }
     let mut out = Vec::new();
     for (i, (na, a)) in labels.iter().enumerate() {
