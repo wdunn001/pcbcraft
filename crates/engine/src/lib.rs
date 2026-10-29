@@ -1645,6 +1645,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "stencil.export",
+            "Export paste stencil laser paths as true-size SVG or DXF with optional frame and placement reference",
+            schema(
+                json!({"side":{"type":"string","enum":["top","bottom"]},"reduction":{"description":"Percent, Millimetres or FromRules"},"kerf_mm":{"type":"number","minimum":0,"maximum":0.5},"mirror":{"type":"boolean"},"format":{"type":"string","enum":["svg","dxf"]},"frame":{"type":"object","properties":{"margin_mm":{"type":"number","minimum":5,"maximum":100},"hole_diameter_mm":{"type":"number"},"hole_inset_mm":{"type":"number"}}}}),
+                &["side", "format"],
+            ),
+        ),
+        (
+            "cutpath.export",
+            "Export board outline and cutout laser cut paths as true-size SVG or DXF with kerf compensation",
+            schema(
+                json!({"kerf_mm":{"type":"number","minimum":0,"maximum":0.5},"cutouts":{"type":"boolean","default":true},"format":{"type":"string","enum":["svg","dxf"]}}),
+                &["format"],
+            ),
+        ),
+        (
             "align.distribute",
             "Align or evenly distribute components or board footprints along an axis, named by id or selected by reference/value/kind filter",
             schema(
@@ -11352,6 +11368,30 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                 "groups": items.len(),
                 "components": populated,
                 "variant": variant.map(|v| v.name.clone()),
+            }))
+        }
+        "stencil.export" => {
+            let options: pcbcraft_io::StencilOptions = parse(params)?;
+            pcbcraft_io::validate_stencil_options(&options).map_err(Error::Invalid)?;
+            let apertures =
+                pcbcraft_io::stencil_apertures(p, &options).map_err(Error::Invalid)?;
+            let text = pcbcraft_io::stencil_export_text(p, &options).map_err(Error::Invalid)?;
+            Ok(json!({
+                "text": text,
+                "format": options.format,
+                "apertures": apertures.rings.len(),
+                "skipped": apertures.skipped,
+            }))
+        }
+        "cutpath.export" => {
+            let options: pcbcraft_io::CutPathOptions = parse(params)?;
+            pcbcraft_io::validate_cut_path_options(&options).map_err(Error::Invalid)?;
+            let paths = pcbcraft_io::cut_paths(p, &options).map_err(Error::Invalid)?;
+            let text = pcbcraft_io::cut_path_export_text(p, &options).map_err(Error::Invalid)?;
+            Ok(json!({
+                "text": text,
+                "format": options.format,
+                "note": paths.note,
             }))
         }
         "board.sync" => {
@@ -27378,6 +27418,41 @@ mod tests {
                 .any(|p| p.geometry.as_ref().is_some_and(|g| g.polygon.len() == 3))
         );
         s.project.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    fn stencil_and_cutpath_exports_return_text_without_editing_history() -> Result<(), String> {
+        let mut s = Session::default();
+        let before = s.inspect();
+        let stencil = s.execute(
+            "stencil.export",
+            json!({
+                "side": "top",
+                "reduction": {"Millimetres": 0.0},
+                "kerf_mm": 0.0,
+                "mirror": false,
+                "format": "svg"
+            }),
+            None,
+        )?["result"]
+            .clone();
+        let text = stencil["text"]
+            .as_str()
+            .ok_or("stencil export should return text")?;
+        assert!(text.contains("id=\"apertures\""));
+        let cut = s.execute(
+            "cutpath.export",
+            json!({"kerf_mm": 0.0, "cutouts": true, "format": "svg"}),
+            None,
+        )?["result"]
+            .clone();
+        let cut_text = cut["text"]
+            .as_str()
+            .ok_or("cut path export should return text")?;
+        assert!(cut_text.contains("id=\"outline\""));
+        assert!(cut["note"].as_str().is_some_and(|n| n.contains("FR4")));
+        assert_eq!(s.project, before["project"]);
         Ok(())
     }
 }
