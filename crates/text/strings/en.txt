@@ -3,6 +3,8 @@
 # Values may hold {name} placeholders. A control's tooltip uses the same key
 # with a `.tip` suffix. Translators copy this file and change only the values.
 language.name = English
+# ltr or rtl: the way this language runs. Default ltr.
+language.direction = ltr
 
 app.name = PCBCraft
 app.brand.tip = Back to the start screen, where you open or begin a design.
