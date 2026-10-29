@@ -8,10 +8,11 @@ fn flashes_per_aperture(text: &str) -> BTreeMap<u32, usize> {
     let mut current = 0u32;
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix('D') {
-            if rest.ends_with('*') && !rest.contains('X') {
-                if let Ok(code) = rest.trim_end_matches('*').parse::<u32>() {
-                    current = code;
-                }
+            if rest.ends_with('*')
+                && !rest.contains('X')
+                && let Ok(code) = rest.trim_end_matches('*').parse::<u32>()
+            {
+                current = code;
             }
             if rest.contains("D03*") {
                 let code_text = rest.split('X').next().unwrap_or("");
