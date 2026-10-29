@@ -12523,12 +12523,14 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                         Error::Invalid("anchor reference is missing on the template page".into())
                     })?
                     .id;
-            let source_anchor =
+            let source_anchor_id =
                 component_for_instance_prototype(p, source.id, template_anchor_id)
-                    .ok_or_else(missing)?;
-            let source_fp = footprint_for_component(p, source_anchor.id).ok_or_else(|| {
+                    .ok_or_else(missing)?
+                    .id;
+            let source_fp = footprint_for_component(p, source_anchor_id).ok_or_else(|| {
                 Error::Invalid("sync footprints before repeating layout across instances".into())
             })?;
+            let source_fp_position = source_fp.position;
             if footprint_locked(p, source_fp.id) {
                 return Err(Error::Invalid(
                     "the anchor footprint is locked against placement changes".into(),
@@ -12548,54 +12550,62 @@ fn run(p: &mut Project, next: &mut Id, command: &str, params: &Value) -> Result<
                     .iter()
                     .find(|i| i.id == *target_id)
                     .ok_or_else(missing)?;
-                let target_anchor =
+                let target_anchor_id =
                     component_for_instance_prototype(p, *target_id, template_anchor_id)
-                        .ok_or_else(missing)?;
-                let target_fp = footprint_for_component(p, target_anchor.id).ok_or_else(|| {
+                        .ok_or_else(missing)?
+                        .id;
+                let target_fp = footprint_for_component(p, target_anchor_id).ok_or_else(|| {
                     Error::Invalid(
                         "sync footprints before repeating layout across instances".into(),
                     )
                 })?;
+                let target_fp_position = target_fp.position;
                 if footprint_locked(p, target_fp.id) {
                     return Err(Error::Invalid(
                         "a target anchor footprint is locked against placement changes".into(),
                     ));
                 }
                 let layout_shift = Point::new(
-                    target_fp.position.x - source_fp.position.x,
-                    target_fp.position.y - source_fp.position.y,
+                    target_fp_position.x - source_fp_position.x,
+                    target_fp_position.y - source_fp_position.y,
                 );
                 for prototype in &template_parts {
-                    let source_part = component_for_instance_prototype(p, source.id, *prototype)
-                        .ok_or_else(missing)?;
-                    let target_part = component_for_instance_prototype(p, *target_id, *prototype)
-                        .ok_or_else(missing)?;
-                    let source_foot =
-                        footprint_for_component(p, source_part.id).ok_or_else(missing)?;
+                    let source_part_id = component_for_instance_prototype(p, source.id, *prototype)
+                        .ok_or_else(missing)?
+                        .id;
+                    let target_part_id =
+                        component_for_instance_prototype(p, *target_id, *prototype)
+                            .ok_or_else(missing)?
+                            .id;
+                    let (rotation, want) = {
+                        let source_foot =
+                            footprint_for_component(p, source_part_id).ok_or_else(missing)?;
+                        let rel = Point::new(
+                            source_foot.position.x - source_fp_position.x,
+                            source_foot.position.y - source_fp_position.y,
+                        );
+                        let want =
+                            Point::new(target_fp_position.x + rel.x, target_fp_position.y + rel.y);
+                        (source_foot.rotation, want)
+                    };
+                    if !want.valid() {
+                        return Err(Error::Invalid(
+                            "the repeated layout would move a footprint out of range".into(),
+                        ));
+                    }
                     let target_foot = p
                         .board
                         .footprints
                         .iter_mut()
-                        .find(|f| f.component == target_part.id)
+                        .find(|f| f.component == target_part_id)
                         .ok_or_else(missing)?;
                     if footprint_locked(p, target_foot.id) {
                         return Err(Error::Invalid(
                             "a target footprint is locked against placement changes".into(),
                         ));
                     }
-                    let rel = Point::new(
-                        source_foot.position.x - source_fp.position.x,
-                        source_foot.position.y - source_fp.position.y,
-                    );
-                    let want =
-                        Point::new(target_fp.position.x + rel.x, target_fp.position.y + rel.y);
-                    if !want.valid() {
-                        return Err(Error::Invalid(
-                            "the repeated layout would move a footprint out of range".into(),
-                        ));
-                    }
                     target_foot.position = want;
-                    target_foot.rotation = source_foot.rotation;
+                    target_foot.rotation = rotation;
                 }
                 let source_nets: Vec<(String, Id)> = p
                     .nets

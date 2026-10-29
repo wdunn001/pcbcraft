@@ -2,7 +2,7 @@
 
 use crate::{
     Component, ComponentField, DrawnWire, Id, Label, MAX_ITEMS, Net, Pin, PinRef, Point, Project,
-    Wire,
+    Sheet, Wire,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
