@@ -4980,11 +4980,6 @@ struct FindParams {
 }
 /// Set (or clear, when `value` is `None`) one named property on a component.
 /// Returns whether the property is set afterwards.
-/// Rows keyed by value, kind, footprint, requested property values and, when parts
-/// are listed apart, the reference.
-type BomGroups =
-    std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
-
 /// The bill of materials as data: rows grouped by value, kind, footprint and
 /// the requested properties, or one row per part when `group` is false.
 ///
@@ -5000,6 +4995,7 @@ type BomGroups =
 ///
 /// # Dependencies
 /// - crates/doc/src/lib.rs (`Component::in_bom`).
+/// - crates/io/src/bom_sheet.rs (row collection and generic CSV text).
 ///
 /// # Do not
 /// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
@@ -5023,80 +5019,42 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
     } else {
         a.fields.clone()
     };
-    let variant = match a.variant.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-        ),
+    let sheet = pcbcraft_io::BomSheetParams {
+        fields: keys.clone(),
+        variant: a.variant.clone(),
+        ids: a.ids.clone(),
+        group: a.group,
     };
-    if a.ids.len() > 4096 {
-        return Err(Error::Invalid(
-            "a bill of materials names at most 4096 parts".into(),
-        ));
-    }
-    // One row per kind of part, or one row per part when not grouping
-    // (the reference then joins the key).
-    let mut groups: BomGroups = std::collections::BTreeMap::new();
-    let mut populated = 0usize;
-    for c in &p.components {
-        if !c.in_bom()
-            || (!a.ids.is_empty() && !a.ids.contains(&c.id))
-            || variant.is_some_and(|v| v.dnp.contains(&c.id))
-        {
-            continue;
-        }
-        populated += 1;
-        let footprint =
-            match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
-                Some(swap) => swap.footprint.clone(),
-                None => match &c.library_footprint {
-                    Some(footprint) => {
-                        format!("{}:{}", footprint.library, footprint.definition.name)
-                    }
-                    None => "starter pads".into(),
-                },
-            };
-        let values: Vec<String> = keys
-            .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
-            .collect();
-        let apart = if a.group {
-            String::new()
-        } else {
-            c.reference.clone()
-        };
-        groups
-            .entry((c.value.clone(), c.kind.clone(), footprint, values, apart))
-            .or_default()
-            .push(c.reference.clone());
-    }
-    let items: Vec<Value> = groups
-        .into_iter()
-        .map(|((value, kind, footprint, values, _), mut references)| {
-            references.sort();
-            let columns = keys.clone();
+    let rows = pcbcraft_io::bom_sheet_rows(p, &sheet).map_err(Error::Invalid)?;
+    let populated = rows.iter().map(|row| row.references.len()).sum::<usize>();
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|row| {
             let mut fields = serde_json::Map::new();
-            for (key, value) in columns.into_iter().zip(values) {
-                fields.insert(key, json!(value));
+            for (key, value) in keys.iter().zip(&row.property_values) {
+                fields.insert(key.clone(), json!(value));
             }
             json!({
-                "quantity": references.len(),
-                "references": references,
-                "value": value,
-                "kind": kind,
-                "footprint": footprint,
+                "quantity": row.references.len(),
+                "references": row.references.clone(),
+                "value": row.value,
+                "kind": row.kind,
+                "footprint": row.footprint,
                 "fields": Value::Object(fields),
             })
         })
         .collect();
+    let csv = pcbcraft_io::bom_sheet_generic_csv(p, &rows, &keys);
+    let variant = match a.variant.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(name.to_owned()),
+    };
     Ok(json!({
         "items": items,
         "groups": items.len(),
         "components": populated,
-        "variant": variant.map(|v| v.name.clone()),
+        "variant": variant,
+        "csv": csv,
     }))
 }
 fn set_component_field(
@@ -23668,6 +23626,13 @@ mod tests {
         let grouped = s.execute("bom.export", json!({}), None)?["result"].clone();
         assert_eq!(grouped["groups"], 1, "identical parts share a row");
         assert_eq!(grouped["items"][0]["quantity"], 3);
+        assert!(
+            grouped["csv"].as_str().is_some_and(|csv| {
+                csv.starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity")
+                    && csv.contains("R1, R2, R3")
+            }),
+            "the export carries generic CSV matching the dialog"
+        );
         let apart = s.execute("bom.export", json!({"group": false}), None)?["result"].clone();
         assert_eq!(apart["groups"], 3, "ungrouped lists each part");
         let some =

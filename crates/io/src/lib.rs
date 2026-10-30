@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod bom_sheet;
 mod diff;
 mod drawn;
 mod fab_export;
@@ -2710,103 +2711,26 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
 }
 
 pub use fab_export::via_mask_opening;
-/// Bill of materials as CSV: identical parts collapsed into one row with a
-/// sorted, quoted reference list. Requested property keys become extra
-/// columns; with no request, the columns the project itself defines are
-/// printed under their labels.
+pub use bom_sheet::{BomSheetParams, BomSheetRow, bom_sheet_generic_csv, bom_sheet_rows};
+/// Bill of materials as generic CSV: the same columns as the Export dialog's
+/// default flavour. Identical parts share one row; references are joined with
+/// `, `. Requested property keys become extra columns after Quantity; with no
+/// request, the columns the project itself defines are printed under their labels.
 pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<String, String> {
-    p.validate()?;
-    if fields.len() > 16 {
-        return Err("a bill of materials lists at most 16 properties".into());
-    }
-    for key in fields {
-        if key.is_empty() || key.len() > 64 {
-            return Err("property names must be 1 to 64 bytes".into());
-        }
-    }
-    let variant = match variant.map(str::trim) {
-        None | Some("") => None,
-        Some(name) => Some(
-            p.variants
-                .iter()
-                .find(|v| v.name == name)
-                .ok_or_else(|| format!("no variant named {name}"))?,
-        ),
-    };
-    // Columns come from the caller's list, or from the columns the project
-    // itself defines when the caller asks for none.
-    let columns: Vec<(String, String)> = if fields.is_empty() {
-        p.bom_fields
-            .iter()
-            .map(|f| {
-                (
-                    f.key.clone(),
-                    if f.label.is_empty() {
-                        f.key.clone()
-                    } else {
-                        f.label.clone()
-                    },
-                )
-            })
-            .collect()
+    let keys: Vec<String> = if fields.is_empty() {
+        p.bom_fields.iter().map(|f| f.key.clone()).collect()
     } else {
-        fields
-            .iter()
-            .map(|key| (key.clone(), key.clone()))
-            .collect()
+        fields.to_vec()
     };
-    let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
-    for c in &p.components {
-        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-            continue;
-        }
-        let footprint = match variant
-            .and_then(|v| v.footprints.iter().find(|o| o.component == c.id))
-        {
-            Some(swap) => swap.footprint.clone(),
-            None => match &c.library_footprint {
-                Some(footprint) => format!("{}:{}", footprint.library, footprint.definition.name),
-                None => "starter pads".into(),
-            },
-        };
-        let values: Vec<String> = columns
-            .iter()
-            .map(|(key, _)| c.field(key).unwrap_or("").to_string())
-            .collect();
-        groups
-            .entry((c.value.clone(), c.kind.clone(), footprint, values))
-            .or_default()
-            .push(c.reference.clone());
-    }
-    let mut out = String::from("quantity,references,value,kind,footprint");
-    for (_, header) in &columns {
-        out.push(',');
-        out.push_str(&csv_cell(header));
-    }
-    out.push('\n');
-    for ((value, kind, footprint, values), mut references) in groups {
-        references.sort();
-        let joined = references.join(",");
-        out.push_str(&references.len().to_string());
-        for cell in [joined, value, kind, footprint] {
-            out.push(',');
-            out.push_str(&csv_cell(&cell));
-        }
-        for value in values {
-            out.push(',');
-            out.push_str(&csv_cell(&value));
-        }
-        out.push('\n');
-    }
-    Ok(out)
-}
-/// Quote a CSV cell only when it needs it: commas, quotes or newlines.
-fn csv_cell(text: &str) -> String {
-    if text.contains([',', '"', '\n']) {
-        format!("\"{}\"", text.replace('"', "\"\""))
-    } else {
-        text.to_string()
-    }
+    bom_sheet::bom_sheet_generic_csv_for_project(
+        p,
+        &BomSheetParams {
+            fields: keys,
+            variant: variant.map(str::to_owned),
+            ids: vec![],
+            group: true,
+        },
+    )
 }
 /// Plain-text netlist: one line per connected net, listing the component
 /// pins it carries as `REFERENCE.PIN`, sorted by net name and reference.
@@ -10290,22 +10214,22 @@ mod tests {
         let text = bom_csv(&project, &fields, None)?;
         assert_eq!(
             text.lines().next(),
-            Some("quantity,references,value,kind,footprint,Tolerance"),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity,Tolerance"),
             "requested properties become extra columns"
         );
         assert_eq!(
             text.lines().nth(1),
-            Some("1,R2,\"10,000\",resistor,starter pads,"),
+            Some("R2,\"10,000\",starter pads,,,1,"),
             "rows sort by value, kind and footprint"
         );
         assert_eq!(
             text.lines().nth(2),
-            Some("1,C1,100n,capacitor,starter pads,10%"),
+            Some("C1,100n,starter pads,,,1,10%"),
             "the property column follows the requested key"
         );
         assert_eq!(
             text.lines().nth(3),
-            Some("2,\"R1,R3\",10k,resistor,starter pads,"),
+            Some("\"R1, R3\",10k,starter pads,,,2,"),
             "identical parts collapse into one sorted reference list"
         );
         assert_eq!(
@@ -10390,16 +10314,19 @@ mod tests {
         project.validate()?;
         let text = bom_csv(&project, &[], None)?;
         assert!(
-            text.starts_with("quantity,references,value,kind,footprint,Manufacturer part,Rating\n"),
+            text.starts_with(
+                "Reference,Value,Footprint,MPN,Manufacturer,Quantity,Rating\n"
+            ),
             "recorded columns print under their labels, falling back to the key"
         );
         assert!(
-            text.contains("RC0603-10K,0.1W"),
+            text.contains("R1,10k,starter pads,RC0603-10K,,1,0.1W"),
             "recorded columns read the matching component properties"
         );
         let explicit = bom_csv(&project, &["MPN".to_string()], None)?;
-        assert!(
-            explicit.lines().next().is_some_and(|l| l.ends_with(",MPN")),
+        assert_eq!(
+            explicit.lines().next(),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity"),
             "an explicit request overrides the recorded columns"
         );
         project.bom_fields.push(pcbcraft_doc::BomField {
@@ -10453,7 +10380,9 @@ mod tests {
         project.validate()?;
         let plain = bom_csv(&project, &[], None)?;
         assert!(
-            plain.contains("starter pads") && plain.contains("R1,R2") && !plain.contains("R_0603"),
+            plain.contains("starter pads")
+                && plain.contains("R1, R2")
+                && !plain.contains("R_0603"),
             "the plain bill lists both parts with the placed footprint"
         );
         let slim = bom_csv(&project, &[], Some("Slim"))?;
