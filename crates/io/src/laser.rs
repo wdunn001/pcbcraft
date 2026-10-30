@@ -451,7 +451,7 @@ fn collect_groups(
             }
             "mask-open" => mask_open_rings(p, side)?,
             "legend" => legend_rings(p, side)?,
-            "stencil-cut" => stencil_rings(p, side, options.stencil_reduction_pct)?,
+            "stencil-cut" => stencil_cut_rings(p, side, options.stencil_reduction_pct)?,
             _ => vec![],
         };
         if rings.is_empty() {
@@ -549,46 +549,9 @@ fn legend_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
     Ok(rings)
 }
 
-fn stencil_rings(p: &Project, side: Layer, reduction_pct: f64) -> Result<Vec<Vec<Point>>, String> {
-    if !reduction_pct.is_finite() || !(0.0..=50.0).contains(&reduction_pct) {
-        return Err("stencil reduction must be 0 to 50 percent".into());
-    }
-    let scale = 1.0 - reduction_pct / 100.0;
-    let mut rings = Vec::new();
-    for fp in &p.board.footprints {
-        for pad in &fp.pads {
-            if !pad_on_layer(pad, side) {
-                continue;
-            }
-            let Some(position) = fp.pad_position(&pad.number) else {
-                continue;
-            };
-            let local: Vec<Point> = pad
-                .outline_points()
-                .into_iter()
-                .map(|pt| Point::new(pt.x * scale, pt.y * scale))
-                .collect();
-            let mut ring: Vec<Point> = local.iter().map(|pt| position.offset(*pt)).collect();
-            if ring.len() >= 3 {
-                if let Some(first) = ring.first().copied() {
-                    ring.push(first);
-                }
-                if polygon_is_simple(&ring) {
-                    rings.push(ring);
-                }
-            }
-        }
-    }
-    let (min, max) = board_content_bounds(p);
-    let frame = hull::octagon(
-        &[
-            Point::new(min.x, min.y),
-            Point::new(max.x, min.y),
-            Point::new(max.x, max.y),
-            Point::new(min.x, max.y),
-        ],
-        0.5,
-    );
+fn stencil_cut_rings(p: &Project, side: Layer, reduction_pct: f64) -> Result<Vec<Vec<Point>>, String> {
+    let mut rings = crate::stencil_laser::stencil_aperture_rings(p, side, reduction_pct)?;
+    let frame = crate::stencil_laser::stencil_frame_ring(p, 0.0)?;
     if polygon_is_simple(&frame) {
         rings.push(frame);
     }
@@ -834,6 +797,7 @@ struct LcWobble {
 pub mod tests {
     use super::*;
     use pcbcraft_doc::{Component, Fiducial, Footprint, Id, Net, Pad, Pin, Track};
+    use pcbcraft_library::FootprintPad;
     use std::fs;
 
     fn sample_component(id: Id, reference: &str) -> Component {
@@ -861,6 +825,30 @@ pub mod tests {
         }
     }
 
+    fn laser_fixture_smd_pad(number: &str, net: Id) -> Pad {
+        Pad {
+            number: number.into(),
+            offset: Point::default(),
+            diameter: 1.6,
+            net: Some(net),
+            castellated: None,
+            geometry: Some(FootprintPad {
+                number: number.into(),
+                pad_type: "smd".into(),
+                shape: "circle".into(),
+                position: Point::default(),
+                rotation: 0.0,
+                size: Point::new(1.6, 1.6),
+                layers: vec!["F.Cu".into(), "F.Paste".into(), "F.Mask".into()],
+                drill: None,
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            }),
+        }
+    }
+
     pub fn laser_job_two_pad_one_track_project() -> Project {
         let mut project = Project {
             name: "laser-fixture".into(),
@@ -882,14 +870,7 @@ pub mod tests {
                 rotation: 0.0,
                 locked: None,
                 side: None,
-                pads: vec![Pad {
-                    number: "1".into(),
-                    offset: Point::default(),
-                    diameter: 1.6,
-                    net: Some(NET),
-                    castellated: None,
-                    geometry: None,
-                }],
+                pads: vec![laser_fixture_smd_pad("1", NET)],
             },
             Footprint {
                 id: FP_B,
@@ -898,14 +879,7 @@ pub mod tests {
                 rotation: 0.0,
                 locked: None,
                 side: None,
-                pads: vec![Pad {
-                    number: "1".into(),
-                    offset: Point::default(),
-                    diameter: 1.6,
-                    net: Some(NET),
-                    castellated: None,
-                    geometry: None,
-                }],
+                pads: vec![laser_fixture_smd_pad("1", NET)],
             },
         ];
         project.board.tracks = vec![Track {

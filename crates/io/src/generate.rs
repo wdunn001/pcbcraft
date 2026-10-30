@@ -22,10 +22,12 @@ use std::path::{Component, Path};
 
 use crate::{
     bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, laser_board_cut_dxf, laser_board_cut_svg,
+    netlist_text, odb_package, pdf_document, placement_text, plot_csv, postscript, report_text,
+    specctra_dsn, stackup_text, stats_text, step_board, stencil_plot_dxf, stencil_plot_svg, svg,
+    vrml_board, LaserBoardCutOptions, StencilPlotOptions,
 };
+use pcbcraft_doc::Layer;
 
 /// What one artifact produces: one text file, one binary file, or a named set
 /// of files (a package). A single type lets the engine hash, encode and write
@@ -106,6 +108,37 @@ fn nibble(value: u8) -> char {
         0..=9 => (b'0' + value) as char,
         10..=15 => (b'a' + (value - 10)) as char,
         _ => '0',
+    }
+}
+
+fn plot_format(settings: &serde_json::Value) -> Result<&str, String> {
+    settings
+        .get("format")
+        .and_then(|v| v.as_str())
+        .filter(|f| matches!(*f, "svg" | "dxf"))
+        .ok_or_else(|| "plot settings need format svg or dxf".into())
+}
+
+fn settings_f64(settings: &serde_json::Value, key: &str, default: f64) -> Result<f64, String> {
+    match settings.get(key) {
+        None => Ok(default),
+        Some(value) => value
+            .as_f64()
+            .filter(|v| v.is_finite())
+            .ok_or_else(|| format!("settings key {key} must be a finite number")),
+    }
+}
+
+fn paste_plot_side(artifact: &Artifact) -> Result<Layer, String> {
+    let layer = artifact
+        .layers
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("F.Paste");
+    match layer {
+        "F.Paste" | "Paste,Top" | "F.Cu" | "front" => Ok(Layer::Front),
+        "B.Paste" | "Paste,Bot" | "B.Cu" | "back" => Ok(Layer::Back),
+        other => Err(format!("paste plot layer {other} is not supported")),
     }
 }
 
@@ -222,8 +255,31 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
                 .clone();
             Ok(GeneratedOutput::Text(text))
         }
-        "mask_plot" | "silk_plot" | "paste_plot" | "profile_plot" => {
+        "mask_plot" | "silk_plot" | "profile_plot" => {
             Err("layer plot artifacts are not available yet; see issue #325".into())
+        }
+        "paste_plot" => {
+            let side = paste_plot_side(artifact)?;
+            let format = plot_format(&artifact.settings)?;
+            let reduction_pct = settings_f64(&artifact.settings, "reduction_pct", 0.0)?;
+            let frame_margin_mm = settings_f64(&artifact.settings, "frame_margin_mm", 2.0)?;
+            let alignment_holes = artifact
+                .settings
+                .get("alignment_holes")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let options = StencilPlotOptions {
+                side,
+                reduction_pct,
+                frame_margin_mm,
+                alignment_holes,
+            };
+            let text = match format {
+                "svg" => stencil_plot_svg(p, &options)?,
+                "dxf" => stencil_plot_dxf(p, &options)?,
+                _ => return Err("paste plot format must be svg or dxf".into()),
+            };
+            Ok(GeneratedOutput::Text(text))
         }
         "drill_plated" | "drill_unplated" => {
             Err("split drill artifacts are not available yet; see issue #276".into())
@@ -232,7 +288,21 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "drill_gcode" => Err("drill gcode is not available yet; see issue #330".into()),
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
-        "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
+        "laser_path" => {
+            let format = plot_format(&artifact.settings)?;
+            let kerf_offset_mm = settings_f64(&artifact.settings, "kerf_offset_mm", 0.0)?;
+            let margin_mm = settings_f64(&artifact.settings, "margin_mm", 1.0)?;
+            let options = LaserBoardCutOptions {
+                kerf_offset_mm,
+                margin_mm,
+            };
+            let text = match format {
+                "svg" => laser_board_cut_svg(p, &options)?,
+                "dxf" => laser_board_cut_dxf(p, &options)?,
+                _ => return Err("laser path format must be svg or dxf".into()),
+            };
+            Ok(GeneratedOutput::Text(text))
+        }
         other => Err(format!("unknown artifact kind {other}")),
     }
 }

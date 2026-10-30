@@ -26,6 +26,7 @@ mod panel_export;
 mod part_bodies;
 mod plot_read;
 mod raster;
+mod stencil_laser;
 mod step_read;
 mod uv_print;
 mod vrml_read;
@@ -83,6 +84,10 @@ pub use laser::{
     LaserGalvoProfile, LaserJobExportOptions, MirrorAxis, commarker_b6_mopa_profile,
     laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
     laser_job_validate_work_area, laser_job_work_area_mm,
+};
+pub use stencil_laser::{
+    LaserBoardCutOptions, StencilPlotOptions, laser_board_cut_dxf, laser_board_cut_svg,
+    stencil_aperture_rings, stencil_plot_dxf, stencil_plot_svg,
 };
 /// Layer shape types and functions for extracting shapes from project layers.
 /// # Dependencies
