@@ -1537,19 +1537,38 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 ),
                 objects: vec![zone.id],
             });
-        } else if fill.islands > 0 {
-            result.push(Finding {
-                code: "zone_island",
-                severity: project.rule_severity("zone_island", "warning"),
-                message: format!(
-                    "{}: zone {} has {} detached piece(s), {} removed by the pour settings",
-                    project.net_name(zone.net),
-                    zone.id,
-                    fill.islands,
-                    fill.removed
-                ),
-                objects: vec![zone.id],
-            });
+        } else {
+            let remaining = fill.islands.saturating_sub(fill.removed);
+            if remaining > 0 {
+                let dropped = if fill.removed > 0 {
+                    format!(", {} removed by the pour settings", fill.removed)
+                } else {
+                    String::new()
+                };
+                result.push(Finding {
+                    code: "zone_island",
+                    severity: project.rule_severity("zone_island", "warning"),
+                    message: format!(
+                        "{}: zone {} has {} detached piece(s) left in the pour{dropped}",
+                        project.net_name(zone.net),
+                        zone.id,
+                        remaining,
+                    ),
+                    objects: vec![zone.id],
+                });
+            } else if fill.removed > 0 {
+                result.push(Finding {
+                    code: "zone_island_removed",
+                    severity: project.rule_severity("zone_island_removed", "info"),
+                    message: format!(
+                        "{}: zone {} had {} detached piece(s), all removed by the pour settings",
+                        project.net_name(zone.net),
+                        zone.id,
+                        fill.removed
+                    ),
+                    objects: vec![zone.id],
+                });
+            }
         }
     }
     match pcbcraft_doc::keepout_hits(project) {
@@ -3794,11 +3813,15 @@ mod pour_tests {
         assert_eq!(f.removed, 1);
         assert!(!f.contains(lonely), "the default drops detached copper");
         assert!(f.contains(Point::new(18.0, 20.0)));
+        let list = codes(&p);
+        assert!(!list.contains(&"zone_island"));
+        assert!(list.contains(&"zone_island_removed"));
         p.board.zones[0].pour = Some(ZonePour {
             islands: ZoneIslands::Keep,
             ..ZonePour::default()
         });
         assert!(fill(&p)?.contains(lonely), "keep leaves it in");
+        assert!(codes(&p).contains(&"zone_island"));
         p.board.zones[0].pour = Some(ZonePour {
             islands: ZoneIslands::RemoveBelow(10.0),
             ..ZonePour::default()
@@ -3807,6 +3830,7 @@ mod pour_tests {
             fill(&p)?.contains(lonely),
             "a piece larger than the limit stays"
         );
+        assert!(codes(&p).contains(&"zone_island"));
         Ok(())
     }
 

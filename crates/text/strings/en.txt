@@ -1405,6 +1405,7 @@ check.unrouted = Disconnected copper islands
 check.via_aspect_ratio = Via aspect ratio
 check.via_span_not_allowed = Via span not allowed
 check.zone_island = Zone island
+check.zone_island_removed = Zone island removed
 check.zone_unconnected = Zone unconnected
 checks.measure.track_width_below = A wire thinner than
 checks.measure.track_length_above = A wire longer than
