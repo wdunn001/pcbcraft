@@ -395,4 +395,18 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn field_reads_named_kicad_properties() -> Result<(), Error> {
+        let fp = parse(
+            "(footprint \"R_0805\" (layer \"F.Cu\") (descr \"0805 resistor\") (tags \"R\"))",
+        )?;
+        assert_eq!(fp.field("layer"), "F.Cu");
+        assert_eq!(fp.field("descr"), "0805 resistor");
+        assert_eq!(fp.field("tags"), "R");
+        assert_eq!(fp.field("missing"), "");
+        let prop = parse("(property \"Reference\" \"R\")")?;
+        assert_eq!(prop.field("Reference"), "R");
+        Ok(())
+    }
 }
