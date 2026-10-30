@@ -1,7 +1,8 @@
 use super::*;
 use pcbcraft_library::{
     FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
-    PartSubstitutes, SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
+    PartSubstitutes, SymbolDefinition, SymbolPin, UnitGraphic, compare_one_part,
+    MAX_PART_COMPARE_OTHERS, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -58,6 +59,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords, linked footprint or set name one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"},"set":{"type":"string","description":"name of the collection this part belongs to; empty clears it, and the parts list groups parts by set"}}),&["name"])),
         ("library.part.set_substitute","Add, replace or remove one second source (maker and part number) or one alternate (another project-library symbol) on a project-library part as one undoable step; pass null for mpn to remove a second source, or set clear true with symbol naming the alternate to remove",schema(json!({"name":{"type":"string","description":"project-library symbol name of the primary part"},"kind":{"type":"string","enum":["second_source","alternate"]},"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"symbol":{"type":"string","maxLength":256,"description":"project-library symbol name of the alternate part"},"footprint":{"type":"string","maxLength":256},"note":{"type":"string","maxLength":256},"clear":{"type":"boolean","description":"when true with kind alternate, remove the alternate named by symbol"}}),&["name","kind"])),
+        ("library.part.compare","Read-only comparison of one baseline project-library part against up to two others: typed symbol fields with same flags, pin number diffs, and footprint pad diffs when both footprints exist",schema(json!({"baseline":{"type":"string","maxLength":128,"description":"project-library symbol name used as the reference row"},"others":{"type":"array","minItems":1,"maxItems":2,"items":{"type":"string","maxLength":128}},"footprint_overrides":{"type":"object","additionalProperties":{"type":"string","maxLength":256},"description":"optional footprint name per other symbol, e.g. from an alternate record"}}),&["baseline","others"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -101,6 +103,14 @@ struct PlacePartParams {
 struct SymbolParams {
     definition: SymbolDefinition,
     notice: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartCompareParams {
+    baseline: String,
+    others: Vec<String>,
+    #[serde(default)]
+    footprint_overrides: std::collections::BTreeMap<String, String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -675,6 +685,73 @@ pub(super) fn run(
             }
             p.library.footprints.sort_by(|a, b| a.name.cmp(&b.name));
             Ok(json!({"name": name}))
+        }
+        "library.part.compare" => {
+            let a: PartCompareParams = parse(params)?;
+            if a.baseline.is_empty() || a.baseline.len() > 128 {
+                return Err(Error::Invalid(
+                    "baseline must be 1 to 128 bytes".into(),
+                ));
+            }
+            if a.others.is_empty() || a.others.len() > MAX_PART_COMPARE_OTHERS {
+                return Err(Error::Invalid(format!(
+                    "others must list 1 to {MAX_PART_COMPARE_OTHERS} symbol names"
+                )));
+            }
+            for name in &a.others {
+                if name.is_empty() || name.len() > 128 {
+                    return Err(Error::Invalid(
+                        "each other name must be 1 to 128 bytes".into(),
+                    ));
+                }
+                if name == &a.baseline {
+                    return Err(Error::Invalid(
+                        "baseline and an other part must differ".into(),
+                    ));
+                }
+            }
+            let baseline_sym = p
+                .library
+                .symbols
+                .iter()
+                .find(|s| s.name == a.baseline)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::Invalid(format!(
+                        "no project-library symbol named {}",
+                        a.baseline
+                    ))
+                })?;
+            let resolve_footprint = |name: &str| {
+                p.library
+                    .footprints
+                    .iter()
+                    .find(|f| f.name == name)
+                    .cloned()
+            };
+            let mut compared = Vec::with_capacity(a.others.len());
+            for other_name in &a.others {
+                let other_sym = p
+                    .library
+                    .symbols
+                    .iter()
+                    .find(|s| s.name == *other_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "no project-library symbol named {other_name}"
+                        ))
+                    })?;
+                let other_fp = a.footprint_overrides.get(other_name).map(String::as_str);
+                compared.push(compare_one_part(
+                    &baseline_sym,
+                    &other_sym,
+                    None,
+                    other_fp,
+                    &resolve_footprint,
+                ));
+            }
+            Ok(json!({"baseline": a.baseline, "compared": compared}))
         }
         "library.footprint.check" => {
             let a: FootprintCheckParams = parse(params)?;
