@@ -161,7 +161,11 @@ replace the latest stable download links from tagged releases.
 Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
 Cargo.toml. The workflow builds, from clean state:
 
-- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz`
+- `pcbcraft-<tag>-linux-x86_64.AppImage` and `-linux-aarch64.AppImage` (+ `.zsync` update files)
+- `pcbcraft-<tag>-linux-x86_64.deb` and `-linux-aarch64.deb`
+- `pcbcraft-<tag>-linux-x86_64.rpm` and `-linux-aarch64.rpm`
+- `pcbcraft-<tag>-linux-x86_64.flatpak` and `-linux-aarch64.flatpak`
+- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz` (FHS layout)
 - `pcbcraft-<tag>-windows-x86_64.zip`
 - `pcbcraft-<tag>-macos-universal.tar.gz` and `.dmg` (Apple silicon and Intel)
 - `pcbcraft-<tag>-web.zip` (trunk build of apps/pcbcraft-web)
@@ -173,8 +177,9 @@ it by hand; nothing publishes automatically. Release notes list commit subjects
 since the previous tag.
 
 The nightly and release workflows share `build-dist.yml`, so a nightly run
-proves the release packaging works. Packaging logic is in
-`.github/scripts/package.sh`.
+proves the release packaging works. Linux AppImage, .deb, .rpm and the FHS
+tarball come from `packaging/linux/package.sh`. Archives for every platform
+are assembled by `.github/scripts/package.sh`.
 
 ## Security posture
 
@@ -200,6 +205,5 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 ## Open decisions for the maintainers
 
 - Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
-- Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
 - Marking `CI result` as a required check in branch protection.
