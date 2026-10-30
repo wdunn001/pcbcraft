@@ -5,22 +5,22 @@ alwaysApply: false
 
 # Pipeline (workers and reviewers)
 
-Details: `CONTRIBUTING.md`, onboarding `https://github.com/wdunn001/pcbcraft/issues/1`.
+Details: `CONTRIBUTING.md`, onboarding `https://github.com/wdunn001/pcbcraft/issues/1` (authoritative).
 
 ## Claim
 
 ```text
-CLAIM <agent>@<host> until <UTC> clone <path> branch <name>
+CLAIM <agent>@<team> until <UTC> branch <name>
 ```
 
-Only `ready` + `status:open`. Shared machine → also `conflict:parallel-safe`. One issue per agent unless stacked epic children. Check no live lease first.
+Only `ready` + `status:open`. Shared machine → also `conflict:parallel-safe`. One issue per agent unless stacked epic children. Check no live lease first (newest `until` in the future, no `RELEASE` after it); the earliest claim wins. Renew with `CLAIM-RENEW <agent>`, stop with `RELEASE <agent>`.
 
 ## Build
 
 1. `git fetch origin main && git merge origin/main` before final push.
-2. Push `<kind>-<slug>` to the fork; wait for green Actions.
-3. Report: branch, commit, Actions URL, tests, files touched, limits; last line `PR pending owner review`.
-4. Research / Enrichment / Review comments start with `Base: fork/main at <sha>`.
+2. Push `<kind>-<slug>` and open a PR against `main` on wdunn001/pcbcraft; wait for green Actions.
+3. The PR body is the build report: branch, commit, Actions URL, tests, files touched, limits; last line `Issues: #N`. Integrators merge on green CI.
+4. Research / Enrichment / Review comments start with `Base: main at <sha>`.
 
 ## Parallelism
 

@@ -1,6 +1,6 @@
 # PCBCraft agent instructions
 
-Rust EDA app, GPL-3.0-or-later, MCP-first. **Codebase of record:** [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft) branch `main` (not upstream tangency-labs until integrator opens a PR). Onboarding: [docs/getting-started.md](docs/getting-started.md), fork issue [#1](https://github.com/wdunn001/pcbcraft/issues/1), full pipeline in CONTRIBUTING.md.
+Rust EDA app, GPL-3.0-or-later, MCP-first. **Home:** [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft). Code, issues, pull requests and CI all live there; the old tracker on tangency-labs/pcbcraft is frozen history, so never post to it. Onboarding: [docs/getting-started.md](docs/getting-started.md), issue [#1](https://github.com/wdunn001/pcbcraft/issues/1) (authoritative), full pipeline in CONTRIBUTING.md.
 
 ## Before coding
 
@@ -19,13 +19,13 @@ Read README.md (what works), ROADMAP.md, docs/architecture.md. For a claimed iss
 
 - **One clone or worktree per agent.** Never share a checkout another agent is using.
 - **One claimed issue** unless stacked children of one epic.
-- **Workers** claim only upstream issues tagged `ready` and `status:open`. On a shared machine, also require `conflict:parallel-safe`.
+- **Workers** claim only issues tagged `ready` and `status:open`, with a `CLAIM <agent>@<team> until <UTC time> branch <name>` comment. A claim is live until its `until` time passes or a `RELEASE` follows; the earliest claim wins. Renew with `CLAIM-RENEW`. On a shared machine, also require `conflict:parallel-safe`.
 - **Conflict lane:** only the active `conflict:ui-egui-lib` ticket may edit `crates/ui-egui/src/lib.rs`. Everyone else keeps UI shell changes out of that file; put `a_newcomer_*` tests in `crates/ui-egui/src/e2e/<area>.rs` (helpers in `src/e2e/support.rs`).
-- **Branch** from fork `main`: `<kind>-<slug>` (see CONTRIBUTING.md §7). Merge latest fork `main` before final push. Push your branch only; never push to `main`; do not open pull requests (maintainer integrates).
+- **Branch** from `main`: `<kind>-<slug>` (see CONTRIBUTING.md §7). Merge latest `main` before the final push. Open a pull request against `main` on wdunn001/pcbcraft with the build report in the body and an `Issues: #N` line. Never push to `main`; do not merge your own pull request. Integrators merge on green CI.
 
 ## CI (source of truth)
 
-Green **GitHub Actions on the fork** for the commit you report is required proof. Push early; link the run in your build report. Local `cargo xtask ci` is optional; job list in docs/ci.md. Done = merged into fork `main` with Actions green there.
+Green **GitHub Actions on your pull request** for the commit you report is required proof. Push early; link the run in the pull request body. Local `cargo xtask ci` is optional; job list in docs/ci.md. Done = merged into `main` with Actions green there.
 
 ## Architecture invariants
 
@@ -49,4 +49,4 @@ Same build/test failure twice with identical output → post output, set `status
 
 ## Cloud Agent fleet
 
-Workers push a branch only and never open a pull request; the integrator merges with `git merge`. Full text: docs/agents/README.md, section "Fleet rules".
+Workers open pull requests against `main`; the integrator merges them on green CI. Full text: docs/agents/README.md.

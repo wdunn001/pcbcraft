@@ -7,9 +7,9 @@ alwaysApply: true
 
 Full rules: repository root `AGENTS.md`. Architecture: `docs/architecture.md`.
 
-- **Base:** fork `wdunn001/pcbcraft` `main`. Issues on `tangency-labs/pcbcraft`.
-- **CI proof:** green GitHub Actions on the fork for your pushed commit (required). Local `cargo xtask ci` optional (`docs/ci.md`).
+- **Base:** `main` on `wdunn001/pcbcraft`. Issues, pull requests and CI live there; the old tracker on `tangency-labs/pcbcraft` is frozen.
+- **CI proof:** green GitHub Actions on your pull request for the pushed commit (required). Local `cargo xtask ci` optional (`docs/ci.md`).
 - **Engine:** typed commands only; invalid batches leave state untouched; no production panics/unwrap.
 - **UI shell lane:** do not edit `crates/ui-egui/src/lib.rs` unless issue tag `conflict:ui-egui-lib` and you hold that lane.
 - **One window, MCP-first, crate layering** — see AGENTS.md (no egui in lower crates).
-- **Never** name other EDA products; **never** open PRs or push to `main` as a worker.
+- **Never** name other EDA products; **never** push to `main` or merge your own pull request; open a PR against `main` instead.

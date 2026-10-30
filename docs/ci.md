@@ -3,10 +3,10 @@
 ## Getting started
 
 On [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft), push your branch
-to the fork (never to `main`) and wait for the green **CI result** check on that
-commit. Link the Actions run in your upstream issue build report. That run is the
-required proof for workers and doc-only lanes; you do not need a pull request on
-the fork and you do not need a green local `cargo xtask ci` on a laptop.
+and open a pull request against `main` (never push to `main`). Wait for the green
+**CI result** check on that commit and link the Actions run in the pull request
+body. That run is the required proof for workers and doc-only lanes; you do not
+need a green local `cargo xtask ci` on a laptop.
 
 Clone and first-run steps: [getting-started.md](getting-started.md).
 
@@ -19,11 +19,10 @@ GitHub Actions run on the pushed branch is the proof (see CONTRIBUTING.md). `car
 
 ### Fork and pull request gate (`.github/workflows/ci.yml`)
 
-On wdunn001/pcbcraft, **every branch push** runs the same jobs as upstream.
-Workers push a feature branch, wait for the green **CI result** check, and post
-that Actions link in the upstream build report. Upstream tangency-labs/pcbcraft
-still runs the gate on pull requests; a new push cancels the older run for the
-same PR. Documentation-only commits skip heavy build jobs but still run policy,
+On wdunn001/pcbcraft, **every branch push** and every pull request runs the
+gate. Workers open a pull request against `main`, wait for the green **CI result**
+check, and put that Actions link in the pull request body. A new push cancels
+the older run for the same PR. Documentation-only commits skip heavy build jobs but still run policy,
 deny and the aggregated result job.
 
 | Job | Command | What it enforces |
