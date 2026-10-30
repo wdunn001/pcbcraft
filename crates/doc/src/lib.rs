@@ -5081,7 +5081,7 @@ impl Project {
                     return Err("embedded footprint pad numbers do not match symbol pins".into());
                 }
             }
-            if c.pins.is_empty() || c.pins.len() > 64 {
+            if c.pins.is_empty() || c.pins.len() > MAX_SUPPORTED_FOOTPRINT_PADS {
                 return Err("invalid pin count".into());
             }
             let mut numbers = BTreeSet::new();
@@ -5330,7 +5330,7 @@ impl Project {
                 || !f.rotation.is_finite()
                 || f.rotation.abs() > 360_000.0
                 || f.pads.is_empty()
-                || f.pads.len() > 64
+                || f.pads.len() > MAX_SUPPORTED_FOOTPRINT_PADS
             {
                 return Err("invalid footprint".into());
             }
@@ -5932,6 +5932,83 @@ mod drill_tests {
             unsupported: vec![],
         };
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn hundred_pad_board_footprint_passes_project_validate() -> Result<(), String> {
+        let pads: Vec<_> = (0..100)
+            .map(|i| {
+                front_smd_circle_pad(
+                    &((i + 1).to_string()),
+                    (i % 10) as f64,
+                    (i / 10) as f64,
+                )
+            })
+            .collect();
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "GRID100".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: pads.clone(),
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        validate_footprint_support(&definition)?;
+        let pins: Vec<Pin> = (1..=100)
+            .map(|n| Pin {
+                number: n.to_string(),
+                name: n.to_string(),
+                offset: Point::default(),
+                net: None,
+                electrical_type: passive(),
+                direction: None,
+                unit: 1,
+            })
+            .collect();
+        let mut project = Project::default();
+        project.components.push(Component {
+            id: 2,
+            reference: "U1".into(),
+            value: "GRID100".into(),
+            kind: "library".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins,
+            units: vec![],
+            library_symbol: None,
+            library_footprint: Some(LibraryFootprint {
+                library: "project".into(),
+                definition: definition.clone(),
+            }),
+            fields: vec![],
+            sheet: 0,
+        });
+        let board_pads: Vec<Pad> = definition
+            .pads
+            .iter()
+            .map(|pad| Pad {
+                number: pad.number.clone(),
+                offset: pad.position,
+                diameter: pad.size.x.min(pad.size.y),
+                net: None,
+                castellated: None,
+                geometry: Some(pad.clone()),
+            })
+            .collect();
+        project.board.footprints.push(Footprint {
+            id: 3,
+            component: 2,
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: board_pads,
+        });
+        project.validate()?;
         Ok(())
     }
 
