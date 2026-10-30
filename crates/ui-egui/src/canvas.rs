@@ -1980,7 +1980,13 @@ impl App {
         let page = self.schematic_page();
         let shown = |name: &str| self.layer_shown(name);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-        let sheet_frame = sheet::sheet_for(p);
+        let mut sheet_frame = sheet::sheet_for(p);
+        // The title block names the page being drawn, not always the first.
+        sheet_frame.page = 1 + p
+            .sheets
+            .iter()
+            .position(|s| s.id == page)
+            .map_or(0, |i| i + 1);
         sheet::paint_sheet(
             painter,
             rect,
@@ -2034,7 +2040,7 @@ impl App {
                 sc.wire,
             );
         }
-        sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+        sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
         for w in p
             .drawn_wires
             .iter()
@@ -2231,9 +2237,23 @@ impl App {
                     } else {
                         pin.position
                     };
+                    // The name reads inside the body: right-aligned and left of the
+                    // stem end for a pin on the right, hung below it for a pin on top.
+                    let stem = at(pin.stem_end()) - at(pin.position);
+                    let (anchor, shift) = if stem.x.abs() >= stem.y.abs() {
+                        if stem.x < 0.0 {
+                            (Align2::RIGHT_BOTTOM, Vec2::new(-3.0, -3.0))
+                        } else {
+                            (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                        }
+                    } else if stem.y > 0.0 {
+                        (Align2::LEFT_TOP, Vec2::new(3.0, 3.0))
+                    } else {
+                        (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                    };
                     painter.text(
-                        at(label_at) + Vec2::new(3.0, -3.0),
-                        Align2::LEFT_BOTTOM,
+                        at(label_at) + shift,
+                        anchor,
                         &pin.name,
                         FontId::monospace(10.0),
                         sc.muted,

@@ -633,6 +633,7 @@ pub(super) fn run_point(run: (Point, Point), fraction: f64) -> Point {
 ///
 /// # Do not
 /// - Draw a wire the caller still paints.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_power(
     painter: &egui::Painter,
     rect: Rect,
@@ -641,12 +642,17 @@ pub(super) fn paint_power(
     kinds: &HashMap<Id, PowerKind>,
     sc: &SheetColours,
     show_wires: bool,
+    page: Id,
 ) {
     let stub = Stroke::new(2.5, sc.wire);
     let mut ends: HashMap<(i64, i64), usize> = HashMap::new();
     let key = |q: Point| ((q.x * 100.0).round() as i64, (q.y * 100.0).round() as i64);
     let mut ruled: Vec<Id> = Vec::new();
-    for w in p.wires.iter().filter(|_| show_wires) {
+    for w in p
+        .wires
+        .iter()
+        .filter(|w| show_wires && p.on_schematic_page(page, w.id))
+    {
         match kinds.get(&w.net) {
             Some(PowerKind::Ground) => {
                 let name = p.net_name(w.net);
@@ -708,7 +714,11 @@ pub(super) fn paint_power(
             );
         }
     }
-    for l in p.labels.iter().filter(|l| l.kind == "power") {
+    for l in p
+        .labels
+        .iter()
+        .filter(|l| l.kind == "power" && p.on_schematic_page(page, l.id))
+    {
         let name = p.net_name(l.net);
         match kinds.get(&l.net) {
             Some(PowerKind::Ground) => ground_symbol(painter, rect, camera, l.position, name, sc),
