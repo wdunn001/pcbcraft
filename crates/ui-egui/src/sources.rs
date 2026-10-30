@@ -367,7 +367,9 @@ impl App {
         self.run(
             "part.attach_source",
             json!({"id":component,"manufacturer":part.manufacturer,"mpn":part.mpn,
-                   "datasheet":part.datasheet_url,"distributor":part.distributor,"sku":part.sku}),
+                   "datasheet":part.datasheet_url,"distributor":part.distributor,"sku":part.sku,
+                   "description":part.description,"lifecycle":part.lifecycle,
+                   "product_url":part.product_url}),
         );
     }
 }

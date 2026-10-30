@@ -3,6 +3,7 @@
 
 pub(crate) mod support;
 
+mod a11y_gate;
 mod audit;
 
 mod artifacts;
@@ -14,7 +15,10 @@ mod builds;
 mod checks;
 mod compare;
 mod context_menus;
+mod drill_table;
 mod editing;
+mod export;
+mod i18n;
 mod images;
 mod keymap;
 mod layers;
@@ -22,6 +26,7 @@ mod layout;
 mod library;
 mod library_browser;
 mod library_dock;
+mod minimap;
 mod modifiers;
 mod nets;
 mod online;
@@ -31,8 +36,10 @@ mod route_drag;
 mod rules;
 mod schematic_pages;
 mod settings;
+mod sheet_rows;
 mod shell;
 mod showcase;
+mod sourcing;
 mod toolbar;
 mod tree_rows;
 mod via_covering;
