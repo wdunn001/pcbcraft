@@ -29,6 +29,7 @@ enum Act {
     PlacePart,
     Wire,
     NoConnect,
+    Port,
     Route,
     Via,
     Keepout,
@@ -217,6 +218,15 @@ impl App {
                 Act::NoConnect,
                 false,
             );
+            push(
+                "tool-port",
+                "port",
+                t!("schematic.port.tool"),
+                command_tip("schematic.place_port"),
+                matches!(self.tool, Tool::Port),
+                Act::Port,
+                false,
+            );
         }
         if pcb {
             push(
@@ -368,6 +378,7 @@ impl App {
             Act::PlacePart => self.open_part_search(),
             Act::Wire => self.tool = Tool::Wire(None),
             Act::NoConnect => self.tool = Tool::NoConnect,
+            Act::Port => self.tool = Tool::Port,
             Act::Route => self.tool = Tool::Route(None),
             Act::Via => self.tool = Tool::Via,
             Act::Keepout => {

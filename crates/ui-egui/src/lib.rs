@@ -38,6 +38,7 @@ mod properties;
 mod reference_panel;
 mod route_drag;
 mod sheet_rows;
+mod schematic_port;
 mod showcase;
 mod sources;
 mod stack_view;
@@ -409,6 +410,7 @@ fn tool_hint(tool: &Tool) -> String {
             t!("board.tool_hint.lmb_click_two_points_to", common = common)
         }
         Tool::Via => t!("board.tool_hint.lmb_via", common = common),
+        Tool::Port => t!("schematic.port.tool_hint", common = common),
     }
 }
 
@@ -921,6 +923,7 @@ enum Tool {
     DrawLayer,
     Measure,
     Via,
+    Port,
 }
 #[derive(Clone, Copy, PartialEq, Default)]
 enum DrawShape {
@@ -1122,6 +1125,8 @@ pub struct App {
     active_page: Id,
     /// The net each page's Add power port picker holds.
     power_pick: std::collections::BTreeMap<Id, Id>,
+    /// Name the Port tool places on the next canvas click.
+    port_pick_name: String,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
@@ -1685,6 +1690,7 @@ impl App {
             renumber_open: false,
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
+            port_pick_name: String::new(),
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
@@ -6285,6 +6291,11 @@ impl App {
                         egui::Frame::NONE
                             .inner_margin(egui::Margin::ZERO)
                             .show(ui, |ui| self.draw_tool_options(ui));
+                    }
+                    if matches!(self.tool, Tool::Port) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.port_tool_options(ui));
                     }
                     if let Some(page) = self.hovered_page_preview() {
                         self.page_properties(ui, page, true);
