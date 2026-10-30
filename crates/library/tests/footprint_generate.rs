@@ -268,6 +268,17 @@ fn ssop_alias_uses_tssop_layout() -> Result<(), String> {
 }
 
 #[test]
+fn msop_alias_uses_tssop_layout() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.5;
+    p.pin_count = 10;
+    p.body_width = 3.0;
+    let def = generate_footprint("msop", LandPatternDensity::Nominal, &p)?;
+    assert_eq!(def.pads.len(), 10);
+    Ok(())
+}
+
+#[test]
 fn axial_two_lead_span() -> Result<(), String> {
     let mut p = nominal_params();
     p.pitch = 10.0;
