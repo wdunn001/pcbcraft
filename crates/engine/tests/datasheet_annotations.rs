@@ -6,9 +6,7 @@ use std::sync::{Mutex, MutexGuard};
 
 fn with_store(path: PathBuf) -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
-    let guard = LOCK
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let guard = LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     set_store_path_for_test(Some(path));
     guard
 }

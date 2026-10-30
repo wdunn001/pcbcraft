@@ -1,7 +1,9 @@
 //! Host-profile commands for datasheet highlights, notes and bookmarks, plus
 //! one design command that copies an entry into a component field.
 use super::*;
-use pcbcraft_library::datasheet_annotations::{self, DatasheetAnnotationsFile, DatasheetEntry, EntryKind, ImportMode};
+use pcbcraft_library::datasheet_annotations::{
+    self, DatasheetAnnotationsFile, DatasheetEntry, EntryKind, ImportMode,
+};
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     let entry_schema = json!({
@@ -103,7 +105,9 @@ pub fn run_profile(id: &str, params: &Value) -> Result<Value, String> {
         "profile.datasheet_remove" => {
             let a: RemoveParams = parse_host(params)?;
             let removed = datasheet_annotations::remove_entry(&a.document_hash, &a.entry_id)?;
-            Ok(json!({"document_hash": a.document_hash, "entry_id": a.entry_id, "removed": removed}))
+            Ok(
+                json!({"document_hash": a.document_hash, "entry_id": a.entry_id, "removed": removed}),
+            )
         }
         "profile.datasheet_export" => {
             let a: ExportParams = parse_host(params)?;
