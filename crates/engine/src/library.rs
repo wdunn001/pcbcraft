@@ -869,7 +869,7 @@ fn search_query_args(args: &Value) -> Result<(PartSearchQuery, usize, Vec<PartLi
 /// Rank parts for a stated need over project, installed and caller listings.
 ///
 /// # Rules
-/// Same listing sources as [`list_with_project`]. Answers `{items, total_known}`
+/// Same listing sources as [`list_with_project`]. Answers `{items, indexed}`
 /// where each item carries `listing`, `score` and `reasons`. Offline keyword
 /// and tag ranking always run; vectors add to the score when present.
 pub fn search_parts_over(

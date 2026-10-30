@@ -554,10 +554,10 @@ impl PartSearchIndex {
         }
 
         scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.listing.mpn.cmp(&b.listing.mpn))
+            match b.score.partial_cmp(&a.score) {
+                Some(std::cmp::Ordering::Equal) | None => a.listing.mpn.cmp(&b.listing.mpn),
+                Some(ord) => ord,
+            }
         });
         scored.truncate(limit);
         Ok(scored)
