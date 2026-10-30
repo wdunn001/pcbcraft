@@ -7,7 +7,7 @@
 //! offset is not applied here until the offset unit is settled for exports.
 
 use crate::board_mesh::graphic_layer;
-use pcbcraft_doc::{Footprint, Project};
+use pcbcraft_doc::{Footprint, LibraryFootprint, Project};
 use pcbcraft_geom::Point;
 
 /// Body height in millimetres when a part states none.
@@ -39,6 +39,15 @@ pub fn is_bottom_side(fp: &Footprint) -> bool {
     })
 }
 
+/// Body height in millimetres from a placed part's component fields.
+pub fn placed_body_height_mm(project: &Project, fp: &Footprint) -> f64 {
+    body_height(
+        project
+            .component(fp.component)
+            .and_then(|c| c.field("height")),
+    )
+}
+
 fn body_height(text: Option<&str>) -> f64 {
     let Some(text) = text else {
         return DEFAULT_BODY_HEIGHT_MM;
@@ -55,8 +64,43 @@ fn is_courtyard(layer: &str) -> bool {
     matches!(layer, "F.CrtYd" | "B.CrtYd" | "pcbcraft.courtyard")
 }
 
-/// Footprint-local extent as (low, high) corners.
-fn local_extent(project: &Project, fp: &Footprint) -> Option<(Point, Point)> {
+fn bounds_from_points(points: &[Point]) -> Option<(Point, Point)> {
+    let first = points.first().copied()?;
+    let mut lo = first;
+    let mut hi = first;
+    for p in points {
+        lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+        hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+    }
+    ((hi.x - lo.x) > 1e-6 && (hi.y - lo.y) > 1e-6).then_some((lo, hi))
+}
+
+/// Library footprint extent from courtyard graphics or definition pads.
+pub fn library_footprint_extent(lib: &LibraryFootprint) -> Option<(Point, Point)> {
+    let mut points: Vec<Point> = lib
+        .definition
+        .graphics
+        .iter()
+        .filter(|g| graphic_layer(g).is_some_and(|(layer, _)| is_courtyard(layer)))
+        .flat_map(|g| g.path_points())
+        .collect();
+    if points.is_empty() {
+        for pad in &lib.definition.pads {
+            let hx = pad.size.x / 2.0;
+            let hy = pad.size.y / 2.0;
+            points.extend([
+                pad.position.offset(Point::new(-hx, -hy)),
+                pad.position.offset(Point::new(hx, -hy)),
+                pad.position.offset(Point::new(hx, hy)),
+                pad.position.offset(Point::new(-hx, hy)),
+            ]);
+        }
+    }
+    bounds_from_points(&points)
+}
+
+/// Footprint-local extent as (low, high) corners in millimetres.
+pub fn footprint_local_extent(project: &Project, fp: &Footprint) -> Option<(Point, Point)> {
     let mut points: Vec<Point> = project
         .component(fp.component)
         .and_then(|c| c.library_footprint.as_ref())
@@ -72,14 +116,7 @@ fn local_extent(project: &Project, fp: &Footprint) -> Option<(Point, Point)> {
     if points.is_empty() {
         points = fp.pads.iter().flat_map(|p| p.outline_points()).collect();
     }
-    let first = points.first().copied()?;
-    let mut lo = first;
-    let mut hi = first;
-    for p in &points {
-        lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
-        hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
-    }
-    ((hi.x - lo.x) > 1e-6 && (hi.y - lo.y) > 1e-6).then_some((lo, hi))
+    bounds_from_points(&points)
 }
 
 /// One box per placed part that has an extent. Top parts stand on the top
@@ -88,11 +125,11 @@ pub fn part_boxes(project: &Project) -> Vec<PartBox> {
     let thickness = project.board.thickness;
     let mut boxes = Vec::new();
     for fp in &project.board.footprints {
-        let Some((lo, hi)) = local_extent(project, fp) else {
+        let Some((lo, hi)) = footprint_local_extent(project, fp) else {
             continue;
         };
         let component = project.component(fp.component);
-        let height = body_height(component.and_then(|c| c.field("height")));
+        let height = placed_body_height_mm(project, fp);
         let bottom = is_bottom_side(fp);
         let corners = [
             Point::new(lo.x, lo.y),
