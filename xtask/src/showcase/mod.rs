@@ -478,6 +478,9 @@ pub fn build(g: &mut Gen) -> Res<()> {
     draw_schematic(g, &sheet_ids)?;
     g.cmd("board.sync", json!({}))?;
     board::build(g)?;
+    // Loading a file adopts free-form MPN and manufacturer fields into the typed record, so
+    // the generated project already holds them and a save, load and save round trip is stable.
+    g.s.project.adopt_free_form_sourcing();
     Ok(())
 }
 
