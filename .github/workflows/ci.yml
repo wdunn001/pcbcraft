@@ -308,6 +308,60 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask strings check
 
+  a11y:
+    name: Accessibility
+    needs: changes
+    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: false
+      # Headless, no GPU: walks every screen through the AccessKit tree and writes a per-screen table to the job summary.
+      - run: cargo xtask a11y
+
+  i18n:
+    name: Localization
+    needs: changes
+    # Draft pull requests run only the cheap jobs; see docs/ci.md.
+    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: test
+          save-if: false
+      # Catalog parity, placeholders, literals, then the pseudo-locale walk and font coverage; see docs/localization.md.
+      - run: cargo xtask i18n
+
   wasm:
     name: WebAssembly
     needs: changes
@@ -543,7 +597,7 @@ jobs:
     # The single check to mark as required in branch protection. A draft pull
     # request reports the cheap set only; a ready pull request, main and the
     # merge queue report everything.
-    needs: [changes, policy, lint, docs-check, strings, test, coverage, e2e, wasm, msrv, deny, screenshots, build]
+    needs: [changes, policy, lint, docs-check, strings, a11y, i18n, test, coverage, e2e, wasm, msrv, deny, screenshots, build]
     if: always()
     # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
     runs-on: ubuntu-24.04
@@ -554,7 +608,7 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft }}
           RUST: ${{ needs.changes.outputs.rust }}
           CHEAP: ${{ format('{0} {1} {2} {3}', needs.changes.result, needs.policy.result, needs.lint.result, needs.docs-check.result) }}
-          HEAVY: ${{ format('{0} {1} {2} {3} {4} {5} {6}', needs.strings.result, needs.test.result, needs.coverage.result, needs.e2e.result, needs.wasm.result, needs.screenshots.result, needs.build.result) }}
+          HEAVY: ${{ format('{0} {1} {2} {3} {4} {5} {6} {7} {8}', needs.strings.result, needs.a11y.result, needs.i18n.result, needs.test.result, needs.coverage.result, needs.e2e.result, needs.wasm.result, needs.screenshots.result, needs.build.result) }}
         run: |
           echo "$RESULTS"
           if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
