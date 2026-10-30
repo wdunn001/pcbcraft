@@ -14876,7 +14876,9 @@ fn run_command(
                     "a drawn layer carries at most 512 figures".into(),
                 ));
             }
-            layer.shapes.push(pcbcraft_doc::ArtShape::Line { start, end });
+            layer
+                .shapes
+                .push(pcbcraft_doc::ArtShape::Line { start, end });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
         "board.layer_rect_add" => {

@@ -2569,13 +2569,7 @@ impl ArtShape {
                 ..
             } => {
                 let (width, height) = art_text_extent(text, *size);
-                art_box_distance(
-                    at,
-                    anchor.x,
-                    anchor.y,
-                    anchor.x + width,
-                    anchor.y + height,
-                )
+                art_box_distance(at, anchor.x, anchor.y, anchor.x + width, anchor.y + height)
             }
         }
     }
