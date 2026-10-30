@@ -8,11 +8,13 @@
 //! # Dependencies
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
+//! - xtask/src/changeset.rs
 //! - xtask/src/doc_check.rs
 //! - xtask/src/tooltips.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
+mod changeset;
 mod doc_check;
 mod e2e;
 mod showcase;
@@ -38,6 +40,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
+  changeset    check | list: the pull request's .changes/ file and its documentation gate
+  changelog    [--version X] compile .changes/ into CHANGELOG.md and archive the files
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
@@ -546,6 +550,8 @@ fn run() -> Result<(), String> {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
         }
         "docs" => docs()?,
+        "changeset" => changeset::run_changeset(&root()?, args.get(1..).unwrap_or(&[]))?,
+        "changelog" => changeset::run_changelog(&root()?, args.get(1..).unwrap_or(&[]))?,
         "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
         "deny" => deny()?,
         "msrv" => msrv()?,
