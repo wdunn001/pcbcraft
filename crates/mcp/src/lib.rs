@@ -96,8 +96,51 @@ pub fn tool_list() -> Value {
             .to_string();
         tool["title"] = json!(title_for(&name));
         tool["annotations"] = annotations_for(&name);
+        if let Some(schema) = output_schema_for(&name) {
+            tool["outputSchema"] = schema;
+        }
     }
     json!({"tools":tools})
+}
+
+/// The `outputSchema` of the tools whose result shape is stable.
+///
+/// # Rules
+/// Only `inspect_design` and `checks`. Both stay loose (`additionalProperties` true) because
+/// their reports grow. `checks` with `copper_only` has no `revision`, so it is not required.
+///
+/// # Dependencies
+/// `crates/engine/src/lib.rs` (`Session::inspect`, `Session::checks`) define the shapes.
+///
+/// # Do not
+/// Do not add a tool here whose result is not always `structuredContent`.
+fn output_schema_for(name: &str) -> Option<Value> {
+    match name {
+        "inspect_design" => Some(json!({
+            "type":"object",
+            "properties":{
+                "revision":{"type":"integer","minimum":0},
+                "project":{"type":"object"},
+                "history":{"type":"object","properties":{"undo":{"type":"integer"},"redo":{"type":"integer"}},"required":["undo","redo"]},
+                "capabilities":{"type":"object"}
+            },
+            "required":["revision","project","history","capabilities"],
+            "additionalProperties":true
+        })),
+        "checks" => Some(json!({
+            "type":"object",
+            "properties":{
+                "revision":{"type":"integer","minimum":0},
+                "erc":{"type":"array"},
+                "drc":{"type":"array"},
+                "airwires":{"type":"array"},
+                "scope":{"type":"string"}
+            },
+            "required":["erc","drc","airwires","scope"],
+            "additionalProperties":true
+        })),
+        _ => None,
+    }
 }
 
 /// Which family a tool belongs to, for its client-facing hints.
@@ -110,8 +153,9 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 16] = [
         "inspect_design",
+        "design.summary",
         "list_commands",
         "checks",
         "board_mesh",
