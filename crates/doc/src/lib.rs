@@ -25,6 +25,12 @@ pub const MAX_ITEMS: usize = 2048;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod drawing_frame;
+pub use drawing_frame::{
+    DrawingFrame, TitleBlockField, MAX_LOGO_TEXT, MAX_TITLE_BLOCK_FIELDS,
+    MAX_TITLE_BLOCK_LABEL, MAX_TITLE_BLOCK_TEMPLATE, PAGE_SIZES, known_page_size,
+    page_size_mm, sheet_page_numbers,
+};
 mod net_members;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
@@ -3312,6 +3318,9 @@ pub struct Project {
     /// reconcile the board in the same undo step as the edit.
     #[serde(default = "default_auto_sync")]
     pub auto_sync: bool,
+    /// Optional drawing frame and title-block template for plots and PDFs.
+    #[serde(default)]
+    pub drawing_frame: DrawingFrame,
 }
 
 fn default_auto_sync() -> bool {
@@ -3464,6 +3473,7 @@ impl Default for Project {
                 texts: vec![],
             },
             auto_sync: true,
+            drawing_frame: DrawingFrame::default(),
         }
     }
 }
@@ -4496,6 +4506,7 @@ impl Project {
         if self.panel.enabled {
             self.panel.validate_fields()?;
         }
+        self.drawing_frame.validate()?;
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
         }
