@@ -148,7 +148,17 @@ pub fn bench_render(
     w: usize,
     h: usize,
 ) -> egui::ColorImage {
-    raster::render_bench(mesh, basis.inner(), w, h)
+    raster::render(
+        mesh,
+        basis.inner(),
+        w,
+        h,
+        &raster::Look {
+            gold: false,
+            selected: None,
+            ss: 2,
+        },
+    )
 }
 
 impl View3d {

@@ -419,22 +419,3 @@ fn raster_tri(
     }
 }
 
-#[cfg(test)]
-pub(crate) fn render_bench(
-    mesh: &BoardMesh,
-    basis: &Basis,
-    w: usize,
-    h: usize,
-) -> egui::ColorImage {
-    render(
-        mesh,
-        basis,
-        w,
-        h,
-        &Look {
-            gold: false,
-            selected: None,
-            ss: 2,
-        },
-    )
-}

@@ -198,7 +198,7 @@ pub struct BoardMesh {
 }
 impl BoardMesh {
     pub fn vertex_count(&self) -> usize {
-        self.parts.iter().map(|p| p.positions.len()).sum()
+        self.parts.iter().map(MeshPart::stored_vertex_count).sum()
     }
     pub fn triangle_count(&self) -> usize {
         self.parts.iter().map(MeshPart::triangle_count).sum()
