@@ -32,7 +32,8 @@ env:
 jobs:
   changes:
     name: Changes
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -73,7 +74,8 @@ jobs:
   policy:
     name: Format and policy
     needs: changes
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -121,7 +123,8 @@ jobs:
   docs-check:
     name: Documentation standard
     needs: changes
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -283,7 +286,8 @@ jobs:
     needs: changes
     # Draft pull requests run only the cheap jobs; see docs/ci.md.
     if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -363,7 +367,8 @@ jobs:
     needs: changes
     # Draft pull requests run only the cheap jobs; see docs/ci.md.
     if: ${{ !github.event.pull_request.draft }}
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -455,7 +460,8 @@ jobs:
     name: UI screenshot sheet
     needs: screenshots
     if: ${{ !cancelled() && needs.screenshots.result != 'skipped' }}
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -539,7 +545,8 @@ jobs:
     # merge queue report everything.
     needs: [changes, policy, lint, docs-check, strings, test, coverage, e2e, wasm, msrv, deny, screenshots, build]
     if: always()
-    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    # Light job: GitHub-hosted (free for a public repo) so it never waits behind the heavy builds on the self-hosted runners.
+    runs-on: ubuntu-24.04
     permissions: {}
     steps:
       - env:
