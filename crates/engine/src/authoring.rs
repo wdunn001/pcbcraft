@@ -663,14 +663,15 @@ pub(super) fn run(
                         m.embedded = embedded;
                     }
                     None => {
-                        def.model = Some(build_model(&ModelParams {
+                        let mut m = build_model(&ModelParams {
                             name: a.name.clone(),
                             path: path.to_owned(),
                             offset: None,
                             scale: None,
                             rotate: None,
-                        })?);
-                        def.model.as_mut().unwrap().embedded = embedded;
+                        })?;
+                        m.embedded = embedded;
+                        def.model = Some(m);
                     }
                 }
                 def.validate().map_err(|e| Error::Invalid(e.to_string()))?;

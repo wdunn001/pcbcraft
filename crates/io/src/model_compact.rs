@@ -9,6 +9,12 @@ fn bad(why: &str) -> ModelError {
     ModelError(why.to_string())
 }
 
+fn fixed_bytes<const N: usize>(slice: &[u8]) -> Result<[u8; N], ModelError> {
+    slice
+        .try_into()
+        .map_err(|_| bad("the stored model file is truncated"))
+}
+
 fn decode_hex_digest(text: &str) -> Result<[u8; 32], ModelError> {
     if text.len() != 64 {
         return Err(bad("the model digest must be 64 lowercase hex digits"));
@@ -113,20 +119,23 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     if magic != MAGIC {
         return Err(bad("the stored model file is not a PCBM cache entry"));
     }
-    let version = u32::from_le_bytes(take(4, bytes)?.try_into().unwrap());
+    let version = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?);
     if version != COMPACT_VERSION {
         return Err(bad("the stored model file uses an unsupported version"));
     }
-    let _loader = u32::from_le_bytes(take(4, bytes)?.try_into().unwrap());
-    let _tol = f64::from_le_bytes(take(8, bytes)?.try_into().unwrap());
+    let _loader = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?);
+    let _tol = f64::from_le_bytes(fixed_bytes(take(8, bytes)?)?);
     let _digest = take(32, bytes)?;
-    let n_pos = u32::from_le_bytes(take(4, bytes)?.try_into().unwrap()) as usize;
-    let n_idx = u32::from_le_bytes(take(4, bytes)?.try_into().unwrap()) as usize;
-    let has_color = *take(1, bytes)?.first().unwrap();
+    let n_pos = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?) as usize;
+    let n_idx = u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?) as usize;
+    let has_color = take(1, bytes)?
+        .first()
+        .copied()
+        .ok_or_else(|| bad("the stored model file is truncated"))?;
     let color = if has_color != 0 {
         let mut c = [0f32; 3];
         for slot in &mut c {
-            *slot = f32::from_le_bytes(take(4, bytes)?.try_into().unwrap());
+            *slot = f32::from_le_bytes(fixed_bytes(take(4, bytes)?)?);
         }
         Some(c)
     } else {
@@ -136,13 +145,13 @@ pub fn decode_compact(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     for _ in 0..n_pos {
         let mut p = [0f64; 3];
         for v in &mut p {
-            *v = f64::from_le_bytes(take(8, bytes)?.try_into().unwrap());
+            *v = f64::from_le_bytes(fixed_bytes(take(8, bytes)?)?);
         }
         positions.push(p);
     }
     let mut indices = Vec::with_capacity(n_idx);
     for _ in 0..n_idx {
-        indices.push(u32::from_le_bytes(take(4, bytes)?.try_into().unwrap()));
+        indices.push(u32::from_le_bytes(fixed_bytes(take(4, bytes)?)?));
     }
     if off != bytes.len() {
         return Err(bad("the stored model file has trailing bytes"));

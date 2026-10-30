@@ -3,7 +3,7 @@ use crate::model_compact::{
     cache_entry_name, decode_compact, encode_compact, source_digest,
 };
 use crate::model_load::{
-    load_model, LoadedModel, LOADER_VERSION, ModelError, MAX_MODEL_BYTES,
+    load_model_uncached, LoadedModel, LOADER_VERSION, ModelError, MAX_MODEL_BYTES,
 };
 use crate::step_read::STEP_TOLERANCE_MM;
 use std::fs;
@@ -94,7 +94,7 @@ impl ImportCache {
         if let Some(m) = self.get(path, source) {
             return Ok(m);
         }
-        let model = load_model(path, source)?;
+        let model = load_model_uncached(path, source)?;
         if let Some(file) = self.entry_path(path, source) {
             let digest = source_digest(source);
             let compact = encode_compact(
@@ -128,7 +128,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model_load::load_model;
+    use crate::model_load::load_model_uncached;
 
     #[test]
     fn second_load_hits_the_disk_cache() -> Result<(), String> {
@@ -169,7 +169,7 @@ mod tests {
         let again = cache
             .load_or_convert("box.step", &changed)
             .map_err(|e| e.0)?;
-        let direct = load_model("box.step", &changed).map_err(|e| e.0)?;
+        let direct = load_model_uncached("box.step", &changed).map_err(|e| e.0)?;
         assert_eq!(again.indices.len(), direct.indices.len());
         Ok(())
     }
