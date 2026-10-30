@@ -3322,6 +3322,15 @@ pub struct Project {
     /// reconcile the board in the same undo step as the edit.
     #[serde(default = "default_auto_sync")]
     pub auto_sync: bool,
+    /// True when the board came from an imported file with no schematic behind
+    /// it. Sync from the schematic is then off, because there is nothing to
+    /// sync from and it would reset the imported pads.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub board_only: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 fn default_auto_sync() -> bool {
@@ -3474,6 +3483,7 @@ impl Default for Project {
                 preserved: PreservedSource::default(),
             },
             auto_sync: true,
+            board_only: false,
         }
     }
 }

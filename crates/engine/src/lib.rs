@@ -2414,7 +2414,7 @@ impl Session {
         let mut candidate = self.project.clone();
         let mut next = self.next_id;
         let mut results = vec![];
-        let auto_sync = candidate.auto_sync;
+        let auto_sync = candidate.auto_sync && !candidate.board_only;
         let mut needs_sync = false;
         let manual_sync = commands.iter().any(|c| c.command == "board.sync");
         for command in commands {
@@ -7501,6 +7501,8 @@ fn run_command(
                 _ => return Err(Error::Invalid("unsupported import format".into())),
             };
             *p = imported;
+            // New objects must not reuse an id the import already took.
+            *next = (*next).max(p.ids().max().unwrap_or(0).saturating_add(1));
             Ok(summary)
         }
         "component.add" => {
@@ -15975,6 +15977,12 @@ fn run_command(
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
             }
+            if p.board_only {
+                return Err(Error::Invalid(
+                    "this board came from an imported file and has no schematic to sync from"
+                        .into(),
+                ));
+            }
             sync_board_from_schematic(p, next)
         }
         "board.resize" => {
@@ -22670,6 +22678,43 @@ mod tests {
         assert_ne!(session.project, before);
         session.undo()?;
         assert_eq!(session.project, before);
+        Ok(())
+    }
+
+    #[test]
+    fn board_sync_on_an_imported_board_changes_nothing() -> Result<(), Error> {
+        let fixture = include_str!("../../io/tests/fixtures/board_import_simple_2layer.kicad_pcb");
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-board-sync-{}.kicad_pcb",
+            std::process::id()
+        ));
+        std::fs::write(&path, fixture).map_err(|e| Error::Invalid(e.to_string()))?;
+        let mut s = Session::default();
+        s.execute(
+            "project.import",
+            json!({"format":"board","path":path.to_string_lossy()}),
+            None,
+        )?;
+        std::fs::remove_file(&path).ok();
+        assert!(s.project.board_only);
+        let before = s.project.clone();
+        assert!(s.execute("board.sync", json!({}), None).is_err());
+        assert_eq!(s.project, before, "Update must not touch an imported board");
+        // Editing keeps every imported part: automatic sync stays off.
+        s.execute("project.set_auto_sync", json!({"auto_sync": true}), None)?;
+        s.execute(
+            "component.add",
+            json!({"kind":"led","reference":"D99","value":"LED","position":{"x":1,"y":1}}),
+            None,
+        )?;
+        assert!(
+            before.board.footprints.iter().all(|f| s
+                .project
+                .board
+                .footprints
+                .iter()
+                .any(|g| g.id == f.id))
+        );
         Ok(())
     }
 

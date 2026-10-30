@@ -667,6 +667,10 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
 }
 
 pub fn erc(project: &Project) -> Vec<Finding> {
+    // A board imported without a schematic has no pins to check.
+    if project.board_only {
+        return vec![];
+    }
     let mut result = vec![];
     for c in &project.components {
         for p in &c.pins {

@@ -39,6 +39,7 @@ pub use bitmap_trace::{
 /// - crates/io/src/bitmap_trace.rs
 pub use board_import::{
     ImportCounts, ImportReport, read_board_interchange, read_board_interchange_report,
+    read_board_interchange_with_rules,
 };
 mod cam;
 mod cam_drill;

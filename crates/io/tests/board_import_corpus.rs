@@ -39,7 +39,8 @@ fn corpus_boards_import_without_error() -> Result<(), String> {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        match pcbcraft_io::read_board_interchange_report(&text) {
+        let pro = std::fs::read_to_string(path.with_extension("kicad_pro")).ok();
+        match pcbcraft_io::read_board_interchange_with_rules(&text, pro.as_deref()) {
             Ok((project, r)) => {
                 // Optional: keep the imported project for screenshots (outside the repository).
                 if let Ok(dir) = std::env::var("PCBCRAFT_OPENDRONE_SAVE_DIR") {

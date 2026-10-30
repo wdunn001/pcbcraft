@@ -104,6 +104,23 @@ pub fn read_board_interchange(text: &str) -> Result<Project, String> {
 /// # Do not
 /// - Add a panic path; use a notice for anything unexpected.
 pub fn read_board_interchange_report(text: &str) -> Result<(Project, ImportReport), String> {
+    read_board_interchange_with_rules(text, None)
+}
+
+/// Read a board file and, when the text of its project file is given, take the
+/// design rules from it: board clearance, minimum track and space, minimum
+/// drill and via ring.
+///
+/// # Rules
+/// - A project file that is not valid JSON or lacks the rules is ignored with
+///   a notice; it never fails the import.
+///
+/// # Dependencies
+/// - `crates/engine/src/lib.rs` passes the sibling project file of the board.
+pub fn read_board_interchange_with_rules(
+    text: &str,
+    project_file: Option<&str>,
+) -> Result<(Project, ImportReport), String> {
     let limits = Limits {
         nodes: 4_000_000,
         ..Limits::default()
@@ -117,6 +134,9 @@ pub fn read_board_interchange_report(text: &str) -> Result<(Project, ImportRepor
         return Err(format!("unsupported board file version {version:?}"));
     }
     let mut ctx = ImportCtx::new(text);
+    if let Some(pro) = project_file {
+        ctx.read_rules(pro);
+    }
     ctx.prepare(&root);
     let mut board = Project::default().board;
     ctx.read_general(&root, &mut board);
@@ -179,6 +199,7 @@ struct ImportCtx {
     edge: Vec<EdgePiece>,
     edge_circles: Vec<(Point, Point)>,
     outline_src: Vec<EdgePiece>,
+    rules: Option<(f64, pcbcraft_doc::FabRules)>,
     src: ImportCounts,
     spans: BTreeSet<(u8, u8)>,
     unassigned: Option<Id>,
@@ -202,6 +223,7 @@ impl ImportCtx {
             edge: Vec::new(),
             edge_circles: Vec::new(),
             outline_src: Vec::new(),
+            rules: None,
             src: ImportCounts::default(),
             spans: BTreeSet::new(),
             unassigned: None,
@@ -217,6 +239,36 @@ impl ImportCtx {
             .entry(kind.to_owned())
             .or_insert_with(|| (0, detail.to_owned()));
         entry.0 += 1;
+    }
+
+    /// Design rules from the text of the board's project file.
+    fn read_rules(&mut self, pro: &str) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(pro) else {
+            self.notice(
+                "the project file could not be read; design rules not imported",
+                "",
+            );
+            return;
+        };
+        let rules = &v["board"]["design_settings"]["rules"];
+        let get = |x: &serde_json::Value| {
+            x.as_f64()
+                .filter(|n| n.is_finite() && *n > 0.0 && *n <= 100.0)
+        };
+        let class = v["net_settings"]["classes"]
+            .as_array()
+            .and_then(|c| c.first())
+            .and_then(|c| get(&c["clearance"]));
+        let Some(clearance) = class.or_else(|| get(&rules["min_clearance"])) else {
+            return;
+        };
+        let fab = pcbcraft_doc::FabRules {
+            min_track: get(&rules["min_track_width"]),
+            min_drill: get(&rules["min_through_hole_diameter"]),
+            min_ring_via: get(&rules["min_via_annular_width"]),
+            ..pcbcraft_doc::FabRules::default()
+        };
+        self.rules = Some((clearance, fab));
     }
 
     fn alloc(&mut self) -> Id {
@@ -1683,6 +1735,18 @@ impl ImportCtx {
             return;
         };
         let raw: Vec<Point> = self.pts(pts).into_iter().map(|p| self.shift(p)).collect();
+        let raw = if node.child("keepout").is_none() {
+            let clipped = clip_to_rect(&raw, board.width, board.height);
+            if clipped.len() != raw.len() || clipped != raw {
+                self.notice(
+                    "zones larger than the board were trimmed to the board rectangle",
+                    "pour outlines reach past the board edge in the source",
+                );
+            }
+            clipped
+        } else {
+            raw
+        };
         let Some(outline) = self.closed_outline(raw) else {
             self.notice("zones with no area were skipped", "");
             return;
@@ -1860,10 +1924,19 @@ impl ImportCtx {
             components: std::mem::take(&mut self.components),
             nets: std::mem::take(&mut self.nets),
             auto_sync: false,
+            board_only: true,
             ..Project::default()
         };
         // Via spans beyond the generic ones become allowed extras.
         project.board = board;
+        if let Some((clearance, fab)) = self.rules.take() {
+            project.board.clearance = clearance;
+            project.board.rules = Some(fab);
+            self.notice(
+                "design rules were read from the project file",
+                &format!("clearance {clearance} mm"),
+            );
+        }
         let allowed: BTreeSet<(u8, u8)> = project
             .allowed_via_spans()
             .iter()
@@ -1988,6 +2061,46 @@ fn arc_samples(a: Point, m: Point, b: Point) -> Vec<Point> {
             Point::new(cx + r * t.cos(), cy + r * t.sin())
         })
         .collect()
+}
+
+/// Clip a polygon to the rectangle from the origin to (w, h), edge by edge.
+fn clip_to_rect(poly: &[Point], w: f64, h: f64) -> Vec<Point> {
+    type Inside = fn(Point, f64, f64) -> bool;
+    let edges: [(Inside, u8); 4] = [
+        (|p, _, _| p.x >= 0.0, 0),
+        (|p, w, _| p.x <= w, 1),
+        (|p, _, _| p.y >= 0.0, 2),
+        (|p, _, h| p.y <= h, 3),
+    ];
+    let cross = |a: Point, b: Point, side: u8| -> Point {
+        let (x, y) = match side {
+            0 => (0.0, a.y + (b.y - a.y) * (0.0 - a.x) / (b.x - a.x)),
+            1 => (w, a.y + (b.y - a.y) * (w - a.x) / (b.x - a.x)),
+            2 => (a.x + (b.x - a.x) * (0.0 - a.y) / (b.y - a.y), 0.0),
+            _ => (a.x + (b.x - a.x) * (h - a.y) / (b.y - a.y), h),
+        };
+        Point::new(x, y)
+    };
+    let mut out: Vec<Point> = poly.to_vec();
+    for (inside, side) in edges {
+        let input = std::mem::take(&mut out);
+        for i in 0..input.len() {
+            let (cur, prev) = (input[i], input[(i + input.len() - 1) % input.len()]);
+            match (inside(cur, w, h), inside(prev, w, h)) {
+                (true, true) => out.push(cur),
+                (true, false) => {
+                    out.push(cross(prev, cur, side));
+                    out.push(cur);
+                }
+                (false, true) => out.push(cross(prev, cur, side)),
+                (false, false) => {}
+            }
+        }
+        if out.is_empty() {
+            break;
+        }
+    }
+    out
 }
 
 fn grow_min(min: &mut Option<Point>, p: Point) {

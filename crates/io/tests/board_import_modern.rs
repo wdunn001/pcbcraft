@@ -2,7 +2,10 @@
 //! layers, blind and buried vias, keepouts, stackup rows and 3D references.
 //!
 //! The fixtures are small files written for this repository.
-use pcbcraft_io::{kicad_board, read_board_interchange, read_board_interchange_report};
+use pcbcraft_io::{
+    kicad_board, read_board_interchange, read_board_interchange_report,
+    read_board_interchange_with_rules,
+};
 
 const MODERN: &str = include_str!("fixtures/board_import_modern_6layer.kicad_pcb");
 const ORDINAL: &str = include_str!("fixtures/board_import_ordinal_nets.kicad_pcb");
@@ -322,5 +325,56 @@ fn no_source_embeds_corpus_files() -> Result<(), String> {
             }
         }
     }
+    Ok(())
+}
+
+#[test]
+fn imported_board_has_no_schematic_and_no_erc() -> Result<(), String> {
+    let p = read_board_interchange(MODERN)?;
+    assert!(p.board_only);
+    assert!(!p.auto_sync);
+    Ok(())
+}
+
+#[test]
+fn pour_outline_past_the_board_is_trimmed_to_it() -> Result<(), String> {
+    let text = MODERN.replace(
+        "(polygon (pts (xy 104 104) (xy 108 104) (xy 108 108) (xy 104 108)))",
+        "(polygon (pts (xy 90 90) (xy 150 90) (xy 150 140) (xy 90 140)))",
+    );
+    let (p, report) = read_board_interchange_report(&text)?;
+    let z = p
+        .board
+        .zones
+        .iter()
+        .find(|z| z.outline.iter().any(|q| (q.x - p.board.width).abs() < 1e-6))
+        .ok_or("no trimmed zone")?;
+    assert!(
+        z.outline
+            .iter()
+            .all(|q| q.x >= -1e-6 && q.x <= p.board.width + 1e-6)
+    );
+    assert!(
+        z.outline
+            .iter()
+            .all(|q| q.y >= -1e-6 && q.y <= p.board.height + 1e-6)
+    );
+    assert!(report.notices.iter().any(|n| n.contains("trimmed")));
+    Ok(())
+}
+
+#[test]
+fn design_rules_come_from_the_project_file() -> Result<(), String> {
+    let pro = r#"{"board":{"design_settings":{"rules":{"min_clearance":0.09,"min_track_width":0.09,"min_through_hole_diameter":0.2,"min_via_annular_width":0.075}}},
+        "net_settings":{"classes":[{"name":"Default","clearance":0.1}]}}"#;
+    let (p, report) = read_board_interchange_with_rules(MODERN, Some(pro))?;
+    assert!((p.board.clearance - 0.1).abs() < 1e-9);
+    let rules = p.board.rules.ok_or("no rules")?;
+    assert_eq!(rules.min_track, Some(0.09));
+    assert_eq!(rules.min_ring_via, Some(0.075));
+    assert!(report.notices.iter().any(|n| n.contains("design rules")));
+    // Garbage is ignored, never an error.
+    let (q, _) = read_board_interchange_with_rules(MODERN, Some("not json"))?;
+    assert!((q.board.clearance - read_board_interchange(MODERN)?.board.clearance).abs() < 1e-9);
     Ok(())
 }
