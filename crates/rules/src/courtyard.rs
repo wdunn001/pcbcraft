@@ -6,8 +6,8 @@
 //!
 //! Local rules:
 //! - Courtyard layers are `pcbcraft.courtyard` and `F.CrtYd` (front) and
-//!   `B.CrtYd` (back). Footprints carry no side of their own, so the layer
-//!   name decides which side a courtyard is on.
+//!   `B.CrtYd` (back). The board side comes from `Footprint::board_side`;
+//!   bottom-mounted parts mirror courtyard points in x like their pads.
 //! - Overlap is a separating-axis test on the true rotated polygons, never on
 //!   bounding boxes.
 //! - A footprint with no courtyard uses the bounding box of
@@ -44,8 +44,26 @@ fn side_of(layer: &str) -> Option<Layer> {
     }
 }
 
+/// Which board side a courtyard graphic occupies once the footprint is placed.
+fn courtyard_side(f: &Footprint, layer: &str) -> Option<Layer> {
+    let authored = side_of(layer)?;
+    if f.board_side() == Layer::Front {
+        return Some(authored);
+    }
+    Some(if authored == Layer::Front {
+        Layer::Back
+    } else {
+        Layer::Front
+    })
+}
+
 fn to_world(f: &Footprint, p: Point) -> Point {
-    f.position.offset(p.rotate(-f.rotation))
+    let local = if f.board_side() == Layer::Back {
+        Point::new(-p.x, p.y)
+    } else {
+        p
+    };
+    f.position.offset(local.rotate(-f.rotation))
 }
 
 /// Convex hull by monotone chain; fewer than three points come back as given.
@@ -103,7 +121,9 @@ fn yards_of(project: &Project, f: &Footprint) -> Vec<Yard> {
                 | Graphic::Polyline { layer, .. }
                 | Graphic::Text { layer, .. } => layer,
             };
-            let Some(side) = side_of(layer) else { continue };
+            let Some(side) = courtyard_side(f, layer) else {
+                continue;
+            };
             if let Graphic::Rectangle { start, end, .. } = g {
                 let corners = [
                     *start,
@@ -159,7 +179,7 @@ fn yards_of(project: &Project, f: &Footprint) -> Vec<Yard> {
             yards.push(Yard {
                 footprint: f.id,
                 label,
-                side: Layer::Front,
+                side: f.board_side(),
                 polygon: corners.iter().map(|c| to_world(f, *c)).collect(),
                 estimated: true,
             });
@@ -272,6 +292,7 @@ mod tests {
         rotation: f64,
         half: Option<(f64, f64)>,
         layer: &str,
+        side: Option<Layer>,
     ) {
         if let Some(mut c) = component_template("resistor", id, format!("R{id}"), at) {
             if let Some((hx, hy)) = half {
@@ -304,7 +325,7 @@ mod tests {
             position: at,
             rotation,
             locked: None,
-            side: None,
+            side,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -332,6 +353,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         part(
             &mut p,
@@ -340,6 +362,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         let f = found(&p);
         assert_eq!(f.len(), 1);
@@ -357,6 +380,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         part(
             &mut p,
@@ -365,6 +389,30 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "B.CrtYd",
+            None,
+        );
+        assert!(found(&p).is_empty());
+    }
+    #[test]
+    fn bottom_mounted_courtyard_does_not_collide_with_the_top_at_the_same_xy() {
+        let mut p = Project::default();
+        part(
+            &mut p,
+            2,
+            Point::new(0.0, 0.0),
+            0.0,
+            Some((2.0, 1.0)),
+            "F.CrtYd",
+            None,
+        );
+        part(
+            &mut p,
+            3,
+            Point::new(1.0, 0.0),
+            0.0,
+            Some((2.0, 1.0)),
+            "F.CrtYd",
+            Some(Layer::Back),
         );
         assert!(found(&p).is_empty());
     }
@@ -381,6 +429,7 @@ mod tests {
             0.0,
             Some((2.0, 0.5)),
             "F.CrtYd",
+            None,
         );
         part(
             &mut p,
@@ -389,6 +438,7 @@ mod tests {
             45.0,
             Some((1.5, 0.2)),
             "F.CrtYd",
+            None,
         );
         assert!(found(&p).is_empty(), "boxes overlap, shapes do not");
         p.board.footprints[1].position = Point::new(1.5, 1.0);
@@ -401,8 +451,8 @@ mod tests {
         // No courtyard: the drawing spans x -3.75..3.75, so the estimate is
         // 4.0 mm either side. Parts 7.9 mm apart overlap by 0.1 mm; 8.1 do not.
         let mut p = Project::default();
-        part(&mut p, 2, Point::new(0.0, 0.0), 0.0, None, "");
-        part(&mut p, 3, Point::new(7.9, 0.0), 0.0, None, "");
+        part(&mut p, 2, Point::new(0.0, 0.0), 0.0, None, "", None);
+        part(&mut p, 3, Point::new(7.9, 0.0), 0.0, None, "", None);
         let f = found(&p);
         assert_eq!(f.len(), 1);
         assert!(f[0].message.contains("overlap by 0.100 mm"));
@@ -420,6 +470,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         part(
             &mut p,
@@ -428,6 +479,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         assert!(found(&p).is_empty());
     }
@@ -441,6 +493,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         part(
             &mut p,
@@ -449,6 +502,7 @@ mod tests {
             0.0,
             Some((2.0, 1.0)),
             "F.CrtYd",
+            None,
         );
         p.rule_severity
             .insert("courtyard_overlap".into(), "warning".into());

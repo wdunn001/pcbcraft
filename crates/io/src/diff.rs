@@ -726,6 +726,7 @@ mod tests {
             fields: vec![],
             sourcing: Default::default(),
             sheet: 0,
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 20,

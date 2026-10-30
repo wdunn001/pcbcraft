@@ -520,6 +520,7 @@ mod tests {
         pad_kind: (&str, &str),
     ) {
         p.components.push(Component {
+            sourcing: Default::default(),
             id,
             reference: reference.into(),
             value: value.into(),

@@ -33,27 +33,70 @@ fn covering_help(c: ViaCovering) -> &'static str {
 }
 
 impl App {
-    /// Covering picker for the selected via; does nothing for other objects.
+    /// Protection pickers for the selected via, or for every selected via
+    /// when several are chosen; does nothing for other objects.
+    ///
+    /// # Rules
+    /// - The first picker sets both faces; Top and Bottom set one face each.
+    /// - With several vias selected the pickers change all of them in one step.
+    ///
+    /// # Dependencies
+    /// - crates/engine/src/via_protection.rs `run`.
+    ///
+    /// # Do not
+    /// - Offer a protection other than open to a via with no drilled hole.
     pub(crate) fn via_covering_controls(&mut self, ui: &mut egui::Ui, id: Id) {
         let Some(via) = self.project.board.vias.iter().find(|v| v.id == id) else {
             return;
         };
         let own = via.covering;
-        let has_hole = via.drill > 0.0;
-        let shown = own.map_or("Follow board".to_string(), |c| covering_name(c).to_string());
+        let board = &self.project.board;
+        let (top, bottom) = (
+            via.effective_covering(board),
+            via.effective_covering_bottom(board),
+        );
+        let split = via.covering_bottom.is_some() && top != bottom;
+        let kind = self.project.via_protection_type(via);
+        let selected: Vec<Id> = self
+            .selection()
+            .into_iter()
+            .filter(|s| self.project.board.vias.iter().any(|v| v.id == *s))
+            .collect();
+        let many = selected.len() > 1;
+        let has_hole = selected
+            .iter()
+            .filter_map(|s| self.project.board.vias.iter().find(|v| v.id == *s))
+            .all(|v| v.drill > 0.0)
+            && via.drill > 0.0;
+        let shown = if split {
+            t!("via_protection.differs")
+        } else {
+            own.map_or(t!("via_protection.follow_board"), |c| {
+                covering_name(c).to_string()
+            })
+        };
         ui.add_space(10.0);
-        ui.label("Via protection");
+        ui.label(t!("via_protection.title"));
+        if many {
+            ui.label(
+                egui::RichText::new(t!("via_protection.many", count = selected.len()))
+                    .color(self.muted()),
+            );
+        }
         ui.add_space(4.0);
-        ui.add_enabled_ui(has_hole || own.is_none(), |ui| {
+        ui.add_enabled_ui(has_hole || (own.is_none() && !split), |ui| {
             egui::ComboBox::from_id_salt("via-covering")
                 .selected_text(shown)
                 .show_ui(ui, |ui| {
                     if ui
-                        .selectable_label(own.is_none(), "Follow board")
-                        .on_hover_text("Use the covering chosen for the whole board.")
+                        .selectable_label(
+                            own.is_none() && !split,
+                            t!("via_protection.follow_board"),
+                        )
+                        .on_hover_text(t!("via_protection.follow_board.tip"))
                         .clicked()
                     {
-                        self.run("via.set_covering", json!({"id": id}));
+                        self.set_via_covering(&selected, id, None, "both");
                         ui.close();
                     }
                     for c in ViaCovering::ALL {
@@ -61,24 +104,88 @@ impl App {
                             continue;
                         }
                         if ui
-                            .selectable_label(own == Some(c), covering_name(c))
+                            .selectable_label(own == Some(c) && !split, covering_name(c))
                             .on_hover_text(covering_help(c))
                             .clicked()
                         {
-                            self.run(
-                                "via.set_covering",
-                                json!({"id": id, "covering": c.token()}),
-                            );
+                            self.set_via_covering(&selected, id, Some(c), "both");
                             ui.close();
                         }
                     }
                 })
-                .response.named("Via protection")
-                .on_hover_text(
-                    "How this via is protected under the solder mask. Anything but left open removes the mask opening in the fabrication files.",
-                );
+                .response
+                .named("Via protection")
+                .on_hover_text(t!("via_protection.both.tip"));
         });
         ui.add_space(6.0);
+        for (face, salt, current) in [
+            ("top", "via-covering-top", top),
+            ("bottom", "via-covering-bottom", bottom),
+        ] {
+            let label = if face == "top" {
+                t!("via_protection.top")
+            } else {
+                t!("via_protection.bottom")
+            };
+            let tip = if face == "top" {
+                t!("via_protection.top.tip")
+            } else {
+                t!("via_protection.bottom.tip")
+            };
+            ui.horizontal(|ui| {
+                ui.label(label.clone());
+                ui.add_enabled_ui(has_hole, |ui| {
+                    egui::ComboBox::from_id_salt(salt)
+                        .selected_text(covering_name(current))
+                        .show_ui(ui, |ui| {
+                            for c in ViaCovering::ALL {
+                                if ui
+                                    .selectable_label(current == c, covering_name(c))
+                                    .on_hover_text(covering_help(c))
+                                    .clicked()
+                                {
+                                    self.set_via_covering(&selected, id, Some(c), face);
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .named(&label)
+                        .on_hover_text(tip);
+                });
+            });
+        }
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new(t!("via_protection.type", kind = kind.gerber_token()))
+                .color(self.muted()),
+        )
+        .on_hover_text(t!("via_protection.type.tip"));
+        ui.add_space(6.0);
+    }
+
+    /// Run the protection command for one via or for the whole selection.
+    fn set_via_covering(
+        &mut self,
+        selected: &[Id],
+        id: Id,
+        covering: Option<ViaCovering>,
+        side: &str,
+    ) {
+        let mut params = if selected.len() > 1 {
+            json!({"ids": selected, "side": side})
+        } else {
+            json!({"id": id, "side": side})
+        };
+        if let (Some(c), Some(map)) = (covering, params.as_object_mut()) {
+            map.insert("covering".into(), json!(c.token()));
+        }
+        let command = if selected.len() > 1 {
+            "via.set_covering_many"
+        } else {
+            "via.set_covering"
+        };
+        self.run(command, params);
     }
 
     /// Board-wide default covering, shown with the other fabrication notes.

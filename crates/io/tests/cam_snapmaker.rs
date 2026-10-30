@@ -22,6 +22,7 @@ fn sample_two_pads_track() -> Project {
         ..Net::default()
     });
     p.components.push(Component {
+        sourcing: Default::default(),
         id: 201,
         reference: "U1".into(),
         value: "A".into(),
@@ -45,6 +46,7 @@ fn sample_two_pads_track() -> Project {
         sheet: 0,
     });
     p.components.push(Component {
+        sourcing: Default::default(),
         id: 202,
         reference: "U2".into(),
         value: "B".into(),
@@ -259,6 +261,7 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         from_layer: None,
         to_layer: None,
         covering: None,
+        covering_bottom: None,
     });
     p.board.holes.push(Hole {
         id: 2,
