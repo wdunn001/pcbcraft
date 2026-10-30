@@ -40,6 +40,7 @@ fn via(id: Id, from: Option<u8>, to: Option<u8>) -> Result<Via, String> {
         to_layer: to.map(Layer::from_index).transpose()?,
         covering: None,
         covering_bottom: None,
+        backdrill: None,
     })
 }
 

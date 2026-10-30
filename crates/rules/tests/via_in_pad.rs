@@ -66,6 +66,7 @@ fn via(id: Id, x: f64, covering: Option<ViaCovering>, bottom: Option<ViaCovering
         to_layer: None,
         covering,
         covering_bottom: bottom,
+        backdrill: None,
     }
 }
 

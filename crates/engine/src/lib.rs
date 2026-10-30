@@ -9,6 +9,7 @@ mod outline;
 pub mod profiles;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
+mod backdrill;
 mod route;
 mod selection_clip;
 mod snapmaker;
@@ -2303,6 +2304,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(outline::commands())
         .chain(tuning::commands())
         .chain(via_protection::commands())
+        .chain(backdrill::commands())
         .collect()
 }
 
@@ -6286,7 +6288,7 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Track(x), Via(y)) | (Via(y), Track(x)) => {
                 let (t, v) = (&p.board.tracks[x], &p.board.vias[y]);
-                p.via_span_layers(v).contains(&t.layer)
+                p.via_conducting_layers(v).contains(&t.layer)
                     && [t.start, t.end]
                         .iter()
                         .any(|e| e.distance(v.position) <= v.diameter / 2.0 + TRACK_ENDPOINT_EPS)
@@ -6300,7 +6302,9 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Via(y), Pad(f, q)) | (Pad(f, q), Via(y)) => {
                 let (v, pad) = (&p.board.vias[y], &p.board.footprints[f].pads[q]);
-                p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
+                p.via_conducting_layers(v)
+                    .iter()
+                    .any(|l| pad_layers(pad, *l))
                     && v.position.distance(pad_anchor(f, q))
                         <= v.diameter / 2.0 + pad.bounding_radius() + TRACK_ENDPOINT_EPS
             }
@@ -7077,6 +7081,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = via_protection::run(p, command, params) {
+        return result;
+    }
+    if let Some(result) = backdrill::run(p, command, params) {
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
@@ -8506,6 +8513,7 @@ fn run_command(
                 pair_gap: None,
                 nets: a.nets,
                 profile: None,
+                backdrill: None,
             });
             Ok(json!({"id": id}))
         }
@@ -12281,6 +12289,7 @@ fn run_command(
                 to_layer,
                 covering: None,
                 covering_bottom: None,
+                backdrill: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -12309,6 +12318,22 @@ fn run_command(
                 .ok_or_else(missing)?;
             let (from_layer, to_layer) =
                 resolve_via_span(p, a.from_layer.as_deref(), a.to_layer.as_deref(), current)?;
+            let via = p
+                .board
+                .vias
+                .iter_mut()
+                .find(|v| v.id == a.id)
+                .ok_or_else(missing)?;
+            let mut moved = via.clone();
+            moved.from_layer = from_layer;
+            moved.to_layer = to_layer;
+            if let Some(spec) = moved.backdrill {
+                p.validate_backdrill(&moved, &spec).map_err(|e| {
+                    Error::Invalid(format!(
+                        "clear the back-drill first, it no longer fits: {e}"
+                    ))
+                })?;
+            }
             let via = p
                 .board
                 .vias
@@ -12425,6 +12450,7 @@ fn run_command(
                         to_layer: None,
                         covering: None,
                         covering_bottom: None,
+                        backdrill: None,
                     });
                     ids.push(id);
                 }

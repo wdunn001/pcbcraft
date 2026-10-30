@@ -34,6 +34,7 @@ mod shell;
 mod showcase;
 mod toolbar;
 mod tree_rows;
+mod via_backdrill;
 mod via_covering;
 mod vias;
 mod workbench;

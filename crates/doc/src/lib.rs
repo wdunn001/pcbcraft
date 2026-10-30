@@ -25,8 +25,10 @@ pub const MAX_ITEMS: usize = 2048;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod backdrill;
 mod net_members;
 mod via_protection;
+pub use backdrill::{BACKDRILL_MAX_MM, BackDrill, BackDrillFrom};
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 pub mod fill;
@@ -356,6 +358,9 @@ pub struct NetClass {
     /// Built-in or custom rule profile that last applied these values, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// Back-drill applied to member vias that carry none of their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrill: Option<BackDrill>,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.
@@ -1313,6 +1318,9 @@ pub struct Via {
     /// every file saved before this field existed reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering_bottom: Option<ViaCovering>,
+    /// Back-drill setting for this via; none follows the net class default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrill: Option<BackDrill>,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -3755,24 +3763,7 @@ impl Project {
     /// from the stackup records; none when the stackup carries no such rows.
     pub fn via_depth(&self, via: &Via) -> Option<f64> {
         let (a, b) = self.via_span(via);
-        let mut copper = 0usize;
-        let mut inside = false;
-        let mut depth = 0.0;
-        for rec in &self.board.layer_records {
-            if rec.kind == "copper" {
-                if inside && copper == b.index() as usize {
-                    return Some(depth);
-                }
-                if copper == a.index() as usize {
-                    inside = true;
-                }
-                copper += 1;
-            }
-            if inside {
-                depth += rec.thickness;
-            }
-        }
-        None
+        self.layer_distance(a, b)
     }
     /// Kind of a via, derived from its span (never stored).
     pub fn via_kind(&self, via: &Via) -> ViaKind {
@@ -6605,6 +6596,7 @@ mod via_covering_tests {
             to_layer: None,
             covering,
             covering_bottom: None,
+            backdrill: None,
         });
         p
     }

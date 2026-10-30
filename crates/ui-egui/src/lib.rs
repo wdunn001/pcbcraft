@@ -45,6 +45,7 @@ pub mod theme;
 mod tool_modifiers;
 mod toolbar;
 pub mod ui_kit;
+mod via_backdrill;
 mod via_covering;
 mod via_span;
 mod workspace;
@@ -6182,6 +6183,7 @@ impl App {
                         self.object_general(ui, id);
                         self.via_span_controls(ui, id);
                         self.via_covering_controls(ui, id);
+                        self.via_backdrill_controls(ui, id);
                         if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
                             let curved = track.arc.is_some();
                             let net = track.net;

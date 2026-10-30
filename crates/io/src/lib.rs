@@ -6,6 +6,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod backdrill;
 mod bitmap_trace;
 mod board_mesh;
 mod diff;
@@ -2682,7 +2683,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         }
     }
     for (key, text) in &extras {
-        if key.starts_with("pcb-Drill-L") {
+        if key.starts_with("pcb-Drill-L") || key.starts_with("pcb-BackDrill-") {
             files.insert(key.clone(), text.clone());
         }
     }
@@ -6984,6 +6985,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7065,6 +7067,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
@@ -7191,6 +7194,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -7235,6 +7239,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7246,6 +7251,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -7424,6 +7430,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7472,6 +7479,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7537,6 +7545,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8460,6 +8469,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -8556,6 +8566,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -8811,6 +8822,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9429,6 +9441,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -9687,6 +9700,7 @@ mod tests {
             pair_gap: None,
             nets: vec![5],
             profile: None,
+            backdrill: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -9763,6 +9777,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -9938,6 +9953,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -10068,6 +10084,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -10981,6 +10998,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -11138,6 +11156,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -12358,6 +12377,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12392,6 +12412,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12936,6 +12957,7 @@ mod tests {
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -13075,6 +13097,7 @@ mod tests {
                 to_layer: None,
                 covering,
                 covering_bottom: None,
+                backdrill: None,
             });
         }
         project.validate()?;

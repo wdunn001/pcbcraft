@@ -319,6 +319,7 @@ mod tests {
             to_layer: None,
             covering: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project
     }

@@ -52,6 +52,7 @@ pub fn via(
         to_layer: span.map(|s| Layer::from_index(s.1)).transpose()?,
         covering: top,
         covering_bottom: bottom,
+        backdrill: None,
     })
 }
 
@@ -185,4 +186,33 @@ pub fn golden(name: &str, actual: &str) -> T {
             "{name} differs from its golden file.\n--- golden ---\n{want}\n--- actual ---\n{actual}"
         ))
     }
+}
+
+/// A six-layer board for the back-drill tests: two vias back-drilled from the
+/// bottom (keeping layer 4), one from the top (keeping layer 3, a larger
+/// drill) and one plain through via.
+pub fn backdrill_board() -> Result<Project, String> {
+    use pcbcraft_doc::{BackDrill, BackDrillFrom};
+    let mut p = board(6);
+    p.board.vias = vec![
+        via(20, 10.0, 0.3, None, None, None)?,
+        via(21, 12.0, 0.3, None, None, None)?,
+        via(22, 14.0, 0.3, None, None, None)?,
+        via(23, 16.0, 0.3, None, None, None)?,
+    ];
+    let bottom = BackDrill {
+        from: BackDrillFrom::Bottom,
+        must_not_cut: Layer::from_index(3)?,
+        max_stub: 0.4,
+        diameter: 0.5,
+    };
+    p.board.vias[0].backdrill = Some(bottom);
+    p.board.vias[1].backdrill = Some(bottom);
+    p.board.vias[2].backdrill = Some(BackDrill {
+        from: BackDrillFrom::Top,
+        must_not_cut: Layer::from_index(2)?,
+        max_stub: 0.4,
+        diameter: 0.6,
+    });
+    Ok(p)
 }

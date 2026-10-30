@@ -1402,6 +1402,8 @@ check.panel_tab_too_narrow = Panel tab too narrow
 check.panel_too_large_for_assembler = Panel too large for assembler
 check.pour_fill = Pour fill
 check.silk_text_height = Silk text height
+check.backdrill_must_not_cut = Back-drill cuts a layer it must not
+check.backdrill_stub_too_long = Back-drill stub too long
 check.single_pin_net = Single pin net
 check.stacked_microvia = Stacked microvia
 check.thermal_starved = Thermal starved
@@ -2133,6 +2135,23 @@ web.download_desktop = Download the desktop app
 web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
 web.needs_desktop = Open, Save and Export need the desktop app. In the browser your work stays in this tab only.
 web.limits = Browser version: your work stays in this tab. Open, Save, Export, library folders and the assistant keys need the desktop app.
+
+# via_backdrill.rs
+via_backdrill.title = Back-drill
+via_backdrill.off = Off
+via_backdrill.top = From the top
+via_backdrill.bottom = From the bottom
+via_backdrill.start = Start
+via_backdrill.start.tip = Back-drilling removes the unused end of the via barrel with a second, larger drill pass, so it stops acting as a stub on fast signals. Choose the face the drill enters from.
+via_backdrill.nohole.tip = A via needs a drilled hole before it can be back-drilled.
+via_backdrill.keep = Keep layer
+via_backdrill.keep.tip = The copper layer the drill must not cut. It and everything beyond it stays connected.
+via_backdrill.stub = Longest stub
+via_backdrill.stub.tip = The longest piece of barrel the drill may leave behind. The check reports the via when the stack-up leaves more.
+via_backdrill.size = Drill size
+via_backdrill.size.tip = Diameter of the back-drill. It must be larger than the via hole.
+via_backdrill.left = Stub left {mm} mm
+via_backdrill.left.tip = Distance from the kept layer to the nearest layer the drill removes, from the stack-up.
 
 # via_covering.rs
 via_protection.title = Via protection

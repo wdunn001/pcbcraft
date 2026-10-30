@@ -258,6 +258,7 @@ fn snapmaker_drill_three_tool_sizes_yields_three_files_each_with_header_and_boun
         to_layer: None,
         covering: None,
         covering_bottom: None,
+        backdrill: None,
     });
     p.board.holes.push(Hole {
         id: 2,
