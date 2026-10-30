@@ -1472,7 +1472,7 @@ impl App {
             ui.add(crate::targets::text_field(&mut self.library.editor.export_symbol_path))
                 .named(&t!("library.project_library.symbol_export_path"))
                 .on_hover_text(t!("library.project_library.symbol_export_path.tip"));
-            let export_selected = self.library.editor.selected_symbols.len() > 1;
+            let export_selected = !self.library.editor.selected_symbols.is_empty();
             if ui
                 .add_enabled(
                     export_selected,
@@ -1567,7 +1567,7 @@ impl App {
             ))
             .named(&t!("library.project_library.footprint_export_folder"))
             .on_hover_text(t!("library.project_library.footprint_export_folder.tip"));
-            let export_selected = self.library.editor.selected_footprints.len() > 1;
+            let export_selected = !self.library.editor.selected_footprints.is_empty();
             if ui
                 .add_enabled(
                     export_selected,
