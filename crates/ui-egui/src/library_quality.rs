@@ -32,44 +32,29 @@ impl Quality {
 
 impl App {
     /// Re-check every project footprint when the design has changed since
-    /// the last look. A failed check leaves that footprint unlisted.
+    /// the last look. A footprint that fails validation stays unlisted.
     pub(super) fn refresh_footprint_quality(&mut self) {
         if self.library.quality.revision == Some(self.revision) {
             return;
         }
-        let names: Vec<String> = self
-            .project
-            .library
-            .footprints
-            .iter()
-            .map(|d| d.name.clone())
-            .collect();
-        let message = self.message.clone();
+        // Read straight from the library crate: the check never touches the
+        // session, so asking for it every frame cannot disturb history or
+        // the revision other commands are checked against.
         let mut findings = Vec::new();
-        for name in names {
-            let result = self.run_and_keep("library.footprint.check", json!({"name": name}));
-            let rows = result
-                .get("findings")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            for f in rows {
-                let text = |key: &str| {
-                    f.get(key)
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned()
-                };
+        for def in &self.project.library.footprints {
+            if def.validate().is_err() {
+                continue;
+            }
+            for f in pcbcraft_library::check_footprint(def) {
                 findings.push(QualityFinding {
-                    footprint: name.clone(),
-                    code: text("code"),
-                    error: f.get("severity").and_then(Value::as_str) == Some("error"),
-                    message: text("message"),
-                    hint: text("hint"),
+                    footprint: def.name.clone(),
+                    code: f.code,
+                    error: f.severity == pcbcraft_library::FindingSeverity::Error,
+                    message: f.message,
+                    hint: f.hint,
                 });
             }
         }
-        self.message = message;
         self.library.quality = Quality {
             revision: Some(self.revision),
             findings,
