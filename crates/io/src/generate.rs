@@ -26,6 +26,9 @@ use crate::{
     pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
     stats_text, step_board, svg, vrml_board,
 };
+use crate::cam::{isolation_gcode, isolation_options_from_value, CncProfile};
+use crate::machine_profile::builtin_machine_profile;
+use crate::snapmaker::{snapmaker_cnc_profile, snapmaker_files, snapmaker_settings};
 
 /// What one artifact produces: one text file, one binary file, or a named set
 /// of files (a package). A single type lets the engine hash, encode and write
@@ -122,6 +125,34 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
         "B.Cu" => Some("pcb-B.Cu.gbr"),
         _ => None,
     }
+}
+
+fn isolation_gcode_artifact(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let opts = isolation_options_from_value(&artifact.settings)?;
+    let files = if let Some(machine_id) = artifact.machine.as_deref() {
+        let profile = builtin_machine_profile(machine_id)?;
+        if profile.kind != "cnc_mill" {
+            return Err(format!(
+                "machine profile {machine_id} is not a CNC mill profile"
+            ));
+        }
+        if profile.output.dialect == "snapmaker" {
+            let settings = snapmaker_settings(&profile, false)?;
+            let out = isolation_gcode(p, &opts, &snapmaker_cnc_profile(&settings))?;
+            snapmaker_files(out.files, &settings)?
+        } else {
+            let out = isolation_gcode(p, &opts, &CncProfile::default())?;
+            out.files
+        }
+    } else {
+        let out = isolation_gcode(p, &opts, &CncProfile::default())?;
+        out.files
+    };
+    let mut map = BTreeMap::new();
+    for (name, body) in files {
+        map.insert(name, body);
+    }
+    Ok(GeneratedOutput::Files(map))
 }
 
 fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
@@ -228,7 +259,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "drill_plated" | "drill_unplated" => {
             Err("split drill artifacts are not available yet; see issue #276".into())
         }
-        "isolation_gcode" => Err("isolation gcode is not available yet; see issue #329".into()),
+        "isolation_gcode" => isolation_gcode_artifact(p, artifact),
         "drill_gcode" => Err("drill gcode is not available yet; see issue #330".into()),
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
         "stencil" => Err("stencil output is not available yet; see issue #325".into()),
@@ -331,6 +362,50 @@ mod generate_tests {
             output_hash(&GeneratedOutput::Files(map.clone())),
             output_hash(&GeneratedOutput::Files(map))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn generate_isolation_gcode_returns_nc_file() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 20.0;
+        project.board.height = 20.0;
+        project.board.thickness = 1.6;
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..pcbcraft_doc::Net::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 1,
+            net: 1,
+            start: pcbcraft_geom::Point::new(5.0, 10.0),
+            end: pcbcraft_geom::Point::new(15.0, 10.0),
+            width: 0.4,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: None,
+        });
+        let artifact = Artifact {
+            id: 2,
+            name: "isolation".into(),
+            kind: "isolation_gcode".into(),
+            layers: vec![],
+            settings: serde_json::json!({
+                "side":"top",
+                "tool":{"diameter_mm":0.1,"feed_mm_min":300.0,"plunge_mm_min":60.0,"depth_mm":0.08,"passes":1,"spindle_rpm":18000}
+            }),
+            machine: None,
+            path: "cam/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Files(map) = out else {
+            return Err("expected a file map".into());
+        };
+        assert!(map.contains_key("isolation-top.nc"));
+        assert!(map["isolation-top.nc"].starts_with("G21\n"));
         Ok(())
     }
 

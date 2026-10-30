@@ -6,6 +6,7 @@ use pcbcraft_geom::{
     segment_distance,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 const LINEARISE_TOL_MM: f64 = 0.01;
 
@@ -553,4 +554,103 @@ pub fn isolation_gcode(
         estimate_s: estimate,
         alignment,
     })
+}
+
+/// Reads isolation job options from the same JSON shape as the `cam.isolation` command.
+pub fn isolation_options_from_value(params: &Value) -> Result<IsolationOptions, String> {
+    let side = match params.get("side").and_then(Value::as_str) {
+        Some("top") => Side::Top,
+        Some("bottom") => Side::Bottom,
+        _ => return Err("side must be top or bottom".into()),
+    };
+    let tool_val = params
+        .get("tool")
+        .ok_or_else(|| "missing tool".to_string())?;
+    let diameter_mm = tool_val
+        .get("diameter_mm")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .ok_or_else(|| "tool.diameter_mm must be positive".to_string())?;
+    let feed_mm_min = tool_val
+        .get("feed_mm_min")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .ok_or_else(|| "tool.feed_mm_min must be positive".to_string())?;
+    let plunge_mm_min = tool_val
+        .get("plunge_mm_min")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .ok_or_else(|| "tool.plunge_mm_min must be positive".to_string())?;
+    let depth_mm = tool_val
+        .get("depth_mm")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .ok_or_else(|| "tool.depth_mm must be positive".to_string())?;
+    let passes = tool_val
+        .get("passes")
+        .and_then(Value::as_u64)
+        .filter(|v| (1..=8).contains(v))
+        .ok_or_else(|| "tool.passes must be 1 to 8".to_string())? as u8;
+    let spindle_rpm = tool_val
+        .get("spindle_rpm")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0)
+        .ok_or_else(|| "tool.spindle_rpm must be positive".to_string())?
+        as u32;
+    let overlap_pct = params
+        .get("overlap_pct")
+        .and_then(Value::as_u64)
+        .unwrap_or(50) as u8;
+    if overlap_pct > 90 {
+        return Err("overlap must be between 0 and 90 percent".into());
+    }
+    let mirror_axis = match params
+        .get("mirror_axis")
+        .and_then(Value::as_str)
+        .unwrap_or("y")
+    {
+        "x" => MirrorAxis::X,
+        "y" => MirrorAxis::Y,
+        _ => return Err("mirror_axis must be x or y".into()),
+    };
+    let alignment_holes = params
+        .get("alignment_holes")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    Ok(IsolationOptions {
+        side,
+        tool: Tool {
+            diameter_mm,
+            feed_mm_min,
+            plunge_mm_min,
+            depth_mm,
+            passes,
+            spindle: Spindle::Rpm(spindle_rpm),
+        },
+        overlap_pct,
+        rubout: None,
+        mirror_axis,
+        alignment_holes,
+    })
+}
+
+/// Linearised tool centre paths in board space, mirrored when isolating the bottom side.
+pub fn isolation_toolpaths(
+    p: &Project,
+    opts: &IsolationOptions,
+) -> Result<Vec<Vec<Point>>, String> {
+    let paths = isolation_paths(p, opts)?;
+    let centre = board_centre(p);
+    let mut out = Vec::new();
+    for ring in paths {
+        let mut path = linearise_ring(&ring);
+        if path.is_empty() {
+            continue;
+        }
+        for pt in &mut path {
+            *pt = transform_point(*pt, opts.side, opts.mirror_axis, centre);
+        }
+        out.push(path);
+    }
+    Ok(out)
 }
