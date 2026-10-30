@@ -2,7 +2,7 @@
 
 | Component | Source | Revision / license | Use |
 |---|---|---|---|
-| craft-ui | https://github.com/storytold/craft-libs | 1aa81a773aa9198a0e4c0daeda954d622475af38; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
+| craft-ui | https://github.com/wdunn001/craft-libs | 0e9d4a61affd665b2e00d5e107cfe4a88ad15df5; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
 | SolidCraft agent chat backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/backend.rs` |
 | SolidCraft agent chat transcript | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/transcript.rs` and `turn.rs` |

@@ -717,7 +717,7 @@ pub(crate) fn invoke_session(
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
                 "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
-                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
@@ -1059,6 +1059,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod http_tests;
 #[cfg(test)]
@@ -1120,6 +1122,15 @@ mod tests {
             .as_array()
             .cloned()
             .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_tool_name_is_listed_once() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?").to_string();
+            assert!(seen.insert(name.clone()), "tool {name} is listed twice");
+        }
+        Ok(())
     }
     #[test]
     fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {

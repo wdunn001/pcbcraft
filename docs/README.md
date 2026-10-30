@@ -12,8 +12,11 @@
 | [mcp-conformance.md](mcp-conformance.md) | MCP spec conformance table and test list |
 | [ci.md](ci.md) | GitHub Actions jobs |
 | [adr-0001-simulation.md](adr-0001-simulation.md) | Decision record (Proposed): how circuit simulation will work |
+| [accessibility.md](accessibility.md) | What the Accessibility check enforces and how to fix a failure |
+| [localization.md](localization.md) | What the Localization check enforces and how to fix a failure |
 | [tooltips.md](tooltips.md) | What every control tooltip must say |
 | [tool-modifiers.md](tool-modifiers.md) | Shift, Ctrl and Alt per tool, tool hotkeys, what a press on a pin or pad does |
+| [part-sourcing.md](part-sourcing.md) | Typed manufacturer, part number and supplier fields on a part |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |
