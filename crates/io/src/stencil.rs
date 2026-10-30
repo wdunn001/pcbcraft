@@ -413,7 +413,16 @@ mod stencil_tests {
         p.components.push(pcbcraft_doc::Component {
             id: 1,
             reference: "U1".into(),
-            ..Default::default()
+            value: "part".into(),
+            kind: "resistor".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            pins: vec![],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+            sheet: 0,
         });
         p.board.fiducials.push(pcbcraft_doc::Fiducial {
             id: 2,
