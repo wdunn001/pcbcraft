@@ -770,7 +770,10 @@
           "key": "height",
           "value": "3.2"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Power and USB 2.0 receptacle"
+      }
     },
     {
       "id": 5,
@@ -1020,7 +1023,10 @@
           "key": "height",
           "value": "0.6"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Resettable fuse"
+      }
     },
     {
       "id": 7,
@@ -1294,7 +1300,10 @@
           "key": "height",
           "value": "1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Transient suppressor on the USB supply"
+      }
     },
     {
       "id": 9,
@@ -1526,7 +1535,10 @@
           "key": "height",
           "value": "0.4"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "USB CC1 pull-down"
+      }
     },
     {
       "id": 11,
@@ -1758,7 +1770,10 @@
           "key": "height",
           "value": "0.4"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "USB CC2 pull-down"
+      }
     },
     {
       "id": 13,
@@ -2043,7 +2058,10 @@
           "key": "height",
           "value": "1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Supply input capacitor"
+      }
     },
     {
       "id": 15,
@@ -2434,7 +2452,10 @@
           "key": "height",
           "value": "1.1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Single-cell linear charger"
+      }
     },
     {
       "id": 17,
@@ -2666,7 +2687,10 @@
           "key": "height",
           "value": "0.4"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Charge current set"
+      }
     },
     {
       "id": 19,
@@ -2898,7 +2922,10 @@
           "key": "height",
           "value": "0.4"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Charge indicator resistor"
+      }
     },
     {
       "id": 21,
@@ -3258,7 +3285,10 @@
           "key": "height",
           "value": "0.7"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Charge indicator"
+      }
     },
     {
       "id": 23,
@@ -3543,7 +3573,10 @@
           "key": "height",
           "value": "1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Battery decoupling"
+      }
     },
     {
       "id": 25,
@@ -3819,7 +3852,10 @@
           "key": "height",
           "value": "4.5"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Two-pin battery connector"
+      }
     },
     {
       "id": 27,
@@ -4210,7 +4246,10 @@
           "key": "height",
           "value": "1.1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Low-dropout regulator"
+      }
     },
     {
       "id": 29,
@@ -4495,7 +4534,10 @@
           "key": "height",
           "value": "1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Regulator input capacitor"
+      }
     },
     {
       "id": 31,
@@ -4780,7 +4822,10 @@
           "key": "height",
           "value": "1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Regulator output capacitor"
+      }
     },
     {
       "id": 33,
@@ -4962,7 +5007,10 @@
           "key": "height",
           "value": "0.1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Battery test point"
+      }
     },
     {
       "id": 35,
@@ -5144,7 +5192,10 @@
           "key": "height",
           "value": "0.1"
         }
-      ]
+      ],
+      "sourcing": {
+        "description": "Supply test point"
+      }
     },
     {
       "id": 37,
@@ -7021,6 +7072,9 @@
           "value": "0.9"
         }
       ],
+      "sourcing": {
+        "description": "32-bit microcontroller, USB device"
+      },
       "sheet": 1
     },
     {
@@ -7456,6 +7510,9 @@
           "value": "0.8"
         }
       ],
+      "sourcing": {
+        "description": "Main crystal"
+      },
       "sheet": 1
     },
     {
@@ -7742,6 +7799,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Crystal load capacitor"
+      },
       "sheet": 1
     },
     {
@@ -8028,6 +8088,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Crystal load capacitor"
+      },
       "sheet": 1
     },
     {
@@ -8314,6 +8377,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Supply decoupling"
+      },
       "sheet": 1
     },
     {
@@ -8600,6 +8666,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Supply decoupling"
+      },
       "sheet": 1
     },
     {
@@ -8886,6 +8955,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Supply decoupling"
+      },
       "sheet": 1
     },
     {
@@ -9172,6 +9244,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Analog supply filter"
+      },
       "sheet": 1
     },
     {
@@ -9458,6 +9533,9 @@
           "value": "1"
         }
       ],
+      "sourcing": {
+        "description": "Bulk capacitor"
+      },
       "sheet": 1
     },
     {
@@ -9744,6 +9822,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Analog supply bulk"
+      },
       "sheet": 1
     },
     {
@@ -9977,6 +10058,9 @@
           "value": "0.4"
         }
       ],
+      "sourcing": {
+        "description": "Reset pull-up"
+      },
       "sheet": 1
     },
     {
@@ -10293,6 +10377,9 @@
           "value": "2.5"
         }
       ],
+      "sourcing": {
+        "description": "Reset button"
+      },
       "sheet": 1
     },
     {
@@ -10855,6 +10942,9 @@
           "value": "5"
         }
       ],
+      "sourcing": {
+        "description": "Programming and serial header"
+      },
       "sheet": 1
     },
     {
@@ -11394,6 +11484,9 @@
           "value": "1.75"
         }
       ],
+      "sourcing": {
+        "description": "Serial flash memory"
+      },
       "sheet": 1
     },
     {
@@ -11680,6 +11773,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Flash decoupling"
+      },
       "sheet": 1
     },
     {
@@ -12219,6 +12315,9 @@
           "value": "1"
         }
       ],
+      "sourcing": {
+        "description": "Temperature, humidity and pressure sensor"
+      },
       "sheet": 2
     },
     {
@@ -12505,6 +12604,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Sensor decoupling"
+      },
       "sheet": 2
     },
     {
@@ -12791,6 +12893,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Sensor decoupling"
+      },
       "sheet": 2
     },
     {
@@ -13232,6 +13337,9 @@
           "value": "1.1"
         }
       ],
+      "sourcing": {
+        "description": "Ambient light sensor"
+      },
       "sheet": 2
     },
     {
@@ -13518,6 +13626,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "Sensor decoupling"
+      },
       "sheet": 2
     },
     {
@@ -13751,6 +13862,9 @@
           "value": "0.4"
         }
       ],
+      "sourcing": {
+        "description": "I2C pull-up"
+      },
       "sheet": 2
     },
     {
@@ -13984,6 +14098,9 @@
           "value": "0.4"
         }
       ],
+      "sourcing": {
+        "description": "I2C pull-up"
+      },
       "sheet": 2
     },
     {
@@ -14376,6 +14493,9 @@
           "value": "1.1"
         }
       ],
+      "sourcing": {
+        "description": "High-side switch for the sensor rail"
+      },
       "sheet": 2
     },
     {
@@ -14662,6 +14782,9 @@
           "value": "1"
         }
       ],
+      "sourcing": {
+        "description": "Sensor rail capacitor"
+      },
       "sheet": 2
     },
     {
@@ -15023,6 +15146,9 @@
           "value": "0.7"
         }
       ],
+      "sourcing": {
+        "description": "Status LED"
+      },
       "sheet": 2
     },
     {
@@ -15384,6 +15510,9 @@
           "value": "0.7"
         }
       ],
+      "sourcing": {
+        "description": "Status LED"
+      },
       "sheet": 2
     },
     {
@@ -15745,6 +15874,9 @@
           "value": "0.7"
         }
       ],
+      "sourcing": {
+        "description": "Status LED"
+      },
       "sheet": 2
     },
     {
@@ -16106,6 +16238,9 @@
           "value": "0.7"
         }
       ],
+      "sourcing": {
+        "description": "Status LED"
+      },
       "sheet": 2
     },
     {
@@ -16467,6 +16602,9 @@
           "value": "0.7"
         }
       ],
+      "sourcing": {
+        "description": "Status LED"
+      },
       "sheet": 2
     },
     {
@@ -16828,6 +16966,9 @@
           "value": "0.7"
         }
       ],
+      "sourcing": {
+        "description": "Status LED"
+      },
       "sheet": 2
     },
     {
@@ -17061,6 +17202,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "LED series resistor"
+      },
       "sheet": 2
     },
     {
@@ -17294,6 +17438,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "LED series resistor"
+      },
       "sheet": 2
     },
     {
@@ -17527,6 +17674,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "LED series resistor"
+      },
       "sheet": 2
     },
     {
@@ -17760,6 +17910,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "LED series resistor"
+      },
       "sheet": 2
     },
     {
@@ -17993,6 +18146,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "LED series resistor"
+      },
       "sheet": 2
     },
     {
@@ -18226,6 +18382,9 @@
           "value": "0.5"
         }
       ],
+      "sourcing": {
+        "description": "LED series resistor"
+      },
       "sheet": 2
     },
     {
@@ -18542,6 +18701,9 @@
           "value": "2.5"
         }
       ],
+      "sourcing": {
+        "description": "User button"
+      },
       "sheet": 2
     },
     {
@@ -18858,6 +19020,9 @@
           "value": "2.5"
         }
       ],
+      "sourcing": {
+        "description": "User button"
+      },
       "sheet": 2
     }
   ],
@@ -19420,6 +19585,10 @@
     "notes": "Original battery powered environment sensor node. Generated by cargo xtask showcase.",
     "revision": "A",
     "title": "Showcase sensor node"
+  },
+  "decoupling": {
+    "max_distance_mm": 15.0,
+    "suggested_value": "100 nF"
   },
   "wires": [
     {

@@ -12,6 +12,7 @@ mod diff;
 mod drawn;
 mod drill_table;
 mod fab_export;
+pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
@@ -1267,7 +1268,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         if !z.filled {
             continue;
         }
-        let back = z.layer == pcbcraft_doc::Layer::Back;
+        let back = p.is_bottom(z.layer);
         let file = if back { &mut bottom } else { &mut top };
         let outline: Vec<(f64, f64)> = z.outline.iter().map(|q| (mirror(q.x, back), q.y)).collect();
         let holes: Vec<Vec<(f64, f64)>> = z
@@ -1278,7 +1279,7 @@ pub fn odb_package(p: &Project) -> Result<Vec<u8>, String> {
         file.surface(&outline, &holes)?;
     }
     for t in &p.board.tracks {
-        let back = t.layer == pcbcraft_doc::Layer::Back;
+        let back = p.is_bottom(t.layer);
         let file = if back { &mut bottom } else { &mut top };
         let (x1, y1) = (mirror(t.start.x, back), t.start.y);
         let (x2, y2) = (mirror(t.end.x, back), t.end.y);
@@ -2476,7 +2477,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         if !z.filled {
             continue;
         }
-        let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let is_back = p.is_bottom(z.layer);
         let fill = pcbcraft_doc::zone_fill(p, z)?;
         let file = if is_back { &mut back } else { &mut front };
         let code = file.code(Ap::Circle(1))?;
@@ -2499,7 +2500,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         }
     }
     for t in &p.board.tracks {
-        let is_back = t.layer == pcbcraft_doc::Layer::Back;
+        let is_back = p.is_bottom(t.layer);
         let file = if is_back { &mut back } else { &mut front };
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
@@ -2765,7 +2766,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
-        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }
         let footprint = match variant
@@ -2975,7 +2976,12 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
             "<LAYER name=\"{name}\" copper=\"{layer_name}\">\n"
         ));
         count(1)?;
-        for track in p.board.tracks.iter().filter(|t| t.layer == layer) {
+        for track in p
+            .board
+            .tracks
+            .iter()
+            .filter(|t| t.layer == p.face_layer(layer))
+        {
             out.push_str(&format!(
                 "<TRACK start_x=\"{:.3}\" start_y=\"{:.3}\" end_x=\"{:.3}\" end_y=\"{:.3}\" width=\"{:.3}\" net=\"{}\"/>\n",
                 track.start.x,
@@ -2989,7 +2995,7 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         }
         for f in &p.board.footprints {
             for pad in &f.pads {
-                if !f.pad_on_copper(pad, layer) {
+                if !p.pad_on_copper(f, pad, layer) {
                     continue;
                 }
                 let position = f.position.offset(pad.offset.rotate(f.rotation));
@@ -3589,11 +3595,7 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
             i + 1,
             f.position.x,
             f.position.y,
-            if f.layer == pcbcraft_doc::Layer::Back {
-                "B"
-            } else {
-                "T"
-            }
+            if p.is_bottom(f.layer) { "B" } else { "T" }
         ));
     }
     rows.sort_by(|a, b| {
@@ -4118,11 +4120,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for t in &p.board.tracks {
         bump(&mut count)?;
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
-            "B.Cu"
-        } else {
-            "F.Cu"
-        };
+        let layer = if p.is_bottom(t.layer) { "B.Cu" } else { "F.Cu" };
         let width = um(t.width)?;
         let net = net_number(Some(t.net))?;
         let segments: Vec<(Point, Point)> = match t.curve() {
@@ -4157,11 +4155,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     }
     for z in &p.board.zones {
         bump(&mut count)?;
-        let layer = if z.layer == pcbcraft_doc::Layer::Back {
-            "B.Cu"
-        } else {
-            "F.Cu"
-        };
+        let layer = if p.is_bottom(z.layer) { "B.Cu" } else { "F.Cu" };
         let net = net_number(Some(z.net))?;
         let path: Result<Vec<String>, String> = z.outline.iter().map(point).collect();
         out.push_str(&format!(
@@ -4172,11 +4166,7 @@ pub fn specctra_dsn(p: &Project) -> Result<String, String> {
     for area in &p.board.rule_areas {
         bump(&mut count)?;
         let layers: Vec<&str> = match area.layer {
-            Some(l) => vec![if l == pcbcraft_doc::Layer::Back {
-                "B.Cu"
-            } else {
-                "F.Cu"
-            }],
+            Some(l) => vec![if p.is_bottom(l) { "B.Cu" } else { "F.Cu" }],
             None => vec!["F.Cu", "B.Cu"],
         };
         let lo = Point::new(area.region.x, area.region.y);
@@ -4384,11 +4374,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
     }
     for t in &p.board.tracks {
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
-            "B_Cu"
-        } else {
-            "F_Cu"
-        };
+        let layer = if p.is_bottom(t.layer) { "B_Cu" } else { "F_Cu" };
         match t.curve() {
             Some(arc) => {
                 let deg = |a: f64| {
@@ -4459,11 +4445,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for z in &p.board.zones {
-        let layer = if z.layer == pcbcraft_doc::Layer::Back {
-            "B_Cu"
-        } else {
-            "F_Cu"
-        };
+        let layer = if p.is_bottom(z.layer) { "B_Cu" } else { "F_Cu" };
         w.polyline(layer, &z.outline.iter().map(xy).collect::<Vec<_>>(), true)?;
         for cutout in &z.cutouts {
             w.polyline(layer, &cutout.iter().map(xy).collect::<Vec<_>>(), true)?;
@@ -4510,7 +4492,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         }
     }
     for t in &p.board.texts {
-        let layer = if t.layer == pcbcraft_doc::Layer::Back {
+        let layer = if p.is_bottom(t.layer) {
             "B_Silk"
         } else {
             "F_Silk"
@@ -7140,6 +7122,7 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 600,
             reference: "R1".into(),
@@ -7954,6 +7937,7 @@ mod tests {
             .collect();
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -8625,6 +8609,7 @@ mod tests {
             pads: vec![through_pad, pad2],
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -8868,6 +8853,7 @@ mod tests {
         };
         for id in 1..=2u64 {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: format!("J{id}"),
@@ -8958,6 +8944,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9076,6 +9063,7 @@ mod tests {
         };
         for (id, reference) in [(1, "R1"), (2, "D1")] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9166,6 +9154,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9322,6 +9311,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9496,6 +9486,7 @@ mod tests {
             polygon: Vec::new(),
         };
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R5".into(),
@@ -9531,6 +9522,7 @@ mod tests {
             fields: vec![],
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 2,
             reference: "U1".into(),
@@ -9690,6 +9682,7 @@ mod tests {
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -9839,6 +9832,7 @@ mod tests {
         ]);
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10081,6 +10075,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -10090,6 +10085,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -10218,6 +10214,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -10260,6 +10257,7 @@ mod tests {
             (4, "C1", "100n"),
         ] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10356,6 +10354,7 @@ mod tests {
     fn bom_csv_prints_project_defined_columns_under_their_labels() -> Result<(), String> {
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -10437,6 +10436,7 @@ mod tests {
         let mut project = Project::default();
         for (id, reference) in [(1, "R1"), (2, "R2")] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10599,6 +10599,7 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10747,6 +10748,7 @@ mod tests {
         };
         let component =
             |id: u64, reference: &str, definition: &str, back: bool| pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -10891,6 +10893,7 @@ mod tests {
             ..geometry.clone()
         };
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "R1".into(),
@@ -11073,6 +11076,7 @@ mod tests {
         }
         for (id, reference, p1, p2) in [(1, "R2", 9u64, 8), (2, "R1", 9, 9)] {
             project.components.push(pcbcraft_doc::Component {
+                sourcing: Default::default(),
                 sheet: 0,
                 id,
                 reference: reference.into(),
@@ -11160,6 +11164,7 @@ mod tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 3,
             reference: "R9".into(),
@@ -11247,6 +11252,7 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -11256,6 +11262,7 @@ mod tests {
             width: 1.5,
             text: "REV B".into(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -11265,6 +11272,7 @@ mod tests {
             width: 4.0,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
@@ -11604,6 +11612,7 @@ mod tests {
         symbol.validate().map_err(|e| e.to_string())?;
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "U1".into(),
@@ -12796,6 +12805,7 @@ mod tests {
         };
         let mut project = Project::default();
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "C1".into(),

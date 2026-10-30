@@ -1,12 +1,13 @@
 //! Board side in the Layout view: flip a part, look from below, adopt the layer.
 //!
-//! Context: `lib.rs` keeps the `Camera` mirror flag and the `Preferences`
-//! field `view_from_below`; `canvas.rs` paints with them. This file owns the
-//! rest: the Flip button, the From below toggle, the console entry and the
-//! rule that parts created while the bottom layer is active land on the bottom.
-//! Local rules: the side itself lives in the document (`Footprint::side`) and
-//! changes only through the engine command `footprint.flip`; the view flag is
-//! a display preference and never touches the document.
+//! Context: `lib.rs` keeps the `Camera` (mirror flag and quarter turns) in
+//! `App::pcb`; `canvas.rs` paints with it. This file owns the rest: the
+//! Top | Bottom view side, the rotate and reset buttons' logic, pinned and
+//! hovered layer focus, Page Up and Page Down stepping, the console entry and
+//! the rule that parts created while the bottom layer is active land on the bottom.
+//! Local rules: the side of a part lives in the document (`Footprint::side`) and
+//! changes only through the engine command `footprint.flip`; the view state is a
+//! display preference and never touches the document.
 use super::*;
 use pcbcraft_doc::{Layer, Project};
 use pcbcraft_library::Graphic;
@@ -43,13 +44,9 @@ pub(crate) fn footprint_ids(project: &Project) -> std::collections::BTreeSet<Id>
 
 /// Put the items that sit on the bottom last, so they paint on top.
 ///
-/// Why: seen from below, the bottom copper is the near side and must cover the top.
-///
-/// # Rules
-/// - Order is unchanged when `from_below` is false, and stable inside each side.
-///
-/// # Do not
-/// - Use it for hit testing; picking has its own order.
+/// Why: a two-sided order kept for its story; the canvas now orders by the
+/// whole stack with `stack_view::StackView::far_to_near`.
+#[cfg(test)]
 pub(crate) fn bottom_last<'a, T>(
     items: impl Iterator<Item = &'a T>,
     from_below: bool,
@@ -153,46 +150,208 @@ pub(crate) fn mirrored_graphic(graphic: &Graphic) -> Graphic {
 }
 
 impl App {
-    /// Whether the Layout canvas is drawn from the bottom side right now.
-    ///
-    /// # Rules
-    /// - Only the Layout tab mirrors; the schematic never does.
-    pub(crate) fn seen_from_below(&self) -> bool {
-        self.tab == Tab::Pcb && self.preferences.view_from_below
+    /// Switch between the top view and the view from below.
+    pub(crate) fn toggle_view_from_below(&mut self) {
+        let below = !self.pcb.mirror;
+        self.set_view_side(below);
     }
 
-    /// Switch between the top view and the view from below, keeping the same
-    /// board point in the middle of the canvas.
-    pub(crate) fn toggle_view_from_below(&mut self) {
-        self.preferences.view_from_below = !self.preferences.view_from_below;
-        self.message = if self.preferences.view_from_below {
+    /// The copper layer on the bottom of this board.
+    pub(crate) fn bottom_copper(&self) -> Layer {
+        Layer::from_index(self.project.copper_layer_count().max(2) - 1).unwrap_or(Layer::Back)
+    }
+
+    /// Choose the side the Layout canvas looks at and draws on.
+    ///
+    /// Why: the Top | Bottom control and the console entry mean the same thing,
+    /// so they share one setter.
+    ///
+    /// # Rules
+    /// - Mirrors the camera and keeps the layout region flag in step.
+    /// - Moves the drawing target to the same kind of layer on that side:
+    ///   copper to the bottom copper, silkscreen to the bottom silkscreen, and
+    ///   back again for Top. Edge cuts and user layers stay where they are.
+    /// - A pinned layer view moves with the target.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/draw_target.rs` `App::set_target`.
+    /// - `crates/ui-egui/src/workspace.rs` `RegionLayout::bottom_side`.
+    ///
+    /// # Do not
+    /// - Touch the document; the side of a view is a display preference.
+    pub(crate) fn set_view_side(&mut self, below: bool) {
+        use crate::draw_target::{Side, Target};
+        self.pcb.mirror = below;
+        self.region().bottom_side = below;
+        let side = if below { Side::Bottom } else { Side::Top };
+        let copper = if below {
+            self.bottom_copper()
+        } else {
+            Layer::Front
+        };
+        let target = match self.target {
+            Target::Copper(_) => Target::Copper(copper),
+            Target::Silk(_) => Target::Silk(side),
+            Target::Mask(_) => Target::Mask(side),
+            Target::Paste(_) => Target::Paste(side),
+            other => other,
+        };
+        self.set_target(target);
+        if self.pinned_view.is_some() {
+            self.pinned_view = Some(target);
+        }
+        self.message = if below {
             t!("board.canvas.from_below.on")
         } else {
             t!("board.canvas.from_below.off")
         };
     }
 
-    /// The floating From below toggle, shown beside Fit on the Layout canvas.
+    /// Turn the Layout view by quarter turns; positive is clockwise.
     ///
     /// # Rules
-    /// - Shows as selected while the view is mirrored.
-    /// - Hidden on the schematic, where there is no other side.
-    pub(crate) fn view_from_below_button(&mut self, ui: &mut egui::Ui) {
-        if self.tab != Tab::Pcb {
+    /// - Only the camera changes; the board and its coordinates do not.
+    pub(crate) fn rotate_view(&mut self, quarters: i8) {
+        self.pcb.turns = (self.pcb.turns as i8 + quarters).rem_euclid(4) as u8;
+    }
+
+    /// Fit the board, turn it upright, look from the top and unpin a layer view.
+    pub(crate) fn reset_view(&mut self) {
+        self.pcb.turns = 0;
+        self.pinned_view = None;
+        if self.pcb.mirror {
+            self.set_view_side(false);
+        }
+        self.needs_fit = true;
+    }
+
+    /// Pin the see-through view to `target`, or unpin when it is already pinned.
+    ///
+    /// Why: a click on a layer row should keep that layer forward after the
+    /// pointer moves on.
+    pub(crate) fn pin_view(&mut self, target: crate::draw_target::Target) {
+        self.pinned_view = if self.pinned_view == Some(target) {
+            None
+        } else {
+            Some(target)
+        };
+    }
+
+    /// The target the see-through view is built around right now, if any.
+    ///
+    /// Why: in normal editing every layer is drawn at full strength; the depth
+    /// view exists only while a layer is hovered or pinned.
+    ///
+    /// # Rules
+    /// - Order: the row under the pointer, then the pinned layer, else none.
+    /// - Page Up and Page Down pin (see `step_layer`).
+    pub(crate) fn focus_target(&mut self) -> Option<crate::draw_target::Target> {
+        self.tree.hover_target.take().or(self.pinned_view)
+    }
+
+    /// Step the active layer one physical level toward or away from the viewer.
+    ///
+    /// # Rules
+    /// - Walks `stack_view::levels`; stops at the top and the bottom of the stack.
+    /// - Copper steps also move the routing layer; a pinned view follows.
+    pub(crate) fn step_layer(&mut self, toward_viewer: bool) {
+        let from = self.current_target();
+        let Some(next) = crate::stack_view::step(
+            self.project.copper_layer_count(),
+            from,
+            self.pcb.mirror,
+            toward_viewer,
+        ) else {
+            return;
+        };
+        self.set_target(next);
+        // Stepping counts as pinning: the layer comes forward and stays.
+        self.pinned_view = Some(next);
+        self.message = t!("view.stepped", name = self.target_label());
+    }
+
+    /// The stack strengths for this frame, eased toward their goals.
+    ///
+    /// Why: layers fade rather than jump when the pointer crosses a tree row.
+    ///
+    /// # Rules
+    /// - With Reduce motion on, the strengths change at once.
+    pub(crate) fn stack_view(
+        &mut self,
+        ctx: &egui::Context,
+        focus: Option<crate::draw_target::Target>,
+    ) -> crate::stack_view::StackView {
+        let copper = self.project.copper_layer_count();
+        let flipped = self.pcb.mirror;
+        let goals = crate::stack_view::StackView::targets(copper, flipped, focus);
+        let time = if self.preferences.reduced_motion {
+            0.0
+        } else {
+            0.15
+        };
+        let alpha = goals
+            .iter()
+            .enumerate()
+            .map(|(i, goal)| {
+                ctx.animate_value_with_time(egui::Id::new(("stack-fade", i)), *goal, time)
+            })
+            .collect();
+        crate::stack_view::StackView {
+            copper,
+            flipped,
+            alpha,
+        }
+    }
+
+    /// Page Up and Page Down step through the stack; Esc drops a pinned view.
+    ///
+    /// # Rules
+    /// - Ignored while a text field has the keyboard.
+    pub(crate) fn step_layers_by_key(&mut self, ui: &egui::Ui) {
+        if ui.ctx().egui_wants_keyboard_input() {
             return;
         }
-        let on = self.preferences.view_from_below;
-        if ui
-            .add(
-                egui::Button::new(t!("board.canvas.from_below"))
-                    .selected(on)
-                    .min_size(Vec2::splat(24.0)),
+        let (up, down, esc) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::PageUp),
+                i.key_pressed(egui::Key::PageDown),
+                i.key_pressed(egui::Key::Escape),
             )
-            .on_hover_text(t!("board.canvas.from_below.tip"))
-            .clicked()
-        {
-            self.toggle_view_from_below();
+        });
+        if up {
+            self.step_layer(true);
+        } else if down {
+            self.step_layer(false);
         }
+        if esc && self.pinned_view.is_some() {
+            self.pinned_view = None;
+        }
+    }
+
+    /// "Layer 2 of 4 · In1": where the active target sits, for the status bar.
+    pub(crate) fn layer_status(&self) -> String {
+        use crate::draw_target::{Side, Target};
+        let total = self.project.copper_layer_count().max(2);
+        let n = match self.current_target() {
+            Target::Copper(l) => l.index() as usize + 1,
+            Target::Silk(s) | Target::Mask(s) | Target::Paste(s) => {
+                if s == Side::Top {
+                    1
+                } else {
+                    total as usize
+                }
+            }
+            _ => 0,
+        };
+        if n == 0 {
+            return t!("target.status", layer = self.target_label());
+        }
+        t!(
+            "view.layer_status",
+            n = n,
+            total = total,
+            name = self.target_label()
+        )
     }
 
     /// Flip parts that a command just created when the bottom layer is active.

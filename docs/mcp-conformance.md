@@ -17,43 +17,43 @@ requires the feature of a server that offers tools. Functions are in
 | capabilities declaration | supported | `handle_rpc`: `tools`, `resources` and `prompts`, all with `listChanged` false and `subscribe` false | yes | |
 | serverInfo | partial | name and version only; `title`, `description`, `icons`, `websiteUrl` are optional | no | |
 | notifications/initialized | supported | a message with no id gets no reply | yes | |
-| ordering before initialize | supported | `serve` answers -32002 to everything but `initialize` and `ping` until initialize succeeds | no | #637 |
+| ordering before initialize | supported | `serve` answers -32002 to everything but `initialize` and `ping` until initialize succeeds | no | #477 |
 | ping | supported | `handle_rpc` returns `{}` | yes | |
-| cancellation (notifications/cancelled) | absent | ignored as an unknown notification; long file-writing tools cannot be cancelled | no | #639 |
+| cancellation (notifications/cancelled) | absent | ignored as an unknown notification; long file-writing tools cannot be cancelled | no | #479 |
 | tools/list | supported | `tool_list`, one page | yes | |
 | pagination (cursor, nextCursor) | not needed | `tools/list`, `resources/list` and `prompts/list` return every item in one response | no | |
-| tool `title` | supported | `title_for`, applied in `tool_list` | no | #636 |
-| tool `annotations` | supported | `annotations_for`, applied in `tool_list`; table in [mcp.md](mcp.md) "Tool hints" | no | #636 |
-| tool `outputSchema` | absent | results carry `structuredContent` and a text copy, with no schema promise | no | #640 |
+| tool `title` | supported | `title_for`, applied in `tool_list` | no | #476 |
+| tool `annotations` | supported | `annotations_for`, applied in `tool_list`; table in [mcp.md](mcp.md) "Tool hints" | no | #476 |
+| tool `outputSchema` | absent | results carry `structuredContent` and a text copy, with no schema promise | no | #480 |
 | tool name rules | supported | letters, digits, underscore, hyphen and dot, 1 to 128 characters (some model APIs are stricter, see #615) | yes | |
 | tools/call result shape | supported | `text_result` and `error_result`: text content, `structuredContent`, `isError`; image content for `screenshot` | yes | |
 | error model | supported | unknown tool or missing name is -32602; bad arguments (`validate_tool_schema`) and tool failures are `isError` results | yes | |
 | JSON-RPC rules | supported | wrong version, missing method or bad id is -32600; broken JSON is -32700; arrays are rejected because batching left the spec in 2025-06-18 | yes | |
 | multi-document tools | supported | `design.list_open` and `design.activate` in `crates/mcp/src/document_hub.rs`; they only work through the desktop bridge and are refused over plain stdio | no | |
-| resources | supported | `crates/mcp/src/resources.rs`: `pcbcraft://design`, `commands`, `checks`, template `pcbcraft://design/preview/{view}`; no subscribe | no | #643 |
-| prompts | supported | `crates/mcp/src/prompts.rs`: `review_board`, `fix_unrouted_nets`, `prepare_fabrication` | no | #644 |
+| resources | supported | `crates/mcp/src/resources.rs`: `pcbcraft://design`, `commands`, `checks`, template `pcbcraft://design/preview/{view}`; no subscribe | no | #483 |
+| prompts | supported | `crates/mcp/src/prompts.rs`: `review_board`, `fix_unrouted_nets`, `prepare_fabrication` | no | #484 |
 | logging (`logging/setLevel`) | absent | stdout carries only protocol messages; stderr is free | no | skip: nothing to report yet |
 | completion, sampling, roots, elicitation, tasks | absent | client features or optional | no | skip: no use in the product |
 | icons metadata | absent | optional | no | skip |
 | stdio framing (transports) | supported | `serve` and `read_message`: newline-delimited UTF-8, 1 MiB cap, only JSON on stdout | yes | |
-| Streamable HTTP (transports) | supported | `crates/mcp/src/http.rs`: one endpoint `/mcp`, POST only, JSON replies, loopback bind, bearer token, Origin check, stateless, no event stream; GET and DELETE answer 405 | no | #641 |
+| Streamable HTTP (transports) | supported | `crates/mcp/src/http.rs`: one endpoint `/mcp`, POST only, JSON replies, loopback bind, bearer token, Origin check, stateless, no event stream; GET and DELETE answer 405 | no | #481 |
 | loopback TCP bridge | not a spec transport | `start_bridge` and `forward` carry one request per connection to the desktop app; kept for `--connect` | n/a | |
-| authorization | not needed | stdio takes no credentials; the HTTP transport uses a per-run bearer token; the OAuth flow applies only to remote listeners, which are out of scope | n/a | #641 |
+| authorization | not needed | stdio takes no credentials; the HTTP transport uses a per-run bearer token; the OAuth flow applies only to remote listeners, which are out of scope | n/a | #481 |
 
 ## Gaps and issues
 
-- Tool title and annotations: #636.
-- Lifecycle gate before initialize: #637.
-- Protocol conformance tests: #638 (part of #509).
-- Cancellation of long file-writing tools: #639, optional.
-- `outputSchema` for `inspect_design` and `checks`: #640, optional.
-- Streamable HTTP: #641. Resources: #643. Prompts: #644. Parent of these three: #614.
+- Tool title and annotations: #476.
+- Lifecycle gate before initialize: #477.
+- Protocol conformance tests: #478 (part of #338).
+- Cancellation of long file-writing tools: #479, optional.
+- `outputSchema` for `inspect_design` and `checks`: #480, optional.
+- Streamable HTTP: #481. Resources: #483. Prompts: #484. Parent of these three: #741.
 - Skipped on purpose: logging, completion, sampling, roots, elicitation, tasks, icons,
   `serverInfo` extras. None is required of a tools server, and the product has no use for them yet.
 
 ## Conformance tests
 
-Protocol tests in `crates/mcp/src/protocol_tests.rs` (#638):
+Protocol tests in `crates/mcp/src/protocol_tests.rs` (#478):
 
 1. `initialize_answers_each_supported_version_and_falls_back_to_the_newest_for_an_unknown_one`
 2. `initialize_without_client_info_is_refused_with_invalid_params`
@@ -69,15 +69,15 @@ Protocol tests in `crates/mcp/src/protocol_tests.rs` (#638):
 12. `a_message_over_one_mebibyte_is_refused_and_stdout_stays_json_only`
 13. `capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_not_found`
 
-Lifecycle tests in `crates/mcp/src/lib.rs` (#637):
+Lifecycle tests in `crates/mcp/src/lib.rs` (#477):
 `methods_other_than_initialize_and_ping_are_refused_before_initialize`,
 `ping_works_before_initialize`, `a_failed_initialize_does_not_open_the_session`.
 
-Annotation tests in `crates/mcp/src/lib.rs` (#636):
+Annotation tests in `crates/mcp/src/lib.rs` (#476):
 `every_listed_tool_has_a_title_and_the_four_annotation_hints`,
 `tools_whose_description_says_without_editing_the_project_are_not_destructive`,
 `read_only_tools_never_change_the_revision`, `new_design_and_open_are_marked_destructive`.
 
-Transport tests in `crates/mcp/src/http_tests.rs` (#641) and
+Transport tests in `crates/mcp/src/http_tests.rs` (#481) and
 `a_http_client_lists_tools_resources_and_prompts`; resource tests in
-`crates/mcp/src/resources.rs` (#643); prompt tests in `crates/mcp/src/prompts.rs` (#644).
+`crates/mcp/src/resources.rs` (#483); prompt tests in `crates/mcp/src/prompts.rs` (#484).

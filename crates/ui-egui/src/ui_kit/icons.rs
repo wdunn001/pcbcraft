@@ -27,7 +27,7 @@ impl std::fmt::Debug for Icon {
     }
 }
 
-fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
+pub(super) fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
     // 16 by 16 design grid mapped into the rect.
     pos2(
         rect.min.x + rect.width() * x / 16.0,
@@ -35,7 +35,7 @@ fn pt(rect: Rect, x: f32, y: f32) -> Pos2 {
     )
 }
 
-fn line(p: &Painter, rect: Rect, c: Color32, pts: &[(f32, f32)]) {
+pub(super) fn line(p: &Painter, rect: Rect, c: Color32, pts: &[(f32, f32)]) {
     let points: Vec<Pos2> = pts.iter().map(|&(x, y)| pt(rect, x, y)).collect();
     p.add(Shape::line(points, Stroke::new(ICON_STROKE, c)));
 }

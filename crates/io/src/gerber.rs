@@ -128,7 +128,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !plated && !p.pad_on_copper(f, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -181,10 +181,12 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     let idx = layer.index();
     let index = idx + 1;
-    let side = match idx {
-        0 => "Top",
-        1 => "Bot",
-        _ => "Inr",
+    let side = if idx == 0 {
+        "Top"
+    } else if p.is_bottom(layer) {
+        "Bot"
+    } else {
+        "Inr"
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -875,6 +877,7 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
             id,
             reference: reference.into(),
@@ -1016,6 +1019,7 @@ mod tests {
             width: 0.15,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         Ok(project)

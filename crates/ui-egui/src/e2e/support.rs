@@ -364,14 +364,7 @@ pub(crate) fn tap_strip(ctx: &egui::Context, app: &mut App, id: &str) -> Result<
     };
     authoring::tests::tap(ctx, app, "More")?;
     frame(ctx, app, vec![], egui::Modifiers::NONE);
-    let name = if matches!(label.as_str(), "Parts" | "Copper" | "Graphics" | "Text")
-        && id.starts_with("button:")
-    {
-        format!("Pick: {label}")
-    } else {
-        label
-    };
-    authoring::tests::tap(ctx, app, &name)
+    authoring::tests::tap(ctx, app, &label)
 }
 
 /// Click a control in the Properties column on the right of the window,
