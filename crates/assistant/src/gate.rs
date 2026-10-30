@@ -84,14 +84,13 @@ const READS: &[&str] = &[
     "board_mesh",
     "design.summary",
     "library.catalog",
-    "library.starter_models.list",
     "library.search",
     "library.list",
     "library.inspect_symbol",
     "library.inspect_footprint",
     "library.sources",
     "library.compare",
-    "library.drop_in_check",
+    "library.samtec.manufacturer_page",
     "design.recents",
 ];
 /// Tools that touch files or replace the whole design.
