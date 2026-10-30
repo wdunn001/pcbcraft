@@ -31,7 +31,7 @@ pub fn render_page(bytes: &[u8], index: usize, dpi: f32) -> Result<PageBitmap, S
     if longest > MAX_SIDE_PX {
         scale *= MAX_SIDE_PX / longest;
     }
-    let cache = RenderCache::new(&pdf);
+    let cache = RenderCache::new();
     let pix = render(
         page,
         &cache,

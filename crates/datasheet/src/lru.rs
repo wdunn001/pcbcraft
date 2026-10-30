@@ -47,8 +47,8 @@ mod tests {
             rec("c", 300, "2020-01-03T00:00:00Z"),
         ];
         let dropped = evict_for_cap(&mut index, 500);
-        assert_eq!(dropped, vec!["a"]);
-        assert_eq!(index.len(), 2);
-        assert!(index.iter().all(|r| r.sha256 == "b" || r.sha256 == "c"));
+        assert_eq!(dropped, vec!["a", "b"]);
+        assert_eq!(index.len(), 1);
+        assert_eq!(index[0].sha256, "c");
     }
 }
