@@ -4524,7 +4524,7 @@ impl Project {
         let mut sheet_names = BTreeSet::new();
         if let Some(name) = &self.root_sheet_name {
             if name.is_empty() || name.len() > 128 {
-                return Err("sheet name must be 1–128 bytes".into());
+                return Err("sheet name must be 1 to 128 bytes".into());
             }
             if !sheet_names.insert(name) {
                 return Err("duplicate sheet name".into());
@@ -6451,6 +6451,23 @@ mod drill_tests {
             unsupported: vec![],
         };
         validate_footprint_support(&definition)?;
+        Ok(())
+    }
+
+    #[test]
+    fn project_validate_rejects_root_sheet_name_that_matches_another_page() -> Result<(), String> {
+        let mut p = Project::default();
+        p.root_sheet_name = Some("Main".into());
+        p.sheets.push(Sheet {
+            id: 1,
+            name: "Main".into(),
+            parent: None,
+            entry: None,
+        });
+        assert!(
+            p.validate()
+                .is_err_and(|e| e.contains("duplicate sheet name"))
+        );
         Ok(())
     }
 
