@@ -8,6 +8,7 @@
 //! # Dependencies
 //! - `crates/text/strings/en.txt` (message text)
 //! - `apps/pcbcraft-web/index.html` and `apps/pcbcraft-web/webgpu-check.js`
+//! - `apps/pcbcraft-web/src/transport.rs` (online library fetch queue)
 //!
 //! # Do not
 //! - Add text literals here; read them from the catalog.
@@ -26,9 +27,17 @@ fn main() {
         }
     });
 }
+
 #[cfg(target_arch = "wasm32")]
 async fn start() -> Result<(), wasm_bindgen::JsValue> {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    use pcbcraft_web::transport::{
+        cross_origin_status, BrowserTransport, CrossOriginStatus, PollingFetcher,
+    };
     use wasm_bindgen::JsCast;
+
     let document = web_sys::window()
         .and_then(|window| window.document())
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("browser document unavailable"))?;
@@ -37,17 +46,43 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
     let session = pcbcraft_mcp::shared(demo_session());
+    let transport = Arc::new(BrowserTransport::live());
+    let offline = Arc::new(AtomicBool::new(false));
     eframe::WebRunner::new()
         .start(
             canvas,
             eframe::WebOptions::default(),
             Box::new(move |cc| {
-                Ok(Box::new(pcbcraft_ui_egui::App::new(
-                    cc, session, None, None, false,
-                )))
+                let mut app =
+                    pcbcraft_ui_egui::App::new(cc, session, None, None, false);
+                if cross_origin_status() != CrossOriginStatus::Refused {
+                    app = app.with_online_fetcher(
+                        Box::new(PollingFetcher::new(Arc::clone(&transport))),
+                        offline,
+                    );
+                }
+                Ok(Box::new(WebShell {
+                    inner: app,
+                    transport,
+                }))
             }),
         )
         .await
+}
+
+/// Runs the inner app and drains the online fetch queue each frame.
+#[cfg(target_arch = "wasm32")]
+struct WebShell {
+    inner: pcbcraft_ui_egui::App,
+    transport: std::sync::Arc<pcbcraft_web::transport::BrowserTransport>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl eframe::App for WebShell {
+    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        self.transport.poll();
+        self.inner.update(ctx, frame);
+    }
 }
 
 /// Show the "needs WebGPU" notice that `index.html` carries, hide the canvas.

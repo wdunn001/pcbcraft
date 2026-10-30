@@ -71,11 +71,15 @@ pub enum FetchError {
 ///
 /// # Implementations
 /// - `apps/pcbcraft/src/online_http.rs`
+/// - `apps/pcbcraft-web/src/transport.rs`
 /// - `crates/ui-egui/src/e2e/support.rs`
 /// - `crates/ui-egui/src/sources.rs`
 pub trait Fetcher: Send + Sync {
     /// Read the whole answer for a URL.
     fn get(&self, url: &str) -> Result<Vec<u8>, FetchError>;
+    /// Advance in-flight browser requests. The web build calls this once per
+    /// frame; desktop transports leave this as a no-op.
+    fn poll(&self) {}
 }
 
 /// Where the three repositories live. The default is the official open
