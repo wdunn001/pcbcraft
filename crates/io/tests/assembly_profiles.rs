@@ -3,9 +3,9 @@
 use pcbcraft_doc::{Component, Footprint, Layer, Pin, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_io::{
+    export_rotation, gerber_component_layers, placement_text, placement_text_with_profile,
     AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField,
-    PlacementUnits, export_rotation, gerber_component_layers, placement_text,
-    placement_text_with_profile,
+    PlacementUnits,
 };
 use pcbcraft_library::FootprintPad;
 

@@ -149,11 +149,7 @@ pub struct PlacementRow {
 }
 
 /// Rotation exported for a part, shared by centroid and component layers.
-pub fn export_rotation(
-    board_deg: f64,
-    bottom: bool,
-    profile: &AssemblyPlacementProfile,
-) -> f64 {
+pub fn export_rotation(board_deg: f64, bottom: bool, profile: &AssemblyPlacementProfile) -> f64 {
     let mut angle = board_deg + profile.reference_angle_deg;
     if bottom {
         angle = match profile.bottom_rotation {
@@ -249,7 +245,11 @@ fn rotation_decimals(_profile: &AssemblyPlacementProfile) -> usize {
     1
 }
 
-fn field_cell(row: &PlacementRow, field: PlacementField, profile: &AssemblyPlacementProfile) -> String {
+fn field_cell(
+    row: &PlacementRow,
+    field: PlacementField,
+    profile: &AssemblyPlacementProfile,
+) -> String {
     let scale = scale_coords(profile);
     let cd = coord_decimals(profile);
     let rd = rotation_decimals(profile);
@@ -348,13 +348,7 @@ fn placement_field_default_header(field: PlacementField) -> String {
 
 fn gerber_field(text: &str) -> String {
     text.chars()
-        .map(|c| {
-            if matches!(c, ',' | '*' | '%') {
-                ' '
-            } else {
-                c
-            }
-        })
+        .map(|c| if matches!(c, ',' | '*' | '%') { ' ' } else { c })
         .collect::<String>()
         .trim()
         .to_string()
@@ -480,11 +474,7 @@ pub fn gerber_component_layers(
              %TA.AperFunction,ComponentMain*%\n\
              %ADD10C,{aperture:.6}*%\n\
              {body}M02*\n",
-            side_tag = if bottom {
-                "Back"
-            } else {
-                "Front"
-            },
+            side_tag = if bottom { "Back" } else { "Front" },
             unit = if inch { "MOIN" } else { "MOMM" },
             aperture = aperture_mm * if inch { 1.0 } else { 1.0 },
         );
