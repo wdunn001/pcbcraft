@@ -30,7 +30,7 @@ fn in_set(value: &str, allowed: &[&str]) -> bool {
 pub fn validate_impedance_target(value: f64) -> Result<(), String> {
     if !value.is_finite() || value < IMPEDANCE_TARGET_MIN_OHM || value > IMPEDANCE_TARGET_MAX_OHM {
         return Err(format!(
-            "impedance target must be between {IMEDANCE_TARGET_MIN_OHM} and {IMPEDANCE_TARGET_MAX_OHM} ohm"
+            "impedance target must be between {IMPEDANCE_TARGET_MIN_OHM} and {IMPEDANCE_TARGET_MAX_OHM} ohm"
         ));
     }
     Ok(())
@@ -131,22 +131,23 @@ impl Project {
         }
     }
 
-    pub fn net_effective_line_structure(&self, net: &Net) -> Option<&str> {
-        net.line_structure
-            .as_deref()
-            .or_else(|| {
-                self.net_class(net.id)
-                    .and_then(|c| c.line_structure.as_deref())
-            })
-    }
-
-    pub fn net_effective_reference_layers(&self, net: &Net) -> &[String] {
-        if let Some(layers) = &net.reference_layers {
-            layers.as_slice()
+    pub fn net_effective_line_structure<'a>(&'a self, net: &'a Net) -> Option<&'a str> {
+        if let Some(structure) = net.line_structure.as_deref() {
+            Some(structure)
         } else {
             self.net_class(net.id)
-                .map(|c| c.reference_layers.as_slice())
-                .unwrap_or(&[])
+                .and_then(|c| c.line_structure.as_deref())
+        }
+    }
+
+    pub fn net_effective_reference_layers<'a>(&'a self, net: &'a Net) -> &'a [String] {
+        if let Some(layers) = &net.reference_layers {
+            layers.as_slice()
+        } else if let Some(class) = self.net_class(net.id) {
+            class.reference_layers.as_slice()
+        } else {
+            const EMPTY: &[String] = &[];
+            EMPTY
         }
     }
 
@@ -165,18 +166,21 @@ impl Project {
             .or_else(|| self.net_class(net.id).and_then(|c| c.working_voltage))
     }
 
-    pub fn net_effective_insulation(&self, net: &Net) -> Option<&str> {
-        net.insulation
-            .as_deref()
-            .or_else(|| self.net_class(net.id).and_then(|c| c.insulation.as_deref()))
+    pub fn net_effective_insulation<'a>(&'a self, net: &'a Net) -> Option<&'a str> {
+        if let Some(insulation) = net.insulation.as_deref() {
+            Some(insulation)
+        } else {
+            self.net_class(net.id)
+                .and_then(|c| c.insulation.as_deref())
+        }
     }
 
-    pub fn net_effective_return_path_rule(&self, net: &Net) -> Option<&str> {
-        net.return_path_rule
-            .as_deref()
-            .or_else(|| {
-                self.net_class(net.id)
-                    .and_then(|c| c.return_path_rule.as_deref())
-            })
+    pub fn net_effective_return_path_rule<'a>(&'a self, net: &'a Net) -> Option<&'a str> {
+        if let Some(rule) = net.return_path_rule.as_deref() {
+            Some(rule)
+        } else {
+            self.net_class(net.id)
+                .and_then(|c| c.return_path_rule.as_deref())
+        }
     }
 }
