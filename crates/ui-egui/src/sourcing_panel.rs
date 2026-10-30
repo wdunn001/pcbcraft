@@ -251,7 +251,7 @@ impl App {
     fn supplier_rows(&mut self, ui: &mut egui::Ui, c: &pcbcraft_doc::Component) {
         let t = theme::tokens(ui.ctx());
         ui.add_space(4.0);
-        ui.label(fonts::text(fonts::Role::Body, &t!("props.sourcing.suppliers")).color(t.text))
+        ui.label(fonts::text(fonts::Role::Body, t!("props.sourcing.suppliers")).color(t.text))
             .on_hover_text(t!("props.sourcing.suppliers.tip"));
         let mut commands: Vec<(&str, Value)> = vec![];
         for supplier in &c.sourcing.suppliers {
