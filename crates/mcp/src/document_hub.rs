@@ -1,6 +1,8 @@
 //! Bounded multi-document routing for the control bridge and MCP tools.
 use pcbcraft_engine::Session;
-use pcbcraft_engine::design_document::{display_title, is_dirty, project_has_content};
+use pcbcraft_engine::design_document::{
+    DocumentShellState, display_title, is_dirty, project_has_content,
+};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -14,6 +16,7 @@ struct DocumentSlot {
     session: SharedSession,
     path: String,
     saved_revision: Option<u64>,
+    shell: DocumentShellState,
 }
 
 struct HubState {
@@ -46,6 +49,7 @@ impl DocumentHub {
                     session: shared,
                     path,
                     saved_revision: Some(revision),
+                    shell: DocumentShellState::default(),
                 }],
                 active: 0,
             })),
@@ -198,6 +202,7 @@ impl DocumentHub {
                 session: session.clone(),
                 path: String::new(),
                 saved_revision: None,
+                shell: DocumentShellState::default(),
             });
             (session, index)
         };
