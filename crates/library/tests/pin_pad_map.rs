@@ -79,6 +79,30 @@ fn qfn_symbol_and_footprint() -> Result<(SymbolDefinition, FootprintDefinition),
     Ok((symbol, fp))
 }
 
+fn ep_pad_label(footprint: &FootprintDefinition) -> Result<String, String> {
+    let labels = pcbcraft_library::footprint_pad_labels(footprint);
+    footprint
+        .pads
+        .iter()
+        .enumerate()
+        .find(|(_, p)| p.number == "EP")
+        .map(|(i, _)| labels[i].clone())
+        .ok_or_else(|| "QFN fixture should include EP".into())
+}
+
+fn map_with_ep_marked_thermal(
+    symbol: &SymbolDefinition,
+    footprint: &FootprintDefinition,
+) -> Result<pcbcraft_library::PinPadMap, String> {
+    let ep_label = ep_pad_label(footprint)?;
+    let mut map = auto_fill(symbol, footprint);
+    for row in &mut map.rows {
+        row.pads.retain(|p| p != &ep_label);
+    }
+    map.set_pad_role(&ep_label, PadRole::Thermal);
+    Ok(map)
+}
+
 #[test]
 fn qfn_auto_fill_groups_repeated_ground_pads_under_one_pin() -> Result<(), String> {
     let (symbol, footprint) = qfn_symbol_and_footprint()?;
@@ -100,7 +124,7 @@ fn qfn_auto_fill_groups_repeated_ground_pads_under_one_pin() -> Result<(), Strin
 #[test]
 fn qfn_missing_pad_names_the_pad() -> Result<(), String> {
     let (symbol, mut footprint) = qfn_symbol_and_footprint()?;
-    let map = auto_fill(&symbol, &footprint);
+    let map = map_with_ep_marked_thermal(&symbol, &footprint)?;
     let findings = validate_pin_pad_map(&symbol, &footprint, &map);
     assert!(findings.is_empty(), "{findings:?}");
 
@@ -118,11 +142,31 @@ fn qfn_missing_pad_names_the_pad() -> Result<(), String> {
         polygon: Vec::new(),
         raw_source: String::new(),
     });
-    let map = auto_fill(&symbol, &footprint);
+    let map = map_with_ep_marked_thermal(&symbol, &footprint)?;
     let findings = validate_pin_pad_map(&symbol, &footprint, &map);
     assert!(
         findings.iter().any(|f| f.pad.as_deref() == Some("99")),
         "unclaimed pad 99: {findings:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn pin_unmapped_names_the_pin() -> Result<(), String> {
+    let (symbol, footprint) = qfn_symbol_and_footprint()?;
+    let mut map = map_with_ep_marked_thermal(&symbol, &footprint)?;
+    let row = map
+        .rows
+        .iter_mut()
+        .find(|r| r.pin == "1")
+        .ok_or("expected pin 1 row")?;
+    row.pads.clear();
+    let findings = validate_pin_pad_map(&symbol, &footprint, &map);
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.code == "pin_unmapped" && f.pin.as_deref() == Some("1")),
+        "{findings:?}"
     );
     Ok(())
 }
@@ -176,22 +220,10 @@ fn bga_alphanumeric_pad_numbers_map_by_symbol_pin() -> Result<(), String> {
 #[test]
 fn unclaimed_thermal_pad_is_ok_when_marked_thermal() -> Result<(), String> {
     let (symbol, footprint) = qfn_symbol_and_footprint()?;
-    let labels = pcbcraft_library::footprint_pad_labels(&footprint);
-    let ep_label = footprint
-        .pads
-        .iter()
-        .enumerate()
-        .find(|(_, p)| p.number == "EP")
-        .map(|(i, _)| labels[i].clone())
-        .ok_or("QFN fixture should include EP")?;
-    let mut map = auto_fill(&symbol, &footprint);
-    for row in &mut map.rows {
-        row.pads.retain(|p| p != &ep_label);
-    }
-    map.set_pad_role(&ep_label, PadRole::Thermal);
+    let map = map_with_ep_marked_thermal(&symbol, &footprint)?;
     let findings = validate_pin_pad_map(&symbol, &footprint, &map);
     assert!(
-        !findings.iter().any(|f| f.pad.as_deref() == Some(ep_label.as_str())),
+        findings.is_empty(),
         "thermal EP should not count as unclaimed: {findings:?}"
     );
     Ok(())
@@ -200,14 +232,7 @@ fn unclaimed_thermal_pad_is_ok_when_marked_thermal() -> Result<(), String> {
 #[test]
 fn unclaimed_thermal_pad_fails_when_left_electrical() -> Result<(), String> {
     let (symbol, footprint) = qfn_symbol_and_footprint()?;
-    let labels = pcbcraft_library::footprint_pad_labels(&footprint);
-    let ep_label = footprint
-        .pads
-        .iter()
-        .enumerate()
-        .find(|(_, p)| p.number == "EP")
-        .map(|(i, _)| labels[i].clone())
-        .ok_or("QFN fixture should include EP")?;
+    let ep_label = ep_pad_label(&footprint)?;
     let mut map = auto_fill(&symbol, &footprint);
     for row in &mut map.rows {
         row.pads.retain(|p| p != &ep_label);

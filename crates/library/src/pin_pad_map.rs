@@ -16,6 +16,16 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// How a footprint pad participates in electrical pinout.
+///
+/// # Rules
+/// - Electrical pads must appear in the pin map or validation fails.
+/// - Mechanical, thermal and no-connect pads may stay unmapped when their role is set.
+///
+/// # Dependencies
+/// - crates/library/src/pin_pad_map.rs `PinPadMap::set_pad_role`
+///
+/// # Do not
+/// - Treat plated signal pads as mechanical without an explicit role change.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PadRole {
@@ -27,6 +37,16 @@ pub enum PadRole {
 }
 
 /// One schematic pin and the footprint pads it drives.
+///
+/// # Rules
+/// - `pin` is the symbol pin number as stored on `SymbolPin`.
+/// - `pads` lists stable pad labels from `pad_label` / `footprint_pad_labels`.
+///
+/// # Dependencies
+/// - crates/library/src/lib.rs `SymbolPin`
+///
+/// # Do not
+/// - Store duplicate pad labels in one row.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PinPadRow {
@@ -36,6 +56,16 @@ pub struct PinPadRow {
 }
 
 /// Full pin-to-pad table plus per-pad roles.
+///
+/// # Rules
+/// - Rows follow symbol pin order from `auto_fill` then sort by pin when remapped.
+/// - `pad_roles` keys use the same labels as `pads` entries.
+///
+/// # Dependencies
+/// - crates/library/src/pin_pad_map.rs `auto_fill`, `validate_pin_pad_map`
+///
+/// # Do not
+/// - Serialize pad roles without labels; keys must match the footprint instance.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PinPadMap {
@@ -157,10 +187,12 @@ impl PinPadMap {
         }
     }
 
+    /// Record how an unmapped or auxiliary pad should be treated in validation.
     pub fn set_pad_role(&mut self, pad: &str, role: PadRole) {
         self.pad_roles.insert(pad.to_owned(), role);
     }
 
+    /// Role for `pad`, defaulting to electrical when unset.
     pub fn pad_role(&self, pad: &str) -> PadRole {
         self.pad_roles.get(pad).copied().unwrap_or(PadRole::Electrical)
     }
@@ -180,6 +212,16 @@ fn pad_claimed(map: &PinPadMap, pad: &str) -> bool {
 }
 
 /// One validation finding; `pin` or `pad` names the object when the issue is localised.
+///
+/// # Rules
+/// - `code` is stable (`pin_unmapped`, `pad_unclaimed`, and similar).
+/// - At least one of `pin` or `pad` is set for pin/pad specific codes.
+///
+/// # Dependencies
+/// - crates/library/src/pin_pad_map.rs `validate_pin_pad_map`
+///
+/// # Do not
+/// - Reuse codes for unrelated checks; part validation maps these into its own findings.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PinPadFinding {

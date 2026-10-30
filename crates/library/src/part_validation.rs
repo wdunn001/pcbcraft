@@ -12,6 +12,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Closed parameter keys (snake_case names). Matches the part-parameters epic list.
+///
+/// # Rules
+/// - Keys are snake_case and category-specific via `param_key_allowed`.
+///
+/// # Dependencies
+/// - crates/library/src/part_validation.rs `validate_catalog_fields`
+///
+/// # Do not
+/// - Add keys without updating category allowlists in the same commit.
 pub const PARAM_KEYS: &[&str] = &[
     "capacitance",
     "resistance",
@@ -123,6 +132,16 @@ fn param_key_allowed(category: Category, key: &str) -> bool {
 }
 
 /// Catalog and geometry fields checked beside the pin pad map.
+///
+/// # Rules
+/// - `package_key` must match `package_key(package_text)` when text is present.
+/// - `body_half_mm` is compared to the footprint courtyard when set.
+///
+/// # Dependencies
+/// - crates/library/src/listing.rs `package_key`, `Category`
+///
+/// # Do not
+/// - Parse parameter values here; only keys are validated.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartCatalogFields {
@@ -148,6 +167,16 @@ pub struct PartCatalogFields {
     pub body_half_mm: Option<[f64; 3]>,
 }
 
+/// One part validation finding; pin and pad mirror pin pad map localisation.
+///
+/// # Rules
+/// - `code` groups outcomes for the Verified badge and UI filters.
+///
+/// # Dependencies
+/// - crates/library/src/part_validation.rs `validate_part`
+///
+/// # Do not
+/// - Emit findings without a stable `code` string.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartValidationFinding {
@@ -170,6 +199,16 @@ impl From<PinPadFinding> for PartValidationFinding {
     }
 }
 
+/// Aggregated part validation outcome for the Verified badge.
+///
+/// # Rules
+/// - `verified` is true only when every boolean flag is true and findings are empty.
+///
+/// # Dependencies
+/// - crates/library/src/part_validation.rs `validate_part`
+///
+/// # Do not
+/// - Set `verified` without running both pin pad and catalog checks.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartValidationResult {
@@ -190,6 +229,16 @@ pub struct PartValidationResult {
     pub findings: Vec<PartValidationFinding>,
 }
 
+/// Validate manufacturer identity, datasheet, package key, parameters and 3D body fit.
+///
+/// # Rules
+/// - Returns `(ok, findings)` where `ok` is false when any finding is emitted.
+///
+/// # Dependencies
+/// - crates/library/src/footprint_check.rs `courtyard_half_extents`
+///
+/// # Do not
+/// - Skip footprint package comparison when a footprint is supplied.
 pub fn validate_catalog_fields(
     fields: &PartCatalogFields,
     footprint: Option<&FootprintDefinition>,
@@ -392,7 +441,16 @@ pub fn validate_part(
     }
 }
 
-/// Drop-in pinout check for replacement suggestions: same mapped pad set per pin.
+/// Outcome of a drop-in pinout comparison between two pin pad maps.
+///
+/// # Rules
+/// - `drop_in` is true when every pin maps to the same pad set on both maps.
+///
+/// # Dependencies
+/// - crates/library/src/part_validation.rs `replacement_check`
+///
+/// # Do not
+/// - Compare catalog fields here; pin pad agreement only.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReplacementCheckResult {
@@ -401,6 +459,16 @@ pub struct ReplacementCheckResult {
     pub findings: Vec<PartValidationFinding>,
 }
 
+/// Compare candidate pin pad mapping to a reference for replacement suggestions.
+///
+/// # Rules
+/// - Findings name the pin whose pad set differs or is missing.
+///
+/// # Dependencies
+/// - crates/library/src/pin_pad_map.rs `PinPadMap`
+///
+/// # Do not
+/// - Treat pad role differences as drop-in failures; only mapped pad sets are compared.
 pub fn replacement_check(reference: &PinPadMap, candidate: &PinPadMap) -> ReplacementCheckResult {
     let mut findings = Vec::new();
     let ref_pins: BTreeMap<_, _> = reference
