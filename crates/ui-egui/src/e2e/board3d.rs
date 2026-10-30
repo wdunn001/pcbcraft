@@ -202,6 +202,7 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                 rules: None,
                 raw_source: String::new(),
                 unsupported: vec![],
+                retained: vec![],
             },
         });
         s.revision += 1;

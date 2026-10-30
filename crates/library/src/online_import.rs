@@ -201,6 +201,7 @@ pub fn generic_symbol_for(
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     symbol
         .validate()
