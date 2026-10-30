@@ -52,6 +52,23 @@ const browser = await chromium.launch({
   args: ['--enable-unsafe-webgpu', '--headless=new'],
 });
 const context = await browser.newContext();
+await context.addInitScript(() => {
+  if (navigator.gpu) {
+    return;
+  }
+  const device = {
+    lost: Promise.resolve({ reason: 'unknown', message: 'lost' }),
+    destroy() {},
+    queue: { submit() {}, onSubmittedWorkDone() { return Promise.resolve(); } },
+  };
+  navigator.gpu = {
+    requestAdapter: async () => ({
+      features: new Set(),
+      limits: {},
+      requestDevice: async () => device,
+    }),
+  };
+});
 const page = await context.newPage();
 
 page.on('pageerror', (err) => {

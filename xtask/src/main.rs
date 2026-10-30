@@ -274,7 +274,6 @@ fn wasm() -> Result<(), String> {
         "--locked",
         "--target",
         "wasm32-unknown-unknown",
-        "--all-targets",
     ];
     for package in WASM_PACKAGES {
         clippy_args.extend(["-p", package]);
