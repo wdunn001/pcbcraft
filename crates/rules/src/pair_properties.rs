@@ -69,7 +69,7 @@ fn track_coupled(project: &Project, pair: &DiffPair, track: &Track, mate: Id) ->
 }
 
 fn max_uncoupled_run(project: &Project, pair: &DiffPair) -> f64 {
-    let mut longest = 0.0;
+    let mut longest = 0.0_f64;
     for track in &project.board.tracks {
         if track.net != pair.net_p && track.net != pair.net_n {
             continue;
