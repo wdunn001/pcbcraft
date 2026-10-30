@@ -167,6 +167,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         }
     }
     fn overlaps(p: &Project) -> Vec<Finding> {

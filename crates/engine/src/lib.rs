@@ -12564,6 +12564,7 @@ fn run_command(
                 from_layer,
                 to_layer,
                 covering: None,
+            covering_scope: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -12707,6 +12708,7 @@ fn run_command(
                         from_layer: None,
                         to_layer: None,
                         covering: None,
+                        covering_scope: None,
                     });
                     ids.push(id);
                 }

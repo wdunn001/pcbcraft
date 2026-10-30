@@ -504,8 +504,12 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
         }
     }
     for v in &p.board.vias {
+        let top = layer == Layer::Front;
+        if !crate::fab_export::via_mask_opening_on_face(v, &p.board, top) {
+            continue;
+        }
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
-        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        let code = sheet.define(Opening::Circle(microns(diameter)), "SMDPad,CuDef")?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
     let (function, comment) = match layer {
@@ -993,6 +997,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,

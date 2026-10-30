@@ -1374,6 +1374,22 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
+    /// Which outer faces use the covering. Absent means both faces, which
+    /// matches boards saved before per-side protection existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering_scope: Option<ViaCoveringScope>,
+}
+/// Which outer faces of a via use its covering type.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ViaCoveringScope {
+    /// The covering applies on both outer faces.
+    #[default]
+    Both,
+    /// The covering applies on the top face only; the bottom stays open.
+    Top,
+    /// The covering applies on the bottom face only; the top stays open.
+    Bottom,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1437,15 +1453,96 @@ impl ViaCovering {
             ViaCovering::FilledCapped => "filled_capped",
         }
     }
-    /// Whether the solder mask keeps an opening around the hole.
+    /// Whether the solder mask keeps an opening around the hole on every face.
     pub fn keeps_mask_opening(self) -> bool {
         self == ViaCovering::Open
+    }
+    /// Whether the solder mask keeps an opening on one outer face.
+    pub fn mask_open_on_face(self, scope: ViaCoveringScope, top: bool) -> bool {
+        if self == ViaCovering::Open {
+            return true;
+        }
+        match scope {
+            ViaCoveringScope::Both => false,
+            ViaCoveringScope::Top => !top,
+            ViaCoveringScope::Bottom => top,
+        }
+    }
+    /// Gerber `ViaDrill` protection field for this covering and face scope.
+    pub fn gerber_via_drill(self, scope: ViaCoveringScope) -> ViaGerberDrill {
+        match self {
+            ViaCovering::Open => ViaGerberDrill::None,
+            ViaCovering::Tented => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::Ib,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::Ia,
+            },
+            ViaCovering::TentedCovered => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IIb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIa,
+            },
+            ViaCovering::Plugged => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IIIb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IIIa,
+            },
+            ViaCovering::PluggedCovered => match scope {
+                ViaCoveringScope::Both => ViaGerberDrill::IVb,
+                ViaCoveringScope::Top | ViaCoveringScope::Bottom => ViaGerberDrill::IVa,
+            },
+            ViaCovering::Filled => ViaGerberDrill::V,
+            ViaCovering::FilledCovered => ViaGerberDrill::VI,
+            ViaCovering::FilledCapped => ViaGerberDrill::VII,
+        }
+    }
+}
+/// Twelve Gerber `ViaDrill` protection values plus `None` for an open via.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ViaGerberDrill {
+    None,
+    Ia,
+    Ib,
+    IIa,
+    IIb,
+    IIIa,
+    IIIb,
+    IVa,
+    IVb,
+    V,
+    VI,
+    VII,
+}
+impl ViaGerberDrill {
+    pub fn token(self) -> &'static str {
+        match self {
+            ViaGerberDrill::None => "None",
+            ViaGerberDrill::Ia => "Ia",
+            ViaGerberDrill::Ib => "Ib",
+            ViaGerberDrill::IIa => "IIa",
+            ViaGerberDrill::IIb => "IIb",
+            ViaGerberDrill::IIIa => "IIIa",
+            ViaGerberDrill::IIIb => "IIIb",
+            ViaGerberDrill::IVa => "IVa",
+            ViaGerberDrill::IVb => "IVb",
+            ViaGerberDrill::V => "V",
+            ViaGerberDrill::VI => "VI",
+            ViaGerberDrill::VII => "VII",
+        }
     }
 }
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
-        self.covering.unwrap_or(board.via_covering_default)
+        self.covering.unwrap_or(board.via_covering_default),
+            covering: None,
+            covering_scope: None,
+    }
+    /// Which outer faces use the covering on this via.
+    pub fn effective_covering_scope(&self) -> ViaCoveringScope {
+        self.covering_scope.unwrap_or(ViaCoveringScope::Both)
+    }
+    /// Gerber `ViaDrill` value for fabrication output.
+    pub fn gerber_via_drill(&self, board: &Board) -> ViaGerberDrill {
+        self.effective_covering(board)
+            .gerber_via_drill(self.effective_covering_scope())
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -6668,6 +6765,7 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            covering_scope: None,
         });
         p
     }

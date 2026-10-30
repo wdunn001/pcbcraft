@@ -1834,6 +1834,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;

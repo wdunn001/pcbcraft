@@ -17,7 +17,7 @@
 //! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
-use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
+use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering, ViaGerberDrill};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
@@ -28,14 +28,17 @@ const MAX_HITS: usize = 50_000;
 const MAX_TOOLS: usize = 64;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
 
-/// Whether a via gets a solder-mask opening on top and bottom plots.
-///
-/// The covering is the via's own, else the board default. Only an open via
-/// keeps its opening; tented, plugged and filled types close the hole, so the
-/// mask plots leave the opening out. A via without a drilled hole has nothing
-/// to open.
+/// Whether a via gets a solder-mask opening on one outer face.
+pub fn via_mask_opening_on_face(v: &Via, board: &Board, top: bool) -> bool {
+    if v.drill <= 0.0 {
+        return false;
+    }
+    v.effective_covering(board).mask_open_on_face(v.effective_covering_scope(), top)
+}
+
+/// Whether a via gets a solder-mask opening on both outer plots.
 pub fn via_mask_opening(v: &Via, board: &Board) -> bool {
-    v.drill > 0.0 && v.effective_covering(board).keeps_mask_opening()
+    via_mask_opening_on_face(v, board, true) && via_mask_opening_on_face(v, board, false)
 }
 
 #[derive(Clone, Copy)]
@@ -45,8 +48,8 @@ pub(crate) struct DrillHit {
     pub d_um: u64,
     pub span_um: u64,
     pub plated: bool,
-    /// Covering of the via this hit drills, `None` for pad and mounting holes.
-    pub via: Option<ViaCovering>,
+    /// Gerber via protection for this hit, `None` for pad and mounting holes.
+    pub via_drill: Option<ViaGerberDrill>,
     pub x: f64,
     pub y: f64,
     pub ux: f64,
@@ -82,7 +85,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um: (v.drill * 1_000.0).round() as u64,
                     span_um: 0,
                     plated: true,
-                    via: Some(v.effective_covering(&p.board)),
+                    via_drill: Some(v.gerber_via_drill(&p.board)),
                     x: v.position.x,
                     y: v.position.y,
                     ux: 0.0,
@@ -160,7 +163,7 @@ pub(crate) fn collect_drill_hits(p: &Project) -> Result<Vec<DrillHit>, String> {
                     d_um,
                     span_um,
                     plated: g.pad_type == "thru_hole",
-                    via: None,
+                    via_drill: None,
                     x: world.x,
                     y: world.y,
                     ux,
@@ -502,10 +505,11 @@ fn write_excellon(
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
     // Via hits get their own tools per covering so each tool can carry the
     // via drill attribute and name its covering.
-    let mut by_tool: BTreeMap<(u64, u64, Option<ViaCovering>), Vec<&DrillHit>> = BTreeMap::new();
+    let mut by_tool: BTreeMap<(u64, u64, Option<ViaGerberDrill>), Vec<&DrillHit>> =
+        BTreeMap::new();
     for hit in round {
         by_tool
-            .entry((hit.d_um, hit.span_um, hit.via))
+            .entry((hit.d_um, hit.span_um, hit.via_drill))
             .or_default()
             .push(hit);
     }
@@ -520,10 +524,10 @@ fn write_excellon(
     let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
-        if let Some(covering) = key.2 {
+        if let Some(kind) = key.2 {
             out.push_str(&format!(
-                "; #@! TA.AperFunction,Plated,PTH,ViaDrill\n; via protection: {}\n",
-                covering.label()
+                "; #@! TA.AperFunction,Plated,PTH,ViaDrill,{}\n",
+                kind.token()
             ));
         }
         out.push_str(&format!(
@@ -897,25 +901,23 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             back.flash(back_code, x, y)?;
         }
 
-        if via_mask_opening(v, &p.board) && (reaches_top || reaches_bottom) {
-            let margin = DEFAULT_MASK_MARGIN_MM;
-            let r = v.drill / 2.0 + margin;
-            let n = 16usize;
-            let mut ring = Vec::with_capacity(n + 1);
-            for i in 0..=n {
-                let a = std::f64::consts::TAU * i as f64 / n as f64;
-                ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
-            }
-            if reaches_top {
-                let code_f = mask_front.code(Ap::Circle(1))?;
-                mask_front.fill(code_f, &outline_ring(&ring))?;
-            }
-            if reaches_bottom {
-                let mirrored: Vec<(f64, f64)> =
-                    ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
-                let code_b = mask_back.code(Ap::Circle(1))?;
-                mask_back.fill(code_b, &outline_ring(&mirrored))?;
-            }
+        let margin = DEFAULT_MASK_MARGIN_MM;
+        let r = v.drill / 2.0 + margin;
+        let n = 16usize;
+        let mut ring = Vec::with_capacity(n + 1);
+        for i in 0..=n {
+            let a = std::f64::consts::TAU * i as f64 / n as f64;
+            ring.push((v.position.x + r * a.cos(), v.position.y + r * a.sin()));
+        }
+        if reaches_top && via_mask_opening_on_face(v, &p.board, true) {
+            let code_f = mask_front.code(Ap::Circle(1))?;
+            mask_front.fill(code_f, &outline_ring(&ring))?;
+        }
+        if reaches_bottom && via_mask_opening_on_face(v, &p.board, false) {
+            let mirrored: Vec<(f64, f64)> =
+                ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
+            let code_b = mask_back.code(Ap::Circle(1))?;
+            mask_back.fill(code_b, &outline_ring(&mirrored))?;
         }
     }
 

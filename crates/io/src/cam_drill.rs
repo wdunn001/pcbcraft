@@ -1050,6 +1050,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_scope: None,
         });
         p.board.holes.push(Hole {
             id: 2,
