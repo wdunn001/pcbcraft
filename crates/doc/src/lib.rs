@@ -26,7 +26,19 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+mod sourcing;
+mod compliance;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
+pub use compliance::{
+    Compliance, ComplianceProjectSettings, CountryOfOrigin, DeclaredSubstance, Declaration,
+    DeclarationSource, DeclarationSourceKind, DeclarationStatus, ManufacturerRecord, PartRole,
+    MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS, MAX_SUBSTANCES,
+    apply_listing_declarations, date_le, normalize_manufacturer_name, part_role_text, valid_date,
+};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -164,6 +176,13 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// Typed sourcing facts: manufacturer, part number, description, supplier numbers
+    /// and quick compliance flags. Empty records are not saved. See `sourcing.rs`.
+    #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
+    pub sourcing: Sourcing,
+    /// Typed compliance: country of origin, product role, dated declarations and substances.
+    #[serde(default, skip_serializing_if = "Compliance::is_empty")]
+    pub compliance: Compliance,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -3220,6 +3239,12 @@ pub struct Project {
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
+    /// Manufacturer names and aliases for compliance matching.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manufacturers: Vec<ManufacturerRecord>,
+    /// Selected regulatory rule bundles for bill-of-materials compliance checks.
+    #[serde(default)]
+    pub compliance_settings: ComplianceProjectSettings,
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
@@ -3410,6 +3435,8 @@ impl Default for Project {
             page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
+            manufacturers: vec![],
+            compliance_settings: ComplianceProjectSettings::default(),
             output_jobs: vec![],
             artifacts: vec![],
             panel: PanelSettings::default(),
@@ -3525,6 +3552,8 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
         pins: names
             .iter()
@@ -4413,6 +4442,8 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
+        self.validate_manufacturers()?;
+        self.compliance_settings.validate()?;
         if self
             .components
             .iter()
@@ -5006,6 +5037,8 @@ impl Project {
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
             }
+            c.sourcing.validate()?;
+            c.compliance.validate()?;
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {
                 if f.key.is_empty()
@@ -5602,6 +5635,8 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
