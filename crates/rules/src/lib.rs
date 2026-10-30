@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
 mod drill;
+mod parallel_crosstalk;
 mod silk;
 mod stub;
 
@@ -1577,6 +1578,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         }),
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(parallel_crosstalk::parallel_crosstalk_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

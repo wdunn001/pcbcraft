@@ -413,6 +413,10 @@ pub struct NetClass {
     /// Default coupling gap for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_gap: Option<f64>,
+    /// Rise time of signals on member nets, in seconds. Drives parallel-run
+    /// crosstalk estimates and the electrically-long track check when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rise_time: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -4637,6 +4641,8 @@ impl Project {
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
                 || c.pair_gap
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
+                || c.rise_time
+                    .is_some_and(|t| !t.is_finite() || !(1.0e-12..=1.0e-3).contains(&t))
             {
                 return Err("invalid net class".into());
             }

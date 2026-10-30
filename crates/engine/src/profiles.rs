@@ -90,6 +90,7 @@ pub fn known_value_source_fields() -> &'static [&'static str] {
         "net_class.max_width",
         "net_class.target_length",
         "net_class.length_tolerance",
+        "net_class.rise_time",
         "pair.gap",
         "pair.length_tolerance",
         "pair_rule.clearance",
@@ -127,6 +128,8 @@ struct NetClassToml {
     target_length: Option<f64>,
     #[serde(default)]
     length_tolerance: Option<f64>,
+    #[serde(default)]
+    rise_time: Option<f64>,
     #[serde(default)]
     max_length: Option<f64>,
     #[serde(default)]
@@ -369,6 +372,7 @@ fn find_or_create_class<'a>(
         via_drill: None,
         pair_width: None,
         pair_gap: None,
+        rise_time: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
     });
@@ -388,6 +392,7 @@ fn apply_class_fields(class: &mut NetClass, spec: &NetClassToml) {
     class.max_width = spec.max_width;
     class.target_length = spec.target_length;
     class.length_tolerance = spec.length_tolerance;
+    class.rise_time = spec.rise_time;
 }
 
 fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<(), String> {

@@ -346,6 +346,7 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            rise_time: None,
             nets: vec![1],
             profile: None,
         });
