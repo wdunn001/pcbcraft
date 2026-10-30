@@ -133,11 +133,10 @@ fn applying_twice_updates_values_without_duplicating_classes() -> Result<(), Err
 const SCHEMA_V2_BUILTINS: &[&str] = &["usb2", "i2c", "spi", "qspi", "uart", "can"];
 
 #[test]
-fn every_built_in_profile_toml_parses_and_validates() {
+fn every_built_in_profile_toml_parses_and_validates() -> Result<(), String> {
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
-        let doc = pcbcraft_io::interface_profile_from_toml(builtin.toml);
-        assert!(doc.is_ok(), "{} must validate: {:?}", builtin.id, doc.err());
-        let doc = doc.expect("validated above");
+        let doc = pcbcraft_io::interface_profile_from_toml(builtin.toml)
+            .map_err(|e| format!("{} must validate: {e}", builtin.id))?;
         assert_eq!(doc.profile.id, builtin.id);
         let schema = doc.schema;
         assert!(
@@ -149,13 +148,14 @@ fn every_built_in_profile_toml_parses_and_validates() {
             assert_eq!(schema, 2, "{} must be schema 2", builtin.id);
         }
     }
+    Ok(())
 }
 
 #[test]
 fn schema_v2_builtins_round_trip_through_toml() -> Result<(), pcbcraft_engine::Error> {
     for id in SCHEMA_V2_BUILTINS {
         let text = pcbcraft_engine::profiles::parse_builtin(id)
-            .map_err(|e| pcbcraft_engine::Error::Invalid(e))?;
+            .map_err(pcbcraft_engine::Error::Invalid)?;
         let doc = pcbcraft_io::interface_profile_from_toml(text)
             .map_err(pcbcraft_engine::Error::Invalid)?;
         let exported = pcbcraft_io::interface_profile_to_toml(&doc)
@@ -172,16 +172,15 @@ fn schema_v2_builtins_round_trip_through_toml() -> Result<(), pcbcraft_engine::E
 }
 
 #[test]
-fn value_source_fields_name_known_schema_keys() {
+fn value_source_fields_name_known_schema_keys() -> Result<(), String> {
     let known: std::collections::BTreeSet<_> =
         pcbcraft_engine::profiles::known_value_source_fields()
             .iter()
             .copied()
             .collect();
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
-        let doc = pcbcraft_io::interface_profile_from_toml(builtin.toml);
-        assert!(doc.is_ok(), "{}", builtin.id);
-        let doc = doc.expect("validated above");
+        let doc = pcbcraft_io::interface_profile_from_toml(builtin.toml)
+            .map_err(|e| format!("{}: {e}", builtin.id))?;
         for row in &doc.value_source {
             assert!(
                 known.contains(row.field.as_str()),
@@ -191,24 +190,26 @@ fn value_source_fields_name_known_schema_keys() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
-fn unknown_profile_field_is_refused_with_the_field_name() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/unknown_field_profile.toml");
-    let err = pcbcraft_io::interface_profile_from_toml(
-        &std::fs::read_to_string(&path).unwrap_or_default(),
-    )
-    .unwrap_err();
-    assert!(
-        err.contains("not_a_real_table") || err.contains("unknown field"),
-        "expected field name in refusal, got {err}"
-    );
+fn unknown_profile_field_is_refused_with_the_field_name() -> Result<(), String> {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/unknown_field_profile.toml");
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let err = match pcbcraft_io::interface_profile_from_toml(&text) {
+        Err(err) => err,
+        Ok(_) => return Err("expected unknown field refusal".into()),
+    };
+    if !err.contains("not_a_real_table") && !err.contains("unknown field") {
+        return Err(format!("expected field name in refusal, got {err}"));
+    }
+    Ok(())
 }
 
 #[test]
-fn out_of_range_impedance_is_refused() {
+fn out_of_range_impedance_is_refused() -> Result<(), Error> {
     let text = r#"
 schema = 2
 [profile]
@@ -226,8 +227,14 @@ electrical_class = "single-ended"
 [bus.limits]
 impedance_ohm = 5.0
 "#;
-    let err = pcbcraft_io::interface_profile_from_toml(text).unwrap_err();
-    assert!(err.contains("impedance_ohm"), "got {err}");
+    let err = match pcbcraft_io::interface_profile_from_toml(text) {
+        Err(err) => err,
+        Ok(_) => return Err(Error::Invalid("expected impedance refusal".into())),
+    };
+    if !err.contains("impedance_ohm") {
+        return Err(Error::Invalid(format!("got {err}")));
+    }
+    Ok(())
 }
 
 #[test]
@@ -256,7 +263,9 @@ fn profile_read_reports_bus_template_name() -> Result<(), Error> {
     let mut s = Session::default();
     let out = s.execute("rules.profile_read", json!({"id":"i2c"}), None)?;
     assert_eq!(out["result"]["bus"]["name"], "I2C");
-    let unsupported = out["result"]["unsupported"].as_array().ok_or_else(missing)?;
+    let unsupported = out["result"]["unsupported"]
+        .as_array()
+        .ok_or_else(missing)?;
     assert!(!unsupported.is_empty());
     Ok(())
 }
@@ -283,10 +292,11 @@ fn manifest_source_slugs_exist() {
 }
 
 #[test]
-fn schema_v1_built_in_still_loads() {
-    let text = pcbcraft_engine::profiles::parse_builtin("rs485").expect("rs485");
-    let doc = pcbcraft_io::interface_profile_from_toml(text).expect("rs485 v1");
+fn schema_v1_built_in_still_loads() -> Result<(), String> {
+    let text = pcbcraft_engine::profiles::parse_builtin("rs485")?;
+    let doc = pcbcraft_io::interface_profile_from_toml(text)?;
     assert_eq!(doc.schema, 1);
+    Ok(())
 }
 
 #[test]

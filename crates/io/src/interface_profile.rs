@@ -1,14 +1,24 @@
 //! TOML import and export for interface rule profiles (schema 1 and 2).
+//!
+//! # Rules
+//! - TOML is parsed here only; validation types live in crates/doc/src/interface_profile.rs.
+//! - Unknown keys are refused by serde; numeric bounds are checked after decode.
+//!
+//! # Dependencies
+//! - crates/doc/src/interface_profile.rs
+//! - crates/engine/profiles/SCHEMA.md
 use pcbcraft_doc::InterfaceProfileDocument;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+/// SHA-256 hex digest of the raw profile file bytes.
 pub fn interface_profile_content_hash(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     format!("{:x}", hasher.finalize())
 }
 
+/// Parses and validates one profile TOML file.
 pub fn interface_profile_from_toml(text: &str) -> Result<InterfaceProfileDocument, String> {
     let parsed: toml::Value = toml::from_str(text).map_err(|e| format!("TOML profile: {e}"))?;
     let json = toml_value_to_json(parsed);
@@ -18,6 +28,7 @@ pub fn interface_profile_from_toml(text: &str) -> Result<InterfaceProfileDocumen
     Ok(profile)
 }
 
+/// Serializes a validated profile back to pretty TOML.
 pub fn interface_profile_to_toml(profile: &InterfaceProfileDocument) -> Result<String, String> {
     profile.validate()?;
     let json = serde_json::to_value(profile).map_err(|e| e.to_string())?;

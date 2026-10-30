@@ -1,8 +1,8 @@
 //! Built-in interface rule profiles (TOML) and apply/list/read commands.
-use pcbcraft_doc::{
-    collect_unsupported, companion_plan, InterfaceProfileDocument, NetClassSpec, Project,
-};
 use pcbcraft_doc::{DiffPair, Id, NetClass, NetPairRule, RuleArea, RuleRegion};
+use pcbcraft_doc::{
+    InterfaceProfileDocument, NetClassSpec, Project, collect_unsupported, companion_plan,
+};
 use pcbcraft_io::{interface_profile_content_hash, interface_profile_from_toml};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -61,9 +61,32 @@ pub static BUILT_INS: &[BuiltInProfile] = &[
 
 pub fn manifest_slugs() -> &'static [&'static str] {
     &[
-        "usb2", "i2c", "spi", "uart", "can", "rs485", "swd", "jtag", "hdmi", "ethernet-100",
-        "ethernet-1g", "pcie-gen2", "pcie-gen3", "lvds", "mipi-dsi", "mipi-csi", "sdio", "qspi",
-        "ddr3", "ddr4", "lpddr4", "power-3v3", "power-5v", "power-12v", "analog-audio", "rf-50ohm",
+        "usb2",
+        "i2c",
+        "spi",
+        "uart",
+        "can",
+        "rs485",
+        "swd",
+        "jtag",
+        "hdmi",
+        "ethernet-100",
+        "ethernet-1g",
+        "pcie-gen2",
+        "pcie-gen3",
+        "lvds",
+        "mipi-dsi",
+        "mipi-csi",
+        "sdio",
+        "qspi",
+        "ddr3",
+        "ddr4",
+        "lpddr4",
+        "power-3v3",
+        "power-5v",
+        "power-12v",
+        "analog-audio",
+        "rf-50ohm",
     ]
 }
 
@@ -178,6 +201,7 @@ pub struct ProfileIdOrPathParams {
     pub path: Option<String>,
 }
 
+/// Reads one profile by built-in id, library id, user file, or path.
 pub fn profile_read(p: &Project, params: &Value) -> Result<Value, String> {
     let a: ProfileIdOrPathParams = serde_json::from_value(params.clone())
         .map_err(|e| format!("profile read parameters: {e}"))?;

@@ -1,48 +1,13 @@
-//! Interface rule profile data (protocol bus template schema v2).
+//! Interface rule profiles: protocol bus templates, net classes, pairs, and companion parts.
 //!
-//! Pure types and bounds checks. TOML parsing lives in crates/io.
-use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
-
-/// Library record kind for a shipped or imported profile file.
-pub const INTERFACE_PROFILE_RECORD_KIND: &str = "interface_profile";
-
-pub const MAX_PROFILE_ID: usize = 64;
-pub const MAX_PROFILE_NAME: usize = 128;
-pub const MAX_CATEGORY: usize = 64;
-pub const MAX_SUMMARY: usize = 512;
-pub const MAX_BUS_NAME: usize = 128;
-pub const MAX_SCHEMATIC_TYPE: usize = 128;
-pub const MAX_SIGNALS: usize = 64;
-pub const MAX_COMPANIONS: usize = 64;
-pub const MAX_CHECKS: usize = 64;
-pub const MAX_NET_CLASSES: usize = 64;
-pub const MAX_PAIRS: usize = 64;
-pub const MAX_RULE_AREAS: usize = 64;
-pub const MAX_VALUE_SOURCES: usize = 128;
-pub const MAX_SOURCE_NOTE: usize = 512;
-pub const MAX_ROLE: usize = 64;
-pub const MAX_CHECK_NAME: usize = 64;
-pub const MAX_CHECK_PARAMS: usize = 32;
-pub const MAX_CHECK_PARAM_KEY: usize = 64;
-pub const MAX_EMBEDDED_TOML: usize = 256 * 1024;
-pub const MAX_LICENSE: usize = 128;
-
-const MIN_CLEARANCE: f64 = 0.02;
-const MAX_CLEARANCE: f64 = 100.0;
-const MIN_WIDTH: f64 = 0.02;
-const MAX_WIDTH: f64 = 100.0;
-const MIN_GAP: f64 = 0.02;
-const MAX_GAP: f64 = 10.0;
-const MIN_IMPEDANCE: f64 = 20.0;
-const MAX_IMPEDANCE: f64 = 200.0;
-const MIN_PERCENT: f64 = 0.0;
-const MAX_PERCENT: f64 = 100.0;
-const MIN_LENGTH_MM: f64 = 0.0;
-const MAX_LENGTH_MM: f64 = 10_000.0;
-const MIN_SKEW_PS: f64 = 0.0;
-const MAX_SKEW_PS: f64 = 1_000_000.0;
-
+//! # Rules
+//! - Pure data and bounds checks. TOML import and export live in crates/io/src/interface_profile.rs.
+//! - Schema 1 keeps the phase-1 tables; schema 2 adds bus, signals, companions, and checks.
+//! - Refusals name the field and stay within the limits in crates/engine/profiles/SCHEMA.md.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/engine/profiles/SCHEMA.md
 fn valid_slug(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= MAX_PROFILE_ID
@@ -73,200 +38,296 @@ fn reference_plane_ok(s: &str) -> bool {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Library record header for a shipped profile file.
 pub struct ProfileRecordMeta {
+    /// Record kind.
     pub kind: String,
+    /// License SPDX or name.
     pub license: String,
+    /// Provenance note.
     pub source: String,
+    /// Optional SHA-256 hex digest.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Identity and summary for one profile.
 pub struct ProfileMeta {
+    /// Profile slug.
     pub id: String,
+    /// Display name.
     pub name: String,
+    /// Grouping label.
     pub category: String,
+    /// Short description.
     pub summary: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Electrical and layout limits for a protocol bus.
 pub struct BusLimits {
+    /// Edge-rate band label.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edge_rate_band: Option<String>,
+    /// Target differential impedance in ohms.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impedance_ohm: Option<f64>,
+    /// Impedance tolerance percent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impedance_tolerance_percent: Option<f64>,
+    /// Maximum routed length in millimetres.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_routed_length_mm: Option<f64>,
+    /// Maximum stub length in millimetres.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_stub_mm: Option<f64>,
+    /// Skew budget in picoseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skew_budget_ps: Option<f64>,
+    /// Reference plane requirement.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_plane: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Named bus with schematic type and optional limits.
 pub struct BusTemplate {
+    /// Display name.
     pub name: String,
+    /// Schematic bus or port type name.
     pub schematic_type: String,
+    /// Optional bus limits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limits: Option<BusLimits>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// One signal line with electrical class.
 pub struct SignalSpec {
+    /// Display name.
     pub name: String,
+    /// Fixed net name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net: Option<String>,
+    /// Glob pattern for net names.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pattern: Option<String>,
+    /// single-ended, open-drain, or differential.
     pub electrical_class: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Optional routed-length limits on a net class.
 pub struct ClassLimits {
+    /// Maximum routed length.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_routed_length: Option<f64>,
+    /// Maximum stub length.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_stub: Option<f64>,
+    /// Maximum via count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_vias: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Net class defaults and membership patterns.
 pub struct NetClassSpec {
+    /// Display name.
     pub name: String,
+    /// Clearance in millimetres.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clearance: Option<f64>,
+    /// Track width in millimetres.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<f64>,
+    /// Minimum track width.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_width: Option<f64>,
+    /// Maximum track width.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_width: Option<f64>,
+    /// Target routed length.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_length: Option<f64>,
+    /// Length match tolerance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Maximum routed length.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_length: Option<f64>,
+    /// Net name globs.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub patterns: Vec<String>,
+    /// Fixed net names.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nets: Vec<String>,
+    /// Optional bus limits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limits: Option<ClassLimits>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Controlled differential or single-ended pair.
 pub struct PairSpec {
+    /// Display name.
     pub name: String,
+    /// Positive or first net.
     pub net_p: String,
+    /// Negative or second net.
     pub net_n: String,
+    /// Pair gap in millimetres.
     pub gap: f64,
+    /// Length match tolerance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Require equal via counts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub equal_vias: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Clearance between two named nets.
 pub struct PairRuleSpec {
+    /// First net.
     pub net_a: String,
+    /// Second net.
     pub net_b: String,
+    /// Clearance in millimetres.
     pub clearance: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Rectangular clearance region on a layer.
 pub struct RuleAreaSpec {
+    /// Display name.
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Fixed net name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net: Option<String>,
+    /// Layer name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+    /// Clearance in millimetres.
     pub clearance: f64,
+    /// Left edge in millimetres.
     pub x: f64,
+    /// Bottom edge in millimetres.
     pub y: f64,
+    /// Track width in millimetres.
     pub width: f64,
+    /// Height in millimetres.
     pub height: f64,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Provenance note for one applied numeric field.
 pub struct ValueSourceSpec {
+    /// Dotted field path.
     pub field: String,
+    /// Provenance note.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Required companion part with sourced value range.
 pub struct CompanionSpec {
+    /// Companion role name.
     pub role: String,
+    /// Minimum value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value_min: Option<f64>,
+    /// Maximum value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value_max: Option<f64>,
+    /// Unit label.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    /// Maximum placement distance in millimetres.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placement_distance_max_mm: Option<f64>,
+    /// Provenance note.
     pub source: String,
+    /// Fixed net names.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub nets: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Named design check with parameters.
 pub struct CheckSpec {
+    /// Display name.
     pub name: String,
+    /// Check parameters.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// Matched-length group (unsupported until routed).
 pub struct LengthGroupSpec {
+    /// Display name.
     pub name: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// One interface profile file, schema 1 or 2.
 pub struct InterfaceProfileDocument {
+    /// Schema version, 1 or 2.
     pub schema: u32,
+    /// Profile identity.
     pub profile: ProfileMeta,
+    /// Optional library record header.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<ProfileRecordMeta>,
+    /// Optional protocol bus template.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bus: Option<BusTemplate>,
+    /// Signal definitions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signal: Vec<SignalSpec>,
+    /// Net class tables.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub net_class: Vec<NetClassSpec>,
+    /// Pair definitions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair: Vec<PairSpec>,
+    /// Pair clearance rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rule: Vec<PairRuleSpec>,
+    /// Rule areas.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_area: Vec<RuleAreaSpec>,
+    /// Value provenance rows.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub value_source: Vec<ValueSourceSpec>,
+    /// Length groups.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub length_group: Vec<LengthGroupSpec>,
+    /// Companion parts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companion: Vec<CompanionSpec>,
+    /// Named checks.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub check: Vec<CheckSpec>,
 }
@@ -274,15 +335,21 @@ pub struct InterfaceProfileDocument {
 /// One interface profile stored on the project library.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+/// One interface profile stored on the project library.
 pub struct InterfaceProfileEntry {
+    /// Profile slug.
     pub id: String,
+    /// Embedded profile TOML text.
     pub toml: String,
 }
 
 impl InterfaceProfileEntry {
+    /// Checks id slug and embedded TOML size.
     pub fn validate(&self) -> Result<(), String> {
         if !valid_slug(&self.id) {
-            return Err("interface profile id must be 1 to 64 lowercase letters, digits or hyphens".into());
+            return Err(
+                "interface profile id must be 1 to 64 lowercase letters, digits or hyphens".into(),
+            );
         }
         if self.toml.is_empty() || self.toml.len() > MAX_EMBEDDED_TOML {
             return Err("interface profile toml must be 1 to 262144 bytes".into());
@@ -292,6 +359,7 @@ impl InterfaceProfileEntry {
 }
 
 impl InterfaceProfileDocument {
+    /// Checks schema, bounds, and cross-field rules.
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != 1 && self.schema != 2 {
             return Err(format!(
@@ -369,7 +437,9 @@ impl InterfaceProfileDocument {
             }
         }
         if self.net_class.len() > MAX_NET_CLASSES {
-            return Err(format!("a profile defines at most {MAX_NET_CLASSES} net classes"));
+            return Err(format!(
+                "a profile defines at most {MAX_NET_CLASSES} net classes"
+            ));
         }
         for class in &self.net_class {
             validate_net_class(class)?;
@@ -392,7 +462,9 @@ impl InterfaceProfileDocument {
             }
         }
         if self.rule_area.len() > MAX_RULE_AREAS {
-            return Err(format!("a profile defines at most {MAX_RULE_AREAS} rule areas"));
+            return Err(format!(
+                "a profile defines at most {MAX_RULE_AREAS} rule areas"
+            ));
         }
         for area in &self.rule_area {
             if area.name.as_ref().is_some_and(|n| !bounded(n, 128)) {
@@ -401,12 +473,18 @@ impl InterfaceProfileDocument {
             if !finite_in(area.clearance, MIN_CLEARANCE, MAX_CLEARANCE) {
                 return Err("rule_area clearance out of range".into());
             }
-            if area.width <= 0.0 || area.height <= 0.0 || !area.width.is_finite() || !area.height.is_finite() {
+            if area.width <= 0.0
+                || area.height <= 0.0
+                || !area.width.is_finite()
+                || !area.height.is_finite()
+            {
                 return Err("rule area size out of range".into());
             }
         }
         if self.companion.len() > MAX_COMPANIONS {
-            return Err(format!("a profile defines at most {MAX_COMPANIONS} companions"));
+            return Err(format!(
+                "a profile defines at most {MAX_COMPANIONS} companions"
+            ));
         }
         for (idx, companion) in self.companion.iter().enumerate() {
             validate_companion(companion, idx)?;
@@ -428,14 +506,23 @@ impl InterfaceProfileDocument {
             }
         }
         if self.value_source.len() > MAX_VALUE_SOURCES {
-            return Err(format!("a profile defines at most {MAX_VALUE_SOURCES} value sources"));
+            return Err(format!(
+                "a profile defines at most {MAX_VALUE_SOURCES} value sources"
+            ));
         }
         for vs in &self.value_source {
             if !bounded(&vs.field, 128) {
                 return Err("value_source field must be 1 to 128 bytes".into());
             }
-            if vs.source.as_ref().is_some_and(|s| !optional_bounded(s, MAX_SOURCE_NOTE)) {
-                return Err(format!("value_source field {} source note out of range", vs.field));
+            if vs
+                .source
+                .as_ref()
+                .is_some_and(|s| !optional_bounded(s, MAX_SOURCE_NOTE))
+            {
+                return Err(format!(
+                    "value_source field {} source note out of range",
+                    vs.field
+                ));
             }
         }
         Ok(())
@@ -453,7 +540,10 @@ fn validate_bus_limits(limits: Option<&BusLimits>) -> Result<(), String> {
     {
         return Err("bus.limits edge_rate_band out of range".into());
     }
-    if limits.impedance_ohm.is_some_and(|v| !finite_in(v, MIN_IMPEDANCE, MAX_IMPEDANCE)) {
+    if limits
+        .impedance_ohm
+        .is_some_and(|v| !finite_in(v, MIN_IMPEDANCE, MAX_IMPEDANCE))
+    {
         return Err("bus.limits impedance_ohm out of range".into());
     }
     if limits
@@ -485,9 +575,7 @@ fn validate_bus_limits(limits: Option<&BusLimits>) -> Result<(), String> {
         .as_ref()
         .is_some_and(|s| !reference_plane_ok(s))
     {
-        return Err(
-            "bus.limits reference_plane must be required, recommended or optional".into(),
-        );
+        return Err("bus.limits reference_plane must be required, recommended or optional".into());
     }
     Ok(())
 }
@@ -496,23 +584,41 @@ fn validate_net_class(class: &NetClassSpec) -> Result<(), String> {
     if !bounded(&class.name, 128) {
         return Err("net class name must be 1 to 128 bytes".into());
     }
-    if class.clearance.is_some_and(|v| !finite_in(v, MIN_CLEARANCE, MAX_CLEARANCE)) {
+    if class
+        .clearance
+        .is_some_and(|v| !finite_in(v, MIN_CLEARANCE, MAX_CLEARANCE))
+    {
         return Err(format!("net_class.{}.clearance out of range", class.name));
     }
-    if class.width.is_some_and(|v| !finite_in(v, MIN_WIDTH, MAX_WIDTH)) {
+    if class
+        .width
+        .is_some_and(|v| !finite_in(v, MIN_WIDTH, MAX_WIDTH))
+    {
         return Err(format!("net_class.{}.width out of range", class.name));
     }
-    if class.min_width.is_some_and(|v| !finite_in(v, MIN_WIDTH, MAX_WIDTH)) {
+    if class
+        .min_width
+        .is_some_and(|v| !finite_in(v, MIN_WIDTH, MAX_WIDTH))
+    {
         return Err(format!("net_class.{}.min_width out of range", class.name));
     }
-    if class.max_width.is_some_and(|v| !finite_in(v, MIN_WIDTH, MAX_WIDTH)) {
+    if class
+        .max_width
+        .is_some_and(|v| !finite_in(v, MIN_WIDTH, MAX_WIDTH))
+    {
         return Err(format!("net_class.{}.max_width out of range", class.name));
     }
-    if class.max_length.is_some_and(|v| !finite_in(v, MIN_LENGTH_MM, MAX_LENGTH_MM)) {
+    if class
+        .max_length
+        .is_some_and(|v| !finite_in(v, MIN_LENGTH_MM, MAX_LENGTH_MM))
+    {
         return Err(format!("net_class.{}.max_length out of range", class.name));
     }
     if class.patterns.len() > 128 || class.nets.len() > 128 {
-        return Err(format!("net_class.{} lists at most 128 patterns and nets", class.name));
+        return Err(format!(
+            "net_class.{} lists at most 128 patterns and nets",
+            class.name
+        ));
     }
     for pattern in &class.patterns {
         if !bounded(pattern, 128) {
@@ -538,10 +644,16 @@ fn validate_net_class(class: &NetClassSpec) -> Result<(), String> {
             .max_stub
             .is_some_and(|v| !finite_in(v, MIN_LENGTH_MM, MAX_LENGTH_MM))
         {
-            return Err(format!("net_class.{}.limits.max_stub out of range", class.name));
+            return Err(format!(
+                "net_class.{}.limits.max_stub out of range",
+                class.name
+            ));
         }
         if limits.max_vias.is_some_and(|v| v > 256) {
-            return Err(format!("net_class.{}.limits.max_vias out of range", class.name));
+            return Err(format!(
+                "net_class.{}.limits.max_vias out of range",
+                class.name
+            ));
         }
     }
     Ok(())
@@ -594,9 +706,15 @@ fn validate_companion(companion: &CompanionSpec, idx: usize) -> Result<(), Strin
         .placement_distance_max_mm
         .is_some_and(|v| !finite_in(v, MIN_LENGTH_MM, MAX_LENGTH_MM))
     {
-        return Err(format!("companion[{idx}] placement_distance_max_mm out of range"));
+        return Err(format!(
+            "companion[{idx}] placement_distance_max_mm out of range"
+        ));
     }
-    if companion.unit.as_ref().is_some_and(|u| !optional_bounded(u, 16)) {
+    if companion
+        .unit
+        .as_ref()
+        .is_some_and(|u| !optional_bounded(u, 16))
+    {
         return Err(format!("companion[{idx}] unit out of range"));
     }
     if companion.nets.len() > 16 {
@@ -633,6 +751,7 @@ pub fn known_value_source_fields() -> &'static [&'static str] {
     ]
 }
 
+/// Lists profile fields the engine cannot enforce yet.
 pub fn collect_unsupported(doc: &InterfaceProfileDocument) -> Vec<String> {
     let mut out = Vec::new();
     if !doc.length_group.is_empty() {
@@ -703,6 +822,7 @@ pub fn collect_unsupported(doc: &InterfaceProfileDocument) -> Vec<String> {
     out
 }
 
+/// Returns companion role and source pairs for preview and apply plans.
 pub fn companion_plan(doc: &InterfaceProfileDocument) -> Vec<(String, String)> {
     doc.companion
         .iter()
