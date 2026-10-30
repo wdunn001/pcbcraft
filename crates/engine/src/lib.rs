@@ -23025,7 +23025,11 @@ mod tests {
             None,
         )?;
         let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
-        let flat: Vec<f64> = mesh.positions.iter().flat_map(|p| p.iter().copied()).collect();
+        let flat: Vec<f64> = mesh
+            .positions
+            .iter()
+            .flat_map(|p| p.iter().copied())
+            .collect();
         let out = s.execute(
             "library.footprint.model_auto_align",
             json!({

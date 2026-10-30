@@ -68,10 +68,7 @@ pub fn model_lead_points(mesh: &LoadedModel) -> Vec<[f64; 3]> {
     let mut buckets: std::collections::BTreeMap<(i32, i32), (f64, f64, f64, u32)> =
         std::collections::BTreeMap::new();
     for p in &bottom {
-        let key = (
-            (p[0] / cell).floor() as i32,
-            (p[1] / cell).floor() as i32,
-        );
+        let key = ((p[0] / cell).floor() as i32, (p[1] / cell).floor() as i32);
         let e = buckets.entry(key).or_insert((0.0, 0.0, 0.0, 0));
         e.0 += p[0];
         e.1 += p[1];
@@ -120,7 +117,10 @@ fn apply_translation(model: &mut Model3D, dx: f64, dy: f64) {
 }
 
 fn leads_in_footprint(model: &Model3D, leads_local: &[[f64; 3]]) -> Vec<Point> {
-    leads_local.iter().map(|p| footprint_xy(model, *p)).collect()
+    leads_local
+        .iter()
+        .map(|p| footprint_xy(model, *p))
+        .collect()
 }
 
 fn translate_to_centroids(model: &mut Model3D, leads_local: &[[f64; 3]], pads: &[Point]) {
@@ -169,11 +169,7 @@ pub fn auto_align_model(
 
     let mut best: Option<(Model3D, f64, bool)> = None;
 
-    let mirrors: &[bool] = if allow_flip {
-        &[false, true]
-    } else {
-        &[false]
-    };
+    let mirrors: &[bool] = if allow_flip { &[false, true] } else { &[false] };
     for &mirror in mirrors {
         for quarter in 0..4u32 {
             let mut trial = current.clone();
@@ -343,11 +339,7 @@ mod tests {
         let mesh = test_chip_mesh(pitch);
         let shifted = shift_mesh(&mesh, 0.32, -0.18, 0.0);
         let out = auto_align_model(&shifted, &fp, &unit_model(), true);
-        assert!(
-            out.residual_mm < 0.05,
-            "residual {} mm",
-            out.residual_mm
-        );
+        assert!(out.residual_mm < 0.05, "residual {} mm", out.residual_mm);
         assert!(!out.bbox_fallback);
         let verify = auto_align_model(&mesh, &fp, &out.model, false);
         assert!(

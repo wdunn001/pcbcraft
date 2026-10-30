@@ -41,12 +41,6 @@ mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod snapmaker;
-/// 3D board mesh types and functions for generating mesh representations of PCBs.
-/// # Dependencies
-/// - crates/io/src/board_mesh.rs
-pub use model_align::{
-    AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh, test_chip_mesh,
-};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -99,6 +93,13 @@ use library_render::*;
 pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
+};
+/// 3D board mesh types and functions for generating mesh representations of PCBs.
+/// # Dependencies
+/// - crates/io/src/board_mesh.rs
+pub use model_align::{
+    AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh,
+    test_chip_mesh,
 };
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,

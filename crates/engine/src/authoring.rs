@@ -610,11 +610,8 @@ pub(super) fn run(
                     "indices must come in groups of three".into(),
                 ));
             }
-            let positions: Vec<[f64; 3]> = a
-                .positions
-                .chunks(3)
-                .map(|c| [c[0], c[1], c[2]])
-                .collect();
+            let positions: Vec<[f64; 3]> =
+                a.positions.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
             if positions.iter().any(|p| p.iter().any(|v| !v.is_finite())) {
                 return Err(Error::Invalid("positions must be finite numbers".into()));
             }
@@ -629,9 +626,10 @@ pub(super) fn run(
                 .iter()
                 .find(|s| s.name == a.name)
                 .ok_or_else(missing)?;
-            let current = def.model.clone().ok_or_else(|| {
-                Error::Invalid("the footprint has no model reference yet".into())
-            })?;
+            let current = def
+                .model
+                .clone()
+                .ok_or_else(|| Error::Invalid("the footprint has no model reference yet".into()))?;
             let allow_flip = a.allow_flip.unwrap_or(true);
             let out = pcbcraft_io::auto_align_model(&mesh, def, &current, allow_flip);
             let apply = a.apply.unwrap_or(true);

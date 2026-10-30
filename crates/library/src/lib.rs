@@ -3,10 +3,10 @@ pub mod cad;
 pub mod cad_cache;
 mod footprint_check;
 mod footprint_generate;
-pub mod model_align;
 mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
+pub mod model_align;
 pub mod online_import;
 pub mod open_library;
 mod paths;
@@ -18,7 +18,7 @@ mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 pub use model_align::{
-    SnapTarget, SnapTargetKind, SNAP_RADIUS_MM, footprint_snap_targets, pad_centres, pad_centroid,
+    SNAP_RADIUS_MM, SnapTarget, SnapTargetKind, footprint_snap_targets, pad_centres, pad_centroid,
     snap_point,
 };
 use pcbcraft_geom::Point;

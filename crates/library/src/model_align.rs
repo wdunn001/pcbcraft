@@ -44,7 +44,12 @@ fn bounds_of(points: &[Point]) -> Option<(Point, Point)> {
     Some((lo, hi))
 }
 
-fn rect_snap_points(lo: Point, hi: Point, kind_corner: SnapTargetKind, kind_mid: SnapTargetKind) -> Vec<SnapTarget> {
+fn rect_snap_points(
+    lo: Point,
+    hi: Point,
+    kind_corner: SnapTargetKind,
+    kind_mid: SnapTargetKind,
+) -> Vec<SnapTarget> {
     let mx = (lo.x + hi.x) / 2.0;
     let my = (lo.y + hi.y) / 2.0;
     vec![
@@ -133,7 +138,11 @@ pub fn footprint_snap_targets(def: &FootprintDefinition) -> Vec<SnapTarget> {
 }
 
 /// Nearest snap target within `radius`, if any.
-pub fn snap_point(point: Point, targets: &[SnapTarget], radius: f64) -> Option<(Point, SnapTargetKind)> {
+pub fn snap_point(
+    point: Point,
+    targets: &[SnapTarget],
+    radius: f64,
+) -> Option<(Point, SnapTargetKind)> {
     let mut best: Option<(f64, Point, SnapTargetKind)> = None;
     for t in targets {
         let d = point.distance(t.position);
