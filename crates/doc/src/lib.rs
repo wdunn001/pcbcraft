@@ -2714,6 +2714,12 @@ fn board_origin() -> Point {
 }
 /// Which drawn layer plots as the conformal coating keep-out Gerber, and how
 /// that file declares its name, side and polarity for the assembler.
+///
+/// # Rules
+/// - `side` is `top` or `bottom`; `polarity` is `positive` or `negative`.
+///
+/// # Dependencies
+/// - crates/io/src/drawn.rs `conformal_coat_keepout_gerber`
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ConformalCoatKeepout {
     /// Drawn layer whose figures become the keep-out plot.

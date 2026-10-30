@@ -266,6 +266,9 @@ fn conformal_coat_config(p: &Project) -> Result<(&ConformalCoatKeepout, &ArtLaye
 
 /// Plain sentence for the assembly drawing when a conformal keep-out plot is
 /// configured, or nothing when it is not.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs `Board::conformal_coat_keepout`
 pub fn conformal_coat_assembly_note(p: &Project) -> Option<String> {
     let (cfg, layer) = conformal_coat_config(p).ok()?;
     Some(format!(
@@ -279,6 +282,12 @@ pub fn conformal_coat_assembly_note(p: &Project) -> Option<String> {
 
 /// Gerber plot of the board's configured conformal coating keep-out drawn
 /// layer, with a declared FileFunction name, side and polarity.
+///
+/// # Rules
+/// - Refuses when keep-out settings or layer figures are missing.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs `ConformalCoatKeepout`
 pub fn conformal_coat_keepout_gerber(p: &Project) -> Result<String, String> {
     p.validate()?;
     let (cfg, layer) = conformal_coat_config(p)?;

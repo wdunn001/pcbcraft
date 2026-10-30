@@ -991,6 +991,9 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
 
 /// Assembly drawing PDF: the schematic view plus a note when a conformal
 /// coating keep-out plot is configured on the board.
+///
+/// # Dependencies
+/// - crates/io/src/drawn.rs `conformal_coat_assembly_note`
 pub fn assembly_drawing_document(p: &Project) -> Result<Vec<u8>, String> {
     p.validate()?;
     let view = "schematic";
