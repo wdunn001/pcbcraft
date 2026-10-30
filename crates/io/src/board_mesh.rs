@@ -837,35 +837,35 @@ pub fn apply_matrix(m: &[f64; 16], p: [f64; 3]) -> [f64; 3] {
         m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
     ]
 }
-fn diag(x: f64, y: f64, z: f64) -> [f64; 16] {
+pub(crate) fn diag(x: f64, y: f64, z: f64) -> [f64; 16] {
     [
         x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn translate(x: f64, y: f64, z: f64) -> [f64; 16] {
+pub(crate) fn translate(x: f64, y: f64, z: f64) -> [f64; 16] {
     [
         1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, y, 0.0, 0.0, 1.0, z, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_x(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_x(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         1.0, 0.0, 0.0, 0.0, 0.0, c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_y(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_y(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         c, 0.0, s, 0.0, 0.0, 1.0, 0.0, 0.0, -s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_z(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_z(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
+pub(crate) fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
     let mut out = [0.0; 16];
     for row in 0..4 {
         for col in 0..4 {
@@ -1629,6 +1629,10 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 parts.push(b.part);
             }
         }
+    }
+
+    if let Some(ref enc) = p.board.enclosure {
+        crate::solidcraft_enclosure::append_enclosure_parts(&mut parts, p, enc)?;
     }
 
     Ok(BoardMesh {

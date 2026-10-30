@@ -1048,6 +1048,42 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":id_schema()}), &["id"]),
         ),
         (
+            "board.enclosure.import",
+            "Attach a SolidCraft enclosure or assembly for the 3D view from a file on disk; it never enters fabrication output",
+            schema(
+                json!({"path":{"type":"string","maxLength":1024}}),
+                &["path"],
+            ),
+        ),
+        (
+            "board.enclosure.set_transform",
+            "Move, rotate or scale a foreign enclosure in one undo step; offset and rotate are millimetres and degrees",
+            schema(
+                json!({
+                    "offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},
+                    "scale":{"type":"array","items":{"type":"number","exclusiveMinimum":0,"maximum":100},"minItems":3,"maxItems":3},
+                    "rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}
+                }),
+                &[],
+            ),
+        ),
+        (
+            "board.enclosure.set_view",
+            "Show or hide the enclosure layer in 3D and set its opacity from 0 to 1",
+            schema(
+                json!({
+                    "visible":{"type":"boolean"},
+                    "opacity":{"type":"number","minimum":0,"maximum":1}
+                }),
+                &[],
+            ),
+        ),
+        (
+            "board.enclosure.clear",
+            "Remove the enclosure layer and its attachment from the project",
+            schema(json!({}), &[]),
+        ),
+        (
             "via.place",
             "Place a plated via on an existing net. It joins front and back copper unless from_layer and to_layer limit it to a blind or buried span the board allows; size defaults from the net class when omitted",
             schema(
@@ -12518,6 +12554,104 @@ fn run_command(
                 return Err(missing());
             }
             Ok(json!({"id":a.id}))
+        }
+        "board.enclosure.import" => {
+            #[derive(Deserialize)]
+            struct EnclosureImportParams {
+                path: String,
+            }
+            let a: EnclosureImportParams = parse(params)?;
+            if a.path.len() > 1024 {
+                return Err(Error::Invalid("enclosure path is too long".into()));
+            }
+            let bytes = std::fs::read(&a.path).map_err(|e| Error::Invalid(e.to_string()))?;
+            let design = pcbcraft_io::read_solidcraft(&bytes).map_err(Error::Invalid)?;
+            let auto_aligned = pcbcraft_io::solidcraft_has_board_export_frame(&design);
+            pcbcraft_io::attach_enclosure_file(p, &bytes).map_err(Error::Invalid)?;
+            p.board.enclosure = Some(pcbcraft_doc::BoardEnclosure {
+                file: pcbcraft_doc::ENCLOSURE_ATTACHMENT_NAME.into(),
+                source_path: a.path,
+                auto_aligned,
+                offset: [0.0; 3],
+                scale: [1.0; 3],
+                rotate: [0.0; 3],
+                visible: true,
+                opacity: pcbcraft_io::DEFAULT_ENCLOSURE_OPACITY,
+            });
+            Ok(json!({"auto_aligned": auto_aligned}))
+        }
+        "board.enclosure.set_transform" => {
+            #[derive(Deserialize)]
+            struct EnclosureTransformParams {
+                #[serde(default)]
+                offset: Option<[f64; 3]>,
+                #[serde(default)]
+                scale: Option<[f64; 3]>,
+                #[serde(default)]
+                rotate: Option<[f64; 3]>,
+            }
+            let a: EnclosureTransformParams = parse(params)?;
+            let enc = p
+                .board
+                .enclosure
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("the board has no enclosure".into()))?;
+            if let Some(offset) = a.offset {
+                if !offset.iter().all(|v| v.is_finite() && v.abs() <= 1e6) {
+                    return Err(Error::Invalid("enclosure offset is out of range".into()));
+                }
+                enc.offset = offset;
+            }
+            if let Some(scale) = a.scale {
+                if !scale.iter().all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0) {
+                    return Err(Error::Invalid("enclosure scale is out of range".into()));
+                }
+                enc.scale = scale;
+            }
+            if let Some(rotate) = a.rotate {
+                if !rotate.iter().all(|v| v.is_finite() && v.abs() <= 360.0) {
+                    return Err(Error::Invalid("enclosure rotation is out of range".into()));
+                }
+                enc.rotate = rotate;
+            }
+            enc.auto_aligned = false;
+            Ok(json!({
+                "offset": enc.offset,
+                "scale": enc.scale,
+                "rotate": enc.rotate,
+                "auto_aligned": enc.auto_aligned
+            }))
+        }
+        "board.enclosure.set_view" => {
+            #[derive(Deserialize)]
+            struct EnclosureViewParams {
+                #[serde(default)]
+                visible: Option<bool>,
+                #[serde(default)]
+                opacity: Option<f64>,
+            }
+            let a: EnclosureViewParams = parse(params)?;
+            let enc = p
+                .board
+                .enclosure
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("the board has no enclosure".into()))?;
+            if let Some(visible) = a.visible {
+                enc.visible = visible;
+            }
+            if let Some(opacity) = a.opacity {
+                if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) {
+                    return Err(Error::Invalid("enclosure opacity must be between 0 and 1".into()));
+                }
+                enc.opacity = opacity;
+            }
+            Ok(json!({"visible": enc.visible, "opacity": enc.opacity}))
+        }
+        "board.enclosure.clear" => {
+            p.board.enclosure = None;
+            p.files
+                .retain(|f| f.name != pcbcraft_doc::ENCLOSURE_ATTACHMENT_NAME);
+            Ok(json!({}))
         }
         "via.place" => {
             let a: ViaParams = parse(params)?;
@@ -36082,6 +36216,41 @@ mod tests {
         assert!(
             s.execute("board.datum_remove", json!({"id":9_999}), None)
                 .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn enclosure_move_is_one_undo_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mesh = pcbcraft_io::board_mesh(&s.project, pcbcraft_io::MeshLayers::default())?;
+        let json = pcbcraft_io::solidcraft_board(
+            &s.project,
+            &mesh,
+            pcbcraft_io::SolidcraftLayers::default(),
+        )
+        .map_err(Error::Invalid)?;
+        let dir = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = dir.path().join("case.solidcraft");
+        std::fs::write(&path, json).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "board.enclosure.import",
+            json!({"path": path.to_string_lossy()}),
+            None,
+        )?;
+        assert!(s.project.board.enclosure.is_some());
+        s.execute(
+            "board.enclosure.set_transform",
+            json!({"offset":[2.0, 3.0, 0.0]}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.board.enclosure.as_ref().map(|e| e.offset),
+            Some([2.0, 3.0, 0.0])
+        );
+        s.undo()?;
+        assert_eq!(
+            s.project.board.enclosure.as_ref().map(|e| e.offset),
+            Some([0.0, 0.0, 0.0])
         );
         Ok(())
     }

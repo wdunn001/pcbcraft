@@ -2753,6 +2753,56 @@ impl Board {
 fn is_open_covering(c: &ViaCovering) -> bool {
     *c == ViaCovering::Open
 }
+
+/// Base64 attachment name for a SolidCraft enclosure stored on the project.
+pub const ENCLOSURE_ATTACHMENT_NAME: &str = "enclosure.solidcraft";
+
+fn default_enclosure_opacity() -> f64 {
+    0.45
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// A SolidCraft enclosure or assembly shown in the 3D view only.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BoardEnclosure {
+    /// Embedded file name under [`Project::files`], usually [`ENCLOSURE_ATTACHMENT_NAME`].
+    pub file: String,
+    /// Path last imported from, for display only.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_path: String,
+    /// When true, the file carries a PCBCraft board export frame and needs no manual placement.
+    #[serde(default)]
+    pub auto_aligned: bool,
+    #[serde(default)]
+    pub offset: [f64; 3],
+    #[serde(default = "default_one_scale")]
+    pub scale: [f64; 3],
+    #[serde(default)]
+    pub rotate: [f64; 3],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_enclosure_opacity")]
+    pub opacity: f64,
+}
+
+fn default_one_scale() -> [f64; 3] {
+    [1.0, 1.0, 1.0]
+}
+
+impl BoardEnclosure {
+    pub fn valid(&self) -> bool {
+        self.file == ENCLOSURE_ATTACHMENT_NAME
+            && self.source_path.len() <= 1024
+            && self.offset.iter().all(|v| v.is_finite() && v.abs() <= 1e6)
+            && self.rotate.iter().all(|v| v.is_finite() && v.abs() <= 360.0)
+            && self.scale.iter().all(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+            && self.opacity.is_finite() && (0.0..=1.0).contains(&self.opacity)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Board {
     pub width: f64,
@@ -2828,6 +2878,9 @@ pub struct Board {
     /// Named mounting datums an enclosure tool can consume.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub datums: Vec<Datum>,
+    /// SolidCraft enclosure or assembly for the 3D view; never in fabrication output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enclosure: Option<BoardEnclosure>,
     /// Layers the designer draws for machines: cuts, perforations, custom
     /// silk and mask art, plotted alongside the copper.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -4717,6 +4770,14 @@ impl Project {
             }
             if !self.board_contains(self.datum_position(d)) {
                 return Err("a datum must lie inside the board".into());
+            }
+        }
+        if let Some(ref enc) = self.board.enclosure {
+            if !enc.valid() {
+                return Err("enclosure settings are out of range".into());
+            }
+            if !self.files.iter().any(|f| f.name == enc.file) {
+                return Err("the enclosure attachment is missing from the project".into());
             }
         }
         if self.board.fiducials.len() > 128 {

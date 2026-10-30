@@ -26,6 +26,8 @@ mod panel_export;
 mod part_bodies;
 mod plot_read;
 mod raster;
+mod solidcraft_format;
+mod solidcraft_enclosure;
 mod solidcraft_write;
 mod step_read;
 mod uv_print;
@@ -135,6 +137,19 @@ pub use raster::{
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
+/// SolidCraft design subset reader and writer (issue #731).
+pub use solidcraft_format::{
+    CONTAINER_VERSION, MAX_CONTAINER_ENTRIES, MAX_CONTAINER_EXPANDED, SUPPORTED_FORMAT,
+    SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence,
+    read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container,
+    write_solidcraft_json,
+};
+/// SolidCraft enclosure scene for the 3D view (issue #735).
+pub use solidcraft_enclosure::{
+    DEFAULT_ENCLOSURE_OPACITY, EnclosureBody, append_enclosure_parts, attach_enclosure_file,
+    enclosure_bytes, solidcraft_has_board_export_frame, solidcraft_scene,
+    solidcraft_scene_with_placement,
 };
 /// SolidCraft design export of the board.
 /// # Dependencies
