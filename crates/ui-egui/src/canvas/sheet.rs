@@ -215,10 +215,7 @@ fn title_block_width(sheet_width: f64) -> f64 {
 
 /// Today's date as `YYYY-MM-DD` in UTC, for a project that records none.
 fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let secs = pcbcraft_clock::unix_secs();
     let z = (secs / 86_400) as i64 + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z.rem_euclid(146_097);

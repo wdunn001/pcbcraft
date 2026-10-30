@@ -20,7 +20,7 @@ mod tooltips;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const USAGE: &str = "usage: cargo xtask <command>
 
@@ -317,7 +317,7 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" => Some(0),
+            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" | "pcbcraft-clock" => Some(0),
             "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
@@ -394,6 +394,16 @@ fn lint_policy() -> Result<(), String> {
             ));
         }
     }
+    // The browser has no standard-library clock (issue 750): clippy.toml must
+    // keep banning the two calls that panic there, and only crates/clock may opt out.
+    let clippy_config = std::fs::read_to_string(root.join("clippy.toml")).unwrap_or_default();
+    for banned in ["std::time::SystemTime::now", "std::time::Instant::now"] {
+        if !clippy_config.contains(banned) {
+            return Err(format!(
+                "clippy.toml must keep banning {banned} in disallowed-methods (it panics in the browser)"
+            ));
+        }
+    }
     let metadata = workspace_metadata()?;
     let packages = metadata
         .get("packages")
@@ -428,7 +438,11 @@ fn lint_policy() -> Result<(), String> {
                     || REQUIRED_DENY
                         .iter()
                         .any(|lint| compact.contains(&format!("clippy::{lint}"))));
-            if opts_out {
+            let clock_opt_out = attribute
+                && compact.contains("allow(")
+                && compact.contains("clippy::disallowed_methods")
+                && !file.ends_with("crates/clock/src/lib.rs");
+            if opts_out || clock_opt_out {
                 problems.push(format!(
                     "{}:{}: lint opt-out is not allowed: {}",
                     file.strip_prefix(&root).unwrap_or(&file).display(),
@@ -490,7 +504,7 @@ fn screenshots(args: &[String]) -> Result<(), String> {
             .current_dir(&root)
             .spawn()
             .map_err(|e| format!("{}: {e}", bin.display()))?;
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let finished = loop {
             match child.try_wait().map_err(|e| e.to_string())? {
                 Some(status) => break Some(status),

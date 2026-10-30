@@ -1,13 +1,17 @@
 //! Browser entry point: starts the egui app on the page's canvas.
 //!
-//! Local rules: the page text that appears before the wasm loads lives in
-//! `index.html` and `webgpu-check.js`; its wording must equal the catalog key
-//! `web.needs_webgpu` (test `the_page_message_matches_the_catalog`). The wasm
-//! build needs a browser with WebGPU; a failed start shows the same message.
+//! Local rules: the page text that appears around the wasm lives in
+//! `index.html` and `webgpu-check.js`; its wording must equal the catalog keys
+//! `web.needs_webgpu`, `web.crashed`, `web.reload` and `web.reload.tip` (test
+//! `the_page_message_matches_the_catalog`). The page script decides before the
+//! wasm downloads whether the browser has WebGPU or WebGL 2; a failed start or
+//! a panic after load shows the crash notice with a reload button.
 //!
 //! # Dependencies
 //! - `crates/text/strings/en.txt` (message text)
-//! - `apps/pcbcraft-web/index.html` and `apps/pcbcraft-web/webgpu-check.js`
+//! - `apps/pcbcraft-web/index.html`
+//! - `apps/pcbcraft-web/webgpu-check.js`
+//! - `apps/pcbcraft-web/Trunk.toml` (the loader that waits for the check)
 //!
 //! # Do not
 //! - Add text literals here; read them from the catalog.
@@ -22,7 +26,7 @@ fn main() {
     wasm_bindgen_futures::spawn_local(async {
         if let Err(error) = start().await {
             web_sys::console::error_1(&error);
-            show_start_failure();
+            show_crash_notice();
         }
     });
 }
@@ -37,7 +41,15 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
     let session = pcbcraft_mcp::shared(demo_session());
-    eframe::WebRunner::new()
+    let runner = eframe::WebRunner::new();
+    // eframe installs its own panic hook when the runner is made; chain after
+    // it so a panic in any frame also puts the notice on the page.
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        previous(info);
+        show_crash_notice();
+    }));
+    runner
         .start(
             canvas,
             eframe::WebOptions::default(),
@@ -50,26 +62,27 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .await
 }
 
-/// Show the "needs WebGPU" notice that `index.html` carries, hide the canvas.
+/// Show the "PCBCraft stopped" notice with its reload button, hide the canvas.
 ///
-/// Called when the app fails to start after load, which is what a browser
-/// without a usable graphics adapter produces. The text is the page's own
-/// paragraph, kept equal to catalog key `web.needs_webgpu` by a test.
+/// Called when the app fails to start after load and from the panic hook, so a
+/// crash in any frame leaves a readable page instead of a blank canvas. The
+/// text is the page's own `#web-crashed` block, kept equal to catalog key
+/// `web.crashed` by a test.
 ///
 /// # Rules
 /// - Best effort: a missing element is ignored, the console already has the error.
 ///
 /// # Dependencies
-/// - `apps/pcbcraft-web/index.html` (`#needs-webgpu`, `#pcbcraft`)
+/// - `apps/pcbcraft-web/index.html` (`#web-crashed`, `#pcbcraft`)
 ///
 /// # Do not
-/// - Panic or return an error; this runs on the failure path.
+/// - Panic or return an error; this runs on the failure path and inside the panic hook.
 #[cfg(target_arch = "wasm32")]
-fn show_start_failure() {
+fn show_crash_notice() {
     let Some(document) = web_sys::window().and_then(|window| window.document()) else {
         return;
     };
-    if let Some(notice) = document.get_element_by_id("needs-webgpu") {
+    if let Some(notice) = document.get_element_by_id("web-crashed") {
         let _ = notice.remove_attribute("hidden");
     }
     if let Some(canvas) = document.get_element_by_id("pcbcraft") {
@@ -113,6 +126,9 @@ mod tests {
         let catalog = pcbcraft_text::Catalog::english();
         for key in [
             "web.needs_webgpu",
+            "web.crashed",
+            "web.reload",
+            "web.reload.tip",
             "web.download_desktop",
             "web.download_desktop.tip",
         ] {
@@ -124,5 +140,16 @@ mod tests {
         }
         let script = include_str!("../webgpu-check.js");
         assert!(script.contains("needs-webgpu"));
+        assert!(script.contains("web-crashed"));
+        assert!(html.contains("id=\"web-reload\""));
+    }
+
+    /// The trunk config gates the wasm on the page check and drops the preloads
+    /// that would download it regardless.
+    #[test]
+    fn the_loader_waits_for_the_graphics_check() {
+        let config = include_str!("../Trunk.toml");
+        assert!(config.contains("pattern_preload = \"\""));
+        assert!(config.contains("window.pcbcraftGraphics"));
     }
 }

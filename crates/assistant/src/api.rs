@@ -404,7 +404,7 @@ impl Worker {
             reply,
         })
         .map_err(|_| "The design tools stopped.".to_string())?;
-        let deadline = std::time::Instant::now() + TOOL_TIMEOUT;
+        let deadline = pcbcraft_clock::instant_now() + TOOL_TIMEOUT;
         loop {
             if self.cancelled() {
                 return Err("cancelled by the user".into());
@@ -412,7 +412,7 @@ impl Worker {
             match answer.recv_timeout(CANCEL_POLL) {
                 Ok(v) => return Ok(v),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout)
-                    if std::time::Instant::now() < deadline => {}
+                    if pcbcraft_clock::instant_now() < deadline => {}
                 Err(_) => return Err("The design tools did not answer.".into()),
             }
         }

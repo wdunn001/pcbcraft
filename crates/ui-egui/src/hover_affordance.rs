@@ -415,7 +415,7 @@ mod tests {
         for _ in 0..frames {
             let _ = run(&ctx, |ui| {
                 let painter = ui.painter().clone();
-                let start = std::time::Instant::now();
+                let start = pcbcraft_clock::instant_now();
                 paint(
                     &painter,
                     &Affordance {
