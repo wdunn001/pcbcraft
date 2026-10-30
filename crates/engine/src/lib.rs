@@ -340,9 +340,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "part.attach_source",
-            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            "Record distributor source data on a placed component in one step: manufacturer, part number, orderable lines, datasheet link with retrieved time, and lifecycle with checked time",
             schema(
-                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":512},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256},"product_url":{"type":"string","maxLength":512},"stock":{"type":"string","maxLength":256},"lifecycle":{"type":"string","maxLength":256},"retrieved_at":{"type":"integer","minimum":0},"checked_at":{"type":"integer","minimum":0}}),
                 &["id", "manufacturer", "mpn"],
             ),
         ),
@@ -5149,6 +5149,16 @@ struct AttachSourceParams {
     distributor: String,
     #[serde(default)]
     sku: String,
+    #[serde(default)]
+    product_url: String,
+    #[serde(default)]
+    stock: String,
+    #[serde(default)]
+    lifecycle: String,
+    #[serde(default)]
+    retrieved_at: u64,
+    #[serde(default)]
+    checked_at: u64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8179,35 +8189,49 @@ fn run_command(
             }
             bounded("manufacturer", &a.manufacturer, 256)?;
             bounded("mpn", &a.mpn, 256)?;
-            bounded("datasheet", &a.datasheet, 256)?;
+            bounded("datasheet", &a.datasheet, 512)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
+            bounded("product_url", &a.product_url, 512)?;
+            bounded("stock", &a.stock, 256)?;
+            bounded("lifecycle", &a.lifecycle, 256)?;
             let component = p
                 .components
                 .iter_mut()
                 .find(|c| c.id == a.id)
                 .ok_or_else(missing)?;
-            let mut written: Vec<String> = vec![];
-            let mut put = |key: String, value: &str| -> Result<(), Error> {
-                if value.is_empty() {
-                    return Ok(());
-                }
-                set_component_field(component, &key, Some(value))?;
-                written.push(key);
-                Ok(())
+            let mut record = pcbcraft_doc::PartSourceRecord {
+                manufacturer: a.manufacturer.trim().to_string(),
+                mpn: a.mpn.trim().to_string(),
+                orderables: vec![],
+                datasheet: None,
+                lifecycle: None,
             };
-            put("Manufacturer".into(), a.manufacturer.trim())?;
-            put("MPN".into(), a.mpn.trim())?;
-            put("Datasheet".into(), &a.datasheet)?;
             if !a.sku.is_empty() {
-                let key = if a.distributor.trim().is_empty() {
-                    "SKU".to_string()
-                } else {
-                    format!("{} SKU", a.distributor.trim())
-                };
-                put(key, &a.sku)?;
+                record.orderables.push(pcbcraft_doc::SourceOrderable {
+                    distributor: a.distributor.trim().to_string(),
+                    sku: a.sku.clone(),
+                    url: a.product_url.clone(),
+                    stock: a.stock.clone(),
+                });
             }
-            Ok(json!({"id": a.id, "fields": written}))
+            if !a.datasheet.is_empty() {
+                record.datasheet = Some(pcbcraft_doc::SourceDatasheet {
+                    url: a.datasheet.clone(),
+                    retrieved_at: a.retrieved_at,
+                });
+            }
+            if !a.lifecycle.is_empty() || a.checked_at > 0 {
+                record.lifecycle = Some(pcbcraft_doc::SourceLifecycle {
+                    status: a.lifecycle.clone(),
+                    checked_at: a.checked_at,
+                });
+            }
+            record
+                .validate()
+                .map_err(|e| Error::Invalid(e.to_string()))?;
+            component.part_source = record;
+            Ok(json!({"id": a.id, "part_source": true}))
         }
         "component.find" => {
             let a: FindParams = parse(params)?;
@@ -27339,7 +27363,43 @@ mod tests {
     }
 
     #[test]
-    fn part_attach_source_sets_manufacturer_and_mpn_in_one_undo_step() -> Result<(), Error> {
+    fn attach_source_writes_typed_part_fields() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "part.attach_source",
+            json!({"id":r1,"manufacturer":"Example Components","mpn":"SAMPLE-R-10K","datasheet":"https://example.invalid/d.pdf","distributor":"Sample Shop","sku":"SS-1","product_url":"https://example.invalid/buy","stock":"1200","lifecycle":"active","retrieved_at":1790000000,"checked_at":1790000100}),
+            None,
+        )?;
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(c.part_source.manufacturer, "Example Components");
+        assert_eq!(c.part_source.mpn, "SAMPLE-R-10K");
+        assert_eq!(c.part_source.orderables.len(), 1);
+        assert_eq!(c.part_source.orderables[0].distributor, "Sample Shop");
+        assert_eq!(c.part_source.orderables[0].sku, "SS-1");
+        assert_eq!(
+            c.part_source.orderables[0].url,
+            "https://example.invalid/buy"
+        );
+        assert_eq!(c.part_source.orderables[0].stock, "1200");
+        let sheet = c.part_source.datasheet.as_ref().ok_or_else(missing)?;
+        assert_eq!(sheet.url, "https://example.invalid/d.pdf");
+        assert_eq!(sheet.retrieved_at, 1_790_000_000);
+        let life = c.part_source.lifecycle.as_ref().ok_or_else(missing)?;
+        assert_eq!(life.status, "active");
+        assert_eq!(life.checked_at, 1_790_000_100);
+        assert!(c.fields.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn attach_source_undoes_in_one_step() -> Result<(), Error> {
         let mut s = Session::default();
         let r1 = s.execute(
             "component.add",
@@ -27356,10 +27416,6 @@ mod tests {
         )?;
         let after = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
         assert_eq!(after, before + 1, "one undo step");
-        let c = s.project.component(r1).ok_or_else(missing)?;
-        assert_eq!(c.field("Manufacturer"), Some("Example Components"));
-        assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
-        assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
         assert!(
             s.execute(
                 "part.attach_source",
@@ -27373,9 +27429,53 @@ mod tests {
             s.project
                 .component(r1)
                 .ok_or_else(missing)?
-                .fields
+                .part_source
                 .is_empty()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn old_property_style_projects_load_into_typed_fields() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Manufacturer","value":"Legacy Maker"}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"MPN","value":"LEG-1"}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Datasheet","value":"https://example.invalid/legacy.pdf"}),
+            None,
+        )?;
+        s.execute(
+            "component.field",
+            json!({"id":r1,"key":"Shop SKU","value":"SH-9"}),
+            None,
+        )?;
+        s.project.migrate_component_part_sources();
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(c.part_source.manufacturer, "Legacy Maker");
+        assert_eq!(c.part_source.mpn, "LEG-1");
+        assert_eq!(
+            c.part_source.datasheet.as_ref().map(|d| d.url.as_str()),
+            Some("https://example.invalid/legacy.pdf")
+        );
+        assert_eq!(c.part_source.orderables[0].distributor, "Shop");
+        assert_eq!(c.part_source.orderables[0].sku, "SH-9");
+        assert_eq!(c.field("Manufacturer"), Some("Legacy Maker"));
         Ok(())
     }
 

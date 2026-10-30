@@ -25,6 +25,10 @@ pub const MAX_ITEMS: usize = 2048;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod part_source;
+pub use part_source::{
+    PartSourceRecord, SourceDatasheet, SourceLifecycle, SourceOrderable, MAX_SOURCE_ORDERABLES,
+};
 mod net_members;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
@@ -164,6 +168,9 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// Distributor source data filled by the engine `part.attach_source` command.
+    #[serde(default, skip_serializing_if = "PartSourceRecord::is_empty")]
+    pub part_source: PartSourceRecord,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -3525,6 +3532,7 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        part_source: PartSourceRecord::default(),
         sheet: 0,
         pins: names
             .iter()
@@ -5016,6 +5024,7 @@ impl Project {
                     return Err("invalid component field".into());
                 }
             }
+            c.part_source.validate()?;
             if let Some(symbol) = &c.library_symbol {
                 symbol.definition.validate().map_err(|e| e.to_string())?;
                 if symbol.unit != 1
@@ -5602,6 +5611,7 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        part_source: PartSourceRecord::default(),
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
