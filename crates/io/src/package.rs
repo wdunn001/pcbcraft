@@ -15,9 +15,12 @@
 use crate::gerber_job;
 use pcbcraft_doc::Project;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 
 /// Name of the manifest entry, first in every package.
 pub const MANIFEST_NAME: &str = "manifest.json";
+/// Plain-text revision notes written into every fabrication package.
+pub const REVISION_NOTES_NAME: &str = "REVISION-NOTES.txt";
 /// Most files one package may hold, the manifest included.
 pub const MAX_PACKAGE_FILES: usize = 256;
 /// Creation date recorded in the Gerber job file of a package. A package
@@ -175,6 +178,215 @@ fn check_entries(entries: &[PackageEntry]) -> Result<(), String> {
     Ok(())
 }
 
+/// Every entry of a stored ZIP this crate writes, in archive order.
+pub fn package_stored_zip_entries(zip: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut entries = Vec::new();
+    let mut at = 0usize;
+    while at + 30 <= zip.len() && &zip[at..at + 4] == b"PK\x03\x04" {
+        let read = |offset: usize| -> usize {
+            u32::from_le_bytes([
+                zip[at + offset],
+                zip[at + offset + 1],
+                zip[at + offset + 2],
+                zip[at + offset + 3],
+            ]) as usize
+        };
+        let (size, name_len, extra_len) = (read(18), read(26) & 0xffff, read(28) & 0xffff);
+        let name_at = at + 30;
+        if name_at + name_len > zip.len() {
+            return Err("a package entry name runs past the archive".into());
+        }
+        let name = String::from_utf8_lossy(&zip[name_at..name_at + name_len]).into_owned();
+        let data_at = name_at + name_len + extra_len;
+        if data_at + size > zip.len() {
+            return Err(format!("{name} runs past the archive"));
+        }
+        entries.push((name, zip[data_at..data_at + size].to_vec()));
+        at = data_at + size;
+    }
+    if entries.is_empty() {
+        return Err("the archive holds no entries".into());
+    }
+    Ok(entries)
+}
+
+/// Read the bill of materials CSV from a prior package zip, when one was included.
+pub fn previous_bom_from_package(zip: &[u8]) -> Result<Option<String>, String> {
+    for (name, bytes) in package_stored_zip_entries(zip)? {
+        if name == "bom.csv" {
+            return Ok(Some(String::from_utf8_lossy(&bytes).into_owned()));
+        }
+    }
+    Ok(None)
+}
+
+fn csv_row_fields(line: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut field = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if in_quotes {
+            if ch == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"');
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                field.push(ch);
+            }
+        } else if ch == '"' {
+            in_quotes = true;
+        } else if ch == ',' {
+            fields.push(field.clone());
+            field.clear();
+        } else {
+            field.push(ch);
+        }
+    }
+    fields.push(field);
+    fields
+}
+
+/// Designator references listed in a bill of materials CSV this crate writes.
+pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
+    let mut lines = csv.lines();
+    let header = lines.next().ok_or("a bill of materials needs a header row")?;
+    let columns = csv_row_fields(header);
+    let references_at = columns
+        .iter()
+        .position(|c| c == "references")
+        .ok_or("a bill of materials needs a references column")?;
+    let mut refs = BTreeSet::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let fields = csv_row_fields(line);
+        let Some(cell) = fields.get(references_at) else {
+            continue;
+        };
+        for reference in cell.split(',') {
+            let reference = reference.trim();
+            if !reference.is_empty() {
+                refs.insert(reference.to_string());
+            }
+        }
+    }
+    Ok(refs)
+}
+
+fn copper_layer_count(p: &Project) -> usize {
+    let recorded = p
+        .board
+        .layer_records
+        .iter()
+        .filter(|l| l.kind == "copper")
+        .count();
+    if recorded > 0 {
+        recorded
+    } else {
+        2
+    }
+}
+
+fn meta_or_not_recorded(p: &Project, key: &str) -> String {
+    p.meta
+        .get(key)
+        .filter(|v| !v.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "(not recorded)".into())
+}
+
+/// Deterministic revision notes for a fabrication package.
+pub fn package_revision_notes(
+    p: &Project,
+    job: &str,
+    variant: Option<&str>,
+    file_names: &[String],
+    previous_bom_csv: Option<Option<&str>>,
+) -> Result<String, String> {
+    p.validate()?;
+    let title = if p.name.trim().is_empty() {
+        "untitled board".to_string()
+    } else {
+        p.name.trim().to_string()
+    };
+    let variant_label = variant
+        .filter(|v| !v.is_empty())
+        .unwrap_or("(default)");
+    let mut out = format!(
+        "Project: {title}\nRevision: {}\nDate: {}\nVariant: {variant_label}\nJob: {job}\nLayer count: {}\nBoard thickness: {:.3} mm\nSurface finish: {}\n\nFiles:\n",
+        meta_or_not_recorded(p, "revision"),
+        meta_or_not_recorded(p, "date"),
+        copper_layer_count(p),
+        p.board.thickness,
+        p.board.finish,
+    );
+    for name in file_names {
+        out.push_str(name);
+        out.push('\n');
+    }
+    out.push_str("\nChanges since last export:\n");
+    let previous_refs = match previous_bom_csv {
+        None => {
+            out.push_str("  (no previous export was supplied)\n");
+            return Ok(out);
+        }
+        Some(None) => BTreeSet::new(),
+        Some(Some(csv)) => bom_references_from_csv(csv)?,
+    };
+    let current = crate::bom_references(p, variant)?;
+    let added: Vec<&str> = current
+        .difference(&previous_refs)
+        .map(String::as_str)
+        .collect();
+    let removed: Vec<&str> = previous_refs
+        .difference(&current)
+        .map(String::as_str)
+        .collect();
+    if added.is_empty() && removed.is_empty() {
+        out.push_str("  (none)\n");
+    } else {
+        if !added.is_empty() {
+            out.push_str("  Added parts: ");
+            out.push_str(&added.join(", "));
+            out.push('\n');
+        }
+        if !removed.is_empty() {
+            out.push_str("  Removed parts: ");
+            out.push_str(&removed.join(", "));
+            out.push('\n');
+        }
+    }
+    Ok(out)
+}
+
+/// Append revision notes to the entries about to be zipped.
+pub fn attach_revision_notes_entry(
+    p: &Project,
+    job: &str,
+    variant: Option<&str>,
+    entries: &mut Vec<PackageEntry>,
+    previous_bom_csv: Option<Option<&str>>,
+) -> Result<(), String> {
+    if entries.iter().any(|e| e.name == REVISION_NOTES_NAME) {
+        return Err(format!("{REVISION_NOTES_NAME} is written by the package itself"));
+    }
+    let mut names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
+    names.push(REVISION_NOTES_NAME.into());
+    names.sort();
+    let text = package_revision_notes(p, job, variant, &names, previous_bom_csv)?;
+    entries.push(PackageEntry {
+        name: REVISION_NOTES_NAME.into(),
+        kind: "notes".into(),
+        bytes: text.into_bytes(),
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,6 +503,44 @@ mod tests {
             !text.contains("1970") && !text.contains("2026-"),
             "a package carries no build timestamp"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn revision_notes_are_stable_and_list_part_changes_from_a_prior_bill() -> Result<(), String> {
+        let mut project = board();
+        project.meta.insert("revision".into(), "B".into());
+        project.meta.insert("date".into(), "2026-03-01".into());
+        let part = |id: u64, reference: &str, value: &str, kind: &str| pcbcraft_doc::Component {
+            sheet: 0,
+            id,
+            reference: reference.into(),
+            value: value.into(),
+            kind: kind.into(),
+            position: pcbcraft_geom::Point::new(1.0, 1.0),
+            rotation: 0.0,
+            pins: Vec::new(),
+            ..Default::default()
+        };
+        project.components.push(part(1, "R1", "10k", "resistor"));
+        project.components.push(part(2, "C1", "100n", "capacitor"));
+        project.validate()?;
+        let previous_bom = crate::bom_csv(&project, &[], None)?;
+        project.components.push(part(3, "R2", "1k", "resistor"));
+        project.components.retain(|c| c.reference != "C1");
+        project.validate()?;
+        let names = vec!["bom.csv".into(), REVISION_NOTES_NAME.into()];
+        let once = package_revision_notes(&project, "fab", None, &names, Some(Some(&previous_bom)))?;
+        let again =
+            package_revision_notes(&project, "fab", None, &names, Some(Some(&previous_bom)))?;
+        assert_eq!(once, again, "identical input gives identical notes");
+        assert!(once.contains("Revision: B"));
+        assert!(once.contains("Date: 2026-03-01"));
+        assert!(once.contains("Added parts: R2"));
+        assert!(once.contains("Removed parts: C1"));
+        let no_previous =
+            package_revision_notes(&project, "fab", None, &names, None)?;
+        assert!(no_previous.contains("(no previous export was supplied)"));
         Ok(())
     }
 
