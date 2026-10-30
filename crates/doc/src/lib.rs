@@ -13,6 +13,10 @@ pub use panel::{
 };
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+mod export_trade;
+pub use export_trade::{
+    ExportTradeSettings, TariffExposureRow, MAX_HTS_PREFIX, MAX_TARIFF_ROWS,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
@@ -3312,6 +3316,9 @@ pub struct Project {
     /// reconcile the board in the same undo step as the edit.
     #[serde(default = "default_auto_sync")]
     pub auto_sync: bool,
+    /// Export-and-trade rule set: ITAR reminder flag and tariff exposure table.
+    #[serde(default, skip_serializing_if = "ExportTradeSettings::is_empty")]
+    pub export_trade: ExportTradeSettings,
 }
 
 fn default_auto_sync() -> bool {
@@ -3432,6 +3439,7 @@ impl Default for Project {
             graphics: vec![],
             labels: vec![],
             no_connects: vec![],
+            export_trade: ExportTradeSettings::default(),
             board: Board {
                 width: 60.0,
                 height: 40.0,
@@ -4412,6 +4420,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.export_trade.validate()?;
         self.validate_parameters()?;
         if self
             .components
