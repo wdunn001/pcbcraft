@@ -11,7 +11,8 @@
 //! # Dependencies
 //! - crates/library/src/datasheet.rs
 use pcbcraft_library::datasheet::{
-    DatasheetError, DatasheetTransport, FetchAnswer, MAX_PDF_BYTES, MAX_REDIRECTS,
+    accept_datasheet_url, DatasheetError, DatasheetTransport, FetchAnswer, MAX_PDF_BYTES,
+    MAX_REDIRECTS,
 };
 use std::io::Read;
 use std::time::Duration;
@@ -120,6 +121,7 @@ impl DatasheetTransport for HttpDatasheetTransport {
                         ));
                     };
                     current = resolve(&current, location)?;
+                    current = accept_datasheet_url(&current)?;
                 }
                 304 => return Ok(FetchAnswer::NotModified),
                 404 => return Err(DatasheetError::NotFound),
@@ -155,7 +157,7 @@ fn transport_error(e: &ureq::Error) -> DatasheetError {
 
 fn resolve(base: &str, location: &str) -> Result<String, DatasheetError> {
     if location.contains("://") {
-        return Ok(location.to_owned());
+        return accept_datasheet_url(location);
     }
     let bad = || DatasheetError::Invalid("the host sent a bad redirect".into());
     let (scheme, rest) = base.split_once("://").ok_or_else(bad)?;
