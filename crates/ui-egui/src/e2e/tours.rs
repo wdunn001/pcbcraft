@@ -5,7 +5,7 @@ use super::super::tour::{anchor, layout, replay, state::TourState};
 use super::super::Tab;
 use super::support::*;
 use super::super::authoring;
-use egui::{Color32, Rect, Vec2};
+use egui::{Color32, Rect, Stroke, StrokeKind, Vec2};
 use pcbcraft_text::lookup;
 
 #[derive(Clone, Copy)]
@@ -162,8 +162,12 @@ fn paint_step(
         let card = layout.card;
         ui.painter().rect_filled(card, 8.0, Color32::from_gray(32));
         if let Some(hole) = layout.hole {
-            ui.painter()
-                .rect_stroke(hole, 4.0, (2.0, Color32::from_rgb(255, 220, 80)));
+            ui.painter().rect_stroke(
+                hole,
+                4.0,
+                Stroke::new(2.0, Color32::from_rgb(255, 220, 80)),
+                StrokeKind::Outside,
+            );
         }
         let text = format!("{title}\n\n{body}\n\nStep {} of {count}", index + 1);
         ui.painter().text(
