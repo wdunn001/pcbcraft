@@ -35207,8 +35207,8 @@ mod tests {
         assert!(out.exists());
         assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
         let text = std::fs::read_to_string(&out).map_err(|e| Error::Invalid(e.to_string()))?;
-        let symbols = pcbcraft_library::read_symbols(&text)
-            .map_err(|e| Error::Invalid(e.to_string()))?;
+        let symbols =
+            pcbcraft_library::read_symbols(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         assert_eq!(symbols.len(), 2);
         assert!(
             s.execute(

@@ -503,8 +503,8 @@ fn symbol_pin_graphical_style_rejects_unknown_token() {
 }
 
 #[test]
-fn read_footprint_stores_unknown_nodes_for_lossless_export() -> Result<(), Box<dyn std::error::Error>>
-{
+fn read_footprint_stores_unknown_nodes_for_lossless_export()
+-> Result<(), Box<dyn std::error::Error>> {
     let source = "(footprint RetainTest (version 1) (generator x) (layer \"F.Cu\") (attr smd) \
         (pad 1 smd rect (at 0 0 0) (size 1 1) (layers F.Cu)) (legacy_marker yes) (embedded_fonts no))\n";
     let footprint = read_footprint(source)?;

@@ -6541,9 +6541,7 @@ pub fn export_library_definitions(
         }
         "footprint" => {
             let mut files = Vec::new();
-            if names.len() == 1
-                && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod")
-            {
+            if names.len() == 1 && path.extension().and_then(|e| e.to_str()) == Some("kicad_mod") {
                 let name = &names[0];
                 let item = library
                     .footprints
@@ -6561,7 +6559,10 @@ pub fn export_library_definitions(
                 return Ok(serde_json::json!({"path": path.to_string_lossy(), "files": files}));
             }
             if path.exists() && !path.is_dir() {
-                return Err("footprint export needs a folder path unless writing one .kicad_mod file".into());
+                return Err(
+                    "footprint export needs a folder path unless writing one .kicad_mod file"
+                        .into(),
+                );
             }
             std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
             for name in names {
@@ -9039,8 +9040,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -9141,8 +9142,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -9350,8 +9351,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -9507,8 +9508,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
@@ -10935,8 +10936,8 @@ mod tests {
                         model: None,
                         rules: None,
                         raw_source: String::new(),
-                    unsupported: vec![],
-                    retained: vec![],
+                        unsupported: vec![],
+                        retained: vec![],
                     },
                 }),
                 fields: vec![],
