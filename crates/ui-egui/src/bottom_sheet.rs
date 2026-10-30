@@ -282,7 +282,7 @@ impl App {
         let ui = &mut inner;
         {
             let (colour, word) = match row.loudness {
-                Loudness::Error => (self.accent(), t!("sheet.severity_error")),
+                Loudness::Error => (Color32::from_rgb(225, 90, 80), t!("sheet.severity_error")),
                 Loudness::Warning => (
                     Color32::from_rgb(230, 170, 60),
                     t!("sheet.severity_warning"),
@@ -304,20 +304,16 @@ impl App {
                     ))
                     .frame(false),
                 )
-                .on_hover_text(t!("sheet.show.tip"))
+                .on_hover_text(if row.hint.is_empty() {
+                    t!("sheet.show.tip")
+                } else {
+                    // Library findings carry their fix in the tooltip, which
+                    // keeps the row on one line beside its buttons.
+                    t!("library.library_checks_section.fix_hint", hint = row.hint)
+                })
                 .clicked()
             {
                 self.show_finding(&row);
-            }
-            if !row.hint.is_empty() {
-                ui.label(
-                    egui::RichText::new(t!(
-                        "library.library_checks_section.fix_hint",
-                        hint = row.hint
-                    ))
-                    .size(Self::CAPTION)
-                    .color(self.muted()),
-                );
             }
             if let Some(&first) = row.objects.first() {
                 let net = self.project.net_name(first);
