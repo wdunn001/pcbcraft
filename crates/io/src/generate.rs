@@ -23,9 +23,8 @@ use std::path::{Component, Path};
 use crate::{
     bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
     hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    testpoints_csv,
     pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    stats_text, step_board, svg, testpoints_csv, vrml_board,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
