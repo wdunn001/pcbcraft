@@ -502,7 +502,8 @@ pub fn commands() -> Vec<CommandSpec> {
                     "via_diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "via_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "pair_width":{"type":"number","exclusiveMinimum":0,"maximum":100},
-                    "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10}
+                    "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10},
+                    "target_impedance":{"type":"number","minimum":1,"maximum":2000,"description":"single-ended impedance target, ohms; optional"}
                 }),
                 &["class"],
             ),
@@ -8672,6 +8673,7 @@ fn run_command(
                 via_drill: None,
                 pair_width: None,
                 pair_gap: None,
+                target_impedance: None,
                 nets: a.nets,
                 profile: None,
             });

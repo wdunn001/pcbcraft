@@ -4,8 +4,6 @@ use pcbcraft_doc::{Id, Layer, Project};
 use pcbcraft_geom::impedance as imp;
 use std::collections::BTreeMap;
 
-const DEFAULT_COPPER_MM: f64 = 0.035;
-
 fn dielectric_for(p: &Project, layer: Layer) -> (f64, f64) {
     p.dielectric_beside(&p.layer_name(layer))
         .unwrap_or((p.board.thickness, p.board.er))
@@ -41,13 +39,6 @@ fn routed_width_on_layer(p: &Project, net_p: Id, net_n: Id, layer: Layer) -> Opt
 
 fn estimate_diff_ohm(p: &Project, width: f64, gap: f64, layer: Layer) -> Option<f64> {
     let (height, er) = dielectric_for(p, layer);
-    let _copper = p
-        .board
-        .layer_records
-        .iter()
-        .find(|r| r.name == p.layer_name(layer) && r.kind == "copper" && r.thickness > 0.0)
-        .map(|r| r.thickness)
-        .unwrap_or(DEFAULT_COPPER_MM);
     let coupled = imp::coupled_microstrip(width, gap, height, er)?;
     let z = coupled.z_diff();
     z.is_finite().then_some(z)
@@ -82,7 +73,7 @@ pub fn findings(project: &Project) -> Vec<Finding> {
             code: "diffpair_impedance",
             severity: project.rule_severity("diffpair_impedance", "error"),
             message: format!(
-                "{}: differential impedance on {layer_name} is about {estimated:.1} ohm, target {target:.1} ohm with ±{pct:.0}% tolerance (width {width:.3} mm, gap {gap:.3} mm)",
+                "{}: differential impedance on {layer_name} is about {estimated:.1} ohm, target {target:.1} ohm within {pct:.0}% tolerance (width {width:.3} mm, gap {gap:.3} mm)",
                 pair.name,
                 estimated = estimated,
                 target = target,
