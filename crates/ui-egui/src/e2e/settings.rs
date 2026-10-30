@@ -98,7 +98,7 @@ fn type_into_the_width_box(
 fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    app.set_language("de");
+    app.set_language(&ctx, "de");
     app.change_tab(Tab::Settings);
     app.width = 12.5;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -378,6 +378,27 @@ fn a_newcomer_brings_in_a_drawing_and_uses_its_edge_as_the_board() -> Result<(),
 }
 
 #[test]
+fn a_newcomer_toggles_schematic_board_sync_in_settings() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    assert!(
+        app.project.auto_sync,
+        "sample designs keep automatic sync on"
+    );
+    tap_id(
+        &ctx,
+        &mut app,
+        "checkbox:Keep the board in sync with the schematic automatically",
+    )?;
+    app.refresh();
+    assert!(
+        !app.project.auto_sync,
+        "one tap turns automatic sync off: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_changes_how_the_app_looks() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     tap_id(&ctx, &mut app, "button:Light")?;
@@ -477,6 +498,91 @@ fn a_newcomer_opens_the_keys_section_to_pick_tool_keys() -> Result<(), String> {
     assert!(
         scrolled_to_at(&ctx, &mut app, "Reset keys", 700.0)?,
         "the section opens onto the tool keys and a way back to the defaults"
+    );
+    Ok(())
+}
+
+/// The fonts the installer ships next to the program; the tests read the same
+/// files from the repository that the native loader reads from beside the
+/// executable and the browser build fetches over HTTP.
+fn font_bytes(file: &str) -> Vec<u8> {
+    let path = format!("{}/assets/fonts/{file}", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read(path).unwrap_or_default()
+}
+
+/// Widths of the glyphs of `words` laid out in the Title role (16 points, SemiBold family), for the characters
+/// from the CJK blocks only. An empty box from Plex is far narrower than a full em.
+fn boxes_in(ctx: &egui::Context, words: &str) -> Vec<String> {
+    let galley = ctx.fonts_mut(|fonts| {
+        fonts.layout_no_wrap(
+            words.to_string(),
+            crate::fonts::Role::Title.font(),
+            egui::Color32::WHITE,
+        )
+    });
+    let mut boxes = Vec::new();
+    for row in &galley.rows {
+        for glyph in &row.glyphs {
+            if (glyph.chr as u32) >= 0x2e80 && glyph.advance_width < 13.0 {
+                boxes.push(format!(
+                    "{} drew only {:.1} points wide",
+                    glyph.chr, glyph.advance_width
+                ));
+            }
+        }
+    }
+    boxes
+}
+
+#[test]
+fn a_newcomer_picks_japanese_and_chinese_and_sees_no_empty_boxes() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for (tag, file, words) in [
+        ("ja", "NotoSansJP-Regular.otf", "基板設計配線"),
+        ("zh", "NotoSansSC-Regular.otf", "电路板设计布线"),
+    ] {
+        let bytes = font_bytes(file);
+        assert!(!bytes.is_empty(), "{file} must ship in the repository");
+        crate::fonts::add_fallback(&ctx, crate::fonts::font_stem(file), bytes);
+        app.set_language(&ctx, tag);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        let boxes = boxes_in(&ctx, words);
+        assert!(
+            boxes.is_empty(),
+            "{tag} text still shows empty boxes: {boxes:?}"
+        );
+    }
+    // Latin text keeps IBM Plex: the first font of the family is unchanged.
+    let first = ctx.fonts(|view| {
+        view.definitions()
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .and_then(|list| list.first().cloned())
+    });
+    assert_eq!(first.as_deref(), Some("plex-regular"));
+    Ok(())
+}
+
+#[test]
+fn a_missing_font_file_keeps_the_app_usable_and_says_so() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The test program has no fonts folder beside it, so the file is really missing.
+    app.set_language(&ctx, "ja");
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        app.message.contains("font file") && app.message.contains("NotoSansJP-Regular.otf"),
+        "the status line says which font file is missing: {}",
+        app.message
+    );
+    app.change_tab(Tab::Settings);
+    assert!(
+        paints_text(&ctx, &mut app, "APPEARANCE")?,
+        "the app stays usable and keeps painting text"
     );
     Ok(())
 }

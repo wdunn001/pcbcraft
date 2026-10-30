@@ -129,6 +129,25 @@ mod tests {
             list,
             "blank names and no-op repeats change nothing"
         );
+        forget_recent_path("/designs/board5.board.json");
+        let after_forget = load_recent_paths();
+        assert!(
+            !after_forget
+                .iter()
+                .any(|seen| seen == "/designs/board5.board.json"),
+            "forget removes one path"
+        );
+        assert_eq!(
+            after_forget.len(),
+            list.len() - 1,
+            "forget only drops the matching entry"
+        );
+        forget_recent_path("/designs/board5.board.json");
+        assert_eq!(
+            load_recent_paths(),
+            after_forget,
+            "forgetting again is a no-op"
+        );
         clear_recent_paths();
         assert!(load_recent_paths().is_empty(), "clearing empties the list");
         let _ = std::fs::remove_dir_all(&directory);
