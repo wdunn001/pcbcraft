@@ -282,16 +282,10 @@ fn format_drill_table_fields(row: &DrillTableRow) -> String {
 /// One row per copper span, plating, hole role, and drill size with hit count.
 pub fn drill_table(p: &Project) -> Result<Vec<DrillTableRow>, String> {
     p.validate()?;
-    let tolerance_mm = p
-        .board
-        .machining
-        .as_ref()
-        .and_then(|m| m.drill_tolerance);
+    let tolerance_mm = p.board.machining.as_ref().and_then(|m| m.drill_tolerance);
     let mut rows: BTreeMap<DrillTableKey, usize> = BTreeMap::new();
     for hit in collect_drill_hits(p)? {
-        *rows
-            .entry(DrillTableKey::from_hit(p, &hit))
-            .or_default() += 1;
+        *rows.entry(DrillTableKey::from_hit(p, &hit)).or_default() += 1;
     }
     Ok(rows
         .into_iter()
@@ -1087,11 +1081,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let hits = collect_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let drill_tolerance = p
-        .board
-        .machining
-        .as_ref()
-        .and_then(|m| m.drill_tolerance);
+    let drill_tolerance = p.board.machining.as_ref().and_then(|m| m.drill_tolerance);
     let plated: Vec<DrillHit> = hits
         .iter()
         .copied()

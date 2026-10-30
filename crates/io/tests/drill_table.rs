@@ -1,9 +1,7 @@
 //! Per-span drill table rows, readme and drill map alignment, and tolerance attributes.
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
-use pcbcraft_io::{
-    drill_map_plot, drill_table, fab_readme_text, gerber_files, DrillTableFunction,
-};
+use pcbcraft_io::{DrillTableFunction, drill_map_plot, drill_table, fab_readme_text, gerber_files};
 fn table_rows_from_readme(text: &str) -> Vec<String> {
     let mut rows = Vec::new();
     let mut in_table = false;
