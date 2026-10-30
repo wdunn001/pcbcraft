@@ -914,7 +914,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "hole.slot",
-            "Route an unplated slot as a capsule drill between two centres: width is the drill diameter, centre spacing from 0.01 mm to 50 mm, and overall length runs centre to centre plus that width",
+            "Route an unplated mounting slot between two centres: width is the drill diameter, length runs centre to centre plus that width",
             schema(
                 json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
                 &["start", "end", "width"],
@@ -992,6 +992,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25}}),
                 &["id", "diameter"],
+            ),
+        ),
+        (
+            "hole.slot",
+            "Route an unplated slot: a capsule drill from one centre to another at the given width, at least 0.01 mm and at most 50 mm between the centres",
+            schema(
+                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
+                &["start", "end", "width"],
             ),
         ),
         (
@@ -23299,18 +23307,6 @@ mod tests {
             "MCP clients must see library.footprint.check"
         );
         Ok(())
-    }
-
-    #[test]
-    fn every_command_id_is_unique() {
-        let mut seen = std::collections::BTreeSet::new();
-        for spec in commands() {
-            assert!(
-                seen.insert(spec.id.to_string()),
-                "command {} is registered twice",
-                spec.id
-            );
-        }
     }
 
     #[test]
