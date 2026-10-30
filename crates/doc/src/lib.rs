@@ -25,6 +25,16 @@ pub const MAX_ITEMS: usize = 2048;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod compliance;
+mod compliance_list;
+pub use compliance::{
+    Compliance, ComplianceProjectSettings, ManufacturerRecord, PartRole, normalize_manufacturer_name,
+    part_role_text, MAX_MANUFACTURERS,
+};
+pub use compliance_list::{
+    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
+    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
+};
 mod net_members;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
@@ -164,6 +174,8 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compliance: Option<Compliance>,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -3312,6 +3324,10 @@ pub struct Project {
     /// reconcile the board in the same undo step as the edit.
     #[serde(default = "default_auto_sync")]
     pub auto_sync: bool,
+    #[serde(default, skip_serializing_if = "ComplianceProjectSettings::is_default")]
+    pub compliance_settings: ComplianceProjectSettings,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manufacturers: Vec<ManufacturerRecord>,
 }
 
 fn default_auto_sync() -> bool {
@@ -3464,6 +3480,8 @@ impl Default for Project {
                 texts: vec![],
             },
             auto_sync: true,
+            compliance_settings: ComplianceProjectSettings::default(),
+            manufacturers: vec![],
         }
     }
 }
@@ -3525,6 +3543,7 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        compliance: None,
         sheet: 0,
         pins: names
             .iter()
@@ -5602,6 +5621,7 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        compliance: None,
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
