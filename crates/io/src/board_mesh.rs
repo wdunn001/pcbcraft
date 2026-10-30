@@ -10,9 +10,10 @@
 //! unplated holes, via and pad drills; top and bottom copper (pads, tracks,
 //! vias, poured zones, fiducials, net ties) as thin prisms; a solder mask
 //! sheet with pad openings; silk strokes; and one body per placed footprint.
-//! Bodies are parametric defaults chosen from the pad pattern. A footprint
+//! Bodies come from [`crate::parametric_body`] (footprint name, stored
+//! description, then pad pattern), with leads and pin-1 marks. A footprint
 //! that references a model carries the exact placement matrix ([`model_matrix`]),
-//! and [`with_models`] swaps the box for the loaded model's triangles.
+//! and [`with_models`] swaps the parametric mesh for the loaded model's triangles.
 //!
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
 use crate::model_load::LoadedModel;
@@ -35,9 +36,7 @@ pub const MAX_TRIANGLES: usize = 600_000;
 const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
-const POST_HEIGHT: f64 = 6.0;
 const EPS: f64 = 1e-9;
-/// Top-face area below which value text is not embossed on the body.
 const DECAL_MIN_AREA: f64 = 14.0;
 const DECAL_RAISE: f64 = 0.06;
 
@@ -882,66 +881,6 @@ fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
     out
 }
 
-// ------------------------------------------------------------------- bodies
-
-#[derive(Clone, Debug)]
-struct Body {
-    family: &'static str,
-    /// Counter-clockwise footprint outline in footprint-local millimetres.
-    ring: Vec<Point>,
-    height: f64,
-    /// Square pin posts rising above the body, as local rings.
-    pins: Vec<Vec<Point>>,
-    /// Solder balls under a grid array package, centre and radius in footprint mm.
-    balls: Vec<(Point, f64)>,
-    /// Extra solids above the main body, as rings and height above the body top.
-    extras: Vec<(Vec<Point>, f64)>,
-    /// Value or MPN text embossed on the top face when the part is large enough.
-    decal: Option<String>,
-}
-impl Body {
-    fn plain(family: &'static str, ring: Vec<Point>, height: f64) -> Self {
-        Self {
-            family,
-            ring,
-            height,
-            pins: vec![],
-            balls: vec![],
-            extras: vec![],
-            decal: None,
-        }
-    }
-}
-struct PadBox {
-    centre: Point,
-    lo: Point,
-    hi: Point,
-    through: bool,
-    round: bool,
-}
-impl PadBox {
-    fn width(&self) -> f64 {
-        self.hi.x - self.lo.x
-    }
-    fn height(&self) -> f64 {
-        self.hi.y - self.lo.y
-    }
-}
-fn pad_box(pad: &Pad) -> Option<PadBox> {
-    let points = pad.outline_points();
-    if points.is_empty() {
-        return None;
-    }
-    let (lo, hi) = ring_bounds(&points);
-    let geometry = pad.geometry.as_ref();
-    Some(PadBox {
-        centre: pad.offset,
-        lo,
-        hi,
-        through: geometry.is_some_and(|g| g.drill.is_some()),
-        round: geometry.is_none_or(|g| g.shape == "circle"),
-    })
-}
 pub(crate) fn rect_ring(cx: f64, cy: f64, w: f64, h: f64) -> Vec<Point> {
     vec![
         Point::new(cx - w / 2.0, cy - h / 2.0),
@@ -950,612 +889,13 @@ pub(crate) fn rect_ring(cx: f64, cy: f64, w: f64, h: f64) -> Vec<Point> {
         Point::new(cx - w / 2.0, cy + h / 2.0),
     ]
 }
-fn clusters(values: &mut [f64], tolerance: f64) -> Vec<f64> {
-    values.sort_by(f64::total_cmp);
-    let mut out: Vec<f64> = vec![];
-    for v in values.iter() {
-        if out.last().is_none_or(|last| (v - last).abs() > tolerance) {
-            out.push(*v);
-        }
-    }
-    out
-}
-/// Smallest positive gap between neighbouring distinct values.
-fn smallest_gap(values: &[f64]) -> Option<f64> {
-    values
-        .windows(2)
-        .map(|w| w[1] - w[0])
-        .filter(|g| *g > 0.05)
-        .fold(None, |best: Option<f64>, g| {
-            Some(best.map_or(g, |b| b.min(g)))
-        })
-}
-fn chip_height(length: f64) -> f64 {
-    if length <= 1.2 {
-        0.35
-    } else if length <= 1.8 {
-        0.45
-    } else if length <= 2.4 {
-        0.55
-    } else if length <= 3.5 {
-        0.6
-    } else {
-        1.0
-    }
-}
-fn header_hint(component: Option<&Component>) -> bool {
-    let Some(c) = component else { return false };
-    let name = footprint_name(component);
-    c.kind.eq_ignore_ascii_case("connector")
-        || name.contains("header")
-        || name.contains("pinsocket")
-        || name.contains("connector")
-}
-fn footprint_name(component: Option<&Component>) -> String {
-    component
-        .and_then(|c| c.library_footprint.as_ref())
-        .map(|l| l.definition.name.to_ascii_lowercase())
-        .unwrap_or_default()
-}
-fn ring_area(ring: &[Point]) -> f64 {
-    signed_area(ring).abs()
-}
-fn decal_text(component: Option<&Component>) -> Option<String> {
-    let c = component?;
-    let raw = c
-        .field("mpn")
-        .or_else(|| c.field("value"))
-        .unwrap_or(c.value.as_str())
-        .trim();
-    if raw.is_empty() || raw.len() > 24 {
-        return None;
-    }
-    let mut out = String::with_capacity(raw.len());
-    for ch in raw.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ' ') || ch == '-' {
-            out.push(ch.to_ascii_uppercase());
-        }
-    }
-    (!out.is_empty()).then_some(out)
-}
-fn attach_decal(component: Option<&Component>, body: &mut Body) {
-    if ring_area(&body.ring) < DECAL_MIN_AREA {
-        return;
-    }
-    body.decal = decal_text(component);
-}
-fn bga_balls(pads: &[PadBox]) -> Vec<(Point, f64)> {
-    pads.iter()
-        .map(|p| {
-            let r = (p.width().min(p.height()) * 0.45).clamp(0.12, 0.45);
-            (p.centre, r)
-        })
-        .collect()
-}
-fn crystal_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x).max(1.8);
-    let h = (hi.y - lo.y).max(1.4);
-    let mut body = Body::plain("crystal", rect_ring(cx, cy, w * 0.92, h * 0.92), 0.85);
-    let cap = circle_ring(Point::new(cx, cy), w.min(h) * 0.22);
-    body.extras.push((cap, 0.35));
-    let _ = pads;
-    body
-}
-fn connector_receptacle_body(lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x).max(4.0);
-    let h = (hi.y - lo.y).max(3.0);
-    Body::plain("connector", rect_ring(cx, cy, w * 0.88, h * 0.75), 3.0)
-}
-fn tact_switch_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x).max(3.5);
-    let h = (hi.y - lo.y).max(2.8);
-    let mut body = Body::plain("switch", rect_ring(cx, cy, w * 0.82, h * 0.82), 1.2);
-    let dome_r = pads
-        .iter()
-        .map(|p| p.width().max(p.height()))
-        .fold(0.0_f64, f64::max)
-        * 0.35;
-    body.extras
-        .push((circle_ring(Point::new(cx, cy), dome_r.max(0.8)), 0.9));
-    body
-}
-fn test_point_body(pad: &PadBox) -> Body {
-    let r = (pad.width().max(pad.height()) * 0.55).max(0.45);
-    Body::plain("testpoint", circle_ring(pad.centre, r), 0.15)
-}
-fn electrolytic_can_body(pads: &[PadBox], lo: Point, hi: Point, height: f64) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let d = pads
-        .iter()
-        .map(|p| p.width().max(p.height()))
-        .fold(0.0_f64, f64::max)
-        .max(hi.x - lo.x + 1.0);
-    let mut body = Body::plain("can", circle_ring(Point::new(cx, cy), d / 2.0), height);
-    let plug = circle_ring(Point::new(cx - d * 0.12, cy - d * 0.12), d * 0.08);
-    body.extras.push((plug, 0.05));
-    body
-}
-fn to92_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x + 1.6).max(3.5);
-    let h = (hi.y - lo.y + 2.0).max(4.0);
-    let mut body = Body::plain("to92", circle_ring(Point::new(cx, cy - 0.4), w / 2.2), 4.0);
-    let flat = rect_ring(cx, cy + h * 0.15, w * 0.55, h * 0.35);
-    body.extras.push((flat, 0.0));
-    let _ = pads;
-    body
-}
-fn to220_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x + 2.0).max(8.0);
-    let mut body = Body::plain("to220", rect_ring(cx, cy, w, 10.0), 4.5);
-    let tab = pads
-        .iter()
-        .max_by(|a, b| {
-            (a.width() * a.height())
-                .total_cmp(&(b.width() * b.height()))
-        })
-        .map(|p| rect_ring(p.centre.x, p.centre.y, p.width() * 1.1, p.height() * 1.4));
-    if let Some(tab) = tab {
-        body.extras.push((tab, 0.0));
-    }
-    body
-}
-fn dpak_body(lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x + 1.0).max(5.0);
-    Body::plain("dpak", rect_ring(cx, cy, w, 6.2), 2.2)
-}
-fn terminal_block_body(pads: &[PadBox], lo: Point, hi: Point, pitch: f64) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x + pitch).max(5.0);
-    let h = (hi.y - lo.y + 2.0).max(6.0);
-    let mut body = Body::plain("terminal", rect_ring(cx, cy, w, h), 8.0);
-    for p in pads {
-        body.pins.push(rect_ring(
-            p.centre.x,
-            p.centre.y - h * 0.35,
-            p.width() * 0.9,
-            1.2,
-        ));
-    }
-    body
-}
-fn shield_can_body(lo: Point, hi: Point) -> Body {
-    let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-    let w = (hi.x - lo.x + 1.0).max(6.0);
-    let h = (hi.y - lo.y + 1.0).max(6.0);
-    Body::plain("shield", rect_ring(cx, cy, w, h), 2.0)
-}
-fn body_from_name(name: &str, pads: &[PadBox], lo: Point, hi: Point, n: usize) -> Option<Body> {
-    if name.contains("crystal") || name.contains("xtal") {
-        return (n == 4).then(|| crystal_body(pads, lo, hi));
-    }
-    if name.contains("usb") {
-        return Some(connector_receptacle_body(lo, hi));
-    }
-    if name.contains("tact") || (name.contains("switch") && n <= 4) {
-        return (n == 2).then(|| tact_switch_body(pads, lo, hi));
-    }
-    if (name.contains("test") && name.contains("pad")) || name == "test_pad" {
-        return pads.first().map(test_point_body);
-    }
-    if name.contains("electrolytic") || name.contains("ecap") || name.starts_with("cp_") {
-        return (n == 2).then(|| electrolytic_can_body(pads, lo, hi, 8.0));
-    }
-    if name.contains("to-92") || name.contains("to92") {
-        return (n == 3).then(|| to92_body(pads, lo, hi));
-    }
-    if name.contains("to-220") || name.contains("to220") || name.contains("to-247") {
-        return (n >= 3).then(|| to220_body(pads, lo, hi));
-    }
-    if name.contains("dpak") || name.contains("d-pak") || name.contains("d2pak") {
-        return Some(dpak_body(lo, hi));
-    }
-    if name.contains("terminal") || (name.contains("block") && name.contains("term")) {
-        let pitch =
-            smallest_gap(&pads.iter().map(|p| p.centre.x).collect::<Vec<_>>()).unwrap_or(5.0);
-        return Some(terminal_block_body(pads, lo, hi, pitch));
-    }
-    if name.contains("shield") {
-        return Some(shield_can_body(lo, hi));
-    }
-    if name.contains("battery") {
-        return (n == 2).then(|| {
-            let mut body = connector_receptacle_body(lo, hi);
-            body.family = "connector";
-            body
-        });
-    }
-    None
-}
-fn body_from_pattern(
-    pads: &[PadBox],
-    xc: &[f64],
-    yc: &[f64],
-    n: usize,
-    lo: Point,
-    hi: Point,
-    through: bool,
-) -> Option<Body> {
-    if n == 1 {
-        return pads.first().map(test_point_body);
-    }
-    if !through && n == 4 && xc.len() == 2 && yc.len() == 2 {
-        let corner = pads
-            .iter()
-            .filter(|p| {
-                let near_x = (p.centre.x - lo.x).abs() < 0.2 || (p.centre.x - hi.x).abs() < 0.2;
-                let near_y = (p.centre.y - lo.y).abs() < 0.2 || (p.centre.y - hi.y).abs() < 0.2;
-                near_x && near_y
-            })
-            .count();
-        if corner == 4 {
-            return Some(crystal_body(pads, lo, hi));
-        }
-    }
-    if !through && n == 2 {
-        let (a, b) = (&pads[0], &pads[1]);
-        if a.width().max(a.height()) >= 1.2 && b.width().max(b.height()) >= 1.2 {
-            let span = a.centre.distance(b.centre);
-            if span >= 3.5 {
-                return Some(tact_switch_body(pads, lo, hi));
-            }
-        }
-    }
-    if through && n == 3 {
-        return Some(to92_body(pads, lo, hi));
-    }
-    if through && (3..=4).contains(&n) {
-        let large = pads.iter().filter(|p| p.width() * p.height() > 2.5).count();
-        if large >= 2 {
-            return Some(to220_body(pads, lo, hi));
-        }
-    }
-    if !through && (5..=8).contains(&n) {
-        let large = pads
-            .iter()
-            .filter(|p| p.width() * p.height() >= 2.0 * pads[0].width() * pads[0].height())
-            .count();
-        if large >= 1 {
-            return Some(dpak_body(lo, hi));
-        }
-    }
-    None
+fn parse_height(text: &str) -> Option<f64> {
+    let trimmed = text.trim();
+    let number = trimmed.strip_suffix("mm").unwrap_or(trimmed).trim();
+    let v: f64 = number.parse().ok()?;
+    (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
-/// Choose a parametric body from the pad pattern.
-fn default_body(fp: &Footprint, component: Option<&Component>) -> Option<Body> {
-    let pads: Vec<PadBox> = fp.pads.iter().filter_map(pad_box).collect();
-    if pads.is_empty() {
-        return None;
-    }
-    let n = pads.len();
-    let all_points: Vec<Point> = pads.iter().flat_map(|p| [p.lo, p.hi]).collect();
-    let (lo, hi) = ring_bounds(&all_points);
-    let through = pads.iter().filter(|p| p.through).count() * 2 >= n;
-    let generic = || {
-        Body::plain(
-            "generic",
-            rect_ring(
-                (lo.x + hi.x) / 2.0,
-                (lo.y + hi.y) / 2.0,
-                (hi.x - lo.x).max(0.5),
-                (hi.y - lo.y).max(0.5),
-            ),
-            1.0,
-        )
-    };
-    let centroid = Point::new(
-        pads.iter().map(|p| p.centre.x).sum::<f64>() / n as f64,
-        pads.iter().map(|p| p.centre.y).sum::<f64>() / n as f64,
-    );
-    let span = (hi.x - lo.x).max(hi.y - lo.y);
-    let mut areas: Vec<f64> = pads.iter().map(|p| p.width() * p.height()).collect();
-    areas.sort_by(f64::total_cmp);
-    let median = areas.get(n / 2).copied().unwrap_or(0.0);
-    let signal: Vec<&PadBox> = pads
-        .iter()
-        .filter(|p| {
-            !(n >= 5
-                && p.centre.distance(centroid) < 0.15 * span
-                && p.width() * p.height() >= 2.0 * median)
-        })
-        .collect();
-    let mut xs: Vec<f64> = signal.iter().map(|p| p.centre.x).collect();
-    let mut ys: Vec<f64> = signal.iter().map(|p| p.centre.y).collect();
-    let xc = clusters(&mut xs, 0.1);
-    let yc = clusters(&mut ys, 0.1);
-
-    let name = footprint_name(component);
-    if let Some(mut body) = body_from_name(&name, &pads, lo, hi, n) {
-        attach_decal(component, &mut body);
-        return Some(body);
-    }
-
-    if through {
-        return through_body(component, &pads, &xc, &yc)
-            .or_else(|| body_from_pattern(&pads, &xc, &yc, n, lo, hi, true))
-            .or_else(|| Some(generic()));
-    }
-    if n == 2 {
-        let (a, b) = (&pads[0], &pads[1]);
-        let c = a.centre.distance(b.centre);
-        if c < 0.2 {
-            return Some(generic());
-        }
-        let along_x = (b.centre.x - a.centre.x).abs() >= (b.centre.y - a.centre.y).abs();
-        let across = if along_x {
-            (a.height() + b.height()) / 2.0
-        } else {
-            (a.width() + b.width()) / 2.0
-        };
-        let length = c + 0.15;
-        let width = (across * 0.9).max(0.2);
-        let (w, h) = if along_x {
-            (length, width)
-        } else {
-            (width, length)
-        };
-        return Some(Body::plain(
-            "chip",
-            rect_ring(
-                (a.centre.x + b.centre.x) / 2.0,
-                (a.centre.y + b.centre.y) / 2.0,
-                w,
-                h,
-            ),
-            chip_height(length),
-        ));
-    }
-    // Area array.
-    if n >= 12 {
-        let (lo_x, hi_x) = (
-            xc.first().copied().unwrap_or(0.0),
-            xc.last().copied().unwrap_or(0.0),
-        );
-        let (lo_y, hi_y) = (
-            yc.first().copied().unwrap_or(0.0),
-            yc.last().copied().unwrap_or(0.0),
-        );
-        let interior = pads
-            .iter()
-            .filter(|p| {
-                p.centre.x > lo_x + 0.1
-                    && p.centre.x < hi_x - 0.1
-                    && p.centre.y > lo_y + 0.1
-                    && p.centre.y < hi_y - 0.1
-            })
-            .count();
-        let round = pads.iter().filter(|p| p.round).count() * 2 >= n;
-        if interior * 4 >= n {
-            let pitch = smallest_gap(&xc)
-                .into_iter()
-                .chain(smallest_gap(&yc))
-                .fold(f64::MAX, f64::min);
-            let pitch = if pitch.is_finite() && pitch < 10.0 {
-                pitch
-            } else {
-                1.0
-            };
-            let mut body = Body::plain(
-                if round { "bga" } else { "lga" },
-                rect_ring(
-                    (lo_x + hi_x) / 2.0,
-                    (lo_y + hi_y) / 2.0,
-                    hi_x - lo_x + pitch,
-                    hi_y - lo_y + pitch,
-                ),
-                1.0,
-            );
-            if round {
-                body.balls = bga_balls(&pads);
-            }
-            attach_decal(component, &mut body);
-            return Some(body);
-        }
-    }
-    // Pads on all four sides: quad flat packages.
-    if n >= 8 && xc.len() >= 2 && yc.len() >= 2 {
-        let (x_lo, x_hi) = (xc[0], xc[xc.len() - 1]);
-        let (y_lo, y_hi) = (yc[0], yc[yc.len() - 1]);
-        let count = |f: &dyn Fn(&PadBox) -> bool| signal.iter().filter(|p| f(p)).count();
-        // A side counts only with pads between the corners; two rows of
-        // pads would otherwise look like four short sides.
-        let between_y = |p: &PadBox| p.centre.y > y_lo + 0.1 && p.centre.y < y_hi - 0.1;
-        let between_x = |p: &PadBox| p.centre.x > x_lo + 0.1 && p.centre.x < x_hi - 0.1;
-        let left = count(&|p| (p.centre.x - x_lo).abs() < 0.1 && between_y(p));
-        let right = count(&|p| (p.centre.x - x_hi).abs() < 0.1 && between_y(p));
-        let bottom = count(&|p| (p.centre.y - y_lo).abs() < 0.1 && between_x(p));
-        let top = count(&|p| (p.centre.y - y_hi).abs() < 0.1 && between_x(p));
-        if left >= 1 && right >= 1 && top >= 1 && bottom >= 1 {
-            let lead_x = signal
-                .iter()
-                .filter(|p| (p.centre.x - x_lo).abs() < 0.1)
-                .map(|p| p.width())
-                .fold(0.0, f64::max);
-            let lead_y = signal
-                .iter()
-                .filter(|p| (p.centre.y - y_lo).abs() < 0.1)
-                .map(|p| p.height())
-                .fold(0.0, f64::max);
-            let (cx, cy) = ((x_lo + x_hi) / 2.0, (y_lo + y_hi) / 2.0);
-            if lead_x >= 1.0 || lead_y >= 1.0 {
-                let w = (x_hi - x_lo - lead_x).max(0.5);
-                let h = (y_hi - y_lo - lead_y).max(0.5);
-                return Some(Body::plain("qfp", rect_ring(cx, cy, w, h), 1.4));
-            }
-            return Some(Body::plain(
-                "qfn",
-                rect_ring(
-                    cx,
-                    cy,
-                    (hi.x - lo.x - 0.1).max(0.5),
-                    (hi.y - lo.y - 0.1).max(0.5),
-                ),
-                0.8,
-            ));
-        }
-    }
-    // Two rows: SOT, SOIC, TSSOP and relatives.
-    if (yc.len() == 2 && xc.len() >= 2) || (xc.len() == 2 && yc.len() >= 2) {
-        let rows_along_x = yc.len() == 2;
-        let (gap_centres, lead, ext_lo, ext_hi, pitch) = if rows_along_x {
-            let lead = signal.iter().map(|p| p.height()).fold(0.0, f64::max);
-            let ext = signal.iter().fold((f64::MAX, f64::MIN), |(a, b), p| {
-                (a.min(p.lo.x), b.max(p.hi.x))
-            });
-            (yc[1] - yc[0], lead, ext.0, ext.1, smallest_gap(&xc))
-        } else {
-            let lead = signal.iter().map(|p| p.width()).fold(0.0, f64::max);
-            let ext = signal.iter().fold((f64::MAX, f64::MIN), |(a, b), p| {
-                (a.min(p.lo.y), b.max(p.hi.y))
-            });
-            (xc[1] - xc[0], lead, ext.0, ext.1, smallest_gap(&yc))
-        };
-        let gap = gap_centres - lead;
-        if gap >= 0.5 {
-            let length = ext_hi - ext_lo + 0.3;
-            let along_mid = (ext_lo + ext_hi) / 2.0;
-            let ring = if rows_along_x {
-                rect_ring(along_mid, (yc[0] + yc[1]) / 2.0, length, gap)
-            } else {
-                rect_ring((xc[0] + xc[1]) / 2.0, along_mid, gap, length)
-            };
-            let soic = pitch.is_some_and(|p| p >= 1.0) && gap > 3.0;
-            let mut body = Body::plain(
-                if soic { "soic" } else { "sot" },
-                ring,
-                if soic { 1.6 } else { 1.1 },
-            );
-            attach_decal(component, &mut body);
-            return Some(body);
-        }
-    }
-    if let Some(mut body) = body_from_pattern(&pads, &xc, &yc, n, lo, hi, false) {
-        attach_decal(component, &mut body);
-        return Some(body);
-    }
-    Some(generic())
-}
-fn through_body(
-    component: Option<&Component>,
-    pads: &[PadBox],
-    xc: &[f64],
-    yc: &[f64],
-) -> Option<Body> {
-    let n = pads.len();
-    let hinted = header_hint(component);
-    if n == 2 && !hinted {
-        let (a, b) = (&pads[0], &pads[1]);
-        let c = a.centre.distance(b.centre);
-        if c < 0.2 {
-            return None;
-        }
-        let mid = Point::new(
-            (a.centre.x + b.centre.x) / 2.0,
-            (a.centre.y + b.centre.y) / 2.0,
-        );
-        if c >= 6.5 {
-            let length = (c * 0.62).max(2.0);
-            let diameter = (length * 0.4).max(1.5);
-            let (ux, uy) = ((b.centre.x - a.centre.x) / c, (b.centre.y - a.centre.y) / c);
-            let (nx, ny) = (-uy * diameter / 2.0, ux * diameter / 2.0);
-            let (hx, hy) = (ux * length / 2.0, uy * length / 2.0);
-            let ring = vec![
-                Point::new(mid.x - hx - nx, mid.y - hy - ny),
-                Point::new(mid.x + hx - nx, mid.y + hy - ny),
-                Point::new(mid.x + hx + nx, mid.y + hy + ny),
-                Point::new(mid.x - hx + nx, mid.y - hy + ny),
-            ];
-            return Some(Body::plain("axial", ring, diameter));
-        }
-        let corners: Vec<Point> = pads.iter().flat_map(|p| [p.lo, p.hi]).collect();
-        let (lo, hi) = ring_bounds(&corners);
-        let diameter = (2.0 * c).max(4.0);
-        let height = 6.0 + 0.7 * diameter;
-        if height >= 7.5 && c >= 4.5 {
-            return Some(electrolytic_can_body(pads, lo, hi, height));
-        }
-        return Some(Body::plain(
-            "radial",
-            circle_ring(mid, diameter / 2.0),
-            height,
-        ));
-    }
-    let single_row = xc.len() == 1 || yc.len() == 1;
-    let two_rows_x = yc.len() == 2 && xc.len() >= 2;
-    let two_rows_y = xc.len() == 2 && yc.len() >= 2;
-    let row_gap = if two_rows_x {
-        yc[1] - yc[0]
-    } else if two_rows_y {
-        xc[1] - xc[0]
-    } else {
-        0.0
-    };
-    if (two_rows_x || two_rows_y) && !hinted && row_gap >= 5.0 {
-        let corners: Vec<Point> = pads.iter().flat_map(|p| [p.lo, p.hi]).collect();
-        let (lo, hi) = ring_bounds(&corners);
-        let pitch = if two_rows_x {
-            smallest_gap(xc)
-        } else {
-            smallest_gap(yc)
-        }
-        .unwrap_or(2.54);
-        let per_row = (n as f64 / 2.0).ceil();
-        let length = per_row * pitch - 0.3;
-        let width = row_gap - 1.3;
-        if width < 0.5 || length < 0.5 {
-            return None;
-        }
-        let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
-        let ring = if two_rows_x {
-            rect_ring(cx, cy, length, width)
-        } else {
-            rect_ring(cx, cy, width, length)
-        };
-        return Some(Body::plain("dip", ring, 3.3));
-    }
-    if single_row || ((two_rows_x || two_rows_y) && row_gap <= 3.0) || hinted {
-        let centres: Vec<Point> = pads.iter().map(|p| p.centre).collect();
-        let (lo, hi) = ring_bounds(&centres);
-        let mut pitch = f64::MAX;
-        for (i, a) in centres.iter().enumerate() {
-            for b in centres.iter().skip(i + 1) {
-                let d = a.distance(*b);
-                if d > 0.3 {
-                    pitch = pitch.min(d);
-                }
-            }
-        }
-        if !pitch.is_finite() || pitch > 10.0 {
-            return None;
-        }
-        let ring = rect_ring(
-            (lo.x + hi.x) / 2.0,
-            (lo.y + hi.y) / 2.0,
-            hi.x - lo.x + pitch,
-            hi.y - lo.y + pitch,
-        );
-        let pins = centres
-            .iter()
-            .map(|c| rect_ring(c.x, c.y, 0.64, 0.64))
-            .collect();
-        return Some(Body {
-            family: "header",
-            ring,
-            height: 2.5,
-            pins,
-            balls: vec![],
-            extras: vec![],
-            decal: None,
-        });
-    }
-    None
-}
 fn glyph_rows(ch: char) -> [u8; 3] {
     match ch {
         '0' => [0b111, 0b101, 0b111],
@@ -1597,22 +937,22 @@ fn glyph_rows(ch: char) -> [u8; 3] {
         _ => [0b010, 0b010, 0b010],
     }
 }
+
 fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Vec<Point>> {
-    let chars: Vec<char> = text.chars().take(12).collect();
+    let chars: Vec<char> = text.chars().collect();
     if chars.is_empty() {
         return vec![];
     }
-    let gap = span_w * 0.04;
-    let char_w = ((span_w - gap * (chars.len().saturating_sub(1) as f64)) / chars.len() as f64)
-        .clamp(0.25, span_w * 0.2);
-    let char_h = (span_h * 0.35).clamp(0.2, span_h * 0.5);
-    let dot = (char_w / 5.0).max(0.08);
-    let mut rings = vec![];
-    let total_w = chars.len() as f64 * char_w + gap * (chars.len().saturating_sub(1) as f64);
+    let char_w = span_w / (chars.len() as f64 * 1.35).max(1.0);
+    let char_h = span_h * 0.35;
+    let dot = char_w * 0.22;
+    let gap = char_w * 0.35;
+    let mut rings = Vec::new();
+    let total_w = chars.len() as f64 * (char_w + gap) - gap;
     let mut x0 = cx - total_w / 2.0 + char_w / 2.0;
     for ch in chars {
         let upper = if ch.is_ascii_lowercase() {
-            ((ch as u8) - b'a' + b'A') as char
+            ch.to_ascii_uppercase()
         } else {
             ch
         };
@@ -1629,13 +969,6 @@ fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Ve
         x0 += char_w + gap;
     }
     rings
-}
-
-fn parse_height(text: &str) -> Option<f64> {
-    let trimmed = text.trim();
-    let number = trimmed.strip_suffix("mm").unwrap_or(trimmed).trim();
-    let v: f64 = number.parse().ok()?;
-    (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
 // -------------------------------------------------------------------- build
@@ -1911,7 +1244,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
     if layers.bodies {
         for fp in &p.board.footprints {
             let component = p.component(fp.component);
-            let Some(mut body) = default_body(fp, component) else {
+            let Some(mut body) = crate::parametric_body::resolve(fp, component) else {
                 continue;
             };
             let mut height_source = "default";
@@ -1951,57 +1284,37 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                     loaded: false,
                 });
             }
-            let ball_lift = body
-                .balls
-                .iter()
-                .map(|(_, r)| (*r * 0.55).max(0.08))
-                .fold(0.0_f64, f64::max);
-            for (centre, radius) in &body.balls {
-                if let Some(ring) = clean_ring(&map_ring(fp, &circle_ring(*centre, *radius))) {
-                    let h = (*radius * 0.55).max(0.08);
-                    b.prism(&ring, vec![], thickness, thickness + h, &mut warnings)?;
-                }
+            let z_base = thickness + body.standoff;
+            let mut extrude =
+                |ring: &[Point], z0: f64, z1: f64| -> Result<(), String> {
+                    if let Some(ring) = clean_ring(&map_ring(fp, ring)) {
+                        b.prism(&ring, vec![], z_base + z0, z_base + z1, &mut warnings)?;
+                    }
+                    Ok(())
+                };
+            extrude(&body.ring, 0.0, body.height)?;
+            for lead in &body.leads {
+                extrude(&lead.ring, lead.z0, lead.z1)?;
             }
-            let body_base = thickness + ball_lift;
-            if let Some(ring) = clean_ring(&map_ring(fp, &body.ring)) {
-                b.prism(
-                    &ring,
-                    vec![],
-                    body_base,
-                    body_base + body.height,
-                    &mut warnings,
-                )?;
+            if let Some(mark) = &body.pin1_chamfer {
+                extrude(&mark.ring, mark.z0, mark.z1)?;
             }
-            let body_top = body_base + body.height;
+            if let Some(mark) = &body.polarity {
+                extrude(&mark.ring, mark.z0, mark.z1)?;
+            }
             for pin in &body.pins {
-                if let Some(ring) = clean_ring(&map_ring(fp, pin)) {
-                    b.prism(
-                        &ring,
-                        vec![],
-                        body_top,
-                        body_top + POST_HEIGHT,
-                        &mut warnings,
-                    )?;
-                }
+                extrude(&pin.ring, pin.z0, pin.z1)?;
             }
-            for (extra, rise) in &body.extras {
-                if let Some(ring) = clean_ring(&map_ring(fp, extra)) {
-                    b.prism(&ring, vec![], body_top, body_top + *rise, &mut warnings)?;
-                }
+            for extra in &body.extras {
+                extrude(&extra.ring, extra.z0, extra.z1)?;
             }
             if let Some(text) = &body.decal {
                 let (lo, hi) = ring_bounds(&body.ring);
                 let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
                 let (w, h) = (hi.x - lo.x, hi.y - lo.y);
-                for ring in decal_rings(text, cx, cy, w * 0.85, h * 0.85) {
-                    if let Some(ring) = clean_ring(&map_ring(fp, &ring)) {
-                        b.prism(
-                            &ring,
-                            vec![],
-                            body_top,
-                            body_top + DECAL_RAISE,
-                            &mut warnings,
-                        )?;
+                if w * h >= DECAL_MIN_AREA {
+                    for ring in decal_rings(text, cx, cy, w * 0.85, h * 0.85) {
+                        extrude(&ring, body.height, body.height + DECAL_RAISE)?;
                     }
                 }
             }
@@ -2092,7 +1405,6 @@ fn track_ring(t: &pcbcraft_doc::Track) -> Option<Vec<Point>> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{CopperZone, Cutout, Hole, Net, Track, Via};
-    use std::path::Path;
 
     type Check = Result<(), String>;
 
@@ -2297,13 +1609,6 @@ mod tests {
             pads,
         }
     }
-    fn body_of(pads: Vec<Pad>) -> Result<Body, String> {
-        default_body(&footprint(pads), None).ok_or_else(|| "no body".to_string())
-    }
-    fn size_of(body: &Body) -> (f64, f64) {
-        let (lo, hi) = ring_bounds(&body.ring);
-        (hi.x - lo.x, hi.y - lo.y)
-    }
     /// A valid project with one component whose embedded footprint holds
     /// these pads, placed at (20, 15).
     fn placed(pads: Vec<Pad>) -> Project {
@@ -2358,134 +1663,23 @@ mod tests {
     }
 
     #[test]
-    fn showcase_board_footprints_skip_generic_parametric_bodies() -> Check {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/showcase.pcbcraft");
-        let project = crate::load(&path)?;
-        let layers = MeshLayers {
-            board: false,
-            copper: false,
-            mask: false,
-            silk: false,
-            bodies: true,
-            ..MeshLayers::default()
-        };
-        let mesh = board_mesh(&project, layers)?;
-        let generic: Vec<String> = mesh
-            .parts
-            .iter()
-            .filter(|part| part.kind == PartKind::Body && part.family.as_deref() == Some("generic"))
-            .map(|part| part.name.clone())
-            .collect();
-        assert!(
-            generic.is_empty(),
-            "showcase still uses generic boxes for {generic:?}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn package_families_come_from_pad_patterns() -> Check {
-        // 0805 chip.
-        let chip = body_of(vec![
-            pad_at("1", -0.9, 0.0, 1.025, 1.4, "roundrect"),
-            pad_at("2", 0.9, 0.0, 1.025, 1.4, "roundrect"),
-        ])?;
-        assert_eq!(chip.family, "chip");
-        let (l, w) = size_of(&chip);
-        assert!(close(l, 1.95) && close(w, 1.26), "{l} {w}");
-        // SOIC-8.
-        let mut soic = vec![];
-        for i in 0..4 {
-            let x = -1.905 + 1.27 * i as f64;
-            soic.push(pad_at("1", x, 2.7, 0.6, 1.55, "roundrect"));
-            soic.push(pad_at("2", x, -2.7, 0.6, 1.55, "roundrect"));
+    fn body_mesh_has_no_degenerate_triangles() -> Check {
+        let mesh = board_mesh(&resistor_project(), MeshLayers::default())?;
+        let body = part(&mesh, PartKind::Body)?;
+        for chunk in body.indices.chunks(3) {
+            let a = body.positions[chunk[0] as usize];
+            let b = body.positions[chunk[1] as usize];
+            let c = body.positions[chunk[2] as usize];
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cross = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            let area2 = (cross[0].powi(2) + cross[1].powi(2) + cross[2].powi(2)).sqrt();
+            assert!(area2 > 1e-12, "degenerate triangle {chunk:?}");
         }
-        let soic = body_of(soic)?;
-        assert_eq!(soic.family, "soic");
-        let (l, w) = size_of(&soic);
-        assert!(close(l, 4.71) && close(w, 3.85), "{l} {w}");
-        // SOT-23.
-        let sot = body_of(vec![
-            pad_at("1", -1.1375, -0.95, 1.0, 0.7, "roundrect"),
-            pad_at("2", -1.1375, 0.95, 1.0, 0.7, "roundrect"),
-            pad_at("3", 1.1375, 0.0, 1.0, 0.7, "roundrect"),
-        ])?;
-        assert_eq!(sot.family, "sot");
-        // QFP: 8 pads per side with long leads.
-        let mut qfp = vec![];
-        for i in 0..8 {
-            let t = -3.5 + i as f64;
-            qfp.push(pad_at("1", -4.25, t, 1.6, 0.3, "roundrect"));
-            qfp.push(pad_at("2", 4.25, t, 1.6, 0.3, "roundrect"));
-            qfp.push(pad_at("3", t, -4.25, 0.3, 1.6, "roundrect"));
-            qfp.push(pad_at("4", t, 4.25, 0.3, 1.6, "roundrect"));
-        }
-        let qfp = body_of(qfp)?;
-        assert_eq!(qfp.family, "qfp");
-        let (w, h) = size_of(&qfp);
-        assert!(close(w, 6.9) && close(h, 6.9), "{w} {h}");
-        // QFN with a thermal pad.
-        let mut qfn = vec![];
-        for i in 0..4 {
-            let t = -0.75 + 0.5 * i as f64;
-            qfn.push(pad_at("1", -1.45, t, 0.8, 0.25, "roundrect"));
-            qfn.push(pad_at("2", 1.45, t, 0.8, 0.25, "roundrect"));
-            qfn.push(pad_at("3", t, -1.45, 0.25, 0.8, "roundrect"));
-            qfn.push(pad_at("4", t, 1.45, 0.25, 0.8, "roundrect"));
-        }
-        qfn.push(pad_at("17", 0.0, 0.0, 1.7, 1.7, "rect"));
-        assert_eq!(body_of(qfn)?.family, "qfn");
-        // BGA 5x5.
-        let mut bga = vec![];
-        for i in 0..5 {
-            for j in 0..5 {
-                bga.push(pad_at(
-                    "1",
-                    -2.0 + i as f64,
-                    -2.0 + j as f64,
-                    0.5,
-                    0.5,
-                    "circle",
-                ));
-            }
-        }
-        let bga = body_of(bga)?;
-        assert_eq!(bga.family, "bga");
-        assert_eq!(bga.balls.len(), 25);
-        let (w, h) = size_of(&bga);
-        assert!(close(w, 5.0) && close(h, 5.0), "{w} {h}");
-        // DIP-8.
-        let mut dip = vec![];
-        for i in 0..4 {
-            let x = -3.81 + 2.54 * i as f64;
-            dip.push(through_pad("1", x, -3.81, 1.6, 0.8));
-            dip.push(through_pad("2", x, 3.81, 1.6, 0.8));
-        }
-        let dip = body_of(dip)?;
-        assert_eq!(dip.family, "dip");
-        let (w, h) = size_of(&dip);
-        assert!(close(w, 9.86) && close(h, 6.32), "{w} {h}");
-        // Axial resistor, radial capacitor, 1x4 header.
-        let axial = body_of(vec![
-            through_pad("1", -5.08, 0.0, 1.6, 0.8),
-            through_pad("2", 5.08, 0.0, 1.6, 0.8),
-        ])?;
-        assert_eq!(axial.family, "axial");
-        let radial = body_of(vec![
-            through_pad("1", -1.25, 0.0, 1.6, 0.8),
-            through_pad("2", 1.25, 0.0, 1.6, 0.8),
-        ])?;
-        assert_eq!(radial.family, "radial");
-        assert_eq!(radial.ring.len(), 36);
-        let header = body_of(
-            (0..4)
-                .map(|i| through_pad("1", 2.54 * i as f64, 0.0, 1.7, 1.0))
-                .collect(),
-        )?;
-        assert_eq!(header.family, "header");
-        assert_eq!(header.pins.len(), 4);
-        let (w, h) = size_of(&header);
-        assert!(close(w, 10.16) && close(h, 2.54), "{w} {h}");
         Ok(())
     }
 
