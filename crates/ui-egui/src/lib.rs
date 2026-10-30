@@ -2854,7 +2854,7 @@ impl App {
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let label = egui::RichText::new(t!("app.name"))
                         .size(15.0)
                         .strong()
@@ -2954,6 +2954,7 @@ impl App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        ui.set_max_width(ui.ctx().content_rect().width().max(1.0));
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
                             brand::mark(ui, 96.0);
@@ -6610,7 +6611,7 @@ impl App {
             )
             .show(ui, |ui| {
                 use ui_kit::{icons as kit_icons, status_item::status_item};
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);

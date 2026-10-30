@@ -305,7 +305,8 @@ impl App {
             let current = rule_value(&rules, field.key);
             let name = pcbcraft_text::lookup(field.label, &[]);
             let mut write = None;
-            ui.horizontal_wrapped(|ui| {
+            let narrow = ui.available_width() < 400.0;
+            if narrow {
                 ui.label(&name);
                 write = commit_field(
                     ui,
@@ -320,7 +321,24 @@ impl App {
                     None => t!("rules.fab.origin.default"),
                 };
                 ui.label(crate::fonts::caption(origin).color(self.muted()));
-            });
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(&name);
+                    write = commit_field(
+                        ui,
+                        field.key,
+                        &name,
+                        &pcbcraft_text::lookup(field.tip, &[]),
+                        current,
+                        field.kind,
+                    );
+                    let origin = match current {
+                        Some(v) => fab_origin(&rules, field.key, v),
+                        None => t!("rules.fab.origin.default"),
+                    };
+                    ui.label(crate::fonts::caption(origin).color(self.muted()));
+                });
+            }
             if let Some(v) = write {
                 self.run("board.rules.set", json!({ field.key: v }));
             }

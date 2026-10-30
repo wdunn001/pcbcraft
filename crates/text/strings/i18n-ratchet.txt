@@ -14,7 +14,6 @@ literals | footprint_wizard.rs | 12
 literals | impedance_panel.rs | 18
 literals | reference_panel.rs | 23
 literals | sources.rs | 2
-literals | via_covering.rs | 2
 literals | via_span.rs | 13
 missing | de | 758
 missing | es | 1917
