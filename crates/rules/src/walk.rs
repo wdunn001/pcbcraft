@@ -103,7 +103,7 @@ fn passive_other_nets(project: &Project, component: Id, from_net: Id) -> Vec<Id>
         .collect()
 }
 
-/// Breadth-first search from `q.start` for matching parts, crossing only [`PASSIVE_KINDS`].
+/// Breadth-first search from `q.start` for matching parts, crossing only passive kinds.
 pub fn find(project: &Project, q: &Query<'_>) -> Vec<Hit> {
     let Some(start_net) = pin_net(project, &q.start) else {
         return vec![];
