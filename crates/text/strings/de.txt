@@ -1152,6 +1152,7 @@ check.track_width = Bahnbreite
 check.unassigned_pin = Nicht zugewiesener Pin
 check.unrouted = Nicht verbunden
 check.via_aspect_ratio = Via-Seitenverhältnis
+check.via_in_pad_not_capped = Via im Pad nicht verschlossen
 check.via_span_not_allowed = Via-Spanne nicht erlaubt
 check.zone_island = Insel in einer Fläche
 check.zone_island_removed = Insel von Fläche entfernt

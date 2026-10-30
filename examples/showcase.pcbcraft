@@ -33899,7 +33899,8 @@
           "y": 43.5
         },
         "diameter": 0.45,
-        "drill": 0.2
+        "drill": 0.2,
+        "covering": "filled_capped"
       },
       {
         "id": 776,

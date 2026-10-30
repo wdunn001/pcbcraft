@@ -14,6 +14,7 @@ mod board_side;
 mod builds;
 mod checks;
 mod compare;
+mod drill_table;
 mod context_menus;
 mod editing;
 mod export;

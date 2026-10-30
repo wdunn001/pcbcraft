@@ -10,6 +10,7 @@ mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
+mod drill_table;
 mod fab_export;
 pub mod formats;
 mod generate;
@@ -2328,6 +2329,10 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         Rect(u64, u64),
         Obround(u64, u64),
         Round(u64, u64, u64),
+        /// A via pad, kept apart from a pad circle of the same diameter so the
+        /// X2 aperture function names it a via pad. The specification gives
+        /// `ViaPad` no specifier.
+        ViaPad(u64),
         /// A track stroke, kept apart from a pad or via circle of the same
         /// diameter so the X2 aperture function names it a conductor.
         Track(u64),
@@ -2427,8 +2432,11 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 if matches!(ap, Ap::Track(_)) {
                     out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
                 }
+                if matches!(ap, Ap::ViaPad(_)) {
+                    out.push_str("%TA.AperFunction,ViaPad*%\n");
+                }
                 match *ap {
-                    Ap::Circle(d) | Ap::Track(d) => out.push_str(&format!(
+                    Ap::Circle(d) | Ap::Track(d) | Ap::ViaPad(d) => out.push_str(&format!(
                         "%ADD{code}C,{:.6}*%\n",
                         d as f64 / 1000.0 * self.scale
                     )),
@@ -2589,7 +2597,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
-        let ap = Ap::Circle(d.max(1));
+        let ap = Ap::ViaPad(d.max(1));
         let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
         if reaches_top {
             let front_code = front.code(ap.clone())?;
@@ -2709,7 +2717,8 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-pub use fab_export::via_mask_opening;
+pub use drill_table::{DRILL_TABLE_HEADER, DrillRow, SpanKind, drill_table, drill_table_lines};
+pub use fab_export::{DrillFunction, via_mask_opening, via_mask_opening_on};
 /// Bill of materials as CSV: identical parts collapsed into one row with a
 /// sorted, quoted reference list. Requested property keys become extra
 /// columns; with no request, the columns the project itself defines are
@@ -6967,6 +6976,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -7047,6 +7057,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
@@ -7173,6 +7184,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.validate()?;
         let text = stats_text(&project)?;
@@ -7216,6 +7228,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.vias.push(pcbcraft_doc::Via {
             id: 502,
@@ -7226,6 +7239,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 503,
@@ -7403,6 +7417,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.validate()?;
         let pcb = hpgl_plot(&project, "pcb")?;
@@ -7450,6 +7465,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.validate()?;
         let package = odb_package(&project)?;
@@ -7514,6 +7530,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 103,
@@ -8437,6 +8454,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.unit = "inch".into();
         project.validate()?;
@@ -8532,6 +8550,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.zones.push(pcbcraft_doc::CopperZone {
             id: 5,
@@ -8787,6 +8806,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -9409,6 +9429,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 40,
@@ -9745,6 +9766,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.rule_areas.push(pcbcraft_doc::RuleArea {
             id: 8,
@@ -9920,6 +9942,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.drill_origin = Point::new(20.0, 10.0);
         project.validate()?;
@@ -10049,6 +10072,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 12,
@@ -10970,6 +10994,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 41,
@@ -11127,6 +11152,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.validate()?;
         let pcb = svg(&project, "pcb")?;
@@ -12351,6 +12377,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12384,6 +12411,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
@@ -12928,6 +12956,7 @@ mod tests {
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
+            covering_bottom: None,
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -13066,6 +13095,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering,
+                covering_bottom: None,
             });
         }
         project.validate()?;
@@ -13132,11 +13162,17 @@ mod tests {
         )?)?;
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill\n"),
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib\n"),
             "{drill}"
         );
-        assert!(drill.contains("; via protection: tented\n"), "{drill}");
-        assert!(drill.contains("; via protection: plugged\n"), "{drill}");
+        assert!(
+            drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,IIIb\n"),
+            "{drill}"
+        );
+        assert!(
+            !drill.contains("via protection:"),
+            "the comment line is gone: {drill}"
+        );
         assert_eq!(
             drill.matches("; #@! TD\n").count(),
             2,
