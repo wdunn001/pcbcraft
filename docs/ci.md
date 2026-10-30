@@ -65,6 +65,26 @@ matches by prefix). The current list is the first run's backlog, tracked in
 #520, and may only shrink: an entry that matches nothing fails the gate. The
 job `strings` runs `cargo xtask strings check` on every Rust change.
 
+## Status data (`cargo xtask status-data`)
+
+Writes `site/src/data/status.json` for the website status page: per feature (from
+`site/src/data/features.yaml`) its issues and their state, merged pull requests, the
+first green CI run after each merge, and the tests that prove it; plus the `ROADMAP.md`
+lines. The tracker is the fork, `wdunn001/pcbcraft`.
+
+- Offline by default. It reads a cached snapshot, `site/src/data/status-snapshot.json`
+  (not committed). `--refresh` rewrites the snapshot with about 10 GitHub API requests
+  (`GITHUB_TOKEN` is used when set); if the refresh fails the cached snapshot is used and
+  the output says `stale: true`.
+- A state is Built only with a merged pull request and a green run; Released only with a
+  release published after the merge. A feature with no `test:` evidence that matches a
+  `#[test]` function is reported as `no-test`.
+- `--check FILE` validates a generated file against `site/src/data/status.schema.json`.
+- Tests use the recorded snapshot in `xtask/tests/fixtures/status/` and never touch the
+  network. Rewrite the golden with `STATUS_BLESS=1 cargo test -p xtask status`.
+- Pull requests merged before the tracker moved name old issue numbers; the generator
+  maps them through each issue's "Migrated from" line.
+
 ## Seeing UI changes
 
 The screenshots job uploads `screenshots-head` (this change) and, on pull
