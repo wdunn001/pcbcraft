@@ -13301,7 +13301,7 @@ mod tests {
     fn oversized_pour_is_skipped_with_a_named_note() -> Result<(), String> {
         let p = pour_board()?;
         let (files, warnings) =
-            gerber_copper::export_layers_with_cap(&p, 1.0, 8)?;
+            gerber_copper::export_layers_with_cap(&p, 1.0, 4)?;
         let front = files.get("pcb-F.Cu.gbr").ok_or("no front copper")?;
         assert!(
             front.contains("skipped pour zone 10 on F.Cu"),
