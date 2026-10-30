@@ -272,8 +272,7 @@ mod tests {
     fn dry_run_counts_board_tracks_vias_and_unchanged_objects() -> Result<(), Error> {
         let mut s = Session::default();
         assert!(s.batch(&[add("R1", 10.0)], None).is_ok());
-        let net = s
-            .execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
             .as_u64()
             .ok_or_else(|| Error::Invalid("net id".into()))?;
         let dry = s.dry_run(
@@ -285,8 +284,8 @@ mod tests {
         )?;
         assert_eq!(dry.summary.added_counts.get("track"), Some(&1));
         assert!((dry.summary.track_mm_added - 50.0).abs() < 1e-6);
-        assert_eq!(dry.summary.untouched, 1, "R1 is unchanged");
-        assert_eq!(dry.summary.total, 1);
+        assert_eq!(dry.summary.untouched, 3, "R1 and its pads are unchanged");
+        assert_eq!(dry.summary.total, 4);
         assert!(dry.summary.bytes_after > dry.summary.bytes_before);
         let via = s.dry_run(
             &[Command {
