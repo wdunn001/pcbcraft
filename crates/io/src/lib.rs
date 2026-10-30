@@ -18,6 +18,7 @@ mod gerber_job;
 mod laser;
 mod layers;
 mod library_render;
+mod migrate;
 mod machine_profile;
 mod model_load;
 mod neoden_yy1;
@@ -66,6 +67,7 @@ pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
+pub use migrate::{CURRENT_VERSION, migrate, read_project};
 /// Gerber file generation for copper and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
@@ -152,8 +154,7 @@ pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 /// # Do not
 /// - Call with paths to non-JSON files
 pub fn load(path: &Path) -> Result<Project, String> {
-    let text = read_text(path)?;
-    let mut project: Project = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let mut project = read_project(&read_text(path)?)?;
     migrate_loaded_project(&mut project)?;
     project.validate()?;
     Ok(project)
