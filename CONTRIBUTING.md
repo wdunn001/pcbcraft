@@ -387,7 +387,7 @@ After the worker: the integrator has verified the pull request and merged it int
 
 ## 5. Code rules
 
-These come from AGENTS.md and apply to every change.
+These come from the rule files in `.cursor/rules/` (listed in AGENTS.md) and apply to every change.
 
 - **One window.** Document and workspace tabs plus docked panes. Never spawn separate schematic, board, library, checks or 3D windows. Project and selection are shared.
 - **Typed engine commands.** Everything that edits the project is a command in `crates/engine` with a JSON schema. UI, CLI and MCP call the same engine. Programmatic commands never open dialogs.
@@ -397,7 +397,8 @@ These come from AGENTS.md and apply to every change.
 - **Adapted GPL code.** Source from other GPL-compatible projects may be inspected and adapted. Record the exact source, revision and license in ATTRIBUTION.md. Translating to Rust does not remove attribution or copyleft. Check each file's license. Do not copy trademarks or proprietary assets from shared Craft dependencies; pin craft-libs revisions.
 - **Honest limits.** Do not present initial checks as complete ERC/DRC, or a basic route as a shove router. Track parity by workflows and fixtures, not by percentages.
 - **Names.** Never name other EDA tools in code, docs, UI strings, issues or pull requests. Describe formats and behaviours instead ("the board interchange format", "the plot layer format").
-- **UI.** Every control gets a tooltip. Panels keep real margins and padding. Labels are short plain words. UI changes are inspected rendered, not only in tests.
+- **UI.** Every control gets a tooltip. Panels keep real margins and padding. Labels are short plain words. UI strings go in `crates/text/strings/en.txt`. Status dots, arrows and ticks are painted shapes or icons, never text characters. UI changes are inspected rendered, not only in tests. The design is in [docs/design-system.md](docs/design-system.md) and [docs/page-layouts.md](docs/page-layouts.md); read them before UI work and update them when you change a documented rule.
+- **Changeset and docs.** Every pull request adds one changeset file in `.changes/` (see `.changes/README.md`) and updates the docs it touches, or states `docs: n/a: <reason>`. CI job "Changeset and docs" enforces it.
 - **Publishing.** Do not publish releases or push to third-party repositories without authorization.
 
 ## 6. Testing
@@ -434,7 +435,7 @@ Workers do not merge their own pull requests. Pushing to `main` directly is not 
 
 - **Program status epic #95** on wdunn001/pcbcraft (it was #95 on the old tracker): every roadmap line with its issue, what is in flight, open owner decisions, and the enrichment and research comment links. Update it when an issue is opened, claimed, finished or dropped.
 - **The issue itself**: body, `### Research`, `### Enrichment`, build reports are in the pull request body, `### Review`.
-- **Repository docs**: AGENTS.md (rules for all agents), CLAUDE.md (Claude Code workflow), `.cursor/rules/*.mdc` (Cursor Agent rules; see [Cursor rules docs](https://cursor.com/docs/rules)), `docs/agents/` (role briefs for parallel workers), README.md (what works, how to run), ROADMAP.md (milestones), `docs/architecture.md` (layers and decisions), `docs/validation.md` (evidence for the initial subset), `docs/mcp.md` (MCP client setup), `docs/ci.md` (every CI job and its local command), ATTRIBUTION.md (provenance).
+- **Repository docs**: `.cursor/rules/*.mdc` (the canonical agent rules, one file per topic; see [Cursor rules docs](https://cursor.com/docs/rules)), AGENTS.md and CLAUDE.md (thin pointers to those rules), `docs/design-system.md` and `docs/page-layouts.md` (the UI design), `docs/agents/` (role briefs for parallel workers), README.md (what works, how to run), ROADMAP.md (milestones), `docs/architecture.md` (layers and decisions), `docs/validation.md` (evidence for the initial subset), `docs/mcp.md` (MCP client setup), `docs/ci.md` (every CI job and its local command), ATTRIBUTION.md (provenance).
 - **Research notes**, available on request from the maintainer: the feature parity matrix, per-issue research notes (routing, length and impedance, pours, fabrication checks, 3D view, simulation), the manufacturing artifact format survey, the shop equipment and machine profile notes, the tagging standard and the coordinator's queue. Ask on the issue you are working and the relevant note is posted or summarised there. A searchable knowledge base of captured standards and sources backs the research stage; findings from it arrive on issues as `### Research` comments.
 
 ## 9. Instructions adopted from the pipeline review
