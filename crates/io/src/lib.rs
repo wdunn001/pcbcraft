@@ -9223,8 +9223,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -9378,8 +9377,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "P&&R".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -9661,6 +9659,8 @@ mod tests {
             target_length: None,
             length_tolerance: None,
             max_stub: None,
+            target_impedance: None,
+            impedance_tolerance_pct: None,
             via_diameter: None,
             via_drill: None,
             pair_width: None,
@@ -10803,8 +10803,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -11869,8 +11868,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
             name: "probe".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,

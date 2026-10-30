@@ -2640,8 +2640,7 @@ mod tests {
         p.nets.push(Net {
             id: 4,
             name: "gnd".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         p.board.clearance = clearance;
         if let Some(pad) = p

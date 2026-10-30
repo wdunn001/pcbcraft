@@ -924,8 +924,7 @@ pub mod tests {
         project.nets = vec![Net {
             id: NET,
             name: "SIG".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         }];
         project
     }

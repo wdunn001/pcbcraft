@@ -501,7 +501,7 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "netclass.set",
-            "Rename a net class, change routing defaults, via size, or differential-pair defaults, with the class rules echoed back",
+            "Rename a net class, change routing defaults, via size, differential-pair defaults, or impedance targets, with the class rules echoed back",
             schema(
                 json!({
                     "class":id_schema(),
@@ -510,7 +510,9 @@ pub fn commands() -> Vec<CommandSpec> {
                     "via_diameter":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "via_drill":{"type":"number","exclusiveMinimum":0,"maximum":100},
                     "pair_width":{"type":"number","exclusiveMinimum":0,"maximum":100},
-                    "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10}
+                    "pair_gap":{"type":"number","exclusiveMinimum":0,"maximum":10},
+                    "target_impedance":{"type":"number","minimum":10,"maximum":200},
+                    "impedance_tolerance_pct":{"type":"number","minimum":0,"maximum":50}
                 }),
                 &["class"],
             ),
@@ -8721,6 +8723,8 @@ fn run_command(
                 target_length: None,
                 length_tolerance: None,
                 max_stub: None,
+                target_impedance: None,
+                impedance_tolerance_pct: None,
                 via_diameter: None,
                 via_drill: None,
                 pair_width: None,
@@ -9014,6 +9018,8 @@ fn run_command(
                 "via_drill": class.via_drill,
                 "pair_width": class.pair_width,
                 "pair_gap": class.pair_gap,
+                "target_impedance": class.target_impedance,
+                "impedance_tolerance_pct": class.impedance_tolerance_pct,
                 "nets": class.nets.len()
             }))
         }

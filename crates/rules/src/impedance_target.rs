@@ -69,6 +69,7 @@ fn nearest_plane_row(project: &Project, signal_row: usize, step: i32) -> Option<
     None
 }
 
+#[derive(Clone)]
 enum Geometry {
     Microstrip {
         method: &'static str,
@@ -84,6 +85,7 @@ enum Geometry {
     },
 }
 
+#[derive(Clone)]
 struct StackSample {
     height: f64,
     er: f64,
@@ -254,30 +256,6 @@ fn segment_impedance(
         .map(|z| (z, sample.clone())),
         (_, None) => imp::microstrip(track.width, sample.height, sample.copper, sample.er)
             .map(|m| (m.ohms, sample.clone())),
-    }
-}
-
-impl Clone for StackSample {
-    fn clone(&self) -> Self {
-        Self {
-            height: self.height,
-            er: self.er,
-            copper: self.copper,
-            geometry: match &self.geometry {
-                Geometry::Microstrip { method, reference } => Geometry::Microstrip {
-                    method,
-                    reference: reference.clone(),
-                },
-                Geometry::Stripline { method, reference } => Geometry::Stripline {
-                    method,
-                    reference: reference.clone(),
-                },
-                Geometry::Coupled { method, pair } => Geometry::Coupled {
-                    method,
-                    pair: pair.clone(),
-                },
-            },
-        }
     }
 }
 

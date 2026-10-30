@@ -365,6 +365,8 @@ fn find_or_create_class<'a>(
         target_length: None,
         length_tolerance: None,
         max_stub: None,
+        target_impedance: None,
+        impedance_tolerance_pct: None,
         via_diameter: None,
         via_drill: None,
         pair_width: None,
