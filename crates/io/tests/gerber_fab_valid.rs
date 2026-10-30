@@ -2,7 +2,7 @@
 //! checks and golden fixtures per layer type.
 use pcbcraft_doc::Project;
 use pcbcraft_geom::Point;
-use pcbcraft_io::{gerber_files_at, PACKAGE_CREATION_DATE};
+use pcbcraft_io::{PACKAGE_CREATION_DATE, gerber_files_at};
 use std::collections::BTreeMap;
 use std::io::BufReader;
 use std::path::Path;
@@ -39,8 +39,8 @@ fn check_golden(name: &str, text: &str) -> Result<(), String> {
         }
         std::fs::write(&path, text).map_err(|e| e.to_string())?;
     }
-    let golden =
-        std::fs::read_to_string(&path).map_err(|e| format!("golden fixture {name} missing: {e}"))?;
+    let golden = std::fs::read_to_string(&path)
+        .map_err(|e| format!("golden fixture {name} missing: {e}"))?;
     let actual = normalize_fab_gerber(text);
     let expected = normalize_fab_gerber(&golden);
     assert_eq!(
@@ -211,7 +211,10 @@ fn plated_and_unplated_drill_files_are_split() -> Result<(), String> {
         npth.starts_with("M48\nNonPlated,1,2,NPTH\n"),
         "npth header: {npth}"
     );
-    assert!(plated.contains("T1\nX30.000Y10.000\n"), "via on plated file");
+    assert!(
+        plated.contains("T1\nX30.000Y10.000\n"),
+        "via on plated file"
+    );
     assert!(plated.contains("T2\nX0.000Y0.000\n"), "pad on plated file");
     assert!(
         !npth.contains("X30.000Y10.000"),
@@ -236,7 +239,9 @@ fn fab_bundle_golden_fixtures_cover_each_gerber_layer_type() -> Result<(), Strin
         ("pcb-DrillMap.gbr", "drill_map.gbr"),
     ];
     for (key, fixture) in layers {
-        let text = files.get(key).ok_or_else(|| format!("export missing {key}"))?;
+        let text = files
+            .get(key)
+            .ok_or_else(|| format!("export missing {key}"))?;
         check_golden(fixture, text)?;
     }
     Ok(())
