@@ -26,7 +26,7 @@ pub fn tool_list() -> Value {
     let command = json!({"type":"object","properties":{"command":{"type":"string"},"params":{"type":"object"}},"required":["command","params"],"additionalProperties":false});
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"gerber.export","description":"Write fabrication outputs (Gerber RS-274X front and back copper, board outline, Excellon drill map) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"},"creation_date":{"type":"string","description":"optional ISO 8601 UTC timestamp for the Gerber job CreationDate; when omitted the export stamps the current time"}}),&["path"])}),
         json!({"name":"netlist.write","description":"Write a plain-text netlist, one line per net with its component pins, into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.export_footprint","description":"Write one project-library footprint to a .kicad_mod footprint library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
@@ -387,7 +387,21 @@ pub(crate) fn invoke_session(
         }
         "gerber.export" => {
             let directory = string(args, "path")?;
-            let files = pcbcraft_io::gerber_files(&s.project)?;
+            let files = match args.get("creation_date") {
+                None => pcbcraft_io::gerber_files(&s.project)?,
+                Some(value) => {
+                    let stamp = value
+                        .as_str()
+                        .ok_or("creation_date must be a string")?
+                        .trim();
+                    if stamp.is_empty() || stamp.len() > 64 {
+                        return Err(
+                            "creation_date must be a non-empty ISO 8601 UTC timestamp".into(),
+                        );
+                    }
+                    pcbcraft_io::gerber_files_at(&s.project, stamp)?
+                }
+            };
             let mut written = Vec::new();
             for (name, text) in &files {
                 pcbcraft_io::atomic_write(&Path::new(directory).join(name), text.as_bytes())?;
@@ -1676,6 +1690,44 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn gerber_export_twice_under_a_fixed_clock_is_byte_identical() -> Result<(), String> {
+        let session = shared(Session::sample().map_err(|e| e.to_string())?);
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().to_string_lossy();
+        let pinned = pcbcraft_io::with_fixed_clock(1_800_000_000, || {
+            let first = call_tool(&session, "gerber.export", &json!({"path": path}));
+            std::thread::sleep(std::time::Duration::from_millis(1_100));
+            let first_job = std::fs::read(directory.path().join("pcb-job.gbrjob"))
+                .map_err(|e| e.to_string())?;
+            let second = call_tool(&session, "gerber.export", &json!({"path": path}));
+            let second_job = std::fs::read(directory.path().join("pcb-job.gbrjob"))
+                .map_err(|e| e.to_string())?;
+            assert_eq!(
+                first_job, second_job,
+                "two exports in the same pinned clock share CreationDate bytes"
+            );
+            Ok::<_, String>((first, second))
+        })?;
+        assert_eq!(pinned.0.get("isError"), Some(&json!(false)));
+        assert_eq!(pinned.1.get("isError"), Some(&json!(false)));
+        let stamp = "2026-06-15T12:34:56+00:00";
+        let stamped_export = call_tool(
+            &session,
+            "gerber.export",
+            &json!({"path": path, "creation_date": stamp}),
+        );
+        assert_eq!(stamped_export.get("isError"), Some(&json!(false)));
+        let stamped = std::fs::read(directory.path().join("pcb-job.gbrjob"))
+            .map_err(|e| e.to_string())?;
+        assert!(
+            stamped.windows(stamp.len()).any(|w| w == stamp.as_bytes()),
+            "creation_date is written into the job file"
+        );
+        Ok(())
+    }
+
     #[test]
     fn dsn_write_exports_a_board_file_without_editing_history() -> Result<(), String> {
         let session = shared(Session::default());
