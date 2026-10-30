@@ -2,10 +2,13 @@
 mod document_hub;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http;
+mod project_host;
 mod prompts;
 mod resources;
+mod tool_files;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+pub use project_host::{MemHost, NativeHost, ProjectHost, replace_session_from_open};
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -218,6 +221,19 @@ pub fn call_tool(session: &SharedSession, name: &str, args: &Value) -> Value {
         Ok(v) => v,
         Err(e) => error_result(e),
     }
+}
+
+/// Produce the files a write-style MCP tool would create, without touching the host filesystem.
+pub fn write_tool_files(
+    session: &SharedSession,
+    name: &str,
+    args: &Value,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    validate_tool_schema(name, args)?;
+    let s = session
+        .lock()
+        .map_err(|_| "session unavailable after internal failure".to_string())?;
+    tool_files::write_tool_files(&s.project, name, args)
 }
 /// Check a tool call's arguments against the tool's schema, and for `execute` and `batch` each
 /// command's parameters against that command's schema, without running anything. The assistant
