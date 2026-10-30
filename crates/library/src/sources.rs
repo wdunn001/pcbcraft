@@ -178,8 +178,7 @@ impl ResponseCache {
         let query = check_query(query).ok()?;
         let key = Self::key(source.id(), query);
         let entry = self.entries.get(&key)?;
-        (now.saturating_sub(entry.stored_at) < source.cache_secs())
-            .then(|| entry.results.clone())
+        (now.saturating_sub(entry.stored_at) < source.cache_secs()).then(|| entry.results.clone())
     }
 
     /// Store an answer the caller already fetched.

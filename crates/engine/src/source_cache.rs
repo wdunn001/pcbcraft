@@ -10,7 +10,7 @@
 //! - A token bucket per source caps how often the source is asked.
 use pcbcraft_library::cad_cache::{content_hash, default_cache_dir};
 use pcbcraft_library::sources::{
-    PartResult, PartSource, ResponseCache, SourceError, MAX_RESULTS, check_query,
+    MAX_RESULTS, PartResult, PartSource, ResponseCache, SourceError, check_query,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -68,12 +68,10 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SourceError> {
     };
     let tmp = path.with_file_name(format!(".tmp-{}-{n}-{stamp}", std::process::id()));
     {
-        let mut f = fs::File::create(&tmp).map_err(|e| {
-            SourceError::Unavailable(format!("response cache write failed: {e}"))
-        })?;
-        f.write_all(bytes).map_err(|e| {
-            SourceError::Unavailable(format!("response cache write failed: {e}"))
-        })?;
+        let mut f = fs::File::create(&tmp)
+            .map_err(|e| SourceError::Unavailable(format!("response cache write failed: {e}")))?;
+        f.write_all(bytes)
+            .map_err(|e| SourceError::Unavailable(format!("response cache write failed: {e}")))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, path).map_err(|e| {
@@ -110,8 +108,15 @@ impl DiskLayer {
         }))
     }
 
-    fn put(&self, source: &str, key: &str, stored_at: u64, results: &[PartResult]) -> Result<(), SourceError> {
-        let body = serde_json::to_string(results).map_err(|e| bad(&format!("could not store the answer: {e}")))?;
+    fn put(
+        &self,
+        source: &str,
+        key: &str,
+        stored_at: u64,
+        results: &[PartResult],
+    ) -> Result<(), SourceError> {
+        let body = serde_json::to_string(results)
+            .map_err(|e| bad(&format!("could not store the answer: {e}")))?;
         if body.len() > MAX_BODY_BYTES {
             return Err(bad("the answer is too large to keep"));
         }
@@ -157,10 +162,7 @@ impl DiskLayer {
             let _ = fs::remove_file(&path);
             return Ok(None);
         };
-        Ok(Some(StoredResponse {
-            stored_at,
-            results,
-        }))
+        Ok(Some(StoredResponse { stored_at, results }))
     }
 
     fn remove(&self, source: &str, key: &str) -> Result<(), SourceError> {
@@ -198,7 +200,9 @@ fn classify(stored_at: u64, cache_secs: u64, now: u64) -> AnswerAge {
     if age < cache_secs {
         AnswerAge::Fresh
     } else {
-        AnswerAge::Stale { retrieved_at: stored_at }
+        AnswerAge::Stale {
+            retrieved_at: stored_at,
+        }
     }
 }
 
@@ -467,8 +471,7 @@ impl PartSourceCache {
             part.retrieved_at = now;
         }
         self.disk.put(source.id(), &key, now, &results)?;
-        self.memory
-            .remember(source, query, now, results.clone())?;
+        self.memory.remember(source, query, now, results.clone())?;
         Ok(CachedSearch {
             results,
             age: AnswerAge::Fresh,
