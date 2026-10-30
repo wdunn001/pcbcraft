@@ -1,4 +1,15 @@
-//! The single mutation boundary used by UI, CLI and MCP.
+//! The single mutation boundary used by UI, CLI and MCP. Every edit runs as a
+//! named command on a cloned project, then validation and revision rules apply.
+//!
+//! # Rules
+//! - Command handlers live in `run_command`; read a struct's doc block for the
+//!   rules that arm enforces.
+//! - Global invariants (revision, undo, validation) live in AGENTS.md.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/engine/src/route/mod.rs
+//! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
 mod dry_run;
@@ -3004,6 +3015,15 @@ struct PlaceLibrary {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Parameters of `footprint.set_pad`: change one pad offset and/or diameter on a placed footprint.
+///
+/// # Rules
+/// - At least one of `offset` or `diameter` must be present.
+/// - Pad number is 1 to 32 bytes; offset must be in range; diameter is 0 to 100 mm.
+/// - Shaped pads accept offset only; unchanged offset and diameter is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadSetParams {
@@ -3014,6 +3034,13 @@ struct PadSetParams {
     #[serde(default)]
     diameter: Option<f64>,
 }
+/// Parameters of `footprint.set_castellated`: mark one pad castellated or clear the flag.
+///
+/// # Rules
+/// - Pad number is 1 to 32 bytes; the footprint and pad must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadCastellateParams {
@@ -3021,12 +3048,27 @@ struct PadCastellateParams {
     pad: String,
     on: bool,
 }
+/// Parameters of `footprint.dock_edge`: shift a footprint until its pad bounds touch a board edge.
+///
+/// # Rules
+/// - `edge` is `left`, `right`, `top` or `bottom`; locked footprints are refused.
+/// - The footprint needs drawable pad copper; already flush with that edge is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DockEdgeParams {
     id: Id,
     edge: String,
 }
+/// Parameters of `footprint.set_locked`: lock or unlock placement edits on one footprint.
+///
+/// # Rules
+/// - The footprint id must exist on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LockParams {
@@ -5279,6 +5321,15 @@ struct WirePointParams {
     index: u32,
     position: Point,
 }
+/// Parameters of `track.chamfer`: replace a right-angle corner with a straight chamfer segment.
+///
+/// # Rules
+/// - Tracks must differ, share net and layer, meet at one endpoint, and be straight.
+/// - Chamfer size is positive and at most half the shorter leg; shallow corners are refused.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ChamferParams {
@@ -5286,6 +5337,13 @@ struct ChamferParams {
     b: Id,
     size: f64,
 }
+/// Parameters of `track.set_width`: set copper width on one track segment.
+///
+/// # Rules
+/// - Width must be positive and at most 100 mm; the track id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackWidthParams {
@@ -5297,6 +5355,14 @@ struct TrackWidthParams {
 struct IdParams {
     id: Id,
 }
+/// Parameters of `track.add_arc`: add a curved track through three points on one layer.
+///
+/// # Rules
+/// - Start, mid and end must be in range and define a proper arc; width defaults from the net class.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackArcParams {
@@ -5309,18 +5375,40 @@ struct TrackArcParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Parameters of `track.set_arc`: bend an existing straight track through a new midpoint.
+///
+/// # Rules
+/// - Midpoint must be in range and lie on a proper arc through the track ends.
+///
+/// # Dependencies
+/// - crates/geom/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackSetArcParams {
     id: Id,
     mid: Point,
 }
+/// Parameters of `track.set_width_net`: set width on every track on one net.
+///
+/// # Rules
+/// - Width must be positive and at most 100 mm; the net must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackNetWidthParams {
     net: Id,
     width: f64,
 }
+/// Parameters of `track.set_layer_net`: move tracks on one net to another copper layer.
+///
+/// # Rules
+/// - Optional `from_layer` limits which tracks move; the net must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackNetLayerParams {
@@ -5329,12 +5417,26 @@ struct TrackNetLayerParams {
     #[serde(default)]
     from_layer: Option<Layer>,
 }
+/// Parameters of `track.set_layer`: move one track to another copper layer.
+///
+/// # Rules
+/// - The track must exist and not already be on the target layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackLayerParams {
     id: Id,
     layer: Layer,
 }
+/// Parameters of `track.set_end`: move one endpoint of a track and clear any arc.
+///
+/// # Rules
+/// - Position must be in range and not coincide with the other end.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackEndParams {
@@ -5360,6 +5462,13 @@ enum TrackEnd {
     Start,
     End,
 }
+/// Parameters of `via.set_covering`: set or clear tent, plug or fill on one via.
+///
+/// # Rules
+/// - A via without a drilled hole cannot be tented, plugged or filled.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaCoveringParams {
@@ -5367,11 +5476,26 @@ struct ViaCoveringParams {
     #[serde(default)]
     covering: Option<pcbcraft_doc::ViaCovering>,
 }
+/// Parameters of `board.set_via_covering_default`: default covering for new vias on the board.
+///
+/// # Rules
+/// - Stored on the board model and used when a via omits an explicit covering.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaCoveringDefaultParams {
     covering: pcbcraft_doc::ViaCovering,
 }
+/// Parameters of `via.set_size`: change pad diameter and optional drill on one via.
+///
+/// # Rules
+/// - Diameter is positive and at most 100 mm; drill is smaller than the pad and non-negative.
+/// - Tented, plugged or filled coverings require a drilled hole.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaSizeParams {
@@ -5658,6 +5782,13 @@ struct LabelMoveParams {
     id: Id,
     position: Point,
 }
+/// Parameters of `text.place`: add a silk or copper text label on the board.
+///
+/// # Rules
+/// - Text is 1 to 128 bytes; size is 0.1 to 50 mm; at most 256 board texts.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextPlaceParams {
@@ -5692,12 +5823,26 @@ fn expand_tokens(text: &str, component: &pcbcraft_doc::Component) -> String {
 fn text_size() -> f64 {
     1.0
 }
+/// Parameters of `text.move`: reposition one board text label.
+///
+/// # Rules
+/// - Position coordinates must be finite; the text id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextMoveParams {
     id: Id,
     position: Point,
 }
+/// Parameters of `text.set`: change string, size, layer and/or rotation on one board text.
+///
+/// # Rules
+/// - At least one field to change must be present; text length and size bounds match `text.place`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextSetParams {
@@ -5711,30 +5856,65 @@ struct TextSetParams {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Parameters of `text.rotate`: set absolute rotation on one board text.
+///
+/// # Rules
+/// - Degrees must be finite and within a generous bound; the text id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextRotateParams {
     id: Id,
     degrees: f64,
 }
+/// Parameters of `text.bind`: attach or detach a board text to a schematic component for tokens.
+///
+/// # Rules
+/// - When `component` is set it must exist; `null` clears the binding.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextBindParams {
     id: Id,
     component: Option<Id>,
 }
+/// Parameters of `text.expand`: replace `${REFERENCE}` and related tokens from bound components.
+///
+/// # Rules
+/// - Optional `id` limits the pass; bound texts with a missing component are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TextExpandParams {
     #[serde(default)]
     id: Option<Id>,
 }
+/// Parameters of `object.snap`: round schematic parts and board footprints to a grid.
+///
+/// # Rules
+/// - Accepts 1 to 128 unique ids; grid is 0.05 to 25 mm; each id must be a component or footprint.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SnapParams {
     ids: Vec<Id>,
     grid: f64,
 }
+/// Parameters of `object.nudge`: move one editable object by a small delta in millimetres.
+///
+/// # Rules
+/// - Delta must be finite, non-zero, and within 1000 mm per axis; locked objects are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NudgeParams {
@@ -5742,6 +5922,13 @@ struct NudgeParams {
     dx: f64,
     dy: f64,
 }
+/// Parameters of `object.duplicate`: clone up to 64 components with optional board footprints.
+///
+/// # Rules
+/// - Each duplicate gets a unique reference and new ids; offset positions must stay in range.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DuplicateParams {
@@ -5791,6 +5978,13 @@ struct SplitParams {
     id: Id,
     at: Point,
 }
+/// Parameters of `align.distribute`: align or evenly space schematic parts or footprints.
+///
+/// # Rules
+/// - Needs at least two items from `ids`, a filter, or both; `mode` names edge, centre or distribute axes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AlignParams {
@@ -6009,18 +6203,39 @@ struct Cut {
     center: Point,
     radius: f64,
 }
+/// Parameters of `board.cutout.move`: reposition a circular board cutout.
+///
+/// # Rules
+/// - Centre must be in range and keep the full circle strictly inside the board outline.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CutoutMoveParams {
     id: Id,
     center: Point,
 }
+/// Parameters of `board.cutout.resize`: change the radius of a circular board cutout.
+///
+/// # Rules
+/// - Radius is positive and at most 1000 mm; the resized circle must stay strictly inside the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CutoutSizeParams {
     id: Id,
     radius: f64,
 }
+/// Parameters of `track.add`: add one straight copper segment between two points.
+///
+/// # Rules
+/// - Width defaults from the net class; layer resolves through the board stackup rules.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TrackParams {
@@ -6032,6 +6247,13 @@ struct TrackParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Parameters of `footprint.array`: step-and-repeat one footprint into a grid of parts.
+///
+/// # Rules
+/// - Grid is 1 to 64 by 1 to 64 with positive spacing; at least two copies; project id cap applies.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArrayParams {
@@ -6062,6 +6284,15 @@ struct PadRef {
     footprint: Id,
     pad: String,
 }
+/// Parameters of `track.route`: autoroute copper between two pads or points on one net.
+///
+/// # Rules
+/// - Endpoints must resolve to distinct pads on the same net with positive width.
+/// - Non-orthogonal modes delegate to the router; orthogonal mode adds one or two straight segments.
+///
+/// # Dependencies
+/// - crates/engine/src/route/mod.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Route {
@@ -6075,6 +6306,15 @@ struct Route {
     mode: route::Mode,
     net: Option<Id>,
 }
+/// Parameters of `track.route_pair`: route both legs of a declared differential pair together.
+///
+/// # Rules
+/// - Pads must stay on their net on each side; the two nets must differ and be a registered pair.
+/// - Octilinear or orthogonal coupling only; clearance checks run before tracks are kept.
+///
+/// # Dependencies
+/// - crates/engine/src/route/mod.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RoutePairParams {
@@ -6094,6 +6334,14 @@ struct RoutePairParams {
 fn pair_mode() -> route::Mode {
     route::Mode::Octilinear
 }
+/// Parameters of `object.delete`: remove one project object and detach dependents.
+///
+/// # Rules
+/// - The id must exist; nets still wired to pins or tracks cannot be deleted.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/engine/src/tuning.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Object {
