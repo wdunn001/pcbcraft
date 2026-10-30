@@ -49,7 +49,8 @@ pub fn load_export_template(path: &Path) -> Result<ExportTemplate, String> {
     if text.len() > MAX_TEMPLATE_BYTES {
         return Err("export template is too large".into());
     }
-    let doc: PinMapTemplate = toml::from_str(&text).map_err(|e| format!("invalid template: {e}"))?;
+    let doc: PinMapTemplate =
+        toml::from_str(&text).map_err(|e| format!("invalid template: {e}"))?;
     if doc.schema != 1 {
         return Err(format!("unsupported template schema {}", doc.schema));
     }
@@ -83,12 +84,12 @@ fn apply_row(template: &str, row: &PinMapRow) -> String {
 
 fn sort_rows(rows: &mut [PinMapRow], sort: &str) {
     match sort {
-        "reference_then_pin" => rows.sort_by(|a, b| {
-            (&a.reference, &a.pin, &a.net).cmp(&(&b.reference, &b.pin, &b.net))
-        }),
-        _ => rows.sort_by(|a, b| {
-            (&a.net, &a.reference, &a.pin).cmp(&(&b.net, &b.reference, &b.pin))
-        }),
+        "reference_then_pin" => {
+            rows.sort_by(|a, b| (&a.reference, &a.pin, &a.net).cmp(&(&b.reference, &b.pin, &b.net)))
+        }
+        _ => {
+            rows.sort_by(|a, b| (&a.net, &a.reference, &a.pin).cmp(&(&b.net, &b.reference, &b.pin)))
+        }
     }
 }
 

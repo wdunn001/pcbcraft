@@ -17,7 +17,9 @@ const MAX_ROOT_BYTES: usize = 4096;
 /// # Do not
 /// - Fetch from the network or treat the path as a marketplace index.
 pub fn load_registry(root: &Path) -> Result<Vec<PluginManifest>, String> {
-    let root = root.canonicalize().map_err(|e| format!("invalid plugins root: {e}"))?;
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("invalid plugins root: {e}"))?;
     let root_str = root.to_string_lossy();
     if root_str.len() > MAX_ROOT_BYTES {
         return Err("plugins root path is too long".into());
@@ -47,12 +49,20 @@ pub fn load_registry(root: &Path) -> Result<Vec<PluginManifest>, String> {
 }
 
 /// Resolve one export template file path inside a loaded manifest.
-pub fn export_template_path(manifest: &PluginManifest, template_id: &str) -> Result<PathBuf, String> {
+pub fn export_template_path(
+    manifest: &PluginManifest,
+    template_id: &str,
+) -> Result<PathBuf, String> {
     let entry = manifest
         .export_templates
         .iter()
         .find(|t| t.id == template_id)
-        .ok_or_else(|| format!("export template {template_id} not found in plugin {}", manifest.id))?;
+        .ok_or_else(|| {
+            format!(
+                "export template {template_id} not found in plugin {}",
+                manifest.id
+            )
+        })?;
     Ok(manifest.root.join(&entry.path))
 }
 

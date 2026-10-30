@@ -83,7 +83,9 @@ fn check_relative_path(label: &str, path: &str) -> Result<(), String> {
     bounded(label, path, MAX_PATH)?;
     let p = Path::new(path);
     if p.is_absolute() || path.contains('\\') {
-        return Err(format!("{label} must be a relative path with forward slashes"));
+        return Err(format!(
+            "{label} must be a relative path with forward slashes"
+        ));
     }
     if path.split('/').any(|part| part == ".." || part.is_empty()) {
         return Err(format!("{label} must not contain parent segments"));
@@ -201,7 +203,7 @@ pub fn parse_manifest(root: &Path, bytes: &[u8]) -> Result<PluginManifest, Strin
 /// Read `plugin.toml` from a plugin folder.
 pub fn load_manifest(root: &Path) -> Result<PluginManifest, String> {
     let path = root.join("plugin.toml");
-    let bytes = std::fs::read(&path)
-        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let bytes =
+        std::fs::read(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
     parse_manifest(root, &bytes)
 }

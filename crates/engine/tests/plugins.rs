@@ -85,6 +85,10 @@ fn plugins_export_returns_text_without_changing_the_project() -> Result<(), Erro
         None,
     )?;
     assert_eq!(s.revision, rev);
-    assert!(out["result"]["text"].as_str().is_some_and(|t| t.contains("SIG")));
+    assert!(
+        out["result"]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("SIG"))
+    );
     Ok(())
 }
