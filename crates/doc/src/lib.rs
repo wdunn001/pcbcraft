@@ -2288,7 +2288,7 @@ impl Hole {
 pub struct LayerRecord {
     /// Display name, for example "F.Cu", "Core" or "L2".
     pub name: String,
-    /// Layer role: copper, core, prepreg, soldermask, silkscreen, paste or custom.
+    /// Layer role: copper, dielectric, mask, paste, silk, flex or finish rows, or custom.
     pub kind: String,
     /// Layer thickness in millimetres.
     pub thickness: f64,
@@ -2326,8 +2326,26 @@ pub struct LayerRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_copper: Option<String>,
 }
+/// Layer roles a physical stack row may carry.
+pub const LAYER_KINDS: [&str; 15] = [
+    "copper",
+    "core",
+    "prepreg",
+    "soldermask",
+    "silkscreen",
+    "paste",
+    "custom",
+    "adhesive",
+    "coverlay",
+    "stiffener",
+    "peelable_mask",
+    "carbon_ink",
+    "gold_mask",
+    "plating",
+    "finish",
+];
 /// Layer functions a record may state.
-pub const LAYER_FUNCTIONS: [&str; 10] = [
+pub const LAYER_FUNCTIONS: [&str; 18] = [
     "signal",
     "plane",
     "mixed",
@@ -2336,9 +2354,31 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
     "soldermask",
     "silkscreen",
     "paste",
+    "adhesive",
+    "coverlay",
+    "stiffener",
+    "peelable_mask",
+    "carbon_ink",
+    "gold_mask",
+    "plating",
+    "finish",
     "other",
     "none",
 ];
+/// True when a stack row may name or default the copper layer it sits on.
+pub fn layer_kind_names_copper(kind: &str) -> bool {
+    matches!(
+        kind,
+        "soldermask"
+            | "silkscreen"
+            | "paste"
+            | "custom"
+            | "peelable_mask"
+            | "gold_mask"
+            | "carbon_ink"
+            | "coverlay"
+    )
+}
 impl LayerRecord {
     fn valid(&self) -> bool {
         let in_set =
@@ -2348,10 +2388,7 @@ impl LayerRecord {
         };
         !self.name.trim().is_empty()
             && self.name.len() <= 64
-            && matches!(
-                self.kind.as_str(),
-                "copper" | "core" | "prepreg" | "soldermask" | "silkscreen" | "paste" | "custom"
-            )
+            && LAYER_KINDS.contains(&self.kind.as_str())
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
             && in_set(&self.copper_role, &["signal", "plane", "mixed", "hatched"])
@@ -2388,6 +2425,14 @@ impl LayerRecord {
             "soldermask" => "soldermask",
             "silkscreen" => "silkscreen",
             "paste" => "paste",
+            "adhesive" => "adhesive",
+            "coverlay" => "coverlay",
+            "stiffener" => "stiffener",
+            "peelable_mask" => "peelable_mask",
+            "carbon_ink" => "carbon_ink",
+            "gold_mask" => "gold_mask",
+            "plating" => "plating",
+            "finish" => "finish",
             _ => "other",
         }
     }
@@ -3703,6 +3748,9 @@ impl Project {
         let i = rows.iter().position(|r| r.name == name)?;
         let rec = &rows[i];
         if rec.kind == "copper" || rec.kind == "core" || rec.kind == "prepreg" {
+            return None;
+        }
+        if !layer_kind_names_copper(&rec.kind) {
             return None;
         }
         if let Some(l) = &rec.linked_copper {
