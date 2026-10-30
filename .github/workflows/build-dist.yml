@@ -5,8 +5,6 @@
 # Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
 # repackage jobs. No Snap Store or Flathub upload in CI.
 #
-# docs-agent (D451): when Linux installers land, extend docs/ci.md Releases section with
-# AppImage (+ .zsync), .deb, and .rpm per arch; point packaging/linux/package.sh for repro.
 name: Build distributables
 
 on:

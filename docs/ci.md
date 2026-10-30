@@ -87,20 +87,61 @@ so new RustSec advisories surface without a code change.
 Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
 Cargo.toml. The workflow builds, from clean state:
 
-- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz`
+- `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz` (FHS tree used by Flatpak and Snap repackage jobs)
+- Per Linux architecture (`x86_64`, `aarch64`):
+  - `pcbcraft-<tag>-linux-<arch>.AppImage` and `.AppImage.zsync`
+  - `pcbcraft-<tag>-linux-<arch>.deb` and `.rpm`
+  - `pcbcraft-<tag>-linux-<arch>.flatpak` and `.snap`
 - `pcbcraft-<tag>-windows-x86_64.zip`
 - `pcbcraft-<tag>-macos-universal.tar.gz` and `.dmg` (Apple silicon and Intel)
 - `pcbcraft-<tag>-web.zip` (trunk build of apps/pcbcraft-web)
 - `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete corresponding source, GPL-3.0)
-- `SHA256SUMS`
+- `SHA256SUMS.txt` (one line per attached file)
+
+Tagged archives also get version-less copies (for example `pcbcraft-linux-x86_64.tar.gz`,
+`pcbcraft-linux-x86_64.AppImage`, `pcbcraft-linux-x86_64.deb`) so
+`releases/latest/download/<name>` links keep working. AppImage zsync metadata points at the
+version-less `.AppImage.zsync` on the latest release.
 
 Everything lands in a DRAFT GitHub Release. A maintainer reviews and publishes
 it by hand; nothing publishes automatically. Release notes list commit subjects
 since the previous tag.
 
 The nightly and release workflows share `build-dist.yml`, so a nightly run
-proves the release packaging works. Packaging logic is in
-`.github/scripts/package.sh`.
+proves the release packaging works. Linux installers are built in
+`packaging/linux/package.sh` (called from the Linux matrix jobs in
+`build-dist.yml`). Flatpak and Snap repackage the FHS tarball via
+`packaging/linux/flatpak-bundle.sh` and `packaging/linux/snap-pack.sh`.
+Legacy flat Linux tarballs, Windows zip, macOS bundles, and the web zip still
+come from `.github/scripts/package.sh`.
+
+### Building Linux installers locally
+
+On Ubuntu 22.04 or similar, after a release build for the host triple:
+
+```bash
+export PCBCRAFT_DIST_TAG=v0.0.0-local
+export DIST="$PWD/dist"
+mkdir -p "$DIST"
+cargo build --locked --release -p pcbcraft -p pcbcraft-cli
+packaging/linux/package.sh --skip-build
+```
+
+Install `nfpm`, `desktop-file-utils`, `appstream`, and `zsync` for deb, rpm, and
+AppImage zsync output (the script prints a warning if zsync is missing). The
+first AppImage build downloads `appimagetool` into `target/` when it is not on
+`PATH`.
+
+Flatpak and Snap need extra host tooling and match what CI runs:
+
+- Flatpak: build the FHS tarball (`packaging/linux/package.sh --skip-build --formats tar`),
+  then `packaging/linux/flatpak-bundle.sh dist/pcbcraft-$PCBCRAFT_DIST_TAG-linux-$(uname -m).tar.gz`
+  (needs `flatpak`, `flatpak-builder`, and `librsvg2-common`).
+- Snap: same tarball, then `packaging/linux/snap-pack.sh` (needs `snapcraft`; CI uses
+  `--destructive-mode` on Ubuntu 24.04).
+
+CI does not upload to Flathub or the Snap Store; bundles are release artifacts only.
+Windows MSI packaging is tracked separately from this workflow.
 
 ## Security posture
 
@@ -126,6 +167,5 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 ## Open decisions for the maintainers
 
 - Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
-- Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
 - Marking `CI result` as a required check in branch protection.
