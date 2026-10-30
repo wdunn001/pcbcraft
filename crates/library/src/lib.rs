@@ -6,6 +6,7 @@ mod footprint_generate;
 mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
+pub mod part_fields;
 pub mod online_import;
 pub mod open_library;
 mod paths;
@@ -22,6 +23,10 @@ use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
 pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
+pub use part_fields::{
+    DESCRIPTION, MANUFACTURER, MPN, PARTS_TABLE_SUGGESTED_KEYS, STANDARD_SOURCING_KEYS,
+    SUPPLIER_KEY_PREFIX, SUPPLIERS, is_standard_sourcing_key,
+};
 
 /// A schematic symbol definition parsed from the interchange format.
 ///
