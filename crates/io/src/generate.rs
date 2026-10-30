@@ -22,9 +22,9 @@ use std::path::{Component, Path};
 
 use crate::{
     bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, neoden_yy1_from_artifact_settings,
+    odb_package, pdf_document, placement_neoden_yy1, placement_text, plot_csv, postscript,
+    report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -195,6 +195,25 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
     match artifact.kind.as_str() {
         "bom" => Ok(GeneratedOutput::Text(bom_csv(p, &[], None)?)),
         "placement" => Ok(GeneratedOutput::Text(placement_text(p)?)),
+        "placement_yy1" => {
+            let machine_id = artifact
+                .machine
+                .as_ref()
+                .ok_or("placement_yy1 artifact has no machine profile")?;
+            let machine = p
+                .machine_profiles
+                .iter()
+                .find(|profile| profile.id == *machine_id)
+                .ok_or_else(|| format!("no machine profile named {machine_id}"))?;
+            let (side, options) = neoden_yy1_from_artifact_settings(&artifact.settings)?;
+            let out = placement_neoden_yy1(p, side, machine, &options)?;
+            let mut map = BTreeMap::new();
+            for (name, bytes) in out.files {
+                let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+                map.insert(name, text);
+            }
+            Ok(GeneratedOutput::Files(map))
+        }
         "drill_map" => Ok(GeneratedOutput::Text(drill_chart_csv(p)?)),
         "fab_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(
             p,

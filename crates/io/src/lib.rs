@@ -100,7 +100,10 @@ pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
-pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
+pub use neoden_yy1::{
+    NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, neoden_yy1_from_artifact_settings,
+    placement_neoden_yy1,
+};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
 /// - crates/io/src/package.rs

@@ -65,6 +65,49 @@ pub struct NeodenYy1Options {
     pub include_dnp_as_skip: bool,
 }
 
+/// Read side and export options from a `placement_yy1` artifact settings object.
+///
+/// # Rules
+/// - Matches `Artifact::placement_yy1_settings_valid`; defaults match the export command.
+///
+/// # Dependencies
+/// - `crates/doc/src/lib.rs` `Artifact::placement_yy1_settings_valid`.
+pub fn neoden_yy1_from_artifact_settings(
+    settings: &serde_json::Value,
+) -> Result<(YySide, NeodenYy1Options), String> {
+    if !pcbcraft_doc::Artifact::placement_yy1_settings_valid(settings) {
+        return Err("placement_yy1 artifact settings are invalid".into());
+    }
+    let obj = settings.as_object().ok_or("placement_yy1 settings must be an object")?;
+    let side = match obj.get("side").and_then(|v| v.as_str()).unwrap_or("top") {
+        "top" => YySide::Top,
+        "bottom" => YySide::Bottom,
+        "both" => YySide::Both,
+        _ => return Err("side must be top, bottom or both".into()),
+    };
+    let layout = match obj.get("layout").and_then(|v| v.as_str()).unwrap_or("native") {
+        "native" => YyLayout::Native,
+        "import" => YyLayout::Import,
+        _ => return Err("layout must be native or import".into()),
+    };
+    let variant = obj
+        .get("variant")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let include_dnp_as_skip = obj
+        .get("include_dnp_as_skip")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    Ok((
+        side,
+        NeodenYy1Options {
+            layout,
+            variant,
+            include_dnp_as_skip,
+        },
+    ))
+}
+
 /// The files of one export and anything the operator should know about.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NeodenYy1Output {

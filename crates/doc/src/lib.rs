@@ -1974,6 +1974,7 @@ pub const ARTIFACT_KINDS: &[&str] = &[
     "drill_unplated",
     "drill_map",
     "placement",
+    "placement_yy1",
     "bom",
     "assembly_drawing",
     "fab_drawing",
@@ -2020,6 +2021,35 @@ impl Artifact {
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
     }
+    /// True when the `placement_yy1` settings object only uses known keys and
+    /// bounded values. Omitted keys use the same defaults as `placement_yy1.export`.
+    pub fn placement_yy1_settings_valid(settings: &serde_json::Value) -> bool {
+        let Some(obj) = settings.as_object() else {
+            return false;
+        };
+        const KEYS: &[&str] = &["side", "layout", "variant", "include_dnp_as_skip"];
+        for key in obj.keys() {
+            if !KEYS.iter().any(|allowed| allowed == &key.as_str()) {
+                return false;
+            }
+        }
+        let side = obj.get("side").and_then(|v| v.as_str()).unwrap_or("top");
+        if !matches!(side, "top" | "bottom" | "both") {
+            return false;
+        }
+        let layout = obj.get("layout").and_then(|v| v.as_str()).unwrap_or("native");
+        if !matches!(layout, "native" | "import") {
+            return false;
+        }
+        if obj.get("variant").is_some_and(|v| {
+            !v.is_string()
+                || v.as_str().is_none_or(|s| s.is_empty() || s.len() > 64)
+        }) {
+            return false;
+        }
+        obj.get("include_dnp_as_skip")
+            .is_none_or(serde_json::Value::is_boolean)
+    }
     /// True when every field is within its bound: name, kind, layers,
     /// settings, machine, path, hash and job. `Project::validate` and the
     /// engine commands both rely on it.
@@ -2043,6 +2073,10 @@ impl Artifact {
                 .job
                 .as_ref()
                 .is_none_or(|j| !j.is_empty() && j.len() <= 64)
+            && (self.kind != "placement_yy1"
+                || (self.machine.is_some()
+                    && self.path.ends_with('/')
+                    && Self::placement_yy1_settings_valid(&self.settings)))
     }
 }
 /// Maps a legacy output job kind to its artifact kind and default path.
@@ -4823,6 +4857,25 @@ impl Project {
             {
                 return Err("artifact job label must name an existing output job".into());
             }
+            if a.kind == "placement_yy1" {
+                let machine_id = a.machine.as_ref().ok_or(
+                    "placement_yy1 artifacts must name a machine profile on the design".into(),
+                )?;
+                let profile = self
+                    .machine_profiles
+                    .iter()
+                    .find(|profile| profile.id == *machine_id)
+                    .ok_or_else(|| {
+                        format!(
+                            "placement_yy1 artifact names unknown machine profile {machine_id}"
+                        )
+                    })?;
+                if profile.kind != "pick_place" {
+                    return Err(
+                        "placement_yy1 artifacts must use a pick and place machine profile".into(),
+                    );
+                }
+            }
         }
         if self.bom_fields.len() > 16 {
             return Err("a bill of materials lists at most 16 properties".into());
@@ -5828,6 +5881,33 @@ mod artifact_tests {
         assert!(ok.valid());
         ok.settings = big;
         assert!(!ok.valid());
+        Ok(())
+    }
+
+    #[test]
+    fn placement_yy1_artifact_requires_machine_folder_path_and_settings() -> Result<(), String> {
+        let base = Artifact {
+            id: 1,
+            name: "yy1".into(),
+            kind: "placement_yy1".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: Some("neoden-yy1".into()),
+            path: "yy1/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        assert!(base.valid());
+        let mut no_machine = base.clone();
+        no_machine.machine = None;
+        assert!(!no_machine.valid());
+        let mut file_path = base.clone();
+        file_path.path = "Top.csv".into();
+        assert!(!file_path.valid());
+        let mut bad_side = base.clone();
+        bad_side.settings = serde_json::json!({"side": "wide"});
+        assert!(!bad_side.valid());
         Ok(())
     }
 
