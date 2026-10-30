@@ -134,7 +134,7 @@ fn i18n_every_character_of_every_locale_has_a_glyph() -> Result<(), String> {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../text/strings");
     let (ctx, mut app) = practice();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let font = egui::FontId::proportional(13.0);
+    let font = crate::fonts::Role::Body.font();
     let mut missing = Vec::new();
     let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {
