@@ -1,0 +1,135 @@
+# Publication design licence vs bundled part licence. Every pair must appear here.
+# Verdicts: compatible, incompatible, review
+
+licences = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "GPL-3.0-only",
+  "AGPL-3.0-only",
+  "CC-BY-4.0",
+  "CC-BY-SA-4.0",
+  "CC-BY-ND-4.0",
+  "CC-BY-NC-4.0",
+  "Proprietary-View",
+]
+
+[compat.MIT]
+MIT = "compatible"
+Apache-2.0 = "compatible"
+BSD-3-Clause = "compatible"
+GPL-3.0-only = "review"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "compatible"
+CC-BY-SA-4.0 = "review"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "review"
+Proprietary-View = "incompatible"
+
+[compat.Apache-2.0]
+MIT = "compatible"
+Apache-2.0 = "compatible"
+BSD-3-Clause = "compatible"
+GPL-3.0-only = "review"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "compatible"
+CC-BY-SA-4.0 = "review"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "review"
+Proprietary-View = "incompatible"
+
+[compat.BSD-3-Clause]
+MIT = "compatible"
+Apache-2.0 = "compatible"
+BSD-3-Clause = "compatible"
+GPL-3.0-only = "review"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "compatible"
+CC-BY-SA-4.0 = "review"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "review"
+Proprietary-View = "incompatible"
+
+[compat.GPL-3.0-only]
+MIT = "compatible"
+Apache-2.0 = "compatible"
+BSD-3-Clause = "compatible"
+GPL-3.0-only = "compatible"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "compatible"
+CC-BY-SA-4.0 = "compatible"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "review"
+Proprietary-View = "incompatible"
+
+[compat.AGPL-3.0-only]
+MIT = "incompatible"
+Apache-2.0 = "incompatible"
+BSD-3-Clause = "incompatible"
+GPL-3.0-only = "compatible"
+AGPL-3.0-only = "compatible"
+CC-BY-4.0 = "incompatible"
+CC-BY-SA-4.0 = "incompatible"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "incompatible"
+Proprietary-View = "incompatible"
+
+[compat.CC-BY-4.0]
+MIT = "compatible"
+Apache-2.0 = "compatible"
+BSD-3-Clause = "compatible"
+GPL-3.0-only = "review"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "compatible"
+CC-BY-SA-4.0 = "review"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "review"
+Proprietary-View = "incompatible"
+
+[compat.CC-BY-SA-4.0]
+MIT = "incompatible"
+Apache-2.0 = "incompatible"
+BSD-3-Clause = "incompatible"
+GPL-3.0-only = "compatible"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "compatible"
+CC-BY-SA-4.0 = "compatible"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "review"
+Proprietary-View = "incompatible"
+
+[compat.CC-BY-ND-4.0]
+MIT = "incompatible"
+Apache-2.0 = "incompatible"
+BSD-3-Clause = "incompatible"
+GPL-3.0-only = "incompatible"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "incompatible"
+CC-BY-SA-4.0 = "incompatible"
+CC-BY-ND-4.0 = "compatible"
+CC-BY-NC-4.0 = "incompatible"
+Proprietary-View = "incompatible"
+
+[compat.CC-BY-NC-4.0]
+MIT = "review"
+Apache-2.0 = "review"
+BSD-3-Clause = "review"
+GPL-3.0-only = "review"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "review"
+CC-BY-SA-4.0 = "review"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "compatible"
+Proprietary-View = "incompatible"
+
+[compat.Proprietary-View]
+MIT = "incompatible"
+Apache-2.0 = "incompatible"
+BSD-3-Clause = "incompatible"
+GPL-3.0-only = "incompatible"
+AGPL-3.0-only = "incompatible"
+CC-BY-4.0 = "incompatible"
+CC-BY-SA-4.0 = "incompatible"
+CC-BY-ND-4.0 = "incompatible"
+CC-BY-NC-4.0 = "incompatible"
+Proprietary-View = "compatible"
