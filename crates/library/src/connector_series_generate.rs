@@ -84,7 +84,7 @@ fn validate_options(
     if spec.geometry.land_pattern_family == "smt_dual_row" && options.rows != 2 {
         errors.push(ConnectorFieldError::new(
             "rows",
-            "BTH is always dual row".into(),
+            "BTH is always dual row".to_string(),
             vec!["2".into()],
         ));
     }
@@ -92,7 +92,7 @@ fn validate_options(
         if options.stack_code.as_deref().unwrap_or("").is_empty() {
             errors.push(ConnectorFieldError::new(
                 "stack_code",
-                "is required for BTH".into(),
+                "is required for BTH".to_string(),
                 spec.stack_codes.iter().map(|s| s.code.clone()).collect(),
             ));
         } else if spec
@@ -101,14 +101,14 @@ fn validate_options(
         {
             errors.push(ConnectorFieldError::new(
                 "stack_code",
-                "is not a valid stack code".into(),
+                "is not a valid stack code".to_string(),
                 spec.stack_codes.iter().map(|s| s.code.clone()).collect(),
             ));
         }
     } else if spec.lead_tail_mm(&options.lead_code).is_err() {
         errors.push(ConnectorFieldError::new(
             "lead_code",
-            "is not a valid lead code".into(),
+            "is not a valid lead code".to_string(),
             spec.lead_codes.iter().map(|l| l.code.clone()).collect(),
         ));
     }
