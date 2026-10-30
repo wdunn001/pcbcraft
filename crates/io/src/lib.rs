@@ -10313,6 +10313,8 @@ mod tests {
                         "".into()
                     },
                 }],
+                include_in_bom: true,
+                include_in_placement: true,
             });
         }
         project.validate()?;
@@ -10406,6 +10408,8 @@ mod tests {
                     value: "0.1W".into(),
                 },
             ],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.bom_fields = vec![
             pcbcraft_doc::BomField {
