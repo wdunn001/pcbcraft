@@ -6195,6 +6195,7 @@ impl App {
             && self.frames >= 5
             && library_ready
             && self.online_settled()
+            && self.library_reader_settled()
             && self.edit.dialog.script.ready()
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));

@@ -99,6 +99,10 @@ fn main() -> eframe::Result {
                     .with_capture_target(target)
                     .with_capture_search(search)
                     .with_capture_place(place_first)
+                    .with_datasheet_fetcher(Box::new(online_http::HttpFetcher::new(
+                        online_http::Policy::datasheets(),
+                        offline.clone(),
+                    )))
                     .with_online_fetcher(
                         Box::new(online_http::HttpFetcher::new(
                             online_http::Policy::default(),

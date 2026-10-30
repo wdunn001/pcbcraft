@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+# PDF rendering and text layer for the datasheet reader: pure Rust, Apache-2.0 or MIT, builds for wasm.
+hayro = "0.8"
+sha2.workspace = true
 pcbcraft-geom.workspace = true
 serde.workspace = true
 serde_json.workspace = true

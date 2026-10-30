@@ -374,3 +374,102 @@ fn a_newcomer_checks_which_pad_each_symbol_pin_reaches() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Answers a datasheet address with a small generated PDF, so the story needs no network.
+///
+/// Contract: crates/library/src/open_library.rs (`Fetcher`)
+struct GeneratedPdf(Vec<u8>);
+
+/// Contract: crates/library/src/open_library.rs
+impl pcbcraft_library::open_library::Fetcher for GeneratedPdf {
+    fn get(&self, _url: &str) -> Result<Vec<u8>, pcbcraft_library::open_library::FetchError> {
+        Ok(self.0.clone())
+    }
+}
+
+#[test]
+fn a_newcomer_reads_a_datasheet_in_the_app() -> Result<(), String> {
+    let (ctx, app) = library_open();
+    let pdf = pcbcraft_library::datasheet::fixtures::all()
+        .into_iter()
+        .find(|f| f.name == "two-pages.pdf")
+        .map(|f| f.bytes)
+        .ok_or("the generated datasheet exists")?;
+    let mut app = app.with_datasheet_fetcher(Box::new(GeneratedPdf(pdf)));
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    app.use_datasheet_cache(dir.path().to_path_buf());
+    let id = record_resistor_number(&mut app)?;
+    app.tool_call(
+        "component.field",
+        json!({"id": id, "key": "Datasheet", "value": "https://example.test/nr1206.pdf"}),
+    );
+    app.refresh();
+    tap_id(&ctx, &mut app, RESISTOR_CARD)?;
+    tap_id(&ctx, &mut app, "tab:Datasheet")?;
+    assert!(
+        paints_text(&ctx, &mut app, "not on this computer yet")?,
+        "before the first fetch the page says the datasheet is not here: {}",
+        painted(&ctx, &mut app)
+    );
+    tap_id(&ctx, &mut app, "button:Get datasheet")?;
+    assert!(
+        waits_for_text(&ctx, &mut app, "of 2")?,
+        "after Get datasheet the reader shows the page count: {}",
+        painted(&ctx, &mut app)
+    );
+    assert!(
+        dir.path().read_dir().map_err(|e| e.to_string())?.count() >= 2,
+        "a copy is kept in the cache folder"
+    );
+    // Wait for the text layer of both pages to arrive, then search.
+    for _ in 0..100 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+        if app.libws.reader.as_ref().is_some_and(|r| r.text.len() == 2) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Search the datasheet",
+        "absolute maximum",
+    )?;
+    let reader = app.libws.reader.as_ref().ok_or("the reader is open")?;
+    assert_eq!(reader.hits.len(), 1, "the phrase is found once, on page 2");
+    assert_eq!(reader.hits[0].0, 1);
+    assert!(
+        paints_text(&ctx, &mut app, "1 of 1")?,
+        "the match count shows: {}",
+        painted(&ctx, &mut app)
+    );
+    tap_id(&ctx, &mut app, "button:Next match")?;
+    assert_eq!(
+        app.libws.reader.as_ref().map(|r| r.page),
+        Some(1),
+        "going to the match shows its page"
+    );
+    // Select a run of text on the page and read it back as a person would paste it.
+    if let Some(r) = app.libws.reader.as_mut() {
+        let first = r.hits[0].1.first;
+        let last = r.hits[0].1.last;
+        r.selection = Some(library_workspace::reader::Selection {
+            page: 1,
+            anchor: first,
+            head: last - 1,
+        });
+    }
+    let copied = app.libws.reader.as_ref().and_then(|r| r.selected_text());
+    assert_eq!(
+        copied.as_deref().map(|s| s.replace(' ', "").to_lowercase()),
+        Some("absolutemaximum".to_owned()),
+        "the selected text is the matched words"
+    );
+    tap_id(&ctx, &mut app, "button:Zoom in")?;
+    assert_eq!(
+        app.libws.reader.as_ref().map(|r| r.zoom),
+        Some(125),
+        "zoom steps up"
+    );
+    Ok(())
+}

@@ -22,7 +22,7 @@ of the Schematic and Layout tabs for finding and placing parts. Issues #695, #69
 | Page | Shows |
 | --- | --- |
 | Overview | Symbol, footprint and 3D previews, key parameters, lifecycle and compliance, description. A value no source gave reads "Not listed". |
-| Datasheet | The datasheet link (opens in your browser) and the details known for the part. Reading the PDF inside the app is separate work. |
+| Datasheet | The cached PDF read in the app (page navigation, zoom, search with highlights, selectable text, Copy) beside the key details and pinout. Get datasheet fetches the part's own link once (https, 25 MB, 30 seconds, `%PDF-` header check) or you choose a file; the copy stays on this computer in the datasheet cache and is never uploaded or saved in the project. |
 | Vendors | Supplier, SKU, stock and price breaks from cached answers, each with the date it was taken, and the Sources card. |
 | 3D model | The part on a small board in the board renderer, the model file, offset, rotation and scale, and the pads drawn over the model's outline. |
 | Edit | The symbol and footprint editor of the Libraries page, and a pin map that shows which footprint pad each symbol pin reaches. |
@@ -56,6 +56,6 @@ generated body.
 
 ## Not built yet
 
-- Rendering the datasheet PDF in the app (page navigation, zoom, search, selectable text).
+- Datasheet reader: only the current page is drawn (no continuous scroll), text of the first 300 pages is searched, no thumbnails, outline or annotations, a link that redirects to another site must be opened in the browser, and values are not yet extracted from the PDF itself.
 - Symbol and footprint canvases side by side on the Edit page; today one editor shows one at a time.
 - Auto-align of the model to the pads, and snapping.

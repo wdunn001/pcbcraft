@@ -71,6 +71,7 @@ pub enum FetchError {
 ///
 /// # Implementations
 /// - `apps/pcbcraft/src/online_http.rs`
+/// - `crates/ui-egui/src/e2e/library_workspace.rs`
 /// - `crates/ui-egui/src/e2e/support.rs`
 /// - `crates/ui-egui/src/sources.rs`
 pub trait Fetcher: Send + Sync {

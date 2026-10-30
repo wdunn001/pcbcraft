@@ -574,7 +574,8 @@ mod tests {
     fn the_one_part_project_builds_a_mesh_with_a_body() {
         let (p, _) = part_project(&two_pads());
         let mesh = pcbcraft_io::board_mesh(&p, pcbcraft_io::MeshLayers::default());
-        let mesh = mesh.unwrap_or_else(|e| panic!("mesh error: {e}"));
+        assert!(mesh.is_ok(), "mesh error: {:?}", mesh.as_ref().err());
+        let mesh = mesh.unwrap_or_default();
         assert!(
             mesh.parts
                 .iter()

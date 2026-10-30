@@ -40,6 +40,7 @@ mod edit;
 pub(crate) mod facts;
 mod model;
 mod overview;
+pub(crate) mod reader;
 mod vendors;
 
 use facts::PartFacts;
@@ -97,6 +98,15 @@ pub(crate) struct State {
     /// 3D page: what the project above was built from, so edits rebuild it and nothing else does.
     pub(crate) model_key: String,
     pub(crate) model_part: String,
+    /// Datasheet page: the open reader, a fetch in flight, the transport, the cache folder and
+    /// the last plain note.
+    pub(crate) reader: Option<reader::Reader>,
+    pub(crate) download: Option<datasheet::Download>,
+    pub(crate) fetcher: Option<Arc<dyn pcbcraft_library::open_library::Fetcher>>,
+    pub(crate) ds_cache: Option<pcbcraft_library::datasheet::cache::DatasheetCache>,
+    pub(crate) ds_cache_ready: bool,
+    pub(crate) ds_note: String,
+    pub(crate) ds_path: String,
     /// Compare page: show only the rows that differ.
     pub(crate) compare_only_diff: bool,
     /// Compare page: mark the rows that differ.
@@ -122,6 +132,13 @@ impl Default for State {
             model_centre: pcbcraft_geom::Point::new(0.0, 0.0),
             model_key: String::new(),
             model_part: String::new(),
+            reader: None,
+            download: None,
+            fetcher: None,
+            ds_cache: None,
+            ds_cache_ready: false,
+            ds_note: String::new(),
+            ds_path: String::new(),
             compare_only_diff: false,
             compare_highlight: true,
             compare_qty: 1,
@@ -190,6 +207,9 @@ impl App {
         } else {
             self.libws.active = Active::Part(0);
         }
+        if scene == "library-datasheet" {
+            self.capture_demo_datasheet();
+        }
         if scene == "library-compare" {
             self.libws.active = Active::Compare;
             return;
@@ -201,6 +221,38 @@ impl App {
             "library-edit" => Page::Edit,
             _ => Page::Overview,
         };
+    }
+
+    /// Give the resistor a datasheet link and a cached copy of a generated PDF for a capture.
+    ///
+    /// # Rules
+    /// - Capture only. The PDF is the generated fixture, never a vendor datasheet.
+    fn capture_demo_datasheet(&mut self) {
+        const URL: &str = "https://example.com/nr1206-rev-d.pdf";
+        let id = self
+            .project
+            .components
+            .iter()
+            .find(|c| c.kind == "resistor")
+            .map(|c| c.id);
+        if let Some(id) = id {
+            self.tool_call(
+                "component.field",
+                json!({"id": id, "key": "Datasheet", "value": URL}),
+            );
+            self.refresh();
+        }
+        let sheet = pcbcraft_library::datasheet::fixtures::all()
+            .into_iter()
+            .find(|f| f.name == "resistor-datasheet.pdf");
+        if let (Some(cache), Some(f)) = (self.datasheet_cache(), sheet) {
+            let _ = cache.put(
+                URL,
+                &f.bytes,
+                pcbcraft_library::datasheet::cache::Source::Downloaded,
+                1_792_540_800,
+            );
+        }
     }
 
     /// Put a demonstration chip part in the project library for a capture: two pads, a symbol
@@ -234,6 +286,18 @@ impl App {
         sym.footprint = "R_1206_demo".into();
         self.tool_call("library.symbol.upsert", json!({"definition": sym}));
         self.refresh();
+    }
+
+    /// True when no datasheet is still being drawn, so a `--capture` image waits for it.
+    pub(crate) fn library_reader_settled(&self) -> bool {
+        self.tab != Tab::Library
+            || self.libws.page != Page::Datasheet
+            || self
+                .libws
+                .reader
+                .as_ref()
+                .is_none_or(reader::Reader::settled)
+            || self.frames > 900
     }
 
     /// Hand the Library tab recorded supplier answers (tests, or a cache file on this computer).
@@ -704,7 +768,7 @@ impl App {
             Page::Vendors => self.library_vendors_page(ui, &card, &facts),
             Page::Edit => self.library_edit_page(ui),
             Page::Model => self.library_model_page(ui, &card),
-            Page::Datasheet => self.library_datasheet_page(ui, &facts),
+            Page::Datasheet => self.library_datasheet_page(ui, &card, &facts),
         }
     }
 
