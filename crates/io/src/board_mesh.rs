@@ -104,7 +104,7 @@ pub struct MeshPart {
     pub component: Option<Id>,
     /// Package family of a parametric body, such as `chip` or `soic`.
     pub family: Option<String>,
-    /// Where a body height came from: `default` or `field`.
+    /// Where a body height came from: `default`, `field`, or `footprint`.
     pub height_source: Option<&'static str>,
     /// The placement a loaded model would take, when the footprint names one.
     pub model: Option<ModelPlacement>,
@@ -1569,7 +1569,13 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 continue;
             };
             let mut height_source = "default";
-            if let Some(text) = component.and_then(|c| c.field("height")) {
+            if let Some(explicit) = component
+                .and_then(|c| c.library_footprint.as_ref())
+                .and_then(|l| l.definition.box_body)
+            {
+                body = Body::plain("box", explicit.outline(), explicit.height);
+                height_source = "footprint";
+            } else if let Some(text) = component.and_then(|c| c.field("height")) {
                 match parse_height(text) {
                     Some(h) => {
                         body.height = h;
@@ -1935,6 +1941,7 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -2165,6 +2172,31 @@ mod tests {
         let b = board_mesh(&p, MeshLayers::default())?;
         assert_eq!(a, b);
         assert_eq!(a.to_json(true).to_string(), b.to_json(true).to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn a_footprint_box_body_overrides_pad_defaults() -> Check {
+        let mut p = resistor_project();
+        if let Some(c) = p.components.first_mut() {
+            c.library_footprint.as_mut().map(|l| {
+                l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
+                    width: 3.0,
+                    depth: 2.0,
+                    height: 4.0,
+                });
+            });
+        }
+        let mesh = board_mesh(&p, MeshLayers::default())?;
+        let body = part(&mesh, PartKind::Body)?;
+        assert_eq!(body.height_source, Some("footprint"));
+        assert_eq!(body.family.as_deref(), Some("box"));
+        let (blo, bhi) = body.bounds().ok_or("no bounds")?;
+        assert!(close(bhi[2] - blo[2], 4.0));
+        let span_x = bhi[0] - blo[0];
+        let span_y = bhi[1] - blo[1];
+        assert!(span_x > 2.5 && span_x < 3.5);
+        assert!(span_y > 1.5 && span_y < 2.5);
         Ok(())
     }
 

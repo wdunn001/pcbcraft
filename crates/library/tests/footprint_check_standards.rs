@@ -31,6 +31,7 @@ fn bare_footprint(pads: Vec<FootprintPad>, graphics: Vec<Graphic>) -> FootprintD
         graphics,
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
     }

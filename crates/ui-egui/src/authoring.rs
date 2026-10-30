@@ -201,6 +201,7 @@ fn new_footprint() -> FootprintDefinition {
         graphics: vec![rectangle("F.SilkS")],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
     }

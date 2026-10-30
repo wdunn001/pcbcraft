@@ -793,6 +793,7 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -816,6 +817,7 @@ mod tests {
                 raw_source: "(offset (xyz 25.4 0 0))".into(),
             }),
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -841,6 +843,7 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };

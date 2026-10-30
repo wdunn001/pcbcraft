@@ -2929,6 +2929,7 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -3665,6 +3666,7 @@ mod pour_tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },

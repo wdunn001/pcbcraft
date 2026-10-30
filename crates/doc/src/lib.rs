@@ -5928,6 +5928,7 @@ mod drill_tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -6435,6 +6436,7 @@ mod drill_tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -6453,6 +6455,7 @@ mod drill_tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };

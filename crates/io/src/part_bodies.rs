@@ -9,6 +9,7 @@
 use crate::board_mesh::graphic_layer;
 use pcbcraft_doc::{Footprint, Project};
 use pcbcraft_geom::Point;
+use pcbcraft_library::FootprintDefinition;
 
 /// Body height in millimetres when a part states none.
 pub const DEFAULT_BODY_HEIGHT_MM: f64 = 1.5;
@@ -55,8 +56,20 @@ fn is_courtyard(layer: &str) -> bool {
     matches!(layer, "F.CrtYd" | "B.CrtYd" | "pcbcraft.courtyard")
 }
 
+fn library_definition(project: &Project, fp: &Footprint) -> Option<&FootprintDefinition> {
+    project
+        .component(fp.component)
+        .and_then(|c| c.library_footprint.as_ref())
+        .map(|l| &l.definition)
+}
+
 /// Footprint-local extent as (low, high) corners.
 fn local_extent(project: &Project, fp: &Footprint) -> Option<(Point, Point)> {
+    if let Some(body) = library_definition(project, fp).and_then(|d| d.box_body.as_ref()) {
+        let hx = body.width / 2.0;
+        let hy = body.depth / 2.0;
+        return Some((Point::new(-hx, -hy), Point::new(hx, hy)));
+    }
     let mut points: Vec<Point> = project
         .component(fp.component)
         .and_then(|c| c.library_footprint.as_ref())
@@ -92,7 +105,9 @@ pub fn part_boxes(project: &Project) -> Vec<PartBox> {
             continue;
         };
         let component = project.component(fp.component);
-        let height = body_height(component.and_then(|c| c.field("height")));
+        let height = library_definition(project, fp)
+            .and_then(|d| d.box_body.as_ref().map(|b| b.height))
+            .unwrap_or_else(|| body_height(component.and_then(|c| c.field("height"))));
         let bottom = is_bottom_side(fp);
         let corners = [
             Point::new(lo.x, lo.y),

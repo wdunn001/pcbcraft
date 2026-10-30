@@ -170,6 +170,7 @@ fn a_newcomer_turns_a_pad_into_an_unplated_locating_peg() -> Result<(), String> 
         graphics: vec![],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
     };
@@ -216,6 +217,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         graphics: vec![],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
     };

@@ -22970,6 +22970,100 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn library_footprint_box_body_reads_edits_and_feeds_the_mesh() -> Result<(), Error> {
+        let mut s = Session::default();
+        let definition = library::footprint(std::path::Path::new(&library_fixture(
+            "R_0805_2012Metric.kicad_mod",
+        )))?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_box_body",
+            json!({"name":"R_0805_2012Metric","width":2.0,"depth":1.2,"height":0.8}),
+            None,
+        )?;
+        let stored = s.inspect()["project"]["library"]["footprints"][0]["box_body"].clone();
+        assert_eq!(stored["width"], 2.0);
+        assert_eq!(stored["depth"], 1.2);
+        assert_eq!(stored["height"], 0.8);
+        let r = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "footprint.assign_custom",
+            json!({"id":r,"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        let mesh = s.board_mesh(None, true)?;
+        let body = mesh["parts"]
+            .as_array()
+            .and_then(|parts| {
+                parts
+                    .iter()
+                    .find(|p| p["kind"] == "body")
+                    .cloned()
+            })
+            .ok_or_else(missing)?;
+        assert_eq!(body["height_source"], "footprint");
+        assert_eq!(body["family"], "box");
+        let (blo, bhi) = {
+            let positions = body["positions"].as_array().ok_or_else(missing)?;
+            let mut min = [f64::MAX; 3];
+            let mut max = [f64::MIN; 3];
+            for p in positions {
+                let coords = p.as_array().ok_or_else(missing)?;
+                for (i, v) in coords.iter().enumerate().take(3) {
+                    let n = v.as_f64().ok_or_else(missing)?;
+                    min[i] = min[i].min(n);
+                    max[i] = max[i].max(n);
+                }
+            }
+            (min, max)
+        };
+        assert!((bhi[2] - blo[2] - 0.8).abs() < 1e-6);
+        for bad in [
+            json!({"name":"R_0805_2012Metric","width":0.01,"depth":1.0,"height":1.0}),
+            json!({"name":"R_0805_2012Metric","width":1.0,"depth":1.0,"height":200.0}),
+            json!({"name":"nope","width":1.0,"depth":1.0,"height":1.0}),
+            json!({"name":"R_0805_2012Metric","width":1.0,"depth":1.0,"height":1.0,"nope":1}),
+            json!({"width":1.0,"depth":1.0,"height":1.0}),
+        ] {
+            assert!(
+                s.execute("library.footprint.set_box_body", bad, None).is_err(),
+                "bad box body requests are refused"
+            );
+        }
+        s.execute(
+            "library.footprint.clear_box_body",
+            json!({"name":"R_0805_2012Metric"}),
+            None,
+        )?;
+        assert!(
+            s.inspect()["project"]["library"]["footprints"][0]
+                .get("box_body")
+                .is_none(),
+            "clearing drops the box body field"
+        );
+        assert!(
+            s.execute(
+                "library.footprint.clear_box_body",
+                json!({"name":"R_0805_2012Metric"}),
+                None
+            )
+            .is_err(),
+            "clearing an absent box body is refused"
+        );
+        Ok(())
+    }
+    #[test]
     fn specctra_session_files_import_net_assignments() -> Result<(), Error> {
         let mut s = Session::default();
         for (reference, x) in [("R1", 10.0), ("R2", 20.0)] {
@@ -23427,6 +23521,7 @@ mod tests {
             }],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };

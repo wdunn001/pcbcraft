@@ -234,6 +234,15 @@ impl FootprintDefinition {
                 }
             }
         }
+        if let Some(body) = &self.box_body {
+            for value in [body.width, body.depth, body.height] {
+                if !scalar(value) || !(0.05..=100.0).contains(&value) {
+                    return Err(bad(
+                        "footprint box body size must be finite and between 0.05 and 100 mm",
+                    ));
+                }
+            }
+        }
         if self.name.is_empty() || self.pads.len() > 20_000 || self.graphics.len() > 20_000 {
             return Err(bad("invalid footprint name or object count"));
         }

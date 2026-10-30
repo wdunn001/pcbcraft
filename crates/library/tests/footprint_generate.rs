@@ -251,6 +251,7 @@ fn check_reports_overlapping_pads() -> Result<(), String> {
         }],
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
     };
