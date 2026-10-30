@@ -1,6 +1,6 @@
 //! Fabrication layer raster export (PNG, BMP, SVG).
 use crate::layers::{
-    FabLayer, Shape, ShapePolarity, fabrication_point, layer_shapes, profile_edge,
+    FabLayer, Shape, ShapePolarity, drill_centers, fabrication_point, layer_shapes, profile_edge,
 };
 use image::{GrayImage, Luma, Rgb, RgbImage};
 use pcbcraft_doc::Project;
@@ -126,6 +126,9 @@ pub fn rasterize_shapes(
     if let Some(reg) = opts.registration {
         draw_registration(&mut grey, p, opts, reg);
     }
+    if let Some(mark_mm) = opts.drill_marks {
+        draw_drill_centre_marks(&mut grey, p, opts, mark_mm);
+    }
     if opts.invert {
         for px in grey.pixels_mut() {
             px.0[0] = 255 - px.0[0];
@@ -223,6 +226,35 @@ fn draw_stroke(
             a
         };
         line_grey(img, a, b, radius.max(0.5), color);
+    }
+}
+
+fn draw_drill_centre_marks(
+    img: &mut GrayImage,
+    p: &Project,
+    opts: &RasterOptions,
+    size_mm: f64,
+) {
+    if !(0.05..=10.0).contains(&size_mm) {
+        return;
+    }
+    let half = size_mm * f64::from(opts.dpi) / 25.4 / 2.0;
+    for center in drill_centers(p) {
+        let c = fab_to_px(center, opts, img.width(), opts.mirror);
+        line_grey(
+            img,
+            Point::new(c.x - half, c.y),
+            Point::new(c.x + half, c.y),
+            1.0,
+            0,
+        );
+        line_grey(
+            img,
+            Point::new(c.x, c.y - half),
+            Point::new(c.x, c.y + half),
+            1.0,
+            0,
+        );
     }
 }
 
@@ -784,6 +816,46 @@ mod tests {
         let from_bmp = image::load_from_memory(&bmp_bytes).map_err(|e| e.to_string())?;
         assert_eq!(from_png.width(), from_bmp.width());
         assert_eq!(from_png.height(), from_bmp.height());
+        Ok(())
+    }
+
+    #[test]
+    fn drill_centre_marks_leave_ink_at_each_hole() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.width = 30.0;
+        p.board.height = 30.0;
+        p.board.vias.push(pcbcraft_doc::Via {
+            id: 1,
+            net: 1,
+            position: Point::new(10.0, 12.0),
+            diameter: 0.8,
+            drill: 0.8,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        p.validate()?;
+        let mut opts = base_opts(FabLayer::CopperTop);
+        opts.drill_marks = Some(1.0);
+        let raster = layer_raster(&p, &opts)?;
+        let RasterPixels::Grey(img) = raster.pixels else {
+            return Err("expected grey".into());
+        };
+        let fab = fabrication_point(&p, Point::new(10.0, 12.0));
+        let px = fab_to_px(fab, &opts, img.width(), opts.mirror);
+        let cx = px.x.round() as u32;
+        let cy = px.y.round() as u32;
+        let mut found = false;
+        for dx in 0..6 {
+            for dy in 0..6 {
+                let x = cx.saturating_add(dx).min(img.width() - 1);
+                let y = cy.saturating_add(dy).min(img.height() - 1);
+                if img.get_pixel(x, y).0[0] < 128 {
+                    found = true;
+                }
+            }
+        }
+        assert!(found, "drill centre mark missing near the via");
         Ok(())
     }
 

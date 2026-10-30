@@ -65,6 +65,59 @@ pub fn fabrication_point(p: &Project, board: Point) -> Point {
     Point::new(x, y)
 }
 
+/// Map a copper, mask, silk or machine layer name to a fabrication layer.
+pub fn fab_layer_from_name(p: &Project, name: &str) -> Result<FabLayer, String> {
+    match name {
+        "F.Cu" => Ok(FabLayer::CopperTop),
+        "B.Cu" => Ok(FabLayer::CopperBottom),
+        "F.Mask" => Ok(FabLayer::MaskTop),
+        "B.Mask" => Ok(FabLayer::MaskBottom),
+        "F.SilkS" | "F.Silkscreen" => Ok(FabLayer::LegendTop),
+        "B.SilkS" | "B.Silkscreen" => Ok(FabLayer::LegendBottom),
+        "F.Paste" => Ok(FabLayer::PasteTop),
+        "B.Paste" => Ok(FabLayer::PasteBottom),
+        "Edge.Cuts" | "Profile" => Ok(FabLayer::Profile),
+        "Drill" => Ok(FabLayer::Drill),
+        other => {
+            let Some(art) = p.board.user_layers.iter().find(|l| l.name == other) else {
+                return Err(format!("layer {other} is not a fabrication raster layer"));
+            };
+            Ok(FabLayer::User(art.id))
+        }
+    }
+}
+
+/// Every drill centre on the board in fabrication coordinates.
+pub fn drill_centers(p: &Project) -> Vec<Point> {
+    let mut out = Vec::new();
+    for v in &p.board.vias {
+        if v.drill > 0.0 {
+            out.push(fabrication_point(p, v.position));
+        }
+    }
+    for h in &p.board.holes {
+        out.push(fabrication_point(p, h.position));
+    }
+    for f in &p.board.footprints {
+        for pad in &f.pads {
+            let Some(g) = pad.geometry.as_ref() else {
+                continue;
+            };
+            let Some(drill) = g.drill.as_ref() else {
+                continue;
+            };
+            let d = drill.size.x.min(drill.size.y);
+            if d <= 0.0 {
+                continue;
+            }
+            let local = pad.offset.offset(drill.offset.rotate(-g.rotation));
+            let world = f.position.offset(local.rotate(-f.rotation));
+            out.push(fabrication_point(p, world));
+        }
+    }
+    out
+}
+
 fn footprint_rules(f: &Footprint, project: &Project) -> pcbcraft_library::FootprintRules {
     project
         .component(f.component)

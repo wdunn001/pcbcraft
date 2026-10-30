@@ -21,10 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    FabLayer, RegMarkShape, RegistrationMarks, RasterDepth, RasterOptions, bom_csv, cmp_text,
+    drill_chart_csv, dxf_board, fab_layer_from_name, gencad_text, gerber_files, hpgl_plot,
+    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, layer_raster, netlist_text,
+    odb_package, pdf_document, placement_text, plot_csv, postscript, raster_bmp, raster_png,
+    raster_svg, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -201,10 +202,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
             settings_view(&artifact.settings),
         )?)),
         "assembly_drawing" => Ok(GeneratedOutput::Bytes(pdf_document(p, "schematic")?)),
-        "raster_image" => Ok(GeneratedOutput::Text(svg(
-            p,
-            settings_view(&artifact.settings),
-        )?)),
+        "raster_image" => generate_raster_image(p, artifact),
         "package" => package_from_path(p, artifact),
         "copper_plot" => {
             let layer = artifact
@@ -305,6 +303,179 @@ pub fn write_generated(
     }
 }
 
+fn raster_image_is_legacy_preview(artifact: &Artifact) -> bool {
+    if artifact
+        .settings
+        .get("view")
+        .and_then(|v| v.as_str())
+        .is_some()
+    {
+        return true;
+    }
+    artifact.path == "board.svg"
+        && artifact.layers.is_empty()
+        && artifact
+            .settings
+            .as_object()
+            .is_some_and(|o| o.is_empty())
+}
+
+fn raster_format_from_artifact(artifact: &Artifact) -> Result<&str, String> {
+    if let Some(format) = artifact.settings.get("format").and_then(|v| v.as_str()) {
+        match format {
+            "png" | "bmp" | "svg" => return Ok(format),
+            other => return Err(format!("raster format {other} is not supported")),
+        }
+    }
+    let path = artifact.path.to_ascii_lowercase();
+    if path.ends_with(".bmp") {
+        Ok("bmp")
+    } else if path.ends_with(".svg") {
+        Ok("svg")
+    } else {
+        Ok("png")
+    }
+}
+
+fn fab_layer_is_bottom(layer: FabLayer) -> bool {
+    matches!(
+        layer,
+        FabLayer::CopperBottom
+            | FabLayer::MaskBottom
+            | FabLayer::LegendBottom
+            | FabLayer::PasteBottom
+    )
+}
+
+fn parse_raster_depth(settings: &serde_json::Value) -> Result<RasterDepth, String> {
+    match settings
+        .get("depth")
+        .and_then(|v| v.as_str())
+        .unwrap_or("grey8")
+    {
+        "1bit" | "bits1" => Ok(RasterDepth::Bits1),
+        "grey8" | "grey" => Ok(RasterDepth::Grey8),
+        "rgba8" | "rgba" => Ok(RasterDepth::Rgba8),
+        other => Err(format!("raster depth {other} is not supported")),
+    }
+}
+
+fn parse_registration(settings: &serde_json::Value) -> Result<Option<RegistrationMarks>, String> {
+    let Some(reg) = settings.get("registration") else {
+        return Ok(None);
+    };
+    let inset_mm = reg
+        .get("inset_mm")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "registration needs inset_mm".to_string())?;
+    let size_mm = reg
+        .get("size_mm")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "registration needs size_mm".to_string())?;
+    let shape = match reg
+        .get("shape")
+        .and_then(|v| v.as_str())
+        .unwrap_or("cross")
+    {
+        "cross" => RegMarkShape::Cross,
+        "ring" => RegMarkShape::Ring,
+        other => return Err(format!("registration shape {other} is not supported")),
+    };
+    Ok(Some(RegistrationMarks {
+        inset_mm,
+        size_mm,
+        shape,
+    }))
+}
+
+fn raster_options_for_artifact(p: &Project, artifact: &Artifact) -> Result<RasterOptions, String> {
+    let layer_name = artifact
+        .layers
+        .first()
+        .map(|s| s.as_str())
+        .unwrap_or("F.Cu");
+    let layer = fab_layer_from_name(p, layer_name)?;
+    let settings = &artifact.settings;
+    let mut dpi = settings
+        .get("dpi")
+        .and_then(|v| v.as_u64())
+        .map(|d| d as u32)
+        .unwrap_or(1200);
+    let mirror_setting = settings.get("mirror").and_then(|v| v.as_bool());
+    let invert_setting = settings.get("invert").and_then(|v| v.as_bool());
+    let mut mirror = mirror_setting.unwrap_or(false);
+    let mut invert = invert_setting.unwrap_or(false);
+    if let Some(machine_id) = &artifact.machine {
+        let Some(profile) = p.machine_profiles.iter().find(|m| m.id == *machine_id) else {
+            return Err(format!("machine profile {machine_id} is not in the design"));
+        };
+        profile.validate()?;
+        if invert_setting.is_none() && profile.output.invert {
+            invert = true;
+        }
+        if mirror_setting.is_none()
+            && profile.output.mirror_bottom
+            && fab_layer_is_bottom(layer)
+        {
+            mirror = true;
+        }
+        if settings.get("dpi").is_none()
+            && profile.kind == "uv_printer"
+            && let Some(print) = &profile.uv_printer.print
+            && print.default_dpi >= 300
+        {
+            dpi = print.default_dpi;
+        }
+    }
+    let outline = settings
+        .get("outline")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let margin_mm = settings
+        .get("margin_mm")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let drill_marks = settings
+        .get("drill_marks_mm")
+        .and_then(|v| v.as_f64())
+        .filter(|m| *m > 0.0);
+    let depth = parse_raster_depth(settings)?;
+    let registration = parse_registration(settings)?;
+    let opts = RasterOptions {
+        layer,
+        dpi,
+        mirror,
+        invert,
+        outline,
+        registration,
+        drill_marks,
+        margin_mm,
+        depth,
+    };
+    opts.validate()?;
+    Ok(opts)
+}
+
+fn generate_raster_image(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    if raster_image_is_legacy_preview(artifact) {
+        return Ok(GeneratedOutput::Text(svg(
+            p,
+            settings_view(&artifact.settings),
+        )?));
+    }
+    let format = raster_format_from_artifact(artifact)?;
+    let opts = raster_options_for_artifact(p, artifact)?;
+    if format == "svg" {
+        return Ok(GeneratedOutput::Text(raster_svg(p, &opts)?));
+    }
+    let raster = layer_raster(p, &opts)?;
+    match format {
+        "png" => Ok(GeneratedOutput::Bytes(raster_png(&raster)?)),
+        "bmp" => Ok(GeneratedOutput::Bytes(raster_bmp(&raster)?)),
+        other => Err(format!("raster format {other} is not supported")),
+    }
+}
+
 fn write_parent(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -331,6 +502,52 @@ mod generate_tests {
             output_hash(&GeneratedOutput::Files(map.clone())),
             output_hash(&GeneratedOutput::Files(map))
         );
+        Ok(())
+    }
+
+    #[test]
+    fn raster_image_artifact_writes_a_png_with_pixel_dimensions() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 2,
+            name: "front copper film".into(),
+            kind: "raster_image".into(),
+            layers: vec!["F.Cu".into()],
+            settings: serde_json::json!({"dpi": 1000, "format": "png"}),
+            machine: None,
+            path: "films/front-copper.png".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Bytes(bytes) = out else {
+            return Err("expected png bytes".into());
+        };
+        assert!(bytes.starts_with(b"\x89PNG"));
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_board_svg_artifact_keeps_the_preview_vector() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 3,
+            name: "board svg".into(),
+            kind: "raster_image".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "board.svg".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: Some("fab".into()),
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Text(text) = out else {
+            return Err("expected svg text".into());
+        };
+        assert!(text.contains("<svg"));
         Ok(())
     }
 
