@@ -3,7 +3,7 @@
 //! engine commands.
 
 use super::*;
-use pcbcraft_doc::{segment_arc, Project};
+use pcbcraft_doc::{Project, segment_arc};
 use pcbcraft_geom::Point;
 
 /// What on the outline the pointer is over.
@@ -93,12 +93,7 @@ fn segment_distance(point: Point, from: Point, to: Point) -> f64 {
     point.distance(Point::new(from.x + dx * along, from.y + dy * along))
 }
 
-fn distance_to_segment(
-    points: &[Point],
-    arcs: &[Option<Point>],
-    i: usize,
-    pos: Point,
-) -> f64 {
+fn distance_to_segment(points: &[Point], arcs: &[Option<Point>], i: usize, pos: Point) -> f64 {
     let n = points.len();
     let from = points[i];
     let to = points[(i + 1) % n];
@@ -403,10 +398,7 @@ impl App {
                     self.outline_ui.sync_radius_from_project(&self.project);
                 }
                 if ui
-                    .add_enabled(
-                        curved,
-                        egui::Button::new(t!("board.outline.straighten")),
-                    )
+                    .add_enabled(curved, egui::Button::new(t!("board.outline.straighten")))
                     .on_hover_text(if curved {
                         t!("board.outline.straighten.tip")
                     } else {
@@ -438,8 +430,7 @@ mod tests {
                 {"x":0.0,"y":30.0}
             ]}),
         );
-        let hit = pick_at(&app.project, Point::new(40.0, 0.0), 15.0)
-            .ok_or("corner vertex")?;
+        let hit = pick_at(&app.project, Point::new(40.0, 0.0), 15.0).ok_or("corner vertex")?;
         assert_eq!(hit, OutlineHit::Vertex(1));
         Ok(())
     }

@@ -27,7 +27,12 @@ fn a_newcomer_rounds_a_board_corner() -> Result<(), String> {
     authoring::tests::tap(&ctx, &mut app, "Round edge")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        app.project.board.outline_arcs.get(1).and_then(|m| *m).is_some(),
+        app.project
+            .board
+            .outline_arcs
+            .get(1)
+            .and_then(|m| *m)
+            .is_some(),
         "the corner is rounded: {}",
         app.message
     );
@@ -43,7 +48,13 @@ fn a_newcomer_rounds_a_board_corner() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.project.board.outline_arcs.is_empty()
-            || app.project.board.outline_arcs.get(1).and_then(|m| *m).is_none(),
+            || app
+                .project
+                .board
+                .outline_arcs
+                .get(1)
+                .and_then(|m| *m)
+                .is_none(),
         "straighten returns the edge to a line: {}",
         app.message
     );

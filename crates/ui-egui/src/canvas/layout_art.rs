@@ -108,9 +108,7 @@ fn nice_step(zoom: f32, min_px: f32) -> f64 {
 fn board_bounds(p: &Project) -> (Point, Point) {
     match &p.board.outline {
         Some(points) if points.len() >= 3 => {
-            if let Some((lo, hi)) =
-                pcbcraft_doc::outline_extent(points, &p.board.outline_arcs)
-            {
+            if let Some((lo, hi)) = pcbcraft_doc::outline_extent(points, &p.board.outline_arcs) {
                 (lo, hi)
             } else {
                 points.iter().fold(
@@ -224,7 +222,10 @@ impl App {
             world.iter().map(|q| camera.screen(*q, rect)).collect()
         };
         painter.add(pad_shape(fill_ring, false, art.substrate));
-        painter.add(egui::Shape::closed_line(edge_pts, Stroke::new(1.5, art.edge)));
+        painter.add(egui::Shape::closed_line(
+            edge_pts,
+            Stroke::new(1.5, art.edge),
+        ));
     }
 
     /// Rulers along the top and left edges in millimetres. They follow pan and
