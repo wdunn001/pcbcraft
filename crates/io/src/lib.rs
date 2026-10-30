@@ -19,7 +19,10 @@ mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod import_cache;
+mod model_compact;
 mod model_load;
+mod model_vendor_zip;
 mod neoden_yy1;
 mod package;
 mod panel_export;
@@ -96,10 +99,16 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use import_cache::{default_import_cache_dir, ImportCache};
+pub use model_compact::{
+    decode_compact, decode_compact_base64, encode_compact, encode_compact_base64, source_digest,
+};
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
+pub use model_vendor_zip::first_step_from_vendor_zip;
+pub use step_read::STEP_TOLERANCE_MM;
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
@@ -7751,6 +7760,7 @@ mod tests {
                 offset: [0.0; 3],
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
+                embedded: String::new(),
                 raw_source: String::new(),
             });
         }

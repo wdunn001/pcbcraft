@@ -453,6 +453,9 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Base64 compact model travelling with the project when the source file is absent.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub embedded: String,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {

@@ -543,6 +543,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     offset,
                     scale,
                     rotate,
+                    embedded: String::new(),
                     raw_source: source[child.span.clone()].to_owned(),
                 });
             }
