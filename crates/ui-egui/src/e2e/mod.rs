@@ -25,6 +25,7 @@ mod modifiers;
 mod nets;
 mod pairs;
 mod pours;
+mod project_settings;
 mod route_drag;
 mod rules;
 mod schematic_pages;

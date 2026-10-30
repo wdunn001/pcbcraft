@@ -33,6 +33,7 @@ mod pages;
 mod palette;
 mod plot_viewer;
 mod pour_panel;
+mod project_settings;
 mod properties;
 mod reference_panel;
 mod route_drag;
@@ -979,6 +980,8 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
+    /// The File > Project settings dialog.
+    project_settings: project_settings::State,
     /// Optional workspace tabs the user closed; the + menu reopens them.
     closed_tabs: Vec<Tab>,
     notes_thick: f64,
@@ -1511,6 +1514,7 @@ impl App {
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
+            project_settings: Default::default(),
             closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
@@ -2799,6 +2803,14 @@ impl App {
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+                .clicked()
+            {
+                self.open_project_settings(project_settings::TAB_BOARD);
                 ui.close();
             }
             ui.separator();
@@ -6009,6 +6021,7 @@ impl App {
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
+        self.project_settings_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))

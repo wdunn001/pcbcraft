@@ -1069,7 +1069,10 @@ impl App {
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
-            _ => {}
+            Some(scene) => {
+                self.capture_project_settings(scene);
+            }
+            None => {}
         }
     }
 
