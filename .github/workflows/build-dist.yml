@@ -155,7 +155,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ inputs.version }}
-          PCBCRAFT_SIGN: ${{ inputs.sign && '1' || '0' }}
+          PCBCRAFT_SIGN: ${{ inputs.sign == true && '1' || '0' }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
