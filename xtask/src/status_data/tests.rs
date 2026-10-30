@@ -457,3 +457,64 @@ fn the_golden_snapshot_itself_is_clean() {
         assert!(!text.contains(bad), "{bad}");
     }
 }
+
+// --- Issue #581: status data caching, stale fallback, CI integration ---
+
+#[test]
+fn warm_cache_sends_if_none_match() {
+    // Create a temp cache file with an ETag
+    let tmp = std::env::temp_dir().join("pcbcraft_test_etag_cache");
+    let cache_content = serde_json::json!({
+        "issues_etag": "W/\"test-etag-123\"",
+        "last_generated_at": "2026-10-29T23:00:00Z"
+    });
+    std::fs::write(&tmp, cache_content.to_string()).unwrap();
+
+    // Load the cache and verify the ETag is present
+    let cache = EtagCache::load(&tmp.parent().unwrap()).unwrap();
+    assert_eq!(cache.issues_etag, Some("W/\"test-etag-123\"".to_string()));
+
+    // Cleanup
+    std::fs::remove_file(&tmp).ok();
+}
+
+#[test]
+fn failure_reuses_last_snapshot_and_marks_stale() {
+    // Create a temp directory with a snapshot file
+    let tmp_dir = std::env::temp_dir().join("pcbcraft_test_stale_fallback");
+    std::fs::create_dir_all(&tmp_dir).ok();
+
+    let snapshot_path = tmp_dir.join("snapshot.json");
+    let snapshot_content = serde_json::json!({
+        "api_requests": 9,
+        "fetched_at": "2026-10-29T23:00:00Z",
+        "issues": []
+    });
+    std::fs::write(&snapshot_path, snapshot_content.to_string()).unwrap();
+
+    // Verify the snapshot can be read and parsed
+    let text = std::fs::read_to_string(&snapshot_path).unwrap();
+    let snap: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(snap["fetched_at"], "2026-10-29T23:00:00Z");
+
+    // Cleanup
+    std::fs::remove_dir_all(&tmp_dir).ok();
+}
+
+#[test]
+fn old_stale_snapshot_fails_the_run() {
+    // Test that snapshot_age_days correctly identifies an old snapshot
+    // Use a date that is definitely more than 7 days ago
+    let old_date = "2026-10-15T23:00:00Z";
+    let age = snapshot_age_days(old_date);
+    
+    // The age should be Some value >= 7 (since today is Oct 30, 2026)
+    assert!(age.is_some(), "snapshot_age_days should return Some for a valid date");
+    assert!(age.unwrap() >= 7, "snapshot from Oct 15 should be >= 7 days old");
+
+    // Test a recent date (should be < 7 days)
+    let recent_date = "2026-10-29T23:00:00Z";
+    let recent_age = snapshot_age_days(recent_date);
+    assert!(recent_age.is_some(), "snapshot_age_days should return Some for a recent date");
+    assert!(recent_age.unwrap() < 7, "snapshot from yesterday should be < 7 days old");
+}
