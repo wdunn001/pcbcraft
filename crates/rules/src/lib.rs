@@ -77,6 +77,9 @@ fn zone_pieces(
         })
         .collect())
 }
+fn bottom_copper_layer(project: &Project) -> Layer {
+    Layer::from_index(project.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+}
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
@@ -117,7 +120,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     cutouts: vec![],
                 };
                 let mut back = item.clone();
-                back.layer = Layer::Back;
+                back.layer = bottom_copper_layer(project);
                 result.push(back);
                 result.push(item);
                 continue;
@@ -180,7 +183,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                 };
                 if plated {
                     let mut back = item.clone();
-                    back.layer = Layer::Back;
+                    back.layer = bottom_copper_layer(project);
                     result.push(back);
                 }
                 result.push(item);
@@ -298,7 +301,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             cutouts: vec![],
         };
         let mut back = item.clone();
-        back.layer = Layer::Back;
+        back.layer = bottom_copper_layer(project);
         result.push(back);
         result.push(item);
     }
@@ -1886,7 +1889,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        FabRules, Footprint, LayerRecord, Net, NoConnectFlag, Pad, PinRef, Track, Via,
+        component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
@@ -2599,6 +2603,76 @@ mod tests {
             t.layer = Layer::Front;
         }
         assert!(airwires(&p).is_empty());
+    }
+    #[test]
+    fn four_layer_bottom_track_touches_plated_through_hole_back_copper() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.layer_records = vec![
+            LayerRecord {
+                name: "F.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+                ..Default::default()
+            },
+            LayerRecord {
+                name: "In1.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: Some("plane".into()),
+                ..Default::default()
+            },
+            LayerRecord {
+                name: "In2.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.0175,
+                copper_role: None,
+                ..Default::default()
+            },
+            LayerRecord {
+                name: "B.Cu".into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: Some("signal".into()),
+                ..Default::default()
+            },
+        ];
+        let geometry = pcbcraft_library::FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        };
+        for footprint in &mut p.board.footprints {
+            footprint.pads[0].geometry = Some(geometry.clone());
+            footprint.pads[0].diameter = 1.6;
+        }
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::from_index(3)?,
+            arc: None,
+        });
+        p.validate()?;
+        assert!(
+            airwires(&p).is_empty(),
+            "bottom copper must join plated through-hole pads on the last layer index"
+        );
+        Ok(())
     }
     #[test]
     fn foreign_net_crossing_is_a_short() {
