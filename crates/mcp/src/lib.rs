@@ -975,7 +975,11 @@ fn loopback(address: &str) -> Result<std::net::SocketAddr, String> {
     Ok(address)
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn forward(address: &str, request: &Value, bridge_token: Option<&str>) -> Result<Value, String> {
+pub fn forward(
+    address: &str,
+    request: &Value,
+    bridge_token: Option<&str>,
+) -> Result<Value, String> {
     let mut payload = request.clone();
     if let Some(token) = bridge_token {
         if let Some(obj) = payload.as_object_mut() {

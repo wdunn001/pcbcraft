@@ -1,5 +1,5 @@
 //! Loopback MCP bridge for the assistant gate: `tools/call` waits on the host.
-use crate::{read_message, rpc_error, tool_list, MAX_MESSAGE};
+use crate::{MAX_MESSAGE, read_message, rpc_error, tool_list};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -146,7 +146,9 @@ mod tests {
         std::thread::spawn(move || {
             let req = rx.recv_timeout(Duration::from_secs(5)).expect("tool");
             assert_eq!(req.name, "design.summary");
-            let _ = req.reply.send(json!({"content":[{"type":"text","text":"ok"}],"isError":false}));
+            let _ = req
+                .reply
+                .send(json!({"content":[{"type":"text","text":"ok"}],"isError":false}));
         });
         let good = crate::forward(&address, &call, Some(token)).expect("connect");
         assert_eq!(good["result"]["content"][0]["text"], "ok");

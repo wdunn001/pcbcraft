@@ -47,7 +47,9 @@ impl ProcessHandle {
     }
     /// End it and everything it started; `wait`: block until done.
     pub fn shutdown(&self, wait: bool) {
-        let Some(child) = self.0.lock().ok().and_then(|mut c| c.take()) else { return };
+        let Some(child) = self.0.lock().ok().and_then(|mut c| c.take()) else {
+            return;
+        };
         if wait {
             end_tree(child);
         } else {
@@ -78,7 +80,9 @@ fn signal_group(pgid: u32, signal: &str) {
     if pgid <= 1 {
         return;
     }
-    let Ok(pgid) = i32::try_from(pgid) else { return };
+    let Ok(pgid) = i32::try_from(pgid) else {
+        return;
+    };
     let signal = match signal {
         "KILL" => Signal::SIGKILL,
         _ => Signal::SIGTERM,
@@ -152,28 +156,43 @@ impl AgentProcess {
         env_remove: &[&str],
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<AgentProcess, String> {
-        let Some((program, args)) = argv.split_first() else { return Err("no agent command".into()) };
+        let Some((program, args)) = argv.split_first() else {
+            return Err("no agent command".into());
+        };
         let mut cmd = super::discover::command_for(std::path::Path::new(program));
-        cmd.args(args).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.args(args)
+            .current_dir(cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         for v in env_remove {
             cmd.env_remove(v);
         }
         detach_group(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| format!("{program}: {e}"))?;
-        let (Some(mut stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
+        let (Some(mut stdin), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
             end_tree(child);
             return Err("the agent's pipes could not be opened".into());
         };
         let (to_agent, rx) = channel::<String>();
         std::thread::spawn(move || {
             for line in rx {
-                if stdin.write_all(line.as_bytes()).and_then(|()| stdin.write_all(b"\n")).and_then(|()| stdin.flush()).is_err() {
+                if stdin
+                    .write_all(line.as_bytes())
+                    .and_then(|()| stdin.write_all(b"\n"))
+                    .and_then(|()| stdin.flush())
+                    .is_err()
+                {
                     break;
                 }
             }
             // The sender is gone: stdin closes here, which is how an ACP agent learns to end.
         });
-        let tail = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::<String>::new()));
+        let tail = std::sync::Arc::new(std::sync::Mutex::new(
+            std::collections::VecDeque::<String>::new(),
+        ));
         let tail_w = tail.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
@@ -191,7 +210,10 @@ impl AgentProcess {
             let mut reader = BufReader::new(stdout);
             loop {
                 let mut buf = Vec::new();
-                match (&mut reader).take(MAX_LINE as u64 + 1).read_until(b'\n', &mut buf) {
+                match (&mut reader)
+                    .take(MAX_LINE as u64 + 1)
+                    .read_until(b'\n', &mut buf)
+                {
                     Ok(0) | Err(_) => break,
                     Ok(_) if buf.len() > MAX_LINE => {
                         // Skip the rest of an oversized line.
@@ -201,7 +223,10 @@ impl AgentProcess {
                         }
                     }
                     Ok(_) => {
-                        if tx.send(FromAgent::Line(String::from_utf8_lossy(&buf).into_owned())).is_err() {
+                        if tx
+                            .send(FromAgent::Line(String::from_utf8_lossy(&buf).into_owned()))
+                            .is_err()
+                        {
                             return;
                         }
                         wake();
@@ -210,11 +235,18 @@ impl AgentProcess {
             }
             // Give stderr a moment to deliver the agent's last words.
             std::thread::sleep(Duration::from_millis(100));
-            let lines = tail.lock().map(|t| t.iter().cloned().collect()).unwrap_or_default();
+            let lines = tail
+                .lock()
+                .map(|t| t.iter().cloned().collect())
+                .unwrap_or_default();
             let _ = tx.send(FromAgent::Exited(lines));
             wake();
         });
-        Ok(AgentProcess { child: ProcessHandle(std::sync::Arc::new(std::sync::Mutex::new(Some(child)))), to_agent: Some(to_agent), from_agent })
+        Ok(AgentProcess {
+            child: ProcessHandle(std::sync::Arc::new(std::sync::Mutex::new(Some(child)))),
+            to_agent: Some(to_agent),
+            from_agent,
+        })
     }
 
     pub fn send(&self, msg: &serde_json::Value) {
@@ -255,9 +287,16 @@ mod tests {
         // on Linux, so /proc's state is checked there too.
         #[cfg(target_os = "linux")]
         if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-            return !stat.rsplit(')').next().is_some_and(|s| s.trim_start().starts_with('Z'));
+            return !stat
+                .rsplit(')')
+                .next()
+                .is_some_and(|s| s.trim_start().starts_with('Z'));
         }
-        Command::new("kill").args(["-0", &pid.to_string()]).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
     }
 
     /// Start a fake agent that leaves helpers behind, read the helpers' ids from it, end it.
@@ -272,7 +311,10 @@ mod tests {
                 FromAgent::Exited(tail) => panic!("the fake agent ended early: {tail:?}"),
             }
         }
-        assert!(pids.iter().all(|&pid| alive(pid)), "all running before the shutdown: {pids:?}");
+        assert!(
+            pids.iter().all(|&pid| alive(pid)),
+            "all running before the shutdown: {pids:?}"
+        );
         p.shutdown(true);
         // Orphaned helpers are reaped by init a moment after they end.
         let start = Instant::now();
@@ -289,25 +331,42 @@ mod tests {
     fn stopping_the_agent_ends_its_helpers() {
         // A polite agent: ends when its input closes; its helpers would live on by themselves.
         let polite = "sleep 300 & echo $!; sleep 300 & echo $!; cat >/dev/null";
-        assert_eq!(helpers_after_shutdown(polite), Vec::<u32>::new(), "polite agent");
+        assert_eq!(
+            helpers_after_shutdown(polite),
+            Vec::<u32>::new(),
+            "polite agent"
+        );
         // A stubborn one: ignores end of input and TERM (so do its helpers).
         let stubborn = "trap '' TERM; (trap '' TERM; sleep 300) & echo $!; (trap '' TERM; sleep 300) & echo $!; while :; do sleep 1; done";
-        assert_eq!(helpers_after_shutdown(stubborn), Vec::<u32>::new(), "stubborn agent");
+        assert_eq!(
+            helpers_after_shutdown(stubborn),
+            Vec::<u32>::new(),
+            "stubborn agent"
+        );
     }
 
     /// Dropping the process (closing the panel's connection any other way) ends it too.
     #[test]
     fn dropping_the_process_ends_its_group() {
-        let argv = vec!["sh".to_string(), "-c".to_string(), "sleep 300 & echo $!; wait".to_string()];
+        let argv = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "sleep 300 & echo $!; wait".to_string(),
+        ];
         let p = AgentProcess::spawn(&argv, &std::env::temp_dir(), &[], || {}).unwrap();
         let leader = p.pid().unwrap();
-        let FromAgent::Line(l) = p.from_agent.recv_timeout(Duration::from_secs(10)).unwrap() else { panic!("no helper id") };
+        let FromAgent::Line(l) = p.from_agent.recv_timeout(Duration::from_secs(10)).unwrap() else {
+            panic!("no helper id")
+        };
         let helper: u32 = l.trim().parse().unwrap();
         drop(p);
         let start = Instant::now();
         while (alive(helper) || alive(leader)) && start.elapsed() < Duration::from_secs(8) {
             std::thread::sleep(Duration::from_millis(50));
         }
-        assert!(!alive(helper) && !alive(leader), "leader {leader} or helper {helper} still running");
+        assert!(
+            !alive(helper) && !alive(leader),
+            "leader {leader} or helper {helper} still running"
+        );
     }
 }

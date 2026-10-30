@@ -7,9 +7,7 @@
 //! reaches the design through PCBCraft's MCP server instead), and terminal login, so an agent
 //! that needs one describes a command for the user to run rather than asking for a key.
 
-use crate::backend::{
-    AuthKind, AuthMethod, ModelInfo, PermissionOption, ToolStatus,
-};
+use crate::backend::{AuthKind, AuthMethod, ModelInfo, PermissionOption, ToolStatus};
 use serde_json::{Value, json};
 
 /// The protocol version we speak.
@@ -114,8 +112,21 @@ Saving, opening, or exporting files waits for the user's approval in the chat.";
 
 /// The Claude Code adapter's own tools that reach the computer rather than the design: turned off
 /// for the session (`_meta.claudeCode.options.disallowedTools`), so it works through PCBCraft's.
-pub const CLAUDE_DISALLOWED_TOOLS: &[&str] =
-    &["Bash", "BashOutput", "KillShell", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task"];
+pub const CLAUDE_DISALLOWED_TOOLS: &[&str] = &[
+    "Bash",
+    "BashOutput",
+    "KillShell",
+    "Read",
+    "Write",
+    "Edit",
+    "MultiEdit",
+    "NotebookEdit",
+    "Glob",
+    "Grep",
+    "WebFetch",
+    "WebSearch",
+    "Task",
+];
 
 pub fn session_new_params(cwd: &std::path::Path, bridge: Option<&McpBridge>) -> Value {
     let servers: Vec<Value> = bridge.map(McpBridge::to_json).into_iter().collect();
@@ -139,7 +150,11 @@ pub fn prompt_params(session: &str, parts: &[crate::backend::PromptPart]) -> Val
 /// The agent's modes in a `session/new` reply: the current one and each `(id, name)`.
 pub fn modes(session: &Value) -> Option<(String, Vec<(String, String)>)> {
     let m = session.get("modes")?;
-    let current = m.get("currentModeId").and_then(Value::as_str).unwrap_or("").to_string();
+    let current = m
+        .get("currentModeId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let available: Vec<(String, String)> = m
         .get("availableModes")?
         .as_array()?
@@ -147,7 +162,11 @@ pub fn modes(session: &Value) -> Option<(String, Vec<(String, String)>)> {
         .take(16)
         .filter_map(|x| {
             let id = x.get("id")?.as_str()?.to_string();
-            let name = x.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
+            let name = x
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_string();
             Some((id, name))
         })
         .collect();
@@ -159,17 +178,38 @@ pub fn modes(session: &Value) -> Option<(String, Vec<(String, String)>)> {
 /// when the agent reports none.
 pub fn models(session: &Value) -> Option<(String, Vec<ModelInfo>)> {
     let m = session.get("models")?;
-    let current = m.get("currentModelId").and_then(Value::as_str).unwrap_or("").to_string();
+    let current = m
+        .get("currentModelId")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let available: Vec<ModelInfo> = m
         .get("availableModels")?
         .as_array()?
         .iter()
         .take(200)
         .filter_map(|x| {
-            let id = x.get("modelId").or_else(|| x.get("id"))?.as_str()?.to_string();
-            let name = x.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or(&id).to_string();
-            let description = x.get("description").and_then(Value::as_str).unwrap_or("").to_string();
-            Some(ModelInfo { id, name, description })
+            let id = x
+                .get("modelId")
+                .or_else(|| x.get("id"))?
+                .as_str()?
+                .to_string();
+            let name = x
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|n| !n.is_empty())
+                .unwrap_or(&id)
+                .to_string();
+            let description = x
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            Some(ModelInfo {
+                id,
+                name,
+                description,
+            })
         })
         .collect();
     (!available.is_empty()).then_some((current, available))
@@ -183,17 +223,28 @@ pub fn set_model_params(session: &str, model: &str) -> Value {
 /// Whether the agent takes embedded documents in a message
 /// (`agentCapabilities.promptCapabilities.embeddedContext`: it reads `resource` blocks).
 pub fn takes_documents(init: &Value) -> bool {
-    init.pointer("/agentCapabilities/promptCapabilities/embeddedContext").and_then(Value::as_bool).unwrap_or(false)
+    init.pointer("/agentCapabilities/promptCapabilities/embeddedContext")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 /// Whether the agent takes pictures in a message (`agentCapabilities.promptCapabilities.image`).
 pub fn takes_images(init: &Value) -> bool {
-    init.pointer("/agentCapabilities/promptCapabilities/image").and_then(Value::as_bool).unwrap_or(false)
+    init.pointer("/agentCapabilities/promptCapabilities/image")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
 }
 
 pub fn auth_methods(init: &Value) -> Vec<AuthMethod> {
     let strings = |v: Option<&Value>| -> Vec<String> {
-        v.and_then(Value::as_array).map(|a| a.iter().take(64).filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default()
+        v.and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .take(64)
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     init.get("authMethods")
         .and_then(Value::as_array)
@@ -209,14 +260,31 @@ pub fn auth_methods(init: &Value) -> Vec<AuthMethod> {
                     let kind = match m.get("type").and_then(Value::as_str) {
                         Some("terminal") => {
                             let meta = m.get("_meta").and_then(|x| x.get("terminal-auth"));
-                            let command = meta.and_then(|t| Some((t.get("command")?.as_str()?.to_string(), strings(t.get("args")))));
-                            AuthKind::Terminal { args: strings(m.get("args")), command }
+                            let command = meta.and_then(|t| {
+                                Some((
+                                    t.get("command")?.as_str()?.to_string(),
+                                    strings(t.get("args")),
+                                ))
+                            });
+                            AuthKind::Terminal {
+                                args: strings(m.get("args")),
+                                command,
+                            }
                         }
                         Some("env_var") => AuthKind::EnvVar {
                             vars: m
                                 .get("vars")
                                 .and_then(Value::as_array)
-                                .map(|v| v.iter().take(16).filter_map(|x| x.get("name").and_then(Value::as_str).map(str::to_string)).collect())
+                                .map(|v| {
+                                    v.iter()
+                                        .take(16)
+                                        .filter_map(|x| {
+                                            x.get("name")
+                                                .and_then(Value::as_str)
+                                                .map(str::to_string)
+                                        })
+                                        .collect()
+                                })
                                 .unwrap_or_default(),
                         },
                         // A key the agent would take from the client: PCBCraft never handles
@@ -228,11 +296,18 @@ pub fn auth_methods(init: &Value) -> Vec<AuthMethod> {
                                 .and_then(|k| k.get("provider"))
                                 .and_then(Value::as_str)
                                 .unwrap_or("agent");
-                            AuthKind::EnvVar { vars: vec![format!("{}_API_KEY", provider.to_ascii_uppercase())] }
+                            AuthKind::EnvVar {
+                                vars: vec![format!("{}_API_KEY", provider.to_ascii_uppercase())],
+                            }
                         }
                         _ => AuthKind::Agent,
                     };
-                    Some(AuthMethod { id, name: s("name"), description: s("description"), kind })
+                    Some(AuthMethod {
+                        id,
+                        name: s("name"),
+                        description: s("description"),
+                        kind,
+                    })
                 })
                 .collect()
         })
@@ -264,15 +339,28 @@ fn parse_tool_status(s: &str) -> Option<ToolStatus> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Incoming {
     /// The reply to one of our requests.
-    Reply { id: u64, result: Result<Value, (i64, String)> },
+    Reply {
+        id: u64,
+        result: Result<Value, (i64, String)>,
+    },
     /// Text the agent streams (`thought`: its reasoning, shown dimmed).
     Text { thought: bool, text: String },
     /// A new tool call, or news about one (`title`/`status` when they changed).
-    Tool { id: String, title: Option<String>, kind: Option<String>, status: Option<ToolStatus>, output: Option<String> },
+    Tool {
+        id: String,
+        title: Option<String>,
+        kind: Option<String>,
+        status: Option<ToolStatus>,
+        output: Option<String>,
+    },
     /// The agent's plan: each entry with its status.
     Plan(Vec<(String, String)>),
     /// The agent asks before running a tool call; answered with [`permission_reply`].
-    Permission { rpc: Value, title: String, options: Vec<PermissionOption> },
+    Permission {
+        rpc: Value,
+        title: String,
+        options: Vec<PermissionOption>,
+    },
     /// The agent says whether it is logged in (an extension both adapters send).
     AuthStatus(String),
     /// The agent switched to another of its modes.
@@ -290,19 +378,38 @@ const MAX_OUTPUT: usize = 2000;
 
 fn content_text(c: &Value) -> Option<String> {
     // A content block, or a tool call content item wrapping one (`{type: "content", content}`).
-    let block = if c.get("type").and_then(Value::as_str) == Some("content") { c.get("content")? } else { c };
+    let block = if c.get("type").and_then(Value::as_str) == Some("content") {
+        c.get("content")?
+    } else {
+        c
+    };
     match block.get("type").and_then(Value::as_str) {
-        Some("text") => block.get("text").and_then(Value::as_str).map(str::to_string),
+        Some("text") => block
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         Some("image") => Some("[image]".into()),
-        Some("resource_link") => block.get("uri").and_then(Value::as_str).map(|u| format!("[{u}]")),
-        Some("diff") => block.get("path").and_then(Value::as_str).map(|p| format!("[diff {p}]")),
+        Some("resource_link") => block
+            .get("uri")
+            .and_then(Value::as_str)
+            .map(|u| format!("[{u}]")),
+        Some("diff") => block
+            .get("path")
+            .and_then(Value::as_str)
+            .map(|p| format!("[diff {p}]")),
         Some("terminal") => Some("[terminal]".into()),
         _ => None,
     }
 }
 
 fn tool_output(u: &Value) -> Option<String> {
-    let parts: Vec<String> = u.get("content")?.as_array()?.iter().take(16).filter_map(content_text).collect();
+    let parts: Vec<String> = u
+        .get("content")?
+        .as_array()?
+        .iter()
+        .take(16)
+        .filter_map(content_text)
+        .collect();
     if parts.is_empty() {
         return None;
     }
@@ -327,16 +434,24 @@ pub fn parse(line: &str) -> Option<Incoming> {
         (None, Some(id)) => {
             let id = id.as_u64()?;
             let result = match msg.get("error") {
-                Some(e) => {
-                    Err((e.get("code").and_then(Value::as_i64).unwrap_or(0), e.get("message").and_then(Value::as_str).unwrap_or("error").to_string()))
-                }
+                Some(e) => Err((
+                    e.get("code").and_then(Value::as_i64).unwrap_or(0),
+                    e.get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("error")
+                        .to_string(),
+                )),
                 None => Ok(msg.get("result").cloned().unwrap_or(Value::Null)),
             };
             Some(Incoming::Reply { id, result })
         }
         (Some("session/request_permission"), Some(id)) => {
             let call = params.get("toolCall");
-            let title = call.and_then(|c| c.get("title")).and_then(Value::as_str).unwrap_or("").to_string();
+            let title = call
+                .and_then(|c| c.get("title"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let options = params
                 .get("options")
                 .and_then(Value::as_array)
@@ -346,20 +461,37 @@ pub fn parse(line: &str) -> Option<Incoming> {
                         .filter_map(|o| {
                             Some(PermissionOption {
                                 id: o.get("optionId")?.as_str()?.to_string(),
-                                name: o.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
-                                kind: o.get("kind").and_then(Value::as_str).unwrap_or("").to_string(),
+                                name: o
+                                    .get("name")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string(),
+                                kind: o
+                                    .get("kind")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string(),
                             })
                         })
                         .collect()
                 })
                 .unwrap_or_default();
-            Some(Incoming::Permission { rpc: id.clone(), title, options })
+            Some(Incoming::Permission {
+                rpc: id.clone(),
+                title,
+                options,
+            })
         }
-        (Some(m), Some(id)) => Some(Incoming::Unsupported { rpc: id.clone(), method: m.to_string() }),
+        (Some(m), Some(id)) => Some(Incoming::Unsupported {
+            rpc: id.clone(),
+            method: m.to_string(),
+        }),
         (Some("session/update"), None) => Some(update(params.get("update")?)),
-        (Some("_auth/status_update"), None) => {
-            params.get("authStatus").and_then(|s| s.get("label")).and_then(Value::as_str).map(|l| Incoming::AuthStatus(l.to_string()))
-        }
+        (Some("_auth/status_update"), None) => params
+            .get("authStatus")
+            .and_then(|s| s.get("label"))
+            .and_then(Value::as_str)
+            .map(|l| Incoming::AuthStatus(l.to_string())),
         _ => Some(Incoming::Ignored),
     }
 }
@@ -367,16 +499,24 @@ pub fn parse(line: &str) -> Option<Incoming> {
 fn update(u: &Value) -> Incoming {
     let s = |k: &str| u.get(k).and_then(Value::as_str).map(str::to_string);
     match u.get("sessionUpdate").and_then(Value::as_str) {
-        Some(kind @ ("agent_message_chunk" | "agent_thought_chunk")) => match u.get("content").and_then(content_text) {
-            Some(text) => Incoming::Text { thought: kind == "agent_thought_chunk", text },
-            None => Incoming::Ignored,
-        },
+        Some(kind @ ("agent_message_chunk" | "agent_thought_chunk")) => {
+            match u.get("content").and_then(content_text) {
+                Some(text) => Incoming::Text {
+                    thought: kind == "agent_thought_chunk",
+                    text,
+                },
+                None => Incoming::Ignored,
+            }
+        }
         Some("tool_call" | "tool_call_update") => match s("toolCallId") {
             Some(id) => Incoming::Tool {
                 id,
                 title: s("title"),
                 kind: s("kind"),
-                status: u.get("status").and_then(Value::as_str).and_then(parse_tool_status),
+                status: u
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .and_then(parse_tool_status),
                 output: tool_output(u),
             },
             None => Incoming::Ignored,
@@ -396,7 +536,9 @@ fn update(u: &Value) -> Incoming {
                     a.iter()
                         .take(64)
                         .map(|e| {
-                            let g = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+                            let g = |k: &str| {
+                                e.get(k).and_then(Value::as_str).unwrap_or("").to_string()
+                            };
                             (g("content"), g("status"))
                         })
                         .collect()
@@ -470,7 +612,10 @@ mod tests {
     #[test]
     fn commands_split_like_a_shell_without_one() {
         assert_eq!(split_command("gemini --acp"), ["gemini", "--acp"]);
-        assert_eq!(split_command(r#"  "C:\Program Files\x\agent.exe"  --flag 'a b' "#), [r"C:\Program Files\x\agent.exe", "--flag", "a b"]);
+        assert_eq!(
+            split_command(r#"  "C:\Program Files\x\agent.exe"  --flag 'a b' "#),
+            [r"C:\Program Files\x\agent.exe", "--flag", "a b"]
+        );
         assert_eq!(split_command(r#"a "" b"#), ["a", "", "b"]);
         assert!(split_command("   ").is_empty());
     }
@@ -480,7 +625,10 @@ mod tests {
     #[test]
     fn the_bridge_has_a_name_of_its_own_and_the_note_uses_it() {
         assert_ne!(BRIDGE_NAME, "pcbcraft");
-        assert!(SYSTEM_NOTE.contains(&format!("`{BRIDGE_NAME}` MCP server")), "{SYSTEM_NOTE}");
+        assert!(
+            SYSTEM_NOTE.contains(&format!("`{BRIDGE_NAME}` MCP server")),
+            "{SYSTEM_NOTE}"
+        );
         assert!(BRIDGE_NAME.starts_with("pcbcraft-"));
     }
 
@@ -496,29 +644,54 @@ mod tests {
         assert_eq!(s["name"], BRIDGE_NAME);
         assert_eq!(
             s["args"],
-            json!(["mcp", "--connect", "127.0.0.1:41234", "--token", "launch-secret"])
+            json!([
+                "mcp",
+                "--connect",
+                "127.0.0.1:41234",
+                "--token",
+                "launch-secret"
+            ])
         );
         assert!(!p.to_string().contains("allow-any-path"));
-        assert!(p["_meta"]["claudeCode"]["options"]["disallowedTools"]
-            .as_array()
-            .is_some_and(|t| t.iter().any(|x| x == "Bash")));
-        assert_eq!(session_new_params(std::path::Path::new("/tmp"), None)["mcpServers"], json!([]));
+        assert!(
+            p["_meta"]["claudeCode"]["options"]["disallowedTools"]
+                .as_array()
+                .is_some_and(|t| t.iter().any(|x| x == "Bash"))
+        );
+        assert_eq!(
+            session_new_params(std::path::Path::new("/tmp"), None)["mcpServers"],
+            json!([])
+        );
     }
 
     /// #5546: an agent started through `wsl.exe` gets the session's paths as WSL shows them.
     #[test]
     fn an_agent_inside_wsl_gets_wsl_paths() {
         let argv = |line: &str| split_command(line);
-        assert!(runs_in_wsl(&argv("wsl.exe -d Ubuntu -e bash -lc claude-agent-acp")));
+        assert!(runs_in_wsl(&argv(
+            "wsl.exe -d Ubuntu -e bash -lc claude-agent-acp"
+        )));
         assert!(runs_in_wsl(&argv("WSL claude-agent-acp")));
-        assert!(runs_in_wsl(&argv(r#""C:\Windows\System32\wsl.exe" -e claude-agent-acp"#)));
+        assert!(runs_in_wsl(&argv(
+            r#""C:\Windows\System32\wsl.exe" -e claude-agent-acp"#
+        )));
         assert!(!runs_in_wsl(&argv("claude-agent-acp")));
         assert!(!runs_in_wsl(&argv("wslconfig /l")));
         assert!(!runs_in_wsl(&[]));
 
-        let wsl = |p: &str| wsl_path(std::path::Path::new(p)).to_string_lossy().into_owned();
-        assert_eq!(wsl(r"C:\Users\u\AppData\Local\PCBCraft\agent-chat\work"), "/mnt/c/Users/u/AppData/Local/PCBCraft/agent-chat/work");
-        assert_eq!(wsl(r"\\?\D:\Program Files\PCBCraft\PCBCraft-cli.exe"), "/mnt/d/Program Files/PCBCraft/PCBCraft-cli.exe");
+        let wsl = |p: &str| {
+            wsl_path(std::path::Path::new(p))
+                .to_string_lossy()
+                .into_owned()
+        };
+        assert_eq!(
+            wsl(r"C:\Users\u\AppData\Local\PCBCraft\agent-chat\work"),
+            "/mnt/c/Users/u/AppData/Local/PCBCraft/agent-chat/work"
+        );
+        assert_eq!(
+            wsl(r"\\?\D:\Program Files\PCBCraft\PCBCraft-cli.exe"),
+            "/mnt/d/Program Files/PCBCraft/PCBCraft-cli.exe"
+        );
         assert_eq!(wsl("E:/designs"), "/mnt/e/designs");
         assert_eq!(wsl("C:"), "/mnt/c/");
         assert_eq!(wsl("/home/u/designs"), "/home/u/designs");
@@ -560,9 +733,14 @@ mod tests {
             "_meta": {"terminal-auth": {"command": "/usr/bin/node", "args": ["/x/dist/index.js", "--cli", "auth", "login", "--claudeai"], "label": "Claude Login"}}}]});
         let m = auth_methods(&claude);
         assert_eq!(m.len(), 1);
-        let AuthKind::Terminal { args, command } = &m[0].kind else { panic!("{m:?}") };
+        let AuthKind::Terminal { args, command } = &m[0].kind else {
+            panic!("{m:?}")
+        };
         assert_eq!(args.last().map(String::as_str), Some("--claudeai"));
-        assert_eq!(command.as_ref().map(|c| c.0.as_str()), Some("/usr/bin/node"));
+        assert_eq!(
+            command.as_ref().map(|c| c.0.as_str()),
+            Some("/usr/bin/node")
+        );
         // As the Codex adapter offers them.
         let codex = json!({"authMethods": [{"id": "chatgpt", "name": "Login with ChatGPT"},
             {"type": "env_var", "id": "openai-api-key", "name": "Use OPENAI_API_KEY", "vars": [{"name": "OPENAI_API_KEY"}]}]});
@@ -570,40 +748,98 @@ mod tests {
         assert_eq!(m[0].kind, AuthKind::Agent);
         // Codex 2.x offers its key login as a method the client would feed: shown as a variable.
         let codex2 = json!({"authMethods": [{"id": "api-key", "name": "API Key", "_meta": {"api-key": {"provider": "openai"}}}]});
-        assert_eq!(auth_methods(&codex2)[0].kind, AuthKind::EnvVar { vars: vec!["OPENAI_API_KEY".into()] });
-        assert_eq!(m[1].kind, AuthKind::EnvVar { vars: vec!["OPENAI_API_KEY".into()] });
+        assert_eq!(
+            auth_methods(&codex2)[0].kind,
+            AuthKind::EnvVar {
+                vars: vec!["OPENAI_API_KEY".into()]
+            }
+        );
+        assert_eq!(
+            m[1].kind,
+            AuthKind::EnvVar {
+                vars: vec!["OPENAI_API_KEY".into()]
+            }
+        );
     }
 
     #[test]
     fn updates_permissions_and_replies_are_told_apart() {
         let text = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hi"}}}}"#;
-        assert_eq!(parse(text), Some(Incoming::Text { thought: false, text: "Hi".into() }));
+        assert_eq!(
+            parse(text),
+            Some(Incoming::Text {
+                thought: false,
+                text: "Hi".into()
+            })
+        );
         let tool = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","content":[{"type":"content","content":{"type":"text","text":"ok"}}]}}}"#;
         assert_eq!(
             parse(tool),
-            Some(Incoming::Tool { id: "t1".into(), title: None, kind: None, status: Some(ToolStatus::Completed), output: Some("ok".into()) })
+            Some(Incoming::Tool {
+                id: "t1".into(),
+                title: None,
+                kind: None,
+                status: Some(ToolStatus::Completed),
+                output: Some("ok".into())
+            })
         );
         let perm = r#"{"jsonrpc":"2.0","id":7,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t1","title":"batch"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"},{"optionId":"reject","name":"Reject","kind":"reject_once"}]}}"#;
-        let Some(Incoming::Permission { rpc, title, options }) = parse(perm) else { panic!() };
-        assert_eq!((title.as_str(), options.len(), options[1].kind.as_str()), ("batch", 2, "reject_once"));
-        assert_eq!(permission_reply(rpc.clone(), Some("allow"))["result"]["outcome"], json!({"outcome": "selected", "optionId": "allow"}));
-        assert_eq!(permission_reply(rpc, None)["result"]["outcome"]["outcome"], "cancelled");
+        let Some(Incoming::Permission {
+            rpc,
+            title,
+            options,
+        }) = parse(perm)
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (title.as_str(), options.len(), options[1].kind.as_str()),
+            ("batch", 2, "reject_once")
+        );
+        assert_eq!(
+            permission_reply(rpc.clone(), Some("allow"))["result"]["outcome"],
+            json!({"outcome": "selected", "optionId": "allow"})
+        );
+        assert_eq!(
+            permission_reply(rpc, None)["result"]["outcome"]["outcome"],
+            "cancelled"
+        );
         let fs = r#"{"jsonrpc":"2.0","id":8,"method":"fs/read_text_file","params":{}}"#;
         assert!(matches!(parse(fs), Some(Incoming::Unsupported { .. })));
         let err = r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32000,"message":"Authentication required"}}"#;
-        assert_eq!(parse(err), Some(Incoming::Reply { id: 3, result: Err((AUTH_REQUIRED, "Authentication required".into())) }));
+        assert_eq!(
+            parse(err),
+            Some(Incoming::Reply {
+                id: 3,
+                result: Err((AUTH_REQUIRED, "Authentication required".into()))
+            })
+        );
         assert_eq!(parse("not json"), None);
         let mode = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"current_mode_update","currentModeId":"plan"}}}"#;
         assert_eq!(parse(mode), Some(Incoming::ModeChanged("plan".into())));
         let new = json!({"sessionId": "s", "modes": {"currentModeId": "default", "availableModes": [{"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"}]}});
-        assert_eq!(modes(&new), Some(("default".into(), vec![("default".into(), "Default".into()), ("acceptEdits".into(), "Accept Edits".into())])));
+        assert_eq!(
+            modes(&new),
+            Some((
+                "default".into(),
+                vec![
+                    ("default".into(), "Default".into()),
+                    ("acceptEdits".into(), "Accept Edits".into())
+                ]
+            ))
+        );
     }
 
     #[test]
     fn long_tool_output_is_cut_on_a_character_boundary() {
         let long = "é".repeat(3000);
         let u = json!({"sessionUpdate": "tool_call", "toolCallId": "t", "content": [{"type": "content", "content": {"type": "text", "text": long}}]});
-        let Incoming::Tool { output: Some(o), .. } = update(&u) else { panic!() };
+        let Incoming::Tool {
+            output: Some(o), ..
+        } = update(&u)
+        else {
+            panic!()
+        };
         assert!(o.len() <= MAX_OUTPUT + 3 && o.ends_with('…'));
     }
 
@@ -616,13 +852,28 @@ mod tests {
             {"name": "no id"}]}});
         let (current, list) = models(&v).unwrap();
         assert_eq!(current, "sonnet");
-        let names: Vec<_> = list.iter().map(|m| (m.id.as_str(), m.name.as_str(), m.description.as_str())).collect();
-        assert_eq!(names, [("opus", "Opus", "Most capable"), ("sonnet", "Sonnet", ""), ("haiku", "haiku", "")]);
+        let names: Vec<_> = list
+            .iter()
+            .map(|m| (m.id.as_str(), m.name.as_str(), m.description.as_str()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("opus", "Opus", "Most capable"),
+                ("sonnet", "Sonnet", ""),
+                ("haiku", "haiku", "")
+            ]
+        );
         // An agent without models, or with an empty list, reports none.
         assert!(models(&json!({"sessionId": "s"})).is_none());
-        assert!(models(&json!({"models": {"currentModelId": "x", "availableModels": []}})).is_none());
+        assert!(
+            models(&json!({"models": {"currentModelId": "x", "availableModels": []}})).is_none()
+        );
         let changed = r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"current_model_update","currentModelId":"haiku"}}}"#;
         assert_eq!(parse(changed), Some(Incoming::ModelChanged("haiku".into())));
-        assert_eq!(set_model_params("s", "opus"), json!({"sessionId": "s", "modelId": "opus"}));
+        assert_eq!(
+            set_model_params("s", "opus"),
+            json!({"sessionId": "s", "modelId": "opus"})
+        );
     }
 }

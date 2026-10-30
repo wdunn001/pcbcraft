@@ -6,9 +6,9 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
+use super::process::{AgentProcess, FromAgent};
 use super::protocol::{self, Incoming};
 use crate::backend::{AuthMethod, ChatBackend, Event, PromptPart};
-use super::process::{AgentProcess, FromAgent};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Pending {
@@ -76,10 +76,7 @@ impl AcpBackend {
         };
         let proc = AgentProcess::spawn(argv, &work_dir, ENV_REMOVE, || {})?;
         let (cwd, bridge) = if protocol::runs_in_wsl(argv) {
-            (
-                protocol::wsl_path(&work_dir),
-                Some(bridge.in_wsl()),
-            )
+            (protocol::wsl_path(&work_dir), Some(bridge.in_wsl()))
         } else {
             (work_dir, Some(bridge))
         };
@@ -121,7 +118,9 @@ impl AcpBackend {
     fn handle(&mut self, msg: Incoming, out: &mut Vec<Event>) {
         match msg {
             Incoming::Reply { id, result } => {
-                let Some(what) = self.pending.remove(&id) else { return };
+                let Some(what) = self.pending.remove(&id) else {
+                    return;
+                };
                 match (what, result) {
                     (Pending::Initialize, Ok(v)) => {
                         self.agent = protocol::agent_info(&v);
@@ -130,23 +129,34 @@ impl AcpBackend {
                         self.auth = protocol::auth_methods(&v);
                         self.new_session();
                     }
-                    (Pending::SessionNew, Ok(v)) => match v.get("sessionId").and_then(Value::as_str) {
-                        Some(s) => {
-                            self.session = Some(s.to_string());
-                            if let Some((current, available)) = protocol::modes(&v) {
-                                out.push(Event::Modes { current, available });
+                    (Pending::SessionNew, Ok(v)) => {
+                        match v.get("sessionId").and_then(Value::as_str) {
+                            Some(s) => {
+                                self.session = Some(s.to_string());
+                                if let Some((current, available)) = protocol::modes(&v) {
+                                    out.push(Event::Modes { current, available });
+                                }
+                                if let Some((current, available)) = protocol::models(&v) {
+                                    out.push(Event::Models { current, available });
+                                }
+                                out.push(Event::Documents(self.documents));
+                                out.push(Event::Ready {
+                                    agent: self.agent.clone(),
+                                    images: self.images,
+                                });
                             }
-                            if let Some((current, available)) = protocol::models(&v) {
-                                out.push(Event::Models { current, available });
-                            }
-                            out.push(Event::Documents(self.documents));
-                            out.push(Event::Ready { agent: self.agent.clone(), images: self.images });
+                            None => out.push(Event::Error("session/new: no sessionId".into())),
                         }
-                        None => out.push(Event::Error("session/new: no sessionId".into())),
-                    },
+                    }
                     (Pending::Prompt, Ok(v)) => {
                         let reason = v.get("stopReason").and_then(Value::as_str).unwrap_or("");
-                        out.push(Event::TurnEnded { reason: if reason == "end_turn" { String::new() } else { reason.to_string() } });
+                        out.push(Event::TurnEnded {
+                            reason: if reason == "end_turn" {
+                                String::new()
+                            } else {
+                                reason.to_string()
+                            },
+                        });
                     }
                     // Signed in: try the session again.
                     (Pending::Authenticate, Ok(_)) => self.new_session(),
@@ -157,12 +167,18 @@ impl AcpBackend {
                         if auth {
                             self.session = None;
                             if what == Pending::Prompt {
-                                out.push(Event::TurnEnded { reason: "auth".into() });
+                                out.push(Event::TurnEnded {
+                                    reason: "auth".into(),
+                                });
                             }
-                            out.push(Event::AuthRequired { methods: self.auth.clone() });
+                            out.push(Event::AuthRequired {
+                                methods: self.auth.clone(),
+                            });
                         } else {
                             if what == Pending::Prompt {
-                                out.push(Event::TurnEnded { reason: "error".into() });
+                                out.push(Event::TurnEnded {
+                                    reason: "error".into(),
+                                });
                             }
                             out.push(Event::Error(message));
                         }
@@ -170,16 +186,42 @@ impl AcpBackend {
                 }
             }
             Incoming::Text { thought, text } => out.push(Event::Text { thought, text }),
-            Incoming::Tool { id, title, kind, status, output } => out.push(Event::Tool { id, title, kind, status, output }),
+            Incoming::Tool {
+                id,
+                title,
+                kind,
+                status,
+                output,
+            } => out.push(Event::Tool {
+                id,
+                title,
+                kind,
+                status,
+                output,
+            }),
             Incoming::Plan(p) => out.push(Event::Plan(p)),
-            Incoming::Permission { rpc, title, options } => {
+            Incoming::Permission {
+                rpc,
+                title,
+                options,
+            } => {
                 self.next_key += 1;
                 self.permissions.insert(self.next_key, rpc);
-                out.push(Event::Permission { key: self.next_key, title, options });
+                out.push(Event::Permission {
+                    key: self.next_key,
+                    title,
+                    options,
+                });
             }
             Incoming::AuthStatus(s) => out.push(Event::AuthStatus(s)),
-            Incoming::ModeChanged(m) => out.push(Event::Modes { current: m, available: Vec::new() }),
-            Incoming::ModelChanged(m) => out.push(Event::Models { current: m, available: Vec::new() }),
+            Incoming::ModeChanged(m) => out.push(Event::Modes {
+                current: m,
+                available: Vec::new(),
+            }),
+            Incoming::ModelChanged(m) => out.push(Event::Models {
+                current: m,
+                available: Vec::new(),
+            }),
             Incoming::Unsupported { rpc, method } => {
                 self.proc.send(&protocol::reply_error(
                     rpc,
@@ -234,8 +276,10 @@ impl ChatBackend for AcpBackend {
             self.proc.send(&protocol::permission_reply(rpc, None));
         }
         if let Some(s) = &self.session {
-            self.proc
-                .send(&protocol::notification("session/cancel", json!({"sessionId": s})));
+            self.proc.send(&protocol::notification(
+                "session/cancel",
+                json!({"sessionId": s}),
+            ));
         }
     }
 
@@ -254,12 +298,20 @@ impl ChatBackend for AcpBackend {
     }
 
     fn authenticate(&mut self, method: &str) {
-        self.request(Pending::Authenticate, "authenticate", json!({"methodId": method}));
+        self.request(
+            Pending::Authenticate,
+            "authenticate",
+            json!({"methodId": method}),
+        );
     }
 
     fn set_mode(&mut self, mode: &str) {
         if let Some(s) = self.session.clone() {
-            self.request(Pending::SetMode, "session/set_mode", json!({"sessionId": s, "modeId": mode}));
+            self.request(
+                Pending::SetMode,
+                "session/set_mode",
+                json!({"sessionId": s, "modeId": mode}),
+            );
         }
     }
 

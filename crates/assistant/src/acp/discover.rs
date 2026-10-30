@@ -197,22 +197,43 @@ pub struct Detection {
 }
 
 fn home() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).filter(|p| p.is_absolute())
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
 }
 
 /// PATH, then the usual places npm, Homebrew, nvm, Volta, bun, pipx and Grok put commands.
 pub fn search_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
     if let Some(prefix) = std::env::var_os("NPM_CONFIG_PREFIX").map(PathBuf::from) {
-        dirs.push(if cfg!(windows) { prefix.clone() } else { prefix.join("bin") });
+        dirs.push(if cfg!(windows) {
+            prefix.clone()
+        } else {
+            prefix.join("bin")
+        });
     }
     if let Some(h) = home() {
-        for d in [".local/bin", ".npm-global/bin", ".npm-packages/bin", ".volta/bin", ".bun/bin", ".cargo/bin", ".grok/bin", "bin"] {
+        for d in [
+            ".local/bin",
+            ".npm-global/bin",
+            ".npm-packages/bin",
+            ".volta/bin",
+            ".bun/bin",
+            ".cargo/bin",
+            ".grok/bin",
+            "bin",
+        ] {
             dirs.push(h.join(d));
         }
         // nvm: every installed Node version's bin.
         if let Ok(rd) = std::fs::read_dir(h.join(".nvm/versions/node")) {
-            let mut v: Vec<PathBuf> = rd.flatten().take(64).map(|e| e.path().join("bin")).collect();
+            let mut v: Vec<PathBuf> = rd
+                .flatten()
+                .take(64)
+                .map(|e| e.path().join("bin"))
+                .collect();
             v.sort();
             dirs.extend(v.into_iter().rev());
         }
@@ -222,7 +243,12 @@ pub fn search_dirs() -> Vec<PathBuf> {
             dirs.push(PathBuf::from(a).join("npm"));
         }
     } else {
-        for d in ["/opt/homebrew/bin", "/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin", "/usr/bin"] {
+        for d in [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+            "/usr/bin",
+        ] {
             dirs.push(PathBuf::from(d));
         }
     }
@@ -234,14 +260,23 @@ pub fn search_dirs() -> Vec<PathBuf> {
 /// The first `program` in `dirs` (on Windows with `.exe`/`.cmd`/`.bat`).
 pub fn find_in(program: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     let names = names_for(program, cfg!(windows));
-    dirs.iter().flat_map(|d| names.iter().map(move |n| d.join(n))).find(|p| p.is_file())
+    dirs.iter()
+        .flat_map(|d| names.iter().map(move |n| d.join(n)))
+        .find(|p| p.is_file())
 }
 
 /// The file names `program` can have. On Windows only ones it can run: npm puts a Unix shell
 /// script with the bare name next to the `.cmd` shim, and starting that fails with "not a valid
 /// Win32 application".
 fn names_for(program: &str, windows: bool) -> Vec<String> {
-    if windows { [".exe", ".cmd", ".bat"].iter().map(|e| format!("{program}{e}")).collect() } else { vec![program.to_string()] }
+    if windows {
+        [".exe", ".cmd", ".bat"]
+            .iter()
+            .map(|e| format!("{program}{e}"))
+            .collect()
+    } else {
+        vec![program.to_string()]
+    }
 }
 
 /// A Windows command saved without an extension (`…\npm\codex-acp`, from an older version's
@@ -252,7 +287,10 @@ pub fn runnable_sibling(program: &Path) -> Option<PathBuf> {
     }
     let dir = program.parent()?;
     let name = program.file_name()?.to_str()?;
-    names_for(name, true).into_iter().map(|n| dir.join(n)).find(|p| p.is_file())
+    names_for(name, true)
+        .into_iter()
+        .map(|n| dir.join(n))
+        .find(|p| p.is_file())
 }
 
 /// Start probes and sessions with the same PATH used for discovery. Desktop launchers often
@@ -260,9 +298,17 @@ pub fn runnable_sibling(program: &Path) -> Option<PathBuf> {
 /// Only the child's environment changes; inherited absolute PATH entries keep precedence.
 pub(super) fn command_for(program: &Path) -> Command {
     // Older saved Windows commands may name npm's bare Unix script rather than its .cmd shim.
-    let shim = if cfg!(windows) { runnable_sibling(program) } else { None };
+    let shim = if cfg!(windows) {
+        runnable_sibling(program)
+    } else {
+        None
+    };
     let program = shim.as_deref().unwrap_or(program);
-    let mut cmd = if cfg!(windows) && program.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")) {
+    let mut cmd = if cfg!(windows)
+        && program
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat"))
+    {
         let mut c = Command::new("cmd");
         c.arg("/C").arg(program);
         c
@@ -284,7 +330,13 @@ fn version(program: &Path, limit: Duration) -> Option<String> {
         // CREATE_NO_WINDOW: probing a console agent doesn't flash a terminal window.
         cmd.creation_flags(0x0800_0000);
     }
-    let mut child = cmd.arg("--version").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
+    let mut child = cmd
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
     let start = Instant::now();
     loop {
         match child.try_wait() {
@@ -306,17 +358,31 @@ fn version(program: &Path, limit: Duration) -> Option<String> {
 /// The version number in a `--version` line (`codex-cli 0.162.1`, `2.1.295 (Claude Code)`,
 /// `@scope/pkg 2.2.2`), else the line itself, cut short.
 fn version_of(line: &str) -> String {
-    let v = line.split_whitespace().find(|w| w.trim_start_matches('v').starts_with(|c: char| c.is_ascii_digit())).unwrap_or(line);
+    let v = line
+        .split_whitespace()
+        .find(|w| {
+            w.trim_start_matches('v')
+                .starts_with(|c: char| c.is_ascii_digit())
+        })
+        .unwrap_or(line);
     v.chars().take(40).collect()
 }
 
 /// Whether `k` looks signed in, from files and variables only: nothing is started or asked.
 fn login_of(k: &Known, home: Option<&Path>) -> Login {
-    let file = match k.config_dir_var.and_then(|(var, name)| std::env::var_os(var).filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join(name))) {
+    let file = match k.config_dir_var.and_then(|(var, name)| {
+        std::env::var_os(var)
+            .filter(|v| !v.is_empty())
+            .map(|d| PathBuf::from(d).join(name))
+    }) {
         Some(p) => Some(p),
         None => k.credentials.zip(home).map(|(rel, h)| h.join(rel)),
     };
-    let key = || k.key_vars.iter().any(|v| std::env::var_os(v).is_some_and(|x| !x.is_empty()));
+    let key = || {
+        k.key_vars
+            .iter()
+            .any(|v| std::env::var_os(v).is_some_and(|x| !x.is_empty()))
+    };
     match file {
         Some(f) if f.is_file() => Login::LooksLoggedIn,
         _ if key() => Login::KeyInEnvironment,
@@ -338,15 +404,29 @@ fn detect_in(dirs: &[PathBuf], home: Option<&Path>) -> Detection {
     for k in KNOWN {
         let Some(path) = k.programs.iter().find_map(|p| find_in(p, dirs)) else {
             if !k.retired {
-                d.missing.push(Missing { id: k.id, name: k.name, install: k.install });
+                d.missing.push(Missing {
+                    id: k.id,
+                    name: k.name,
+                    install: k.install,
+                });
             }
             continue;
         };
         let login = login_of(k, home);
         let mut argv = vec![path.to_string_lossy().into_owned()];
         argv.extend(k.args.iter().map(|a| a.to_string()));
-        let version = if k.reports_version { version(&path, Duration::from_secs(3)) } else { None };
-        d.found.push(Found { id: k.id, name: k.name, version, argv, login });
+        let version = if k.reports_version {
+            version(&path, Duration::from_secs(3))
+        } else {
+            None
+        };
+        d.found.push(Found {
+            id: k.id,
+            name: k.name,
+            version,
+            argv,
+            login,
+        });
     }
     d.took_ms = u64::try_from(t0.elapsed().as_millis()).unwrap_or(u64::MAX);
     d
@@ -368,14 +448,23 @@ fn api_origin(base_url: &str) -> Option<String> {
 
 /// Blocking, best-effort Ollama probe. Call only on a background thread, without API keys.
 #[cfg(not(target_arch = "wasm32"))]
-pub(super) fn ollama_tools(http: &crate::backend::HttpFn, base_url: &str, model: &str, known_ollama: bool) -> Option<bool> {
+pub(super) fn ollama_tools(
+    http: &crate::backend::HttpFn,
+    base_url: &str,
+    model: &str,
+    known_ollama: bool,
+) -> Option<bool> {
     use crate::backend::HttpRequest;
     let origin = api_origin(base_url)?;
     let request = |method, path: &str, body| {
         let (status, bytes) = http(&HttpRequest {
             method,
             url: format!("{origin}/api/{path}"),
-            headers: if method == "POST" { vec![("Content-Type".into(), "application/json".into())] } else { Vec::new() },
+            headers: if method == "POST" {
+                vec![("Content-Type".into(), "application/json".into())]
+            } else {
+                Vec::new()
+            },
             body,
             timeout_s: 5,
         })
@@ -397,10 +486,17 @@ pub(super) fn ollama_tools(http: &crate::backend::HttpFn, base_url: &str, model:
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn tools_capability(value: &serde_json::Value) -> Option<bool> {
     let capabilities = value.get("capabilities")?.as_array()?;
-    if capabilities.iter().any(|capability| !capability.is_string()) {
+    if capabilities
+        .iter()
+        .any(|capability| !capability.is_string())
+    {
         return None;
     }
-    Some(capabilities.iter().any(|capability| capability.as_str() == Some("tools")))
+    Some(
+        capabilities
+            .iter()
+            .any(|capability| capability.as_str() == Some("tools")),
+    )
 }
 
 #[cfg(test)]
@@ -410,13 +506,26 @@ mod tests {
     #[test]
     fn ollama_capabilities_distinguish_tools_chat_and_unknown() {
         use serde_json::json;
-        assert_eq!(tools_capability(&json!({"capabilities": ["completion", "tools"]})), Some(true));
-        assert_eq!(tools_capability(&json!({"capabilities": ["completion"]})), Some(false));
+        assert_eq!(
+            tools_capability(&json!({"capabilities": ["completion", "tools"]})),
+            Some(true)
+        );
+        assert_eq!(
+            tools_capability(&json!({"capabilities": ["completion"]})),
+            Some(false)
+        );
         assert_eq!(tools_capability(&json!({"capabilities": []})), Some(false));
-        for value in [json!({}), json!({"capabilities": null}), json!({"capabilities": [false]})] {
+        for value in [
+            json!({}),
+            json!({"capabilities": null}),
+            json!({"capabilities": [false]}),
+        ] {
             assert_eq!(tools_capability(&value), None);
         }
-        assert_eq!(api_origin("http://[::1]:11434/proxy/v1/").as_deref(), Some("http://[::1]:11434"));
+        assert_eq!(
+            api_origin("http://[::1]:11434/proxy/v1/").as_deref(),
+            Some("http://[::1]:11434")
+        );
         assert_eq!(api_origin("file:///tmp/model"), None);
         let http: super::crate::backend::HttpFn = std::sync::Arc::new(|request| {
             assert_eq!(request.timeout_s, 5);
@@ -427,16 +536,30 @@ mod tests {
                 }
                 "POST" => {
                     assert_eq!(request.url, "http://localhost:11434/api/show");
-                    assert_eq!(serde_json::from_slice::<serde_json::Value>(request.body.as_ref().unwrap()).unwrap(), json!({"model":"chat:4b"}));
+                    assert_eq!(
+                        serde_json::from_slice::<serde_json::Value>(request.body.as_ref().unwrap())
+                            .unwrap(),
+                        json!({"model":"chat:4b"})
+                    );
                     Ok((200, br#"{"capabilities":["completion"]}"#.to_vec()))
                 }
                 _ => Err("unexpected HTTP method".into()),
             }
         });
-        assert_eq!(ollama_tools(&http, "http://localhost:11434/custom/v1", "chat:4b", false), Some(false));
-        assert_eq!(ollama_tools(&http, "http://localhost:11434/v1", "chat:4b", true), Some(false));
-        let unavailable: super::crate::backend::HttpFn = std::sync::Arc::new(|_| Err("unavailable".into()));
-        assert_eq!(ollama_tools(&unavailable, "http://localhost:11434/v1", "chat:4b", false), None);
+        assert_eq!(
+            ollama_tools(&http, "http://localhost:11434/custom/v1", "chat:4b", false),
+            Some(false)
+        );
+        assert_eq!(
+            ollama_tools(&http, "http://localhost:11434/v1", "chat:4b", true),
+            Some(false)
+        );
+        let unavailable: super::crate::backend::HttpFn =
+            std::sync::Arc::new(|_| Err("unavailable".into()));
+        assert_eq!(
+            ollama_tools(&unavailable, "http://localhost:11434/v1", "chat:4b", false),
+            None
+        );
     }
 
     #[test]
@@ -448,7 +571,10 @@ mod tests {
         // A name this platform runs: Windows looks only for `.exe`/`.cmd`/`.bat` (#1554).
         let name = names_for("codex-acp", cfg!(windows)).remove(0);
         std::fs::write(b.join(&name), "").unwrap();
-        assert_eq!(find_in("codex-acp", &[a.clone(), b.clone()]), Some(b.join(name)));
+        assert_eq!(
+            find_in("codex-acp", &[a.clone(), b.clone()]),
+            Some(b.join(name))
+        );
         assert_eq!(find_in("gemini", &[a, b]), None);
         let _ = std::fs::remove_dir_all(root);
     }
@@ -456,7 +582,10 @@ mod tests {
     #[test]
     fn on_windows_only_runnable_shims_are_candidates() {
         // npm's bare `codex-acp` is a shell script; Windows can't start it (os error 193).
-        assert_eq!(names_for("codex-acp", true), ["codex-acp.exe", "codex-acp.cmd", "codex-acp.bat"]);
+        assert_eq!(
+            names_for("codex-acp", true),
+            ["codex-acp.exe", "codex-acp.cmd", "codex-acp.bat"]
+        );
         assert_eq!(names_for("codex-acp", false), ["codex-acp"]);
     }
 
@@ -466,7 +595,10 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("codex-acp"), "#!/bin/sh").unwrap();
         std::fs::write(root.join("codex-acp.cmd"), "@echo off").unwrap();
-        assert_eq!(runnable_sibling(&root.join("codex-acp")), Some(root.join("codex-acp.cmd")));
+        assert_eq!(
+            runnable_sibling(&root.join("codex-acp")),
+            Some(root.join("codex-acp.cmd"))
+        );
         assert_eq!(runnable_sibling(&root.join("codex-acp.cmd")), None);
         assert_eq!(runnable_sibling(&root.join("gemini")), None);
         let _ = std::fs::remove_dir_all(root);
@@ -489,7 +621,9 @@ mod tests {
         let qwen = KNOWN.iter().find(|k| k.id == "qwen").unwrap();
         let goose = KNOWN.iter().find(|k| k.id == "goose").unwrap();
         let grok = KNOWN.iter().find(|k| k.id == "grok").unwrap();
-        if std::env::var_os("GEMINI_API_KEY").is_none() && std::env::var_os("GOOGLE_API_KEY").is_none() {
+        if std::env::var_os("GEMINI_API_KEY").is_none()
+            && std::env::var_os("GOOGLE_API_KEY").is_none()
+        {
             assert_eq!(login_of(gemini, Some(&home)), Login::NotLoggedIn);
         }
         std::fs::write(home.join(".gemini/oauth_creds.json"), "{}").unwrap();
@@ -497,17 +631,29 @@ mod tests {
         if std::env::var_os("DASHSCOPE_API_KEY").is_none() {
             assert_eq!(login_of(qwen, Some(&home)), Login::NotLoggedIn);
         }
-        assert_eq!(login_of(goose, Some(&home)), Login::Unknown, "keeps no file we know");
+        assert_eq!(
+            login_of(goose, Some(&home)),
+            Login::Unknown,
+            "keeps no file we know"
+        );
         if std::env::var_os("XAI_API_KEY").is_none() {
             assert_eq!(login_of(grok, Some(&home)), Login::NotLoggedIn);
         }
         // Antigravity's server keeps its own login, apart from the retired Gemini CLI's.
         let agy = KNOWN.iter().find(|k| k.id == "antigravity").unwrap();
         if std::env::var_os("GEMINI_API_KEY").is_none() {
-            assert_eq!(login_of(agy, Some(&home)), Login::NotLoggedIn, "the Gemini CLI's file is not its login");
+            assert_eq!(
+                login_of(agy, Some(&home)),
+                Login::NotLoggedIn,
+                "the Gemini CLI's file is not its login"
+            );
         }
         std::fs::create_dir_all(home.join(".gemini/antigravity-acp")).unwrap();
-        std::fs::write(home.join(".gemini/antigravity-acp/acp_token.json"), "not credential data").unwrap();
+        std::fs::write(
+            home.join(".gemini/antigravity-acp/acp_token.json"),
+            "not credential data",
+        )
+        .unwrap();
         assert_eq!(login_of(agy, Some(&home)), Login::LooksLoggedIn);
         std::fs::create_dir_all(home.join(".grok")).unwrap();
         // Discovery checks only for the file; it never needs to parse the user's tokens.
@@ -529,14 +675,30 @@ mod tests {
             std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         };
-        let ids = |d: &Detection| (d.found.iter().map(|f| f.id).collect::<Vec<_>>(), d.missing.iter().map(|m| m.id).collect::<Vec<_>>());
+        let ids = |d: &Detection| {
+            (
+                d.found.iter().map(|f| f.id).collect::<Vec<_>>(),
+                d.missing.iter().map(|m| m.id).collect::<Vec<_>>(),
+            )
+        };
 
         let none = detect_in(std::slice::from_ref(&root), None);
         let (found, missing) = ids(&none);
         assert!(found.is_empty());
-        assert!(missing.contains(&"antigravity") && !missing.contains(&"gemini"), "{missing:?}");
-        let hint = none.missing.iter().find(|m| m.id == "antigravity").map(|m| m.install).unwrap_or_default();
-        assert!(hint.contains("agy_acp_server.par") && !hint.contains("npm"), "{hint}");
+        assert!(
+            missing.contains(&"antigravity") && !missing.contains(&"gemini"),
+            "{missing:?}"
+        );
+        let hint = none
+            .missing
+            .iter()
+            .find(|m| m.id == "antigravity")
+            .map(|m| m.install)
+            .unwrap_or_default();
+        assert!(
+            hint.contains("agy_acp_server.par") && !hint.contains("npm"),
+            "{hint}"
+        );
 
         run("gemini", "echo gemini 0.64.0");
         // A server that would take seconds to answer `--version`, which Antigravity is never asked.
@@ -544,11 +706,25 @@ mod tests {
         let both = detect_in(std::slice::from_ref(&root), None);
         let (found, missing) = ids(&both);
         assert_eq!(found, ["antigravity", "gemini"]);
-        assert!(!missing.contains(&"antigravity") && !missing.contains(&"gemini"), "{missing:?}");
+        assert!(
+            !missing.contains(&"antigravity") && !missing.contains(&"gemini"),
+            "{missing:?}"
+        );
         let agy = both.found.iter().find(|f| f.id == "antigravity");
-        assert_eq!(agy.map(|f| f.version.clone()), Some(None), "its --version is a build date, not asked");
-        assert_eq!(agy.and_then(|f| f.argv.get(1)), None, "the registry starts it without arguments");
-        assert!(both.took_ms < 5000, "Antigravity's server was started to read a version");
+        assert_eq!(
+            agy.map(|f| f.version.clone()),
+            Some(None),
+            "its --version is a build date, not asked"
+        );
+        assert_eq!(
+            agy.and_then(|f| f.argv.get(1)),
+            None,
+            "the registry starts it without arguments"
+        );
+        assert!(
+            both.took_ms < 5000,
+            "Antigravity's server was started to read a version"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -557,25 +733,37 @@ mod tests {
         for k in KNOWN {
             assert!(!k.programs.is_empty() && !k.install.is_empty(), "{}", k.id);
         }
-        assert_eq!(KNOWN.first().map(|k| k.id), Some("claude"), "the Claude Code adapter is the default");
+        assert_eq!(
+            KNOWN.first().map(|k| k.id),
+            Some("claude"),
+            "the Claude Code adapter is the default"
+        );
     }
 
     #[test]
     fn discovery_runs_nothing_but_version() {
-        let root = std::env::temp_dir().join(format!("pcbcraft-acp-discover-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("pcbcraft-acp-discover-{}", std::process::id()));
         let bin = root.join("bin");
         std::fs::create_dir_all(&bin).ok();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let script = bin.join("pcbcraft-fake-agent");
-            std::fs::write(&script, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake 0.1; fi\n").ok();
+            std::fs::write(
+                &script,
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake 0.1; fi\n",
+            )
+            .ok();
             let _ = std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755));
         }
         let dirs = vec![bin.clone()];
         let start = Instant::now();
         let _ = find_in("pcbcraft-fake-agent", &dirs);
-        assert!(start.elapsed() < Duration::from_secs(4), "version probe only");
+        assert!(
+            start.elapsed() < Duration::from_secs(4),
+            "version probe only"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -16,7 +16,10 @@ mod tool_names;
 mod transcript;
 mod turn;
 
-pub use acp::{AcpBackend, detect as detect_acp_agents, resolve_cli, test_agent, Detection as AcpDetection, Found as AcpFound};
+pub use acp::{
+    AcpBackend, Detection as AcpDetection, Found as AcpFound, detect as detect_acp_agents,
+    resolve_cli, test_agent,
+};
 pub use api::{
     ApiBackend, ApiConfig, MAX_HISTORY, MAX_REQUESTS_PER_TURN as MAX_API_REQUESTS_PER_TURN,
     MAX_TOOL_TEXT, Protocol, anthropic_model_list, anthropic_tools, endpoint, http_error,
