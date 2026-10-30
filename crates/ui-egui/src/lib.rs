@@ -11,6 +11,7 @@ mod browser;
 mod canvas;
 mod contrast;
 mod datums;
+mod datasheet_reader;
 mod draw_target;
 mod editing;
 pub mod fonts;
@@ -1167,6 +1168,7 @@ pub struct App {
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    datasheet: datasheet_reader::State,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
 }
@@ -1668,6 +1670,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            datasheet: datasheet_reader::State::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
@@ -3379,6 +3382,13 @@ impl App {
         .response
         .on_hover_text(t!("menu.help.tip"));
     }
+    /// Open the in-app datasheet reader on the Library tab.
+    pub(super) fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
+        self.change_tab(Tab::Libraries);
+        self.library.editor.mode = 1;
+        self.datasheet.open_source(ctx, url);
+    }
+
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
         let url = field?.trim();
