@@ -13,6 +13,7 @@ mod canvas;
 mod contrast;
 mod datums;
 mod draw_target;
+mod drill_table;
 mod editing;
 mod file_dialogs;
 pub mod fonts;
@@ -38,6 +39,7 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod rules_fab;
 mod sheet_rows;
 mod showcase;
 mod sources;
@@ -1547,6 +1549,11 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
+        // Install the fonts now, so the fallback font added next lands behind them.
+        fonts::install(&cc.egui_ctx);
+        cc.egui_ctx
+            .data_mut(|d| d.insert_temp(egui::Id::new("design-fonts-installed"), true));
+        app.apply_fallback_font(&cc.egui_ctx);
         app
     }
     fn create(
@@ -3297,11 +3304,50 @@ impl App {
         .response
         .on_hover_text(t!("menu.edit.tip"));
     }
-    /// Switch the app's language; the next frame paints in it.
-    fn set_language(&mut self, tag: &str) {
+    /// Switch the app's language; the next frame paints in it. A language
+    /// that needs a fallback font (Japanese, Chinese) loads it too.
+    ///
+    /// # Dependencies
+    /// `fonts.rs` (`load_for_language`, `add_fallback`).
+    fn set_language(&mut self, ctx: &egui::Context, tag: &str) {
         self.preferences.language = tag.to_string();
         self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
         pcbcraft_text::activate(&self.catalog);
+        self.apply_fallback_font(ctx);
+    }
+
+    /// The language tag the user chose (`en`, `ja`, `zh`...), with `system`
+    /// resolved. It can name a language with a font but no translation yet. The browser build reads it to fetch a font.
+    pub fn language(&self) -> String {
+        if self.preferences.language == "system" {
+            pcbcraft_text::resolve_system_language()
+        } else {
+            self.preferences.language.clone()
+        }
+    }
+
+    /// Load the fallback font for the showing language when it needs one. A
+    /// missing file keeps the default fonts and says so in the status line.
+    /// The browser build fetches its font in `apps/pcbcraft-web` instead.
+    ///
+    /// # Dependencies
+    /// `fonts.rs` (`load_for_language`).
+    ///
+    /// # Do not
+    /// Fail or block the app for a missing font; empty boxes are survivable.
+    fn apply_fallback_font(&mut self, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(file) = fonts::load_for_language(ctx, &self.language()) {
+            self.report_missing_font(file);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = ctx;
+    }
+
+    /// Say in the status line that a language's font file could not be
+    /// loaded. The browser build calls this when its fetch fails.
+    pub fn report_missing_font(&mut self, file: &str) {
+        self.message = pcbcraft_text::lookup("font.the_font_file_for_this", &[("file", file)]);
     }
     fn language_menu(&mut self, ui: &mut egui::Ui) {
         let mut picked = None;
@@ -3330,7 +3376,7 @@ impl App {
         .response
         .on_hover_text(t!("menu.settings.language.tip"));
         if let Some(tag) = picked {
-            self.set_language(&tag);
+            self.set_language(ui.ctx(), &tag);
             ui.ctx().request_repaint();
         }
     }
@@ -5162,6 +5208,7 @@ impl App {
                         }
                     });
                 } else {
+                    self.class_fab_fields(ui, &class);
                     ui.label(
                         egui::RichText::new(t!(
                             "rules.rules_tab.gap_clearance_mm_wire_width",
@@ -5844,6 +5891,8 @@ impl App {
                 });
             }
         }
+        self.class_pair_section(ui);
+        self.fab_rules_section(ui);
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
@@ -6888,6 +6937,17 @@ impl App {
         self.frames = self.frames.saturating_add(1);
         if self.frames == 3 && self.capture_sheet {
             self.open_sheet(bottom_sheet::SheetTab::Findings);
+        }
+        // A numeric reference names a via by id, so an image can show its protection.
+        if self.frames == 3
+            && let Some(via) = self
+                .capture_select
+                .as_deref()
+                .and_then(|r| r.parse::<Id>().ok())
+                .filter(|id| self.project.board.vias.iter().any(|v| v.id == *id))
+        {
+            self.capture_select = None;
+            self.select(Some(via));
         }
         if self.frames == 3
             && let Some(row) = self

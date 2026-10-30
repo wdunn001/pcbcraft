@@ -1654,6 +1654,47 @@ pub fn via_aspect_warning(project: &Project, via: &pcbcraft_doc::Via) -> Option<
     }
     None
 }
+/// Message for a via that sits inside a pad on an outer face without being
+/// filled and capped (type VII); none when it is capped or not in a pad.
+///
+/// Solder would wick down an open or merely tented barrel and starve the joint,
+/// so a via in a pad must be filled and capped with copper.
+///
+/// # Rules
+/// - A via counts only when its span reaches an outer layer, and is inside the pad when its centre is within the pad outline.
+///
+/// # Dependencies
+/// - crates/doc/src/via_protection.rs `Project::via_protection_type`.
+///
+/// # Do not
+/// - Report a buried via; it never meets a pad.
+pub fn via_in_pad_message(project: &Project, via: &pcbcraft_doc::Via) -> Option<String> {
+    let (upper, lower) = project.via_span(via);
+    let last = project.copper_layer_count().saturating_sub(1);
+    if upper.index() != 0 && lower.index() < last {
+        return None;
+    }
+    if project.via_protection_type(via) == pcbcraft_doc::ViaProtectionType::VII {
+        return None;
+    }
+    for f in &project.board.footprints {
+        for pad in &f.pads {
+            let outline: Vec<Point> = pad
+                .outline_points()
+                .into_iter()
+                .map(|v| f.position.offset(v.rotate(-f.rotation)))
+                .collect();
+            if outline.len() >= 3 && pcbcraft_geom::point_in_polygon(via.position, &outline) {
+                return Some(format!(
+                    "Via at {:.2}, {:.2} sits inside a pad and must be filled and capped (type VII)",
+                    via.position.x, via.position.y
+                ));
+            }
+        }
+    }
+    None
+}
+
 /// Checks on where each via starts and ends in the stack.
 fn via_findings(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
@@ -1673,6 +1714,14 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                     project.layer_name(upper),
                     project.layer_name(lower)
                 ),
+                objects: vec![via.id],
+            });
+        }
+        if let Some(message) = via_in_pad_message(project, via) {
+            result.push(Finding {
+                code: "via_in_pad_not_capped",
+                severity: project.rule_severity("via_in_pad_not_capped", "warning"),
+                message,
                 objects: vec![via.id],
             });
         }
@@ -2136,6 +2185,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -2327,6 +2377,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering: None,
+                covering_bottom: None,
             });
         }
         p.validate()?;
@@ -3086,6 +3137,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -3158,6 +3210,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
@@ -3546,6 +3599,7 @@ mod tests {
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
+            covering_bottom: None,
         });
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {
@@ -3747,6 +3801,7 @@ mod pour_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         p.validate()?;
         let findings = drc(&p);

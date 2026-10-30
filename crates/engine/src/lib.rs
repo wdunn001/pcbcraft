@@ -26,6 +26,7 @@ mod selection_clip;
 mod snapmaker;
 mod summary;
 mod tuning;
+mod via_protection;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -1442,14 +1443,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "via.set_covering",
-            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
-            schema(
-                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
-                &["id"],
-            ),
-        ),
-        (
             "via.allow_span",
             "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
             schema(
@@ -1595,9 +1588,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_layer_record",
-            "Record or replace one physical board layer: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
+            "Record or replace one physical board layer: its name, role (see board.set_layer_record kind list) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":pcbcraft_doc::LAYER_KINDS},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
                 &["name", "kind", "thickness"],
             ),
         ),
@@ -2346,6 +2339,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(via_protection::commands())
         .collect()
 }
 
@@ -5708,13 +5702,6 @@ enum TrackEnd {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ViaCoveringParams {
-    id: Id,
-    #[serde(default)]
-    covering: Option<pcbcraft_doc::ViaCovering>,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ViaCoveringDefaultParams {
     covering: pcbcraft_doc::ViaCovering,
 }
@@ -7578,6 +7565,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = via_protection::run(p, command, params) {
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
@@ -12978,6 +12968,7 @@ fn run_command(
                 from_layer,
                 to_layer,
                 covering: None,
+                covering_bottom: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -13121,6 +13112,7 @@ fn run_command(
                         from_layer: None,
                         to_layer: None,
                         covering: None,
+                        covering_bottom: None,
                     });
                     ids.push(id);
                 }
@@ -14300,16 +14292,7 @@ fn run_command(
             let name = a.name.trim().to_string();
             if name.is_empty()
                 || name.len() > 64
-                || !matches!(
-                    a.kind.as_str(),
-                    "copper"
-                        | "core"
-                        | "prepreg"
-                        | "soldermask"
-                        | "silkscreen"
-                        | "paste"
-                        | "custom"
-                )
+                || !pcbcraft_doc::LAYER_KINDS.contains(&a.kind.as_str())
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
                 || a.material.as_ref().is_some_and(|m| m.len() > 64)
@@ -17902,25 +17885,6 @@ fn run_command(
                 a.mode,
             )
         }
-        "via.set_covering" => {
-            let a: ViaCoveringParams = parse(params)?;
-            let via = p
-                .board
-                .vias
-                .iter_mut()
-                .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            if via.drill <= 0.0
-                && a.covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
-            {
-                return Err(Error::Invalid(
-                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
-                ));
-            }
-            via.covering = a.covering;
-            Ok(json!({"id":a.id,"covering":via.covering}))
-        }
         "board.set_via_covering_default" => {
             let a: ViaCoveringDefaultParams = parse(params)?;
             p.board.via_covering_default = a.covering;
@@ -17946,9 +17910,10 @@ fn run_command(
                 ));
             }
             if drill <= 0.0
-                && via
-                    .covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+                && [via.covering, via.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != pcbcraft_doc::ViaCovering::Open)
             {
                 return Err(Error::Invalid(
                     "a tented, plugged or filled via needs a drilled hole".into(),
