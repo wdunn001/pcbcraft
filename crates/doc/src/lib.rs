@@ -267,11 +267,19 @@ impl Component {
             .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
     }
     /// Value of a named component property, if the component carries it.
+    ///
+    /// Typed source data answers the usual Manufacturer, MPN, Datasheet and
+    /// distributor SKU keys when no free-form field uses that name.
     pub fn field(&self, key: &str) -> Option<&str> {
-        self.fields
+        if let Some(value) = self
+            .fields
             .iter()
             .find(|f| f.key == key)
             .map(|f| f.value.as_str())
+        {
+            return Some(value);
+        }
+        part_source::part_source_field(&self.part_source, key)
     }
     pub fn unit_placement(&self, unit: u32) -> Option<(Point, f64)> {
         if unit == self.library_symbol.as_ref().map(|s| s.unit).unwrap_or(1) {

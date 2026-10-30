@@ -1,4 +1,4 @@
-//! Typed part source fields on components (#324).
+//! Typed part source fields on components.
 use pcbcraft_doc::{Component, Project};
 use serde_json::json;
 
@@ -91,5 +91,21 @@ fn project_migration_lifts_properties() -> T {
     ]}))?);
     p.migrate_component_part_sources();
     assert_eq!(p.components[0].part_source.mpn, "X1");
+    Ok(())
+}
+
+#[test]
+fn typed_part_source_answers_standard_property_names() -> T {
+    let mut c = part(json!({}))?;
+    c.part_source.manufacturer = "Typed Maker".into();
+    c.part_source.mpn = "T-99".into();
+    c.part_source.orderables.push(pcbcraft_doc::SourceOrderable {
+        distributor: "Shop".into(),
+        sku: "SH-1".into(),
+        url: String::new(),
+        stock: String::new(),
+    });
+    assert_eq!(c.field("Manufacturer"), Some("Typed Maker"));
+    assert_eq!(c.field("Shop SKU"), Some("SH-1"));
     Ok(())
 }

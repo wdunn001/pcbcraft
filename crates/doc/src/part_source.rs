@@ -1,4 +1,19 @@
 //! Typed fields for distributor source data on a placed component.
+//!
+//! The engine `part.attach_source` command writes these fields. Projects saved
+//! with Manufacturer, MPN and distributor SKU properties still load because
+//! migration copies empty typed slots from the legacy property names.
+//!
+//! # Rules
+//! - Text lengths and orderable counts match the engine command bounds.
+//! - Legacy properties stay on the component after migration; typed fields win on read.
+//!
+//! # Dependencies
+//! - crates/engine/src/lib.rs (`part.attach_source`).
+//! - crates/io/src/generate.rs `migrate_loaded_project`.
+//!
+//! # Do not
+//! - Store live network credentials here; only catalogue answers belong on the record.
 use serde::{Deserialize, Serialize};
 
 /// Most distributor order lines stored on one component.
@@ -7,9 +22,9 @@ const MAX_TEXT: usize = 256;
 const MAX_DISTRIBUTOR: usize = 48;
 const MAX_URL: usize = 512;
 
+/// One distributor line: SKU, product link and stock note.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// One distributor line: SKU, product link and stock note.
 pub struct SourceOrderable {
     pub distributor: String,
     pub sku: String,
@@ -19,18 +34,18 @@ pub struct SourceOrderable {
     pub stock: String,
 }
 
+/// Datasheet URL and when the source last returned it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Datasheet URL and when the source last returned it.
 pub struct SourceDatasheet {
     pub url: String,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub retrieved_at: u64,
 }
 
+/// Lifecycle text and when it was last checked.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// Lifecycle text and when it was last checked.
 pub struct SourceLifecycle {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub status: String,
@@ -39,6 +54,16 @@ pub struct SourceLifecycle {
 }
 
 /// Manufacturer, orderable lines and freshness from an online part source.
+///
+/// # Rules
+/// - At most `MAX_SOURCE_ORDERABLES` order lines; distributor names are unique per component.
+/// - Datasheet and lifecycle timestamps are Unix seconds from the source answer.
+///
+/// # Dependencies
+/// - crates/library/src/sources.rs `PartResult` (filled by `part.attach_source`).
+///
+/// # Do not
+/// - Treat empty strings as missing typed data during migration; only lift from properties when typed slots are empty.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartSourceRecord {
@@ -103,6 +128,44 @@ impl PartSourceRecord {
             bounded("lifecycle.status", &l.status, MAX_TEXT)?;
         }
         Ok(())
+    }
+}
+
+/// Named property value from typed source data when no free-form field uses that key.
+pub(crate) fn part_source_field<'a>(record: &'a PartSourceRecord, key: &str) -> Option<&'a str> {
+    match key {
+        "Manufacturer" | "manufacturer" if !record.manufacturer.is_empty() => {
+            Some(record.manufacturer.as_str())
+        }
+        "MPN" | "mpn" | "Manufacturer Part Number" if !record.mpn.is_empty() => {
+            Some(record.mpn.as_str())
+        }
+        "Datasheet" | "datasheet" => record
+            .datasheet
+            .as_ref()
+            .map(|d| d.url.as_str())
+            .filter(|u| !u.is_empty()),
+        "Lifecycle" | "lifecycle" => record
+            .lifecycle
+            .as_ref()
+            .map(|l| l.status.as_str())
+            .filter(|s| !s.is_empty()),
+        _ if key.eq_ignore_ascii_case("SKU") => record
+            .orderables
+            .first()
+            .map(|o| o.sku.as_str())
+            .filter(|s| !s.is_empty()),
+        _ => {
+            let suffix = key.strip_suffix(" SKU").or_else(|| key.strip_suffix(" sku"))?;
+            let distributor = suffix.trim();
+            record.orderables.iter().find_map(|o| {
+                if o.distributor.eq_ignore_ascii_case(distributor) && !o.sku.is_empty() {
+                    Some(o.sku.as_str())
+                } else {
+                    None
+                }
+            })
+        }
     }
 }
 

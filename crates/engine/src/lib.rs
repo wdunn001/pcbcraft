@@ -27395,6 +27395,8 @@ mod tests {
         assert_eq!(life.status, "active");
         assert_eq!(life.checked_at, 1_790_000_100);
         assert!(c.fields.is_empty());
+        assert_eq!(c.field("Manufacturer"), Some("Example Components"));
+        assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
         Ok(())
     }
 

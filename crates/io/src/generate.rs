@@ -58,6 +58,7 @@ pub enum GeneratedOutput {
 ///
 /// # Dependencies
 /// - `crates/doc/src/lib.rs` `Project::migrate_output_jobs_to_artifacts`.
+/// - `crates/doc/src/part_source.rs` `Project::migrate_component_part_sources`.
 ///
 /// # Do not
 /// - Call it after validation; `load` runs it before `validate`.
