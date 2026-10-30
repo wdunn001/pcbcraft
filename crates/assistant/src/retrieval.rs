@@ -7,7 +7,7 @@
 //! later POSTs. Replies may be JSON or one SSE `message` event.
 //! Do not: send a key over plain HTTP to a non-loopback host.
 
-use crate::api::{key_safe_for, MAX_TOOL_TEXT};
+use crate::api::{MAX_TOOL_TEXT, key_safe_for};
 use crate::backend::{HttpFn, HttpRequest, HttpResponse, SourceLink};
 use crate::tool_names::to_wire;
 use serde::{Deserialize, Serialize};
@@ -244,7 +244,10 @@ pub fn system_note_offered() -> &'static str {
 }
 
 fn format_outcome(body: &Value) -> SearchOutcome {
-    let failed = body.get("isError").and_then(Value::as_bool).unwrap_or(false);
+    let failed = body
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let raw = tool_text_from_result(body);
     if failed {
         return SearchOutcome {
@@ -542,7 +545,10 @@ mod tests {
         let http: HttpFn = Arc::new(move |req: &HttpRequest| {
             log.fetch_add(1, Ordering::SeqCst);
             let mut guard = lock(&s);
-            let step = guard.first().cloned().ok_or_else(|| "no reply".to_string())?;
+            let step = guard
+                .first()
+                .cloned()
+                .ok_or_else(|| "no reply".to_string())?;
             if guard.len() > 1 {
                 guard.remove(0);
             }
@@ -582,7 +588,8 @@ mod tests {
                 .into_bytes(),
         );
         if let Some(sid) = session_header {
-            h.headers.push(("mcp-session-id".to_string(), sid.to_string()));
+            h.headers
+                .push(("mcp-session-id".to_string(), sid.to_string()));
         }
         h
     }
@@ -590,10 +597,7 @@ mod tests {
     #[test]
     fn tools_list_with_a_prefixed_search_knowledge_tool_is_found_and_offered_as_search_knowledge() {
         let list = json!({"tools":[{"name":"kb__search_knowledge","description":"search"}]});
-        assert_eq!(
-            pick_search_tool(&list),
-            Ok("kb__search_knowledge".into())
-        );
+        assert_eq!(pick_search_tool(&list), Ok("kb__search_knowledge".into()));
         let tool = Retrieval::model_tool(crate::api::Protocol::OpenAi);
         assert_eq!(
             tool.pointer("/function/name").and_then(Value::as_str),

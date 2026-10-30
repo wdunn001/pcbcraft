@@ -26,10 +26,6 @@ pub use backend::{
     PermissionOption, PromptPart, Secrets, SourceLink, StartContext, ToolStatus, base64,
     content_blocks,
 };
-pub use retrieval::{
-    MODEL_TOOL_NAME, RETRIEVAL_KEY_ID, Retrieval, RetrievalConfig, SearchOutcome,
-    append_model_tool, pick_search_tool, register_tool_name, system_note_offered, test_retrieval,
-};
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
 pub use context::{Context, MAX_NOTE, MAX_PICTURE_BYTES, Selection, Sent, note, picture};
 pub use describe::summary_text;
@@ -40,6 +36,10 @@ pub use gate::{
 pub use guard::{Blocked, can_send};
 pub use http::{MAX_BODY, plain_http, plain_request};
 pub use prompt::SYSTEM_NOTE;
+pub use retrieval::{
+    MODEL_TOOL_NAME, RETRIEVAL_KEY_ID, Retrieval, RetrievalConfig, SearchOutcome,
+    append_model_tool, pick_search_tool, register_tool_name, system_note_offered, test_retrieval,
+};
 pub use script::{CountingHttp, ScriptBackend};
 pub use store::{
     clear as clear_transcript, export_markdown, load as load_transcript, save as save_transcript,

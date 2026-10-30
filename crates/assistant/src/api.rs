@@ -365,10 +365,7 @@ impl Worker {
                             .and_then(Value::as_str)
                             .unwrap_or("")
                             .to_string();
-                        let limit = args
-                            .get("limit")
-                            .and_then(Value::as_u64)
-                            .unwrap_or(5) as u32;
+                        let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(5) as u32;
                         let outcome = r.search(&self.http, &query, limit);
                         if !outcome.links.is_empty() {
                             self.emit(Event::Sources(outcome.links));
