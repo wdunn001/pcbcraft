@@ -41,10 +41,14 @@ pub const MAX_CONTAINER_EXPANDED: usize = 512 * 1024 * 1024;
 /// One component in the design tree.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SolidcraftComponent {
+    /// Stable component id.
     pub id: u64,
+    /// Display name.
     pub name: String,
+    /// Parent component id, or zero for the root.
     #[serde(default)]
     pub parent: u64,
+    /// Keys not modeled in this subset.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -52,16 +56,23 @@ pub struct SolidcraftComponent {
 /// One rigid placement of a component.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SolidcraftOccurrence {
+    /// Stable occurrence id.
     pub id: u64,
+    /// Component this occurrence instantiates.
     pub component: u64,
+    /// Parent occurrence id, or zero for the root.
     #[serde(default)]
     pub parent: u64,
+    /// Optional label.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    /// Optional 4x4 transform as JSON numbers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transform: Option<Value>,
+    /// True when the occurrence is fixed in space.
     #[serde(default, skip_serializing_if = "is_false")]
     pub grounded: bool,
+    /// Keys not modeled in this subset.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -73,8 +84,10 @@ fn is_false(v: &bool) -> bool {
 /// Body appearance records keyed by body name.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SolidcraftAppearances {
+    /// Per-body appearance JSON objects.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub bodies: BTreeMap<String, Value>,
+    /// Keys not modeled in this subset.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
@@ -88,27 +101,40 @@ impl SolidcraftAppearances {
 /// The interchange subset held in memory with meshes fully inline.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SolidcraftDesign {
+    /// File format stamp such as `solidcraft/22`.
     pub format: String,
+    /// Design title.
     pub name: String,
+    /// Length unit; only `mm` is accepted on read.
     pub units: String,
+    /// Vendor metadata map; unknown keys are preserved.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, Value>,
+    /// Parameter records not expanded in this subset.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<Value>,
+    /// Feature records, including embedded mesh imports.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<Value>,
+    /// Next id allocator from the source file.
     #[serde(default)]
     pub next_id: u64,
+    /// Component tree nodes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub components: Vec<SolidcraftComponent>,
+    /// Component placements.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub occurrences: Vec<SolidcraftOccurrence>,
+    /// Material definitions referenced by the design.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub user_materials: Vec<Value>,
+    /// Body name to material name map.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub materials: BTreeMap<String, Value>,
+    /// Optional per-body appearance overrides.
     #[serde(default, skip_serializing_if = "SolidcraftAppearances::is_empty")]
     pub appearances: SolidcraftAppearances,
+    /// Top-level keys not modeled in this subset.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
