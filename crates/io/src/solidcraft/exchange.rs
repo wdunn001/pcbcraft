@@ -182,10 +182,8 @@ fn normalize_value(value: &Value) -> Value {
             keys.sort();
             let mut out = serde_json::Map::new();
             for key in keys {
-                out.insert(
-                    key.clone(),
-                    normalize_value(map.get(&key).unwrap_or(&Value::Null)),
-                );
+                let child = map.get(&key).cloned().unwrap_or(Value::Null);
+                out.insert(key.clone(), normalize_value(&child));
             }
             Value::Object(out)
         }
