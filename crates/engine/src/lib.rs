@@ -14,6 +14,7 @@ mod selection_clip;
 mod snapmaker;
 mod summary;
 mod tuning;
+mod track_round;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -1355,6 +1356,21 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"a":id_schema(),"b":id_schema(),"size":{"type":"number","description":"distance cut back from the corner along each segment, millimetres"}}),
                 &["a", "b", "size"],
+            ),
+        ),
+        (
+            "track.round_corners",
+            "Replace sharp corners between joined same-net straight tracks with circular arcs or short chord segments; optional selection, layer and net filters",
+            schema(
+                json!({
+                    "ids":{"type":"array","items":id_schema(),"maxItems":512,"description":"only corners where both tracks are listed; omit for the whole board"},
+                    "radius":{"type":"number","minimum":0,"description":"fillet radius in millimetres; zero uses three times the track width"},
+                    "layer":{"type":"string","maxLength":64,"description":"copper layer name for the current stackup"},
+                    "net":id_schema(),
+                    "style":{"type":"string","enum":["arc","segments"],"description":"arc keeps one curved track; segments replaces the arc with straight chords within tolerance"},
+                    "tolerance":{"type":"number","exclusiveMinimum":0,"description":"maximum chord error for segments style, millimetres; default 0.02"}
+                }),
+                &[],
             ),
         ),
         (
@@ -16705,6 +16721,7 @@ fn run_command(
             });
             Ok(json!({"id": id, "a": a.a, "b": a.b}))
         }
+        "track.round_corners" => track_round::run(p, next, parse(params)?),
         "track.move" => {
             let a: DeltaParams = parse(params)?;
             let track = p
@@ -19300,6 +19317,162 @@ mod tests {
                 .ok_or_else(missing)?
                 .end,
             Point::new(10.0, 10.0)
+        );
+        Ok(())
+    }
+    #[test]
+    fn rounding_a_right_angle_corner_makes_a_quarter_arc() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        let out = s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["rounded"], 1);
+        let arc_track = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.arc.is_some())
+            .ok_or_else(missing)?;
+        let arc = pcbcraft_geom::arc_through(
+            arc_track.start,
+            arc_track.arc.ok_or_else(missing)?,
+            arc_track.end,
+        )
+        .ok_or_else(missing)?;
+        assert!((arc.radius - 2.0).abs() < 1e-9);
+        assert!(
+            (arc.sweep.abs() - std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+            "sweep {}",
+            arc.sweep
+        );
+        Ok(())
+    }
+    #[test]
+    fn short_legs_cap_the_rounding_radius() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":9.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":11.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?;
+        let arc_track = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.arc.is_some())
+            .ok_or_else(missing)?;
+        let arc = pcbcraft_geom::arc_through(
+            arc_track.start,
+            arc_track.arc.ok_or_else(missing)?,
+            arc_track.end,
+        )
+        .ok_or_else(missing)?;
+        assert!((arc.radius - 0.5).abs() < 1e-9);
+        Ok(())
+    }
+    #[test]
+    fn parallel_traces_keep_their_gap_after_rounding() -> Result<(), Error> {
+        let mut s = Session::default();
+        let n1 = s.execute("net.create", json!({"name":"A"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let n2 = s.execute("net.create", json!({"name":"B"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gap = 2.0;
+        for (net, y) in [(n1, 0.0), (n2, gap)] {
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":0.0,"y":y},"end":{"x":10.0,"y":y},"width":0.2}),
+                None,
+            )?;
+            s.execute(
+                "track.add",
+                json!({"net":net,"start":{"x":10.0,"y":y},"end":{"x":10.0,"y":10.0},"width":0.2}),
+                None,
+            )?;
+        }
+        s.execute(
+            "track.round_corners",
+            json!({"radius":1.0,"style":"arc"}),
+            None,
+        )?;
+        let tracks: Vec<_> = s.project.board.tracks.iter().collect();
+        let mut min_gap = f64::INFINITY;
+        for a in tracks.iter().filter(|t| t.net == n1) {
+            for b in tracks.iter().filter(|t| t.net == n2 && t.layer == a.layer && t.id != a.id) {
+                min_gap = min_gap.min(pcbcraft_geom::segment_distance(
+                    a.start, a.end, b.start, b.end,
+                ));
+            }
+        }
+        assert!(
+            min_gap + 1e-6 >= gap - 0.2,
+            "centre gap should stay near {gap}, got {min_gap}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn rounded_tracks_round_trip_through_gerber_with_g75_arcs() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?;
+        let copper = pcbcraft_io::gerber_files(&s.project).map_err(Error::Invalid)?;
+        let front = &copper["pcb-F.Cu.gbr"];
+        assert!(
+            front.contains("G75*"),
+            "curved copper must enable multi-quadrant arcs"
+        );
+        assert!(
+            front.contains("G02*") || front.contains("G03*"),
+            "curved copper must draw an arc command"
         );
         Ok(())
     }
