@@ -204,8 +204,9 @@ fn ring_to_points(ring: &[Point], mirror_x: bool) -> Vec<(f64, f64)> {
 fn close_ring(mut ring: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
     if ring.len() >= 2 {
         let (fx, fy) = ring[0];
-        let (lx, ly) = *ring.last().unwrap();
-        if (fx - lx).abs() > 1e-9 || (fy - ly).abs() > 1e-9 {
+        if let Some(&(lx, ly)) = ring.last()
+            && ((fx - lx).abs() > 1e-9 || (fy - ly).abs() > 1e-9)
+        {
             ring.push((fx, fy));
         }
     }
@@ -381,7 +382,7 @@ pub(crate) fn export_layers_with_cap(
     let mut layers: Vec<LayerFile> = (0..count)
         .map(|_| LayerFile::new(scale, max_ops))
         .collect();
-    let layer_at = |idx: u8| -> &mut LayerFile { &mut layers[idx as usize] };
+    let mut layer_at = |idx: u8| -> &mut LayerFile { &mut layers[idx as usize] };
 
     for idx in 0..count {
         let layer = Layer::from_index(idx)?;
