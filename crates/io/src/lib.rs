@@ -2336,18 +2336,18 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     struct LayerFile {
         apertures: BTreeMap<Ap, u32>,
         body: String,
-        arcs: String,
         ops: usize,
         scale: f64,
+        current: Option<u32>,
     }
     impl LayerFile {
         fn new(scale: f64) -> Self {
             Self {
                 apertures: BTreeMap::new(),
                 body: String::new(),
-                arcs: String::new(),
                 ops: 0,
                 scale,
+                current: None,
             }
         }
         fn code(&mut self, ap: Ap) -> Result<u32, String> {
@@ -2361,13 +2361,20 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             self.apertures.insert(ap, code);
             Ok(code)
         }
+        fn select(&mut self, code: u32) {
+            if self.current != Some(code) {
+                self.body.push_str(&format!("D{code}*\n"));
+                self.current = Some(code);
+            }
+        }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
             self.ops += 1;
             if self.ops > MAX_OPS {
                 return Err("gerber export exceeds the object limit".into());
             }
+            self.select(code);
             self.body.push_str(&format!(
-                "D{code}X{:.6}Y{:.6}D03*\n",
+                "X{:.6}Y{:.6}D03*\n",
                 x * self.scale,
                 y * self.scale
             ));
@@ -2378,7 +2385,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             if self.ops > MAX_OPS {
                 return Err("gerber export exceeds the object limit".into());
             }
-            self.body.push_str(&format!("D{code}D02*\n"));
+            self.select(code);
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
                     "X{:.6}Y{:.6}D0{}*\n",
@@ -2401,7 +2408,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             if self.ops > MAX_OPS {
                 return Err("gerber export exceeds the object limit".into());
             }
-            self.body.push_str(&format!("G36*\nD{code}D02*\n"));
+            self.body.push_str("G36*\n");
+            self.select(code);
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
                     "X{:.6}Y{:.6}D0{}*\n",
@@ -2411,6 +2419,35 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 ));
             }
             self.body.push_str("G37*\n");
+            Ok(())
+        }
+        fn arc_segment(
+            &mut self,
+            code: u32,
+            sx: f64,
+            sy: f64,
+            ex: f64,
+            ey: f64,
+            cx: f64,
+            cy: f64,
+            clockwise: bool,
+        ) -> Result<(), String> {
+            self.ops += 1;
+            if self.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
+            }
+            self.select(code);
+            self.body.push_str("G75*\n");
+            self.body.push_str(&format!(
+                "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}D01*\nG01*\n",
+                sx * self.scale,
+                sy * self.scale,
+                ex * self.scale,
+                ey * self.scale,
+                (cx - sx) * self.scale,
+                (cy - sy) * self.scale,
+                if clockwise { 2 } else { 3 }
+            ));
             Ok(())
         }
         fn finish(&self, _mirror: bool, name: &str, file_function: Option<&str>) -> String {
@@ -2456,7 +2493,6 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             }
             out.push_str("%LPD*%\nG01*\n");
             out.push_str(&self.body);
-            out.push_str(&self.arcs);
             out.push_str("M02*\n");
             out
         }
@@ -2497,10 +2533,6 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
-            file.ops += 1;
-            if file.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
-            }
             let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
             let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
             let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
@@ -2509,16 +2541,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             } else {
                 arc.sweep < 0.0
             };
-            file.body.push_str(&format!(
-                "D{code}D02*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-                sx,
-                sy,
-                ex,
-                ey,
-                cx - sx,
-                cy - sy,
-                if clockwise { 2 } else { 3 }
-            ));
+            file.arc_segment(code, sx, sy, ex, ey, cx, cy, clockwise)?;
         } else {
             file.stroke(
                 code,
@@ -2609,8 +2632,10 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         if outline.ops > MAX_OPS {
             return Err("gerber export exceeds the object limit".into());
         }
-        outline.arcs.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
+        outline.select(edge_code);
+        outline.body.push_str("G75*\n");
+        outline.body.push_str(&format!(
+            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02D01*\nG01*\n",
             (c.center.x - c.radius) * scale,
             c.center.y * scale,
             c.radius * scale,
@@ -8749,8 +8774,9 @@ mod tests {
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02*\n"),
-            "the circular cutout must trace a circle"
+            outline.contains("G75*")
+                && outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02D01*\n"),
+            "the circular cutout must trace a circle with G75"
         );
         let drill = &files["pcb-Plated.drl"];
         assert!(drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nMETRIC,TZ\n"));
@@ -10004,8 +10030,8 @@ mod tests {
         let files = gerber_files(&project)?;
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("G02*") && copper.contains("J-5.250000"),
-            "the gerber draws a clockwise arc to the computed centre"
+            copper.contains("G75*") && copper.contains("J-5.250000") && copper.contains("G01*\n"),
+            "the gerber draws a clockwise arc with G75 and returns to linear mode"
         );
         let drawing = svg(&project, "pcb")?;
         assert!(

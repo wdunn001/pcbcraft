@@ -87,7 +87,10 @@ After an intentional output change, review the diff and re-bless with
 `cargo xtask bless-parity` (or `PCBCRAFT_BLESS=1 cargo test -p pcbcraft-engine
 --test parity`). Never bless in CI; blessing is ignored when `CI` is set.
 
-Gerber and drill output have no goldens yet: the writer is being fixed in #351.
+Gerber fab output is checked in `crates/io/tests/gerber_fab_valid.rs`: every
+`.gbr` layer is read by the `gerber_parser` crate, and golden fixtures under
+`crates/io/tests/fixtures/fab_bundle/` cover each layer type (bless with
+`PCBCRAFT_BLESS=1` after an intentional writer change).
 
 ## Limits
 
