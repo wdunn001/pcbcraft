@@ -11,8 +11,8 @@
 //! `Project::rule_severity`. Errors sort above warnings, warnings above notes;
 //! equal loudness keeps check order.
 
-use pcbcraft_library::FootprintFinding;
 use pcbcraft_library::FindingSeverity;
+use pcbcraft_library::FootprintFinding;
 use serde_json::Value;
 
 /// How loud a finding is. Lower sorts earlier in the list.
@@ -152,9 +152,7 @@ impl FindingSet {
 }
 
 fn string_field(v: &Value, key: &str) -> Option<String> {
-    v.get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
+    v.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
 fn loudness_from_severity(severity: Option<&str>) -> Loudness {
@@ -182,10 +180,13 @@ mod tests {
         let set = FindingSet::build(&checks, &[]);
         assert_eq!(set.rows().len(), 2);
         assert_eq!(set.rows()[0].loudness, Loudness::Error);
-        assert_eq!(set.counts(), Counts {
-            errors: 1,
-            warnings: 1,
-            notes: 0
-        });
+        assert_eq!(
+            set.counts(),
+            Counts {
+                errors: 1,
+                warnings: 1,
+                notes: 0
+            }
+        );
     }
 }

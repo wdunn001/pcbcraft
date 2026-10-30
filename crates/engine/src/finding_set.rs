@@ -137,9 +137,7 @@ mod tests {
     fn load_session(path: &std::path::Path) -> Result<Session, String> {
         let project = pcbcraft_io::load(path).map_err(|e| e.to_string())?;
         let mut session = Session::default();
-        session
-            .replace(project)
-            .map_err(|e| e.to_string())?;
+        session.replace(project).map_err(|e| e.to_string())?;
         Ok(session)
     }
 
@@ -154,21 +152,20 @@ mod tests {
             }
             let before = set.counts().total();
             let target = ["erc", "drc"].iter().find_map(|key| {
-                s.checks().get(*key).and_then(Value::as_array).and_then(|list| {
-                    list.iter().find_map(|f| {
-                        let ids = f.get("objects")?.as_array()?.clone();
-                        let code = f.get("code")?.as_str()?.to_owned();
-                        (!ids.is_empty()).then_some((code, ids))
+                s.checks()
+                    .get(*key)
+                    .and_then(Value::as_array)
+                    .and_then(|list| {
+                        list.iter().find_map(|f| {
+                            let ids = f.get("objects")?.as_array()?.clone();
+                            let code = f.get("code")?.as_str()?.to_owned();
+                            (!ids.is_empty()).then_some((code, ids))
+                        })
                     })
-                })
             });
             if let Some((code, ids)) = target {
-                s.execute(
-                    "rules.exclude",
-                    json!({"code": code, "ids": ids}),
-                    None,
-                )
-                .map_err(|e| e.to_string())?;
+                s.execute("rules.exclude", json!({"code": code, "ids": ids}), None)
+                    .map_err(|e| e.to_string())?;
                 let after = s.finding_set();
                 assert_finding_counts_agree(
                     &s,
