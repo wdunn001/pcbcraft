@@ -1211,6 +1211,39 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     for track in &board.tracks {
         *lengths.entry(track.net).or_insert(0.0) += track.length();
     }
+    let mut via_counts: BTreeMap<Id, (u32, Vec<Id>)> = BTreeMap::new();
+    for via in &board.vias {
+        if via.net == 0 {
+            continue;
+        }
+        let entry = via_counts.entry(via.net).or_insert((0, Vec::new()));
+        entry.0 += 1;
+        entry.1.push(via.id);
+    }
+    for class in &project.net_classes {
+        let Some(limit) = class.max_vias else {
+            continue;
+        };
+        for net in &class.nets {
+            let (count, ids) = via_counts
+                .get(net)
+                .map(|(count, ids)| (*count, ids.clone()))
+                .unwrap_or((0, Vec::new()));
+            if count <= limit {
+                continue;
+            }
+            result.push(Finding {
+                code: "via_count",
+                severity: project.rule_severity("via_count", "error"),
+                message: format!(
+                    "{} has {count} vias, {} allows at most {limit}",
+                    project.net_name(*net),
+                    class.name
+                ),
+                objects: ids,
+            });
+        }
+    }
     for pair in &board.diff_pairs {
         for a in board
             .tracks
@@ -1268,6 +1301,42 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 tolerance
             ),
             objects: vec![pair.net_p, pair.net_n],
+        });
+    }
+    for pair in &board.diff_pairs {
+        if !pair.equal_vias {
+            continue;
+        }
+        let count_p = via_counts
+            .get(&pair.net_p)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        let count_n = via_counts
+            .get(&pair.net_n)
+            .map(|(count, _)| *count)
+            .unwrap_or(0);
+        if count_p == count_n {
+            continue;
+        }
+        let heavier = if count_p > count_n {
+            pair.net_p
+        } else {
+            pair.net_n
+        };
+        let objects = via_counts
+            .get(&heavier)
+            .map(|(_, ids)| ids.clone())
+            .unwrap_or_default();
+        result.push(Finding {
+            code: "diffpair_via_count",
+            severity: project.rule_severity("diffpair_via_count", "error"),
+            message: format!(
+                "{}: {} has {count_p} vias and {} has {count_n}, equal count wanted",
+                pair.name,
+                project.net_name(pair.net_p),
+                project.net_name(pair.net_n)
+            ),
+            objects,
         });
     }
     for group in &board.length_groups {
@@ -1886,7 +1955,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        DiffPair, FabRules, Footprint, Net, NetClass, NoConnectFlag, Pad, PinRef, Track, Via,
+        component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
@@ -3894,6 +3964,123 @@ mod pour_tests {
         let f = fill(&p)?;
         assert!(!f.contains(Point::new(20.0, 20.0)));
         assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
+    }
+
+    fn via_on(p: &mut Project, id: Id, net: Id, x: f64, y: f64) {
+        p.board.vias.push(Via {
+            id,
+            net,
+            position: Point::new(x, y),
+            diameter: 1.0,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+    }
+
+    fn class_with_limit(p: &mut Project, class_id: Id, net: Id, max_vias: u32) -> Result<(), String> {
+        p.net_classes.push(NetClass {
+            id: class_id,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.25,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_stub: None,
+            max_vias: Some(max_vias),
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            nets: vec![net],
+            profile: None,
+        });
+        p.validate()
+    }
+
+    fn via_count_findings(p: &Project) -> Vec<Finding> {
+        drc(p)
+            .into_iter()
+            .filter(|f| f.code == "via_count")
+            .collect()
+    }
+
+    #[test]
+    fn a_class_with_max_vias_zero_reports_via_count_until_the_via_is_removed() -> Result<(), String>
+    {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        class_with_limit(&mut p, 50, 2, 0)?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        p.board.vias.clear();
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
+        let mut p = board();
+        class_with_limit(&mut p, 50, 2, 4)?;
+        for (i, x) in (0..4).map(|i| 10.0 + f64::from(i) * 2.0) {
+            via_on(&mut p, 100 + i, 2, x, 20.0);
+        }
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
+        via_on(&mut p, 200, 2, 30.0, 20.0);
+        p.validate()?;
+        assert_eq!(via_count_findings(&p).len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn a_pair_with_equal_vias_reports_diffpair_via_count_until_counts_match() -> Result<(), String>
+    {
+        let mut p = board();
+        p.nets.push(Net {
+            id: 3,
+            name: "USB_N".into(),
+            ..Default::default()
+        });
+        p.board.diff_pairs.push(DiffPair {
+            id: 60,
+            name: "USB".into(),
+            net_p: 2,
+            net_n: 3,
+            gap: 0.2,
+            length_tolerance: None,
+            equal_vias: true,
+            profile: None,
+        });
+        via_on(&mut p, 101, 2, 12.0, 20.0);
+        via_on(&mut p, 102, 2, 14.0, 20.0);
+        via_on(&mut p, 103, 3, 16.0, 20.0);
+        p.validate()?;
+        let findings: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "diffpair_via_count")
+            .collect();
+        assert_eq!(findings.len(), 1);
+        via_on(&mut p, 104, 3, 18.0, 20.0);
+        p.validate()?;
+        assert!(
+            drc(&p)
+                .iter()
+                .all(|f| f.code != "diffpair_via_count")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn vias_on_a_net_outside_any_class_never_report_via_count() -> Result<(), String> {
+        let mut p = board();
+        via_on(&mut p, 100, 2, 20.0, 20.0);
+        p.validate()?;
+        assert!(via_count_findings(&p).is_empty());
         Ok(())
     }
 }

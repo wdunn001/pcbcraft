@@ -365,6 +365,7 @@ fn find_or_create_class<'a>(
         target_length: None,
         length_tolerance: None,
         max_stub: None,
+        max_vias: None,
         via_diameter: None,
         via_drill: None,
         pair_width: None,
@@ -562,12 +563,18 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                 existing.net_n = net_n;
                 existing.gap = pair.gap;
                 existing.length_tolerance = tolerance;
+                if let Some(equal_vias) = pair.equal_vias {
+                    existing.equal_vias = equal_vias;
+                }
                 existing.profile = Some(profile_id.clone());
             } else if let Some(existing) = pairs.iter_mut().find(|d| d.name == pair.name) {
                 existing.net_p = net_p;
                 existing.net_n = net_n;
                 existing.gap = pair.gap;
                 existing.length_tolerance = tolerance;
+                if let Some(equal_vias) = pair.equal_vias {
+                    existing.equal_vias = equal_vias;
+                }
                 existing.profile = Some(profile_id.clone());
             } else {
                 if pairs.len() >= 64 {
@@ -581,6 +588,7 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                     net_n,
                     gap: pair.gap,
                     length_tolerance: tolerance,
+                    equal_vias: pair.equal_vias.unwrap_or(false),
                     profile: Some(profile_id.clone()),
                 });
             }

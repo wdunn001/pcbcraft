@@ -70,7 +70,7 @@ pub fn tool_list() -> Value {
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
-        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
+        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, per-class via limits, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"dry_run","description":"Preview 1–128 commands on a copy: returns each result and a summary of what would be added, removed, moved or changed. Nothing is applied and the revision does not change","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
@@ -594,12 +594,14 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 9] = [
                     "clearance",
                     "copper_short",
                     "track_width",
                     "stub_length",
                     "unrouted",
+                    "via_count",
+                    "diffpair_via_count",
                     "diffpair_gap",
                     "diffpair_skew",
                 ];
@@ -616,7 +618,7 @@ pub(crate) fn invoke_session(
                     "erc": keep("erc"),
                     "drc": keep("drc"),
                     "airwires": report["airwires"],
-                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
+                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper, per-class via limits and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
                 })));
             }
             report
@@ -1315,6 +1317,58 @@ mod tests {
                 .unwrap_or("")
                 .contains("copper-only"),
             "the quick pass says what it ran"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_only_includes_via_count_findings() -> Result<(), String> {
+        let session = shared(Session::default());
+        let net = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"net.create","params":{"name":"SIG"}}),
+        )
+        .pointer("/structuredContent/result/id")
+        .cloned()
+        .ok_or("missing net id")?;
+        let class = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"netclass.add","params":{"name":"USB","clearance":0.2,"width":0.3,"nets":[net.clone()]}}),
+        )
+        .pointer("/structuredContent/result/id")
+        .cloned()
+        .ok_or("missing class id")?;
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"netclass.via_rules","params":{"class":class,"max_vias":0}}),
+        );
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"via.place","params":{"net":net,"position":{"x":10.0,"y":10.0}}}),
+        );
+        let full = call_tool(&session, "checks", &json!({}))["structuredContent"].clone();
+        assert!(
+            full["drc"]
+                .as_array()
+                .ok_or("missing drc")?
+                .iter()
+                .any(|f| f["code"] == "via_count"),
+            "the full pass reports the via limit"
+        );
+        let quick =
+            call_tool(&session, "checks", &json!({"copper_only": true}))["structuredContent"]
+                .clone();
+        assert!(
+            quick["drc"]
+                .as_array()
+                .ok_or("missing drc")?
+                .iter()
+                .any(|f| f["code"] == "via_count"),
+            "the copper-only pass keeps via_count"
         );
         Ok(())
     }
