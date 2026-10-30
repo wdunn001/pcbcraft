@@ -490,10 +490,7 @@ fn a_newcomer_sets_up_a_four_layer_board_with_the_wizard() -> Result<(), String>
         app.message
     );
     assert!(
-        app.project
-            .net_classes
-            .iter()
-            .any(|c| c.name == "Power")
+        app.project.net_classes.iter().any(|c| c.name == "Power")
             && app.project.net_classes.iter().any(|c| c.name == "Signal"),
         "Power and Signal classes exist"
     );
