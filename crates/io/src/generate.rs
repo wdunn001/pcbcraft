@@ -21,10 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files,
+    gerber_files_with_options, GerberArcOptions, hpgl_plot, hyperlynx_csv, idf_board,
+    ipc356_netlist, ipc2581_text,
+    netlist_text, odb_package, pdf_document, placement_text, plot_csv, postscript, report_text,
+    specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board, PACKAGE_CREATION_DATE,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -127,7 +128,9 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
 fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
-        let files = gerber_files(p)?;
+        let opts = GerberArcOptions::default_for(p, &artifact.settings);
+        let (files, _report) =
+            gerber_files_with_options(p, PACKAGE_CREATION_DATE, opts)?;
         if path == "gerber/" {
             return Ok(GeneratedOutput::Files(files));
         }
