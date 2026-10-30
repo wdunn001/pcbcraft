@@ -5,6 +5,7 @@
 use pcbcraft_io::{kicad_board, read_board_interchange, read_board_interchange_report};
 
 const MODERN: &str = include_str!("fixtures/board_import_modern_6layer.kicad_pcb");
+const MODERN_8: &str = include_str!("fixtures/board_import_modern_8layer.kicad_pcb");
 const ORDINAL: &str = include_str!("fixtures/board_import_ordinal_nets.kicad_pcb");
 
 fn net_names(p: &pcbcraft_doc::Project) -> Vec<String> {
@@ -85,6 +86,61 @@ fn object_ids_are_distinct_and_uuids_are_kept() -> Result<(), String> {
             .any(|n| n.starts_with("(uuid") && n.contains("33333333"))
     });
     assert!(kept, "uuid text stays on the track");
+    Ok(())
+}
+
+#[test]
+#[test]
+fn eight_layer_stackup_keeps_order_names_and_dielectrics() -> Result<(), String> {
+    let p = read_board_interchange(MODERN_8)?;
+    assert_eq!(p.copper_layer_count(), 8);
+    let names: Vec<String> = p.copper_layers().iter().map(|l| p.layer_name(*l)).collect();
+    assert_eq!(
+        names,
+        [
+            "F.Cu", "In1.Cu", "In2.Cu", "In3.Cu", "In4.Cu", "In5.Cu", "In6.Cu", "B.Cu"
+        ]
+    );
+    let core = p
+        .board
+        .layer_records
+        .iter()
+        .find(|r| r.name == "dielectric 6")
+        .ok_or("core row missing")?;
+    assert_eq!(core.kind, "core");
+    assert_eq!(core.dk, Some(4.3));
+    assert!((core.thickness - 0.15).abs() < 1e-9);
+    assert_eq!(p.board.finish, "HASL");
+    let t = p
+        .board
+        .tracks
+        .iter()
+        .find(|t| t.preserved.nodes.iter().any(|n| n.contains("000000000005")))
+        .ok_or("In5 track missing")?;
+    assert_eq!(t.layer.index(), 5);
+    let spans: Vec<(u8, u8)> = p
+        .board
+        .vias
+        .iter()
+        .map(|v| {
+            let (a, b) = p.via_span(v);
+            (a.index(), b.index())
+        })
+        .collect();
+    assert_eq!(spans, [(5, 6), (0, 6)]);
+    Ok(())
+}
+
+#[test]
+fn eight_layer_export_and_reimport_keep_the_counts() -> Result<(), String> {
+    let first = read_board_interchange(MODERN_8)?;
+    let text = kicad_board(&first)?;
+    let (second, report) = read_board_interchange_report(&text)?;
+    assert_eq!(second.copper_layer_count(), 8);
+    assert_eq!(second.board.tracks.len(), first.board.tracks.len());
+    assert_eq!(second.board.vias.len(), first.board.vias.len());
+    assert_eq!(second.nets.len(), first.nets.len());
+    assert!(report.source.layers == 8);
     Ok(())
 }
 
