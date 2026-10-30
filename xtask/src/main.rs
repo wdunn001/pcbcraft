@@ -10,11 +10,15 @@
 //! - docs/ci.md
 //! - xtask/src/doc_check.rs
 //! - xtask/src/tooltips.rs
+//! - xtask/src/i18n.rs
+//! - xtask/src/a11y.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
+mod a11y;
 mod doc_check;
 mod e2e;
+mod i18n;
 mod showcase;
 mod tooltips;
 
@@ -38,6 +42,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
+  a11y         accessibility gate: names, duplicates, target size, keyboard reach, contrast, motion
+  i18n         [--write] localization gate: key parity, placeholders, literals, pseudo-locale, fonts
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
@@ -541,6 +547,8 @@ fn run() -> Result<(), String> {
         "clippy" => clippy()?,
         "test" => test()?,
         "e2e" => e2e()?,
+        "a11y" => a11y_gate()?,
+        "i18n" => i18n_gate(args.get(1..).unwrap_or(&[]))?,
         "wasm" => wasm()?,
         "docs" if args.get(1).map(String::as_str) == Some("check") => {
             doc_check::run(args.get(2..).unwrap_or(&[]))?;
@@ -561,6 +569,48 @@ fn run() -> Result<(), String> {
         _ => return Err(USAGE.into()),
     }
     Ok(())
+}
+
+/// `a11y` runs the accessibility tests of ui-egui and prints the per-screen table.
+fn a11y_gate() -> Result<(), String> {
+    let dir = root()?.join("target").join("a11y");
+    let _ = std::fs::remove_file(dir.join("report.json"));
+    let mut args = vec!["test", "-p", "pcbcraft-ui-egui", "--lib", "--"];
+    args.extend(a11y::FILTERS);
+    let result = run_env(
+        "cargo",
+        &args,
+        &[("PCBCRAFT_A11Y_REPORT", &dir.to_string_lossy())],
+    );
+    if let Ok(report) = std::fs::read_to_string(dir.join("report.json")) {
+        let table = a11y::table(&report)?;
+        println!("{table}");
+        if let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") {
+            let _ = std::fs::write(&path, format!("### Accessibility by screen\n\n{table}\n"));
+        }
+    }
+    result
+}
+
+/// `i18n` runs the text checks of `i18n.rs`, then the pseudo-locale and font tests in ui-egui.
+fn i18n_gate(args: &[String]) -> Result<(), String> {
+    i18n::run(&root()?, args)?;
+    if args.iter().any(|a| a == "--write") {
+        return Ok(());
+    }
+    let report = root()?.join("target").join("i18n");
+    run_env(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "pcbcraft-ui-egui",
+            "--lib",
+            "--",
+            "e2e::i18n::",
+        ],
+        &[("PCBCRAFT_I18N_REPORT", &report.to_string_lossy())],
+    )
 }
 
 /// `strings extract` prints every catalog key with its English text.
@@ -595,6 +645,7 @@ fn strings(mode: Option<&str>) -> Result<(), String> {
                     || !name.ends_with(".txt")
                     || name == "converted-fns.txt"
                     || name == "plural-known.txt"
+                    || name == "i18n-ratchet.txt"
                 {
                     continue;
                 }
