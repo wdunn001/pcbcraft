@@ -305,7 +305,7 @@ impl Project {
         for record in &self.manufacturers {
             record.validate()?;
             let key = normalize_manufacturer_name(&record.name);
-            if key.is_empty() || !keys.insert(key) {
+            if key.is_empty() || !keys.insert(key.clone()) {
                 return Err("manufacturer names must be unique after normalisation".into());
             }
             let mut alias_keys = BTreeSet::new();
