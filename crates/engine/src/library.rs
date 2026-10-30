@@ -350,7 +350,8 @@ fn built_in_roots() -> Vec<PathBuf> {
 }
 pub fn catalog() -> Result<Value, String> {
     let mut out = catalog_paths(paths(), 4096)?;
-    out["configurable_connectors"] = pcbcraft_library::connector_catalog::ConnectorCatalog::summary_json()?;
+    out["configurable_connectors"] =
+        pcbcraft_library::connector_catalog::ConnectorCatalog::summary_json()?;
     Ok(out)
 }
 fn catalog_paths(roots: Vec<PathBuf>, scan_limit: usize) -> Result<Value, String> {
