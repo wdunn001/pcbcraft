@@ -1154,6 +1154,7 @@ check.unrouted = Nicht verbunden
 check.via_aspect_ratio = Via-Seitenverhältnis
 check.via_span_not_allowed = Via-Spanne nicht erlaubt
 check.zone_island = Insel in einer Fläche
+check.zone_island_removed = Insel von Fläche entfernt
 check.zone_unconnected = Fläche nicht verbunden
 checks.measure.track_width_below = Eine dünnere Leitung als
 checks.measure.track_length_above = Eine längere Leitung als

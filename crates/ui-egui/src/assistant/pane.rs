@@ -14,7 +14,7 @@ use pcbcraft_assistant::{Item, StepState};
 pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
     let muted = app.muted();
     egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(16, 12))
+        .inner_margin(egui::Margin::ZERO)
         .show(ui, |ui| {
             header(app, ui);
             if app.assistant.confirm_forget {
