@@ -1529,7 +1529,18 @@ impl App {
         if light {
             preferences.dark = false;
         }
-        browser::apply_recovery(cc.storage, &session);
+        if let Some(text) = cc
+            .storage
+            .and_then(|storage| storage.get_string("recovery"))
+            && text.len() <= pcbcraft_io_limit()
+            && let Ok(project) = serde_json::from_str::<Project>(&text)
+            && project.validate().is_ok()
+            && let Ok(mut current) = session.lock()
+            && current.revision == 0
+            && current.project.components.is_empty()
+        {
+            let _ = current.replace(project);
+        }
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
@@ -1868,22 +1879,6 @@ impl App {
         }
     }
     fn tool_call(&mut self, name: &str, args: Value) -> bool {
-        if self.browser && name == "save" {
-            let path = args
-                .get("path")
-                .and_then(Value::as_str)
-                .unwrap_or(self.path.as_str());
-            match browser::download_project(&self.project, path) {
-                Ok(()) => {
-                    self.message = browser::save_downloaded(path);
-                    return true;
-                }
-                Err(message) => {
-                    self.message = message;
-                    return false;
-                }
-            }
-        }
         if self.browser && browser::needs_desktop(name) {
             self.message = browser::refusal();
             return false;
@@ -7126,20 +7121,12 @@ impl App {
                 trim = self.path.trim()
             ));
             ui.add_space(8.0);
-            if !self.browser {
-                if ui
-                    .button(t!("library.files_tab.library_sources"))
-                    .on_hover_text(t!("library.files_tab.library_sources.tip"))
-                    .clicked()
-                {
-                    self.change_tab(Tab::Libraries);
-                }
-            } else {
-                ui.label(
-                    egui::RichText::new(browser::desktop_only_panel())
-                        .small()
-                        .color(self.muted()),
-                );
+            if ui
+                .button(t!("library.files_tab.library_sources"))
+                .on_hover_text(t!("library.files_tab.library_sources.tip"))
+                .clicked()
+            {
+                self.change_tab(Tab::Libraries);
             }
             ui.add_space(12.0);
             ui.label(

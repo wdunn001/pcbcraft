@@ -2129,10 +2129,8 @@ props.zone.tip = Pour settings and stitching vias for this zone.
 web.needs_webgpu = PCBCraft in the browser needs WebGPU. Try a recent Chrome or Edge, or download the desktop app.
 web.download_desktop = Download the desktop app
 web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
-web.needs_desktop = Open and Export need the desktop app. File > Save downloads a copy; the design is also kept in this browser until you clear site data.
-web.limits = Browser version: edits are kept in this browser until you clear site data. Open, Export, library folders and the assistant need the desktop app; use File > Save to download a copy.
-web.save_downloaded = Downloaded {path} to your computer.
-web.desktop_only_panel = This needs the desktop app; the browser build cannot read folders from your computer.
+web.needs_desktop = Open, Save and Export need the desktop app. In the browser your work stays in this tab only.
+web.limits = Browser version: your work stays in this tab. Open, Save, Export, library folders and the assistant keys need the desktop app.
 # Layers tree: what each row is (hover text on every row of both trees)
 tree.explain.board = The board itself: its outline, its size and the stack of layers it is built from.
 tree.explain.copper_layer = One layer of copper foil. The tracks, pads and pours on it carry the signals.
