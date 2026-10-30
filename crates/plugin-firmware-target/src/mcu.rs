@@ -118,10 +118,7 @@ pub fn validate_mcu_record(record: &McuRecord) -> Result<(), String> {
         }
         if let Some(level) = &pin.boot_level {
             if level != "low" && level != "high" {
-                return Err(format!(
-                    "boot level on {} must be low or high",
-                    pin.name
-                ));
+                return Err(format!("boot level on {} must be low or high", pin.name));
             }
         }
     }

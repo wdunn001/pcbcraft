@@ -21,11 +21,11 @@ pub mod recents;
 pub mod scope;
 pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};
+#[cfg(feature = "plugin-firmware-target")]
+mod firmware_plugin;
 mod route;
 mod selection_clip;
 mod snapmaker;
-#[cfg(feature = "plugin-firmware-target")]
-mod firmware_plugin;
 mod summary;
 mod tuning;
 mod via_protection;

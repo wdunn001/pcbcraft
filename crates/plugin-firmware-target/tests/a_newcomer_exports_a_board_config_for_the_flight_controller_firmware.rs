@@ -47,8 +47,7 @@ fn a_newcomer_exports_a_board_config_for_the_flight_controller_firmware() -> Res
         body.contains("GYRO_1_CS_PIN PA4") && body.contains("FLASH_CS_PIN PB12"),
         "config.h should name gyro and flash pins"
     );
-    let mismatches =
-        firmware_config_compare(&project, "#define GYRO_1_CS_PIN PA5\n")?;
+    let mismatches = firmware_config_compare(&project, "#define GYRO_1_CS_PIN PA5\n")?;
     assert!(
         mismatches.iter().any(|m| m.contains("GYRO_1_CS_PIN")),
         "reverse check should report a swapped gyro chip-select pin"

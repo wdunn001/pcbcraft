@@ -1,7 +1,7 @@
 //! Optional firmware target export plugin (issue #980).
 use super::*;
 use pcbcraft_plugin_firmware_target::{
-    FirmwareTargetPlugin, EXPORT_KIND, firmware_config_compare, firmware_target_files,
+    EXPORT_KIND, FirmwareTargetPlugin, firmware_config_compare, firmware_target_files,
 };
 use pcbcraft_plugin_sdk::ExportPlugin;
 
@@ -17,13 +17,8 @@ pub(super) fn export_kind(kind: &str) -> bool {
     kind == EXPORT_KIND
 }
 
-pub(super) fn export_kind_files(
-    p: &Project,
-    kind: &str,
-) -> Result<Vec<(String, Vec<u8>)>, Error> {
-    PLUGIN
-        .export_files(kind, p)
-        .map_err(Error::Invalid)
+pub(super) fn export_kind_files(p: &Project, kind: &str) -> Result<Vec<(String, Vec<u8>)>, Error> {
+    PLUGIN.export_files(kind, p).map_err(Error::Invalid)
 }
 
 pub(super) fn commands() -> Vec<CommandSpec> {

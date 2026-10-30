@@ -42,7 +42,11 @@ impl ExportPlugin for FirmwareTargetPlugin {
         &EXPORT_KINDS
     }
 
-    fn export_files(&self, kind: &str, project: &Project) -> Result<Vec<(String, Vec<u8>)>, String> {
+    fn export_files(
+        &self,
+        kind: &str,
+        project: &Project,
+    ) -> Result<Vec<(String, Vec<u8>)>, String> {
         if kind != export::EXPORT_KIND {
             return Err(format!("unknown export kind {kind}"));
         }

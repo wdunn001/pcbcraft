@@ -23,5 +23,6 @@ pub struct PluginExportKind {
 pub trait ExportPlugin: Send + Sync {
     fn manifest(&self) -> &PluginManifest;
     fn export_kinds(&self) -> &[PluginExportKind];
-    fn export_files(&self, kind: &str, project: &Project) -> Result<Vec<(String, Vec<u8>)>, String>;
+    fn export_files(&self, kind: &str, project: &Project)
+    -> Result<Vec<(String, Vec<u8>)>, String>;
 }

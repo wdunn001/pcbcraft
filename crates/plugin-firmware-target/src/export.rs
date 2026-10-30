@@ -105,7 +105,10 @@ fn board_manifest_json(ctx: &FirmwareContext) -> Result<String, String> {
 }
 
 /// Compare an existing config.h pin map with the schematic firmware design.
-pub fn firmware_config_compare(project: &Project, config_text: &str) -> Result<Vec<String>, String> {
+pub fn firmware_config_compare(
+    project: &Project,
+    config_text: &str,
+) -> Result<Vec<String>, String> {
     let ctx = load_firmware_context(project)?;
     let parsed = parse_defines(config_text);
     let mut mismatches = vec![];
@@ -147,10 +150,7 @@ fn parse_defines(text: &str) -> BTreeMap<String, String> {
             }
             continue;
         };
-        out.insert(
-            name.to_string(),
-            value.trim_matches('"').trim().to_string(),
-        );
+        out.insert(name.to_string(), value.trim_matches('"').trim().to_string());
     }
     out
 }
