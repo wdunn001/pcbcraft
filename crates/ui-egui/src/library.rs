@@ -522,6 +522,7 @@ impl App {
         let (center, extent) = library_paths_extent(&paths);
         let camera = Camera {
             mirror: false,
+            turns: 0,
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
                 .min(150.0 / extent.y as f32)
