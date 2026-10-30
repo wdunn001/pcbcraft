@@ -12,7 +12,7 @@ fn row(name: &str, kind: &str, thickness: f64) -> LayerRecord {
 }
 
 #[test]
-fn the_stackup_sheet_lists_the_new_rows_and_the_copper_they_cover() {
+fn the_stackup_sheet_lists_the_new_rows_and_the_copper_they_cover() -> Result<(), String> {
     let mut p = Project::default();
     p.board.layer_records = vec![
         row("F.Mask", "soldermask", 0.02),
@@ -26,8 +26,8 @@ fn the_stackup_sheet_lists_the_new_rows_and_the_copper_they_cover() {
         row("B.Peel", "peelable_mask", 0.01),
         row("B.Paste", "paste", 0.01),
     ];
-    p.validate().expect("fixture validates");
-    let text = stackup_text(&p).expect("stackup export");
+    p.validate()?;
+    let text = stackup_text(&p)?;
     assert!(
         text.contains("Flex adhesive,adhesive,0.025,")
             && text.contains("Stiffener,stiffener,0.500,")
@@ -45,4 +45,5 @@ fn the_stackup_sheet_lists_the_new_rows_and_the_copper_they_cover() {
         !text.contains("Core,core,1.200,F.") && !text.contains("Stiffener,stiffener,0.500,F."),
         "dielectric and stiffener rows leave ON_COPPER blank"
     );
+    Ok(())
 }
