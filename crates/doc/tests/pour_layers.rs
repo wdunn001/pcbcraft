@@ -42,6 +42,7 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
         from_layer: from.map(layer).transpose()?,
         to_layer: to.map(layer).transpose()?,
         covering: None,
+        preserved: pcbcraft_doc::PreservedSource::default(),
     })
 }
 
@@ -82,6 +83,7 @@ fn part(id: Id, net: Id, x: f64, thru: bool, side: Option<Layer>) -> Footprint {
             castellated: None,
             geometry: Some(geometry),
         }],
+        preserved: pcbcraft_doc::PreservedSource::default(),
     }
 }
 
@@ -100,6 +102,7 @@ fn square(id: Id, net: Id, index: u8) -> Result<CopperZone, String> {
         cutouts: vec![],
         filled: true,
         kind: None,
+        preserved: pcbcraft_doc::PreservedSource::default(),
         pour: None,
     })
 }

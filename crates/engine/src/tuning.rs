@@ -508,7 +508,9 @@ fn build_tracks(path: &[Seg], original: &Track, probe: &mut Id) -> Result<Vec<Tr
             width: original.width,
             layer: original.layer,
             arc,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
     }
     Ok(out)
 }

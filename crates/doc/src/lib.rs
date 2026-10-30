@@ -6753,6 +6753,7 @@ mod via_covering_tests {
             from_layer: None,
             to_layer: None,
             covering,
+            preserved: PreservedSource::default(),
         });
         p
     }

@@ -1050,7 +1050,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.board.holes.push(Hole {
             id: 2,
             position: Point::new(20.0, 15.0),

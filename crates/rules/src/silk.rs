@@ -254,7 +254,9 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
     fn add_silk_line(p: &mut Project, y: f64) {

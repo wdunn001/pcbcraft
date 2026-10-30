@@ -562,7 +562,9 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![pad(pad_kind.0, pad_kind.1)],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
     }
 
     /// Flip a placed part to the bottom the way the `footprint.flip` command

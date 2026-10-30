@@ -970,7 +970,9 @@ mod tests {
             locked: None,
             side: None,
             pads: front_pads.iter().map(placed).collect(),
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.board.footprints.push(Footprint {
             id: 4,
             component: 3,
@@ -979,7 +981,9 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![placed(&through_pad())],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         front.id = 1;
         through.id = 3;
         project.components.push(front);
@@ -993,7 +997,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
             text: "R1".into(),
@@ -1251,7 +1257,9 @@ mod tests {
             locked: None,
             side: None,
             pads: vec![],
-        };
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+};
         assert!(!pad_on_side(&footprint, &placed, Layer::Front));
         assert!(pad_on_side(&footprint, &placed, Layer::Back));
         let opening = pad_opening(&footprint, &placed, MASK_RULE, true)?;

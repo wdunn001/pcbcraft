@@ -43,7 +43,9 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         width: 0.25,
         layer: pcbcraft_doc::Layer::Front,
         arc: None,
-    });
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+});
     project.board.vias.push(pcbcraft_doc::Via {
         id: 3,
         net: 1,
@@ -53,7 +55,9 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         from_layer: None,
         to_layer: None,
         covering: None,
-    });
+    
+        preserved: pcbcraft_doc::PreservedSource::default(),
+});
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;
     let front = &files["pcb-F.Cu.gbr"];

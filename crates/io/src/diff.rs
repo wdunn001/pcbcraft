@@ -741,7 +741,9 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
 

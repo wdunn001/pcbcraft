@@ -7126,7 +7126,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 502,
             position: Point::new(5.0, 5.0),
@@ -7141,7 +7143,9 @@ mod tests {
             width: 0.15,
             layer: pcbcraft_doc::Layer::Front,
             arc: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project
     }
     #[test]
@@ -8879,7 +8883,9 @@ mod tests {
             width: 0.3,
             layer: pcbcraft_doc::Layer::Back,
             arc: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
             net: 8,
@@ -8889,7 +8895,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.validate()?;
         let files = gerber_files(&project)?;
         for (name, text) in &files {
@@ -12566,7 +12574,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
             position: Point::new(15.0, 5.0),
@@ -12599,7 +12609,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.board.holes.push(pcbcraft_doc::Hole {
             id: 2,
             position: Point::new(15.0, 5.0),
@@ -13056,7 +13068,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(smd),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project.validate()?;
         let files = gerber_files(&project)?;
         assert!(files["pcb-F.Mask.gbr"].contains("%TF.FileFunction,Soldermask,Top*%"));
@@ -13142,6 +13156,7 @@ mod tests {
             from_layer: from.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| pcbcraft_doc::Layer::from_index(i).ok()),
             covering: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         };
         project.board.vias.push(via(10, 5.0, None, None));
         project.board.vias.push(via(11, 7.0, None, Some(1)));
@@ -13280,6 +13295,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering,
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
         }
         project.validate()?;
@@ -13389,7 +13405,9 @@ mod tests {
             filled: true,
             kind: None,
             pour: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.validate()?;
         Ok(p)
     }
@@ -13479,7 +13497,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(g),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.validate()?;
         let front = front_copper(&p)?;
         // Four spokes cut the gap ring round the pad into four separate holes.

@@ -154,6 +154,7 @@ mod tests {
             locked: None,
             side: None,
             pads,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p
     }
@@ -167,6 +168,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         }
     }
     fn overlaps(p: &Project) -> Vec<Finding> {

@@ -307,7 +307,9 @@ mod tests {
             width: 0.25,
             layer: Layer::Front,
             arc: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         // A plated via puts a plated drill file in the package.
         project.board.vias.push(pcbcraft_doc::Via {
             id: 4,
@@ -318,7 +320,9 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         project
     }
 

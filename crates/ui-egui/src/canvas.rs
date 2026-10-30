@@ -2588,6 +2588,7 @@ mod library_render_tests {
                 castellated: None,
                 geometry: None,
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
         let mut app = App::create(shared, Preferences::default(), None, None);

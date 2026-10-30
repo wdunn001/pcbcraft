@@ -1826,7 +1826,9 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                 code: "aspect_ratio",
                 severity: project.rule_severity("aspect_ratio", "error"),
                 message: format!(
-                    "Board {:.3} mm thick over {:.3} mm drill exceeds {:.1}:1",
+                    "Board {:.3
+preserved: pcbcraft_doc::PreservedSource::default(),
+} mm thick over {:.3} mm drill exceeds {:.1}:1",
                     board.thickness, smallest, max_ratio
                 ),
                 objects: vec![],
@@ -3573,6 +3575,7 @@ mod tests {
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {
@@ -3584,6 +3587,7 @@ mod tests {
             width: 0.25,
             layer: Layer::from_index(layer).unwrap_or(Layer::Front),
             arc: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     #[test]
@@ -3683,7 +3687,9 @@ mod pour_tests {
             filled: true,
             kind: None,
             pour: None,
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
     /// A plated through-hole pad on ground at the given spot.
@@ -3741,6 +3747,7 @@ mod pour_tests {
                 castellated: None,
                 geometry: Some(g),
             }],
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
     }
     fn track(id: Id, net: Id, layer: Layer, a: (f64, f64), b: (f64, f64), width: f64) -> Track {
@@ -3752,6 +3759,7 @@ mod pour_tests {
             width,
             layer,
             arc: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         }
     }
     fn codes(p: &Project) -> Vec<&'static str> {
@@ -3774,6 +3782,7 @@ mod pour_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            preserved: pcbcraft_doc::PreservedSource::default(),
         });
         p.validate()?;
         let findings = drc(&p);
