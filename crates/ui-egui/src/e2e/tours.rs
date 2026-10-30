@@ -1,7 +1,7 @@
 //! Help > Tours lists every shipped tour by its catalog title.
 
-use super::support::*;
 use super::super::authoring;
+use super::support::*;
 
 #[test]
 fn a_newcomer_opens_Help_Tours_and_sees_every_tour_listed() -> Result<(), String> {

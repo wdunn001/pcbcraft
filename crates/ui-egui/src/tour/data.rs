@@ -3,7 +3,7 @@
 //! Files live in `crates/text/tours/` beside `strings/`. Step words are catalog
 //! keys; the TOML carries ids, anchors, placement and optional wait rules only.
 
-use pcbcraft_text::{valid_key, ENGLISH};
+use pcbcraft_text::{ENGLISH, valid_key};
 use serde::Deserialize;
 use std::collections::{BTreeSet, HashSet};
 
@@ -357,10 +357,7 @@ placement = "auto"
 
     #[test]
     fn duplicate_step_ids_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace(
-            "id = \"three\"",
-            "id = \"two\"",
-        );
+        let text = good_tour_toml().replace("id = \"three\"", "id = \"two\"");
         let doc = parse_toml(&text)?;
         let err = validate_fixture(&doc).expect_err("duplicate step");
         assert!(
@@ -372,10 +369,7 @@ placement = "auto"
 
     #[test]
     fn missing_string_keys_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace(
-            "menu.help.shortcuts",
-            "tour.no.such.title",
-        );
+        let text = good_tour_toml().replace("menu.help.shortcuts", "tour.no.such.title");
         let doc = parse_toml(&text)?;
         let err = validate_fixture(&doc).expect_err("missing key");
         assert!(
@@ -387,10 +381,7 @@ placement = "auto"
 
     #[test]
     fn missing_tip_keys_are_rejected() -> Result<(), String> {
-        let text = good_tour_toml().replace(
-            "menu.help.shortcuts",
-            "menu.help",
-        );
+        let text = good_tour_toml().replace("menu.help.shortcuts", "menu.help");
         let doc = parse_toml(&text)?;
         let err = validate_fixture(&doc).expect_err("missing tip");
         assert!(
