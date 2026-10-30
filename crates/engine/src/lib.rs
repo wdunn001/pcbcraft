@@ -8213,31 +8213,34 @@ fn run_command(
             bounded("datasheet", &a.datasheet, 256)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            let mut written: Vec<String> = vec![];
-            let mut put = |key: String, value: &str| -> Result<(), Error> {
-                if value.is_empty() {
-                    return Ok(());
-                }
-                set_component_field(component, &key, Some(value))?;
-                written.push(key);
-                Ok(())
-            };
-            put("Manufacturer".into(), a.manufacturer.trim())?;
-            put("MPN".into(), a.mpn.trim())?;
-            put("Datasheet".into(), &a.datasheet)?;
-            if !a.sku.is_empty() {
-                let key = if a.distributor.trim().is_empty() {
-                    "SKU".to_string()
-                } else {
-                    format!("{} SKU", a.distributor.trim())
+            let written = {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                let mut written: Vec<String> = vec![];
+                let mut put = |key: String, value: &str| -> Result<(), Error> {
+                    if value.is_empty() {
+                        return Ok(());
+                    }
+                    set_component_field(component, &key, Some(value))?;
+                    written.push(key);
+                    Ok(())
                 };
-                put(key, &a.sku)?;
-            }
+                put("Manufacturer".into(), a.manufacturer.trim())?;
+                put("MPN".into(), a.mpn.trim())?;
+                put("Datasheet".into(), &a.datasheet)?;
+                if !a.sku.is_empty() {
+                    let key = if a.distributor.trim().is_empty() {
+                        "SKU".to_string()
+                    } else {
+                        format!("{} SKU", a.distributor.trim())
+                    };
+                    put(key, &a.sku)?;
+                }
+                written
+            };
             let records = part_records::attach_source_records(
                 p,
                 a.id,
@@ -8264,12 +8267,14 @@ fn run_command(
                 .find(|o| o.id == a.orderable_id)
                 .ok_or_else(|| Error::Invalid("no such orderable part record".into()))?
                 .clone();
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            part_records::apply_orderable_fields(component, &orderable)?;
+            {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                part_records::apply_orderable_fields(component, &orderable)?;
+            }
             p.part_links.insert(
                 a.id,
                 PlacedPartLink {
@@ -8285,12 +8290,14 @@ fn run_command(
         }
         "part.make_generic" => {
             let a: IdParams = parse(params)?;
-            let component = p
-                .components
-                .iter_mut()
-                .find(|c| c.id == a.id)
-                .ok_or_else(missing)?;
-            part_records::clear_orderable_fields(component)?;
+            {
+                let component = p
+                    .components
+                    .iter_mut()
+                    .find(|c| c.id == a.id)
+                    .ok_or_else(missing)?;
+                part_records::clear_orderable_fields(component)?;
+            }
             if let Some(link) = p.part_links.get_mut(&a.id) {
                 link.orderable_part_id = None;
             }

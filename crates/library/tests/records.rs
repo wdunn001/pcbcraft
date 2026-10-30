@@ -54,5 +54,5 @@ fn project_library_store_validates_cross_references() {
         &component.id,
         provenance_from_listing(&listing, 1),
     );
-    validate_store(&[component], &[orderable]).expect("valid store");
+    assert!(validate_store(&[component], &[orderable]).is_ok());
 }
