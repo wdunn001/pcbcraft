@@ -2,7 +2,7 @@
 
 | Component | Source | Revision / license | Use |
 |---|---|---|---|
-| ipc2581 | https://crates.io/crates/ipc2581 | 0.3.3; IPC-2581C schema and conformance fixtures ship with the crate | Dev dependency for IPC-2581 export schema validation in `crates/io/tests` |
+| ipc2581 | https://github.com/diodeinc/pcb | 0.3.3; MIT OR Apache-2.0 | Dev dependency: IPC-2581C XSD validation in `crates/io/tests`; schema file IPC-2581C.xsd ships in the crate |
 | craft-ui | https://github.com/storytold/craft-libs | 1aa81a773aa9198a0e4c0daeda954d622475af38; MIT OR Apache-2.0 | Shared egui tab and widget components, Cargo dependency |
 | SolidCraft architecture | https://github.com/bherbruck/solidcraft | README / AGENTS consulted; MIT OR Apache-2.0 | Architectural reference; no implementation copied |
 | SolidCraft agent chat backend | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/backend.rs` |
