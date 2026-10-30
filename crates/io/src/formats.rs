@@ -378,6 +378,14 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Fabrication,
         Run::Kind("ipc356"),
     ),
+    output(
+        "firmware_target",
+        "Flight controller target",
+        "Betaflight-style config.h and a board manifest from the firmware pin map.",
+        &["h", "json"],
+        Group::Exchange,
+        Run::Kind("firmware_target"),
+    ),
     common(output(
         "pdf",
         "Drawing (PDF)",

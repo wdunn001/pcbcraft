@@ -2290,6 +2290,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({"id":{"type":"integer","minimum":1}}), &[]),
         ),
         (
+            "firmware.config.compare",
+            "Compare an existing flight-controller config.h pin map with the firmware design attached to the project; read-only",
+            schema(
+                json!({"config":{"type":"string","minLength":1,"maxLength":262144,"description":"full config.h text to compare"}}),
+                &["config"],
+            ),
+        ),
+        (
             "cam.isolation",
             "Generate isolation milling G-code for one copper side without editing the project; returns named file bodies and a time estimate",
             schema(
@@ -2390,7 +2398,11 @@ impl Session {
         }
         if commands
             .iter()
-            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
+            .all(|c| {
+                c.command == "cam.isolation"
+                    || c.command == "firmware.config.compare"
+                    || snapmaker::handles(&c.command)
+            })
         {
             let mut results = vec![];
             for command in commands {
@@ -2535,7 +2547,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"peripheral":pcbcraft_rules::peripheral(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2790,6 +2802,11 @@ fn render_kind(
             skipped.extend(plots.skipped);
         }
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
+        "firmware_target" => {
+            for (name, bytes) in pcbcraft_io::firmware_target_files(p).map_err(Error::Invalid)? {
+                out.push((name, bytes));
+            }
+        }
         other => {
             return Err(Error::Invalid(format!("unknown export kind {other}")));
         }
@@ -7126,9 +7143,24 @@ fn run(
     }
     Ok(result)
 }
+fn firmware_config_compare(p: &Project, params: &Value) -> Result<Value, String> {
+    let text = params
+        .get("config")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "config must hold the config.h text".to_string())?;
+    if text.len() > 262_144 {
+        return Err("config text is too long".into());
+    }
+    let mismatches = pcbcraft_io::firmware_config_compare(p, text)?;
+    Ok(json!({"mismatches": mismatches, "count": mismatches.len()}))
+}
+
 fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
+        "firmware.config.compare" => {
+            firmware_config_compare(p, params).map_err(Error::Invalid)
+        }
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
@@ -7229,7 +7261,10 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation" || snapmaker::handles(command) {
+    if command == "cam.isolation"
+        || command == "firmware.config.compare"
+        || snapmaker::handles(command)
+    {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {

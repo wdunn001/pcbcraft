@@ -11,6 +11,7 @@ mod board_mesh;
 mod diff;
 mod drawn;
 mod fab_export;
+mod firmware_target;
 pub mod formats;
 mod generate;
 mod gerber;
@@ -2710,6 +2711,7 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
 }
 
 pub use fab_export::via_mask_opening;
+pub use firmware_target::{firmware_config_compare, firmware_target_files};
 /// Bill of materials as CSV: identical parts collapsed into one row with a
 /// sorted, quoted reference list. Requested property keys become extra
 /// columns; with no request, the columns the project itself defines are

@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
 mod drill;
+mod peripheral;
 mod silk;
 mod stub;
 
@@ -664,6 +665,11 @@ fn airwires_from(items: &[Copper]) -> Vec<Airwire> {
 }
 pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
+}
+
+/// MCU peripheral and pin-mux conflict checks when a firmware design is attached.
+pub fn peripheral(project: &Project) -> Vec<Finding> {
+    peripheral::peripheral(project)
 }
 
 pub fn erc(project: &Project) -> Vec<Finding> {
