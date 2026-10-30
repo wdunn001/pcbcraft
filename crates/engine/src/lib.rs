@@ -8,6 +8,7 @@ mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod source_cache;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
