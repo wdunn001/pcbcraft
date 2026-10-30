@@ -7,7 +7,7 @@ fn part(id: u64, reference: &str, fields: &[(&str, &str)]) -> Component {
         id,
         reference: reference.into(),
         value: "part".into(),
-        kind: "passive".into(),
+        kind: "resistor".into(),
         position: pcbcraft_geom::Point::new(0.0, 0.0),
         rotation: 0.0,
         pins: vec![],

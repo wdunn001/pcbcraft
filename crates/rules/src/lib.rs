@@ -8,6 +8,7 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Regulatory compliance rule sets and BOM summaries.
 pub mod compliance;
 mod courtyard;
 mod drill;

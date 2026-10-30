@@ -46,6 +46,7 @@ pub fn control_rank(eccn: &str) -> Option<u32> {
     Some(rank.saturating_add(10))
 }
 
+/// Pick the highest-control ECCN string and count unknown or empty declarations.
 pub fn highest_eccn<'a>(codes: impl IntoIterator<Item = &'a str>) -> (Option<String>, usize) {
     let mut best: Option<(u32, String)> = None;
     let mut unknown = 0usize;
