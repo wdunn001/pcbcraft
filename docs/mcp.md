@@ -117,6 +117,11 @@ declared differential pair, optional `width`, and `layer` (default `F.Cu`). Opti
 `mode` is `octilinear` (default, 45 degree coupled corners) or `orthogonal` (right
 angles). It routes both nets side by side at the declared pair gap and refuses when
 the gap cannot be kept.
+
+`track.tune_skew` takes a differential pair `id` or `name`, optional `layer`
+(default `F.Cu`), and a declared `length_tolerance` on the pair. It serpentines
+the shorter net until skew is within tolerance, in one undo step.
+
 `track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
 optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
 put and the track is re-laid as 45-degree copper around pads, cutouts and other
