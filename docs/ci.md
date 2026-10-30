@@ -88,7 +88,7 @@ Push a tag `vX.Y.Z` (or `vX.Y.Z-rc.1`) that matches the workspace version in
 Cargo.toml. The workflow builds, from clean state:
 
 - `pcbcraft-<tag>-linux-x86_64.tar.gz` and `-linux-aarch64.tar.gz`
-- `pcbcraft-<tag>-windows-x86_64.zip`
+- `pcbcraft-<tag>-windows-x86_64.msi`, `-windows-x86_64-portable.zip`, standalone `PCBCraft-<tag>-windows-x86_64.exe`, and legacy `-windows-x86_64.zip` (loose exes)
 - `pcbcraft-<tag>-macos-universal.tar.gz` and `.dmg` (Apple silicon and Intel)
 - `pcbcraft-<tag>-web.zip` (trunk build of apps/pcbcraft-web)
 - `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete corresponding source, GPL-3.0)
@@ -99,8 +99,25 @@ it by hand; nothing publishes automatically. Release notes list commit subjects
 since the previous tag.
 
 The nightly and release workflows share `build-dist.yml`, so a nightly run
-proves the release packaging works. Packaging logic is in
-`.github/scripts/package.sh`.
+proves the release packaging works. Linux packaging is in `packaging/linux/package.sh`;
+macOS and the legacy Windows zip use `.github/scripts/package.sh`. Windows MSI and
+portable zip use `packaging/windows/package.ps1` with WiX sources in
+`assets/platforms/windows/`.
+
+### Windows MSI locally (maintainers)
+
+On Windows x86_64 with Rust (MSVC toolchain) and the .NET SDK:
+
+```powershell
+dotnet tool install --global wix --version 5.0.2
+wix extension add -g WixToolset.UI.wixext/5.0.2 WixToolset.Util.wixext/5.0.2
+bash packaging/windows/make-icon.sh icons
+# or use committed assets/brand/generated/windows/pcbcraft.ico
+pwsh packaging/windows/package.ps1
+```
+
+Outputs land in `dist/`. Installers are unsigned until code signing lands (#297); Windows
+SmartScreen may warn on first run.
 
 ## Security posture
 
@@ -125,7 +142,7 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 ## Open decisions for the maintainers
 
-- Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
-- Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
+- Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries and the Windows MSI are unsigned until then; macOS users must open the app via right-click, and Windows may show SmartScreen on first launch.
+- Package formats: Linux AppImage, deb, rpm, Flatpak, and Snap ship from CI; Windows MSI and portable zip ship from CI. Other formats remain open.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
 - Marking `CI result` as a required check in branch protection.

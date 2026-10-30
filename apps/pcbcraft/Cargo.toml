@@ -20,5 +20,8 @@ pcbcraft-library.workspace = true
 ureq = { version = "2", default-features = false, features = ["tls"] }
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
 
+[build-dependencies]
+embed-resource = "3.0.12"
+
 [dev-dependencies]
 tempfile.workspace = true
