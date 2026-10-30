@@ -5,7 +5,9 @@
 //! - Every input is bounded by [`SeriesLimits`]; unknown field tokens and overlong strings are rejected.
 //!
 //! # Dependencies
-//! - crates/library/data/connectors/*.toml
+//! - crates/library/data/connectors/tsw.toml
+//! - crates/library/data/connectors/ssw.toml
+//! - crates/library/data/connectors/bth.toml
 //! - crates/library/src/lib.rs
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -19,8 +21,11 @@ const SEP: char = '-';
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SeriesLimits {
+    /// Maximum accepted length of the full part-number string.
     pub max_input_len: usize,
+    /// Smallest positions-per-row count allowed in the pitch segment.
     pub min_positions_per_row: u32,
+    /// Largest positions-per-row count allowed in the pitch segment.
     pub max_positions_per_row: u32,
 }
 
@@ -28,8 +33,11 @@ pub struct SeriesLimits {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldValue {
+    /// Token that appears in the part number for this choice.
     pub code: String,
+    /// Short human label for UI or error text.
     pub label: String,
+    /// Optional structured meaning (for example a tail length in millimetres).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meaning: Option<toml::Value>,
 }
@@ -38,15 +46,22 @@ pub struct FieldValue {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FieldKind {
+    /// Fixed text segment (typically the series prefix).
     Literal {
+        /// Exact characters for this segment.
         text: String,
     },
+    /// Three-digit pitch and positions segment (`1NN` or `2NN`).
     PitchPositions,
+    /// Required segment chosen from a closed code list.
     Enum {
+        /// Allowed codes for this segment.
         #[serde(default)]
         values: Vec<FieldValue>,
     },
+    /// Optional trailing segment; omitted on build when not supplied.
     OptionalEnum {
+        /// Allowed codes when the segment is present.
         #[serde(default)]
         values: Vec<FieldValue>,
     },
@@ -56,8 +71,11 @@ pub enum FieldKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FieldSpec {
+    /// Stable key used in [`BuildOptions`] and [`ParsedPart::values`].
     pub id: String,
+    /// Human-readable name shown in validation errors.
     pub label: String,
+    /// Encoding for this hyphen-separated segment.
     #[serde(flatten)]
     pub kind: FieldKind,
 }
@@ -66,8 +84,11 @@ pub struct FieldSpec {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Constraint {
+    /// Multi-row parts must have an even total pin count.
     EvenTotalPositions {
+        /// Field id for the row code (for example single vs double row).
         row_field: String,
+        /// Field id for the pitch and positions segment.
         positions_field: String,
     },
 }
@@ -80,38 +101,58 @@ pub enum Constraint {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SeriesSpec {
+    /// Short series key (for example `tsw`).
     pub id: String,
+    /// Prefix that starts every part number in this series.
     pub prefix: String,
+    /// Manufacturer name from the public series page.
     pub manufacturer: String,
+    /// One-line description of the connector family.
     pub description: String,
+    /// Bounds applied while parsing and building.
     pub limits: SeriesLimits,
+    /// Ordered field layout for this series.
     pub fields: Vec<FieldSpec>,
+    /// Cross-field rules evaluated after all segments are known.
     #[serde(default)]
     pub constraints: Vec<Constraint>,
 }
 
 /// Canonical part number string.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct PartNumber(pub String);
+pub struct PartNumber(
+    /// Full manufacturer part number text.
+    pub String,
+);
 
 /// Field values extracted from a part number or chosen for a build.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ParsedPart {
+    /// Series id from the matched [`SeriesSpec`].
     pub series_id: String,
+    /// Field id to segment token for every segment consumed so far.
     pub values: BTreeMap<String, String>,
+    /// Original input text (trimmed).
     pub text: String,
+    /// True when the string parsed with no trailing text and constraints passed.
     pub complete: bool,
 }
 
 /// Options keyed by [`FieldSpec::id`] for [`build`].
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct BuildOptions(pub BTreeMap<String, String>);
+pub struct BuildOptions(
+    /// Field id to chosen segment token.
+    pub BTreeMap<String, String>,
+);
 
 /// Validation failure for one field.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FieldError {
+    /// Field id where validation failed.
     pub field: String,
+    /// Short explanation suitable for UI copy.
     pub message: String,
+    /// Allowed codes or ranges for this field, when known.
     pub valid_values: Vec<String>,
 }
 
@@ -125,17 +166,21 @@ impl FieldError {
     }
 }
 
-/// Embedded first-slice series tables (TSW, SSW, BTH).
-pub fn first_slice_specs() -> Vec<SeriesSpec> {
-    vec![
-        load_embedded_series(include_str!("../data/connectors/tsw.toml")),
-        load_embedded_series(include_str!("../data/connectors/ssw.toml")),
-        load_embedded_series(include_str!("../data/connectors/bth.toml")),
-    ]
+/// Parse one embedded series table from TOML text.
+pub fn load_embedded_series(text: &str) -> Result<SeriesSpec, toml::de::Error> {
+    toml::from_str(text)
 }
 
-pub fn load_embedded_series(text: &str) -> SeriesSpec {
-    toml::from_str(text).unwrap_or_else(|e| panic!("embedded series table: {e}"))
+/// Embedded first-slice series tables (TSW, SSW, BTH).
+///
+/// # Errors
+/// Returns an error when an embedded table fails to deserialize.
+pub fn first_slice_specs() -> Result<Vec<SeriesSpec>, toml::de::Error> {
+    Ok(vec![
+        load_embedded_series(include_str!("../data/connectors/tsw.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/ssw.toml"))?,
+        load_embedded_series(include_str!("../data/connectors/bth.toml"))?,
+    ])
 }
 
 /// Build a part number from a series spec and per-field option codes.
@@ -167,10 +212,11 @@ pub fn build(spec: &SeriesSpec, options: &BuildOptions) -> Result<PartNumber, Ve
             }
             FieldKind::OptionalEnum { .. } => {
                 if let Some(raw) = options.0.get(&field.id) {
-                    if let Err(e) = validate_field_token(spec, field, raw) {
-                        errors.push(e);
-                    } else {
-                        values.insert(field.id.clone(), raw.clone());
+                    match validate_field_token(spec, field, raw) {
+                        Err(e) => errors.push(e),
+                        Ok(()) => {
+                            values.insert(field.id.clone(), raw.clone());
+                        }
                     }
                 }
             }
@@ -294,12 +340,12 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
                 rest = next;
             }
             FieldKind::OptionalEnum { .. } => {
-                if let Some((token, next)) = next_token(rest) {
-                    if validate_field_token(spec, field, &token).is_ok() {
-                        values.insert(field.id.clone(), token);
-                        rest = next;
-                        continue;
-                    }
+                if let Some((token, next)) = next_token(rest)
+                    && validate_field_token(spec, field, &token).is_ok()
+                {
+                    values.insert(field.id.clone(), token);
+                    rest = next;
+                    continue;
                 }
             }
         }
@@ -410,7 +456,15 @@ fn validate_pitch_positions(spec: &SeriesSpec, raw: &str) -> Result<(), FieldErr
             vec!["1NN".into(), "2NN".into()],
         ));
     }
-    let positions: u32 = raw[1..].parse().unwrap_or(0);
+    let positions: u32 = match raw[1..].parse() {
+        Ok(n) => n,
+        Err(_) => {
+            return Err(FieldError::unknown_field(
+                "pitch_positions",
+                vec!["three digits".into()],
+            ));
+        }
+    };
     if positions < spec.limits.min_positions_per_row
         || positions > spec.limits.max_positions_per_row
     {
@@ -430,19 +484,21 @@ fn check_constraints(
     values: &BTreeMap<String, String>,
 ) -> Result<(), FieldError> {
     for constraint in &spec.constraints {
-        if let Constraint::EvenTotalPositions {
-            row_field,
-            positions_field,
-        } = constraint
-        {
-            let rows = row_count(values.get(row_field.as_str()));
-            let per_row = positions_per_row(values.get(positions_field.as_str()));
-            if rows > 1 && (rows * per_row) % 2 != 0 {
-                return Err(FieldError {
-                    field: positions_field.clone(),
-                    message: "total positions must be even for multi-row parts".into(),
-                    valid_values: Vec::new(),
-                });
+        match constraint {
+            Constraint::EvenTotalPositions {
+                row_field,
+                positions_field,
+            } => {
+                let rows = row_count(values.get(row_field.as_str()));
+                let per_row = positions_per_row(values.get(positions_field.as_str()));
+                let total = rows.saturating_mul(per_row);
+                if rows > 1 && !total.is_multiple_of(2) {
+                    return Err(FieldError {
+                        field: positions_field.clone(),
+                        message: "total positions must be even for multi-row parts".into(),
+                        valid_values: Vec::new(),
+                    });
+                }
             }
         }
     }
@@ -465,9 +521,9 @@ fn positions_per_row(code: Option<&String>) -> u32 {
         return 0;
     };
     if code.len() == 3 && code.chars().all(|c| c.is_ascii_digit()) {
-        code[1..].parse().unwrap_or(0)
+        code[1..].parse().ok().unwrap_or(0)
     } else {
-        code.parse().unwrap_or(0)
+        code.parse().ok().unwrap_or(0)
     }
 }
 
@@ -516,19 +572,18 @@ mod tests {
         }
     }
 
-    fn specs() -> Vec<SeriesSpec> {
-        first_slice_specs()
+    fn specs() -> Result<Vec<SeriesSpec>, String> {
+        first_slice_specs().map_err(|e| e.to_string())
     }
 
-    fn spec(id: &str) -> SeriesSpec {
-        specs()
-            .into_iter()
+    fn spec<'a>(id: &str, set: &'a [SeriesSpec]) -> Result<&'a SeriesSpec, String> {
+        set.iter()
             .find(|s| s.id == id)
-            .unwrap_or_else(|| panic!("missing series {id}"))
+            .ok_or_else(|| format!("missing series {id}"))
     }
 
     #[test]
-    fn manufacturer_page_examples_round_trip() {
+    fn manufacturer_page_examples_round_trip() -> Result<(), String> {
         let examples = [
             ("tsw", "TSW-108-07-L-S"),
             ("tsw", "TSW-103-07-L-S"),
@@ -543,112 +598,127 @@ mod tests {
             ("bth", "BTH-120-01-F-D-A"),
             ("bth", "BTH-030-01-F-D-RA-WT-K"),
         ];
-        let set = specs();
+        let set = specs()?;
         for (series_id, text) in examples {
-            let parsed = parse(&set, text).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+            let parsed = parse(&set, text).map_err(|e| format!("{text}: {e:?}"))?;
             assert_eq!(parsed.series_id, series_id);
-            let built = build(&spec(series_id), &BuildOptions(parsed.values)).unwrap();
+            let built = build(spec(series_id, &set)?, &BuildOptions(parsed.values))
+                .map_err(|e| format!("{text}: {e:?}"))?;
             assert_eq!(built.0, text, "{text}");
         }
+        Ok(())
     }
 
     #[test]
-    fn invalid_lead_plating_and_positions_are_rejected() {
-        let set = specs();
-        let tsw = spec("tsw");
-        let bad_lead = build(
-            &tsw,
-            &BuildOptions(BTreeMap::from([
+    fn invalid_lead_plating_and_positions_are_rejected() -> Result<(), String> {
+        let set = specs()?;
+        let tsw = spec("tsw", &set)?;
+        let bad_lead = expect_build_errors(
+            tsw,
+            BuildOptions(BTreeMap::from([
                 ("pitch_positions".into(), "108".into()),
                 ("lead".into(), "99".into()),
                 ("plating".into(), "L".into()),
                 ("row".into(), "S".into()),
             ])),
-        )
-        .unwrap_err();
+        )?;
         assert_eq!(bad_lead[0].field, "lead");
         assert!(!bad_lead[0].valid_values.is_empty());
 
-        let bad_plating = build(
-            &tsw,
-            &BuildOptions(BTreeMap::from([
+        let bad_plating = expect_build_errors(
+            tsw,
+            BuildOptions(BTreeMap::from([
                 ("pitch_positions".into(), "108".into()),
                 ("lead".into(), "07".into()),
                 ("plating".into(), "Z".into()),
                 ("row".into(), "S".into()),
             ])),
-        )
-        .unwrap_err();
+        )?;
         assert_eq!(bad_plating[0].field, "plating");
 
-        let bad_positions = build(
-            &tsw,
-            &BuildOptions(BTreeMap::from([
+        let bad_positions = expect_build_errors(
+            tsw,
+            BuildOptions(BTreeMap::from([
                 ("pitch_positions".into(), "199".into()),
                 ("lead".into(), "07".into()),
                 ("plating".into(), "L".into()),
                 ("row".into(), "S".into()),
             ])),
-        )
-        .unwrap_err();
+        )?;
         assert_eq!(bad_positions[0].field, "pitch_positions");
+        Ok(())
     }
 
     #[test]
-    fn parse_then_build_is_identity_for_random_valid_configs() {
-        let set = specs();
+    fn parse_then_build_is_identity_for_random_valid_configs() -> Result<(), String> {
+        let set = specs()?;
         let mut rng = Lcg(779);
         for _ in 0..1000 {
             let series_idx = (rng.next() % 3) as usize;
             let spec = &set[series_idx];
-            let options = random_valid_options(spec, &mut rng);
-            let built = build(spec, &options).expect("random build");
-            let parsed = parse(&set, &built.0).expect("random parse");
+            let options = random_valid_options(spec, &mut rng)
+                .ok_or_else(|| format!("could not sample a valid configuration for {}", spec.id))?;
+            let built = build(spec, &options).map_err(|e| format!("random build: {e:?}"))?;
+            let parsed = parse(&set, &built.0).map_err(|e| format!("random parse: {e:?}"))?;
             assert_eq!(parsed.values, options.0);
-            let rebuilt = build(spec, &BuildOptions(parsed.values)).expect("rebuild");
+            let rebuilt = build(spec, &BuildOptions(parsed.values))
+                .map_err(|e| format!("rebuild: {e:?}"))?;
             assert_eq!(rebuilt.0, built.0);
         }
+        Ok(())
     }
 
     #[test]
-    fn partial_string_reports_first_failing_field() {
-        let set = specs();
+    fn partial_string_reports_first_failing_field() -> Result<(), String> {
+        let set = specs()?;
         let (part, errors) = parse_partial(&set, "TSW-108-99");
         assert!(!part.values.contains_key("plating"));
         assert_eq!(errors[0].field, "lead");
         assert!(!errors[0].valid_values.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn a_newcomer_enters_a_wrong_option_and_is_told_which_field_is_invalid() {
-        let tsw = spec("tsw");
-        let errors = build(
-            &tsw,
-            &BuildOptions(BTreeMap::from([
+    fn a_newcomer_enters_a_wrong_option_and_is_told_which_field_is_invalid() -> Result<(), String> {
+        let set = specs()?;
+        let tsw = spec("tsw", &set)?;
+        let errors = expect_build_errors(
+            tsw,
+            BuildOptions(BTreeMap::from([
                 ("pitch_positions".into(), "108".into()),
                 ("lead".into(), "07".into()),
                 ("plating".into(), "Z".into()),
                 ("row".into(), "S".into()),
             ])),
-        )
-        .unwrap_err();
+        )?;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].field, "plating");
         assert!(errors[0]
             .valid_values
             .iter()
             .any(|v| v == "L" || v == "F" || v == "G"));
+        Ok(())
     }
 
-    fn random_valid_options(spec: &SeriesSpec, rng: &mut Lcg) -> BuildOptions {
+    fn expect_build_errors(
+        spec: &SeriesSpec,
+        options: BuildOptions,
+    ) -> Result<Vec<FieldError>, String> {
+        match build(spec, &options) {
+            Err(errors) => Ok(errors),
+            Ok(_) => Err("expected build to fail".into()),
+        }
+    }
+
+    fn random_valid_options(spec: &SeriesSpec, rng: &mut Lcg) -> Option<BuildOptions> {
+        let max_positions = u64::from(spec.limits.max_positions_per_row);
         for _ in 0..128 {
             let mut map = BTreeMap::new();
             for field in &spec.fields {
                 match &field.kind {
                     FieldKind::Literal { .. } => {}
                     FieldKind::PitchPositions => {
-                        let positions =
-                            (rng.next() % spec.limits.max_positions_per_row) + 1;
+                        let positions = (rng.next() % max_positions) + 1;
                         let pitch = if rng.next() % 2 == 0 { 1 } else { 2 };
                         map.insert(field.id.clone(), format!("{pitch}{positions:02}"));
                     }
@@ -665,9 +735,9 @@ mod tests {
                 }
             }
             if build(spec, &BuildOptions(map.clone())).is_ok() {
-                return BuildOptions(map);
+                return Some(BuildOptions(map));
             }
         }
-        panic!("could not sample a valid configuration for {}", spec.id);
+        None
     }
 }
