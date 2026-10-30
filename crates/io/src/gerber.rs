@@ -873,6 +873,7 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
             id,
             reference: reference.into(),
@@ -1013,6 +1014,7 @@ mod tests {
             width: 0.15,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         Ok(project)

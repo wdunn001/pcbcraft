@@ -2,7 +2,7 @@
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-pcbcraft">
     <comment>PCBCraft design</comment>
-    <icon name="io.github.tangency-labs.pcbcraft"/>
+    <icon name="io.github.tangency_labs.pcbcraft"/>
     <sub-class-of type="application/json"/>
     <glob pattern="*.pcbcraft"/>
   </mime-type>

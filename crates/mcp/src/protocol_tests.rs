@@ -1,8 +1,8 @@
 //! Protocol conformance tests: each test walks one row of `docs/mcp-conformance.md`.
 //!
 //! Local rules: tests talk to `handle_rpc` and `serve` the way a client does, over JSON
-//! values, with a fresh `DocumentHub`. Lifecycle-gate tests live in `lib.rs` (#637) and
-//! annotation tests in `lib.rs` (#636); do not repeat them here.
+//! values, with a fresh `DocumentHub`. Lifecycle-gate tests live in `lib.rs` (#477) and
+//! annotation tests in `lib.rs` (#476); do not repeat them here.
 //!
 //! # Dependencies
 //! `crates/mcp/src/lib.rs` (`handle_rpc`, `serve`, `tool_list`, `MAX_MESSAGE`),
@@ -150,7 +150,7 @@ fn every_tool_name_is_one_to_128_letters_digits_underscore_hyphen_or_dot() -> Re
     Ok(())
 }
 
-// Changes with #643 and #644 only if they add tools; resources and prompts are not tools.
+// Changes with #483 and #484 only if they add tools; resources and prompts are not tools.
 #[test]
 fn an_unknown_tool_name_is_a_protocol_error_but_bad_arguments_are_a_tool_error_with_is_error_true()
 -> Result<(), String> {
@@ -210,7 +210,7 @@ fn a_message_over_one_mebibyte_is_refused_and_stdout_stays_json_only() -> Result
     Ok(())
 }
 
-// Resources (#643) and prompts (#644) are advertised; logging and completion are not.
+// Resources (#483) and prompts (#484) are advertised; logging and completion are not.
 #[test]
 fn capabilities_advertise_only_tools_and_resources_and_prompts_calls_are_method_not_found()
 -> Result<(), String> {
