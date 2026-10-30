@@ -22970,6 +22970,78 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn library_footprint_model_auto_align_recovers_pad_shift() -> Result<(), Error> {
+        let mut s = Session::default();
+        let pitch = 3.0;
+        let half = pitch / 2.0;
+        let definition = pcbcraft_library::FootprintDefinition {
+            name: "AlignChip".into(),
+            description: String::new(),
+            keywords: String::new(),
+            pads: vec![
+                pcbcraft_library::FootprintPad {
+                    number: "1".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(-half, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(0.5, 0.5),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+                pcbcraft_library::FootprintPad {
+                    number: "2".into(),
+                    pad_type: "smd".into(),
+                    shape: "rect".into(),
+                    position: pcbcraft_geom::Point::new(half, 0.0),
+                    rotation: 0.0,
+                    size: pcbcraft_geom::Point::new(0.5, 0.5),
+                    layers: vec!["F.Cu".into()],
+                    drill: None,
+                    roundrect_ratio: None,
+                    chamfer: None,
+                    polygon: vec![],
+                    raw_source: String::new(),
+                },
+            ],
+            graphics: vec![],
+            model: None,
+            rules: None,
+            raw_source: String::new(),
+            unsupported: vec![],
+        };
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        s.execute(
+            "library.footprint.set_model",
+            json!({"name":"AlignChip","path":"chip.wrl"}),
+            None,
+        )?;
+        let mesh = pcbcraft_io::shift_mesh(&pcbcraft_io::test_chip_mesh(pitch), 0.3, -0.15, 0.0);
+        let flat: Vec<f64> = mesh.positions.iter().flat_map(|p| p.iter().copied()).collect();
+        let out = s.execute(
+            "library.footprint.model_auto_align",
+            json!({
+                "name":"AlignChip",
+                "positions": flat,
+                "indices": mesh.indices,
+                "apply": true,
+            }),
+            None,
+        )?;
+        let residual = out["result"]["residual_mm"].as_f64().ok_or_else(missing)?;
+        assert!(residual < 0.05, "residual {residual}");
+        assert_eq!(out["result"]["coarse"].as_bool(), Some(false));
+        Ok(())
+    }
+    #[test]
     fn specctra_session_files_import_net_assignments() -> Result<(), Error> {
         let mut s = Session::default();
         for (reference, x) in [("R1", 10.0), ("R2", 20.0)] {

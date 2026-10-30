@@ -11,7 +11,6 @@ mod board_mesh;
 mod diff;
 mod drawn;
 mod fab_export;
-pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
@@ -19,6 +18,7 @@ mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod model_align;
 mod model_load;
 mod neoden_yy1;
 mod package;
@@ -43,6 +43,9 @@ mod snapmaker;
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
+pub use model_align::{
+    AutoAlignResult, COARSE_ALIGN_MM, auto_align_model, model_lead_points, shift_mesh, test_chip_mesh,
+};
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
@@ -2757,7 +2760,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     };
     let mut groups: BTreeMap<(String, String, String, Vec<String>), Vec<String>> = BTreeMap::new();
     for c in &p.components {
-        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+        if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
             continue;
         }
         let footprint = match variant
@@ -10058,7 +10061,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 13,
@@ -10068,7 +10070,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 14,
@@ -10197,7 +10198,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         let text = dxf_board(&project)?;
         let entities = dxf_entities(&text)?;
@@ -11225,7 +11225,6 @@ mod tests {
             width: 0.2,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 2,
@@ -11235,7 +11234,6 @@ mod tests {
             width: 1.5,
             text: "REV B".into(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.graphics.push(pcbcraft_doc::Graphic {
             id: 3,
@@ -11245,7 +11243,6 @@ mod tests {
             width: 4.0,
             text: String::new(),
             sublayer: String::new(),
-            color: String::new(),
         });
         project.validate()?;
         let schematic = svg(&project, "schematic")?;
