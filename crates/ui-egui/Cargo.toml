@@ -25,6 +25,7 @@ craft-ui.workspace = true
 serde_json.workspace = true
 image.workspace = true
 serde.workspace = true
+web-time.workspace = true
 
 [dev-dependencies]
 pcbcraft-text = { workspace = true, features = ["fixture"] }
