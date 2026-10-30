@@ -10,6 +10,7 @@ mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
+mod fab_drawing;
 mod fab_export;
 pub mod formats;
 mod generate;
@@ -63,6 +64,7 @@ pub use diff::{DesignChange, DesignDiff, project_diff};
 /// # Dependencies
 /// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use fab_drawing::fab_drawing_pdf;
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
@@ -935,19 +937,9 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Export the design as a one-page vector PDF document, in bytes.
-pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
-    p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
-    }
-    let (min, max) = preview_bounds(p, view);
-    let mut page = PdfPage::new();
-    page.fit(min, max);
-    page.color([1.0, 1.0, 1.0], false)?;
-    page.op("0 0 842 595 re f")?;
-    pdf_draw(&mut page, p, view)?;
-    let content = page.ops.as_bytes();
+/// Wrap one page content stream as a single-page PDF document.
+pub(crate) fn pdf_bytes_from_ops(ops: String) -> Result<Vec<u8>, String> {
+    let content = ops.as_bytes();
     let mut pdf: Vec<u8> = Vec::new();
     let mut offsets = [0u32; 5];
     pdf.extend_from_slice(b"%PDF-1.4\n");
@@ -980,6 +972,21 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
         format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
     );
     Ok(pdf)
+}
+
+/// Export the design as a one-page vector PDF document, in bytes.
+pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
+    p.validate()?;
+    if view != "pcb" && view != "schematic" {
+        return Err("view must be pcb or schematic".into());
+    }
+    let (min, max) = preview_bounds(p, view);
+    let mut page = PdfPage::new();
+    page.fit(min, max);
+    page.color([1.0, 1.0, 1.0], false)?;
+    page.op("0 0 842 595 re f")?;
+    pdf_draw(&mut page, p, view)?;
+    pdf_bytes_from_ops(page.ops)
 }
 
 /// Draw one view as a standalone PostScript document: the same path, circle
