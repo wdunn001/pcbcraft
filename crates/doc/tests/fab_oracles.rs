@@ -31,6 +31,26 @@ fn fab_preset_carries_vendor_minimums_and_passes_valid() -> T {
 }
 
 #[test]
+fn fab_rules_valid_accepts_vendor_bounds_and_rejects_just_outside() {
+    let mut rules = FabRules::default();
+    rules.min_track = Some(0.001);
+    assert!(rules.valid());
+    rules.min_track = Some(0.0009);
+    assert!(!rules.valid());
+    rules.min_track = Some(100.0);
+    assert!(rules.valid());
+    rules.min_track = Some(100.1);
+    assert!(!rules.valid());
+    rules.min_track = Some(0.127);
+    rules.max_aspect_ratio = Some(1.0);
+    assert!(rules.valid());
+    rules.max_aspect_ratio = Some(50.0);
+    assert!(rules.valid());
+    rules.max_aspect_ratio = Some(50.1);
+    assert!(!rules.valid());
+}
+
+#[test]
 fn fab_rules_valid_rejects_out_of_range_numbers() {
     let mut ok = FabRules {
         min_track: Some(0.127),

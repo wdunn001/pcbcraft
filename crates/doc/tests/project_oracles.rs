@@ -219,6 +219,8 @@ fn net_class_and_rule_overrides() -> T {
         profile: None,
     });
     assert_eq!(p.net_class_id(1), Some(10));
+    let class = p.net_class(1).ok_or("net 1 is in class 10")?;
+    assert!((class.clearance - 0.5).abs() < 1e-12);
     assert!(p.net_class(2).is_none());
     p.rule_severity.insert("short".into(), "warning".into());
     assert_eq!(p.rule_severity("short", "error"), "warning");

@@ -76,6 +76,23 @@ fn panel_layout_from_grid_rejects_zero_columns() {
 }
 
 #[test]
+fn panel_score_lines_on_a_two_by_three_grid() -> T {
+    let mut p = Project::default();
+    p.panel.enabled = true;
+    p.panel.columns = 2;
+    p.panel.rows = 3;
+    p.panel.pitch_x = 2.0;
+    p.panel.pitch_y = 2.0;
+    p.panel.rail = 2.0;
+    p.panel.separation = PanelSeparation::VScore;
+    p.board.width = 20.0;
+    p.board.height = 10.0;
+    let scores = panel_score_lines(&p)?;
+    assert_eq!(scores.len(), 3, "one vertical and two horizontal score lines");
+    Ok(())
+}
+
+#[test]
 fn panel_score_and_tab_helpers_follow_separation_mode() -> T {
     let mut p = Project::default();
     p.panel.enabled = true;
