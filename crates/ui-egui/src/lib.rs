@@ -2872,6 +2872,12 @@ impl App {
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
+        const TAB_ANCHORS: [&str; 4] = [
+            "shell.tab.files",
+            "shell.tab.schematic",
+            "shell.tab.layout",
+            "shell.tab.manufacture",
+        ];
         let shown: [(Tab, String); 4] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
@@ -2919,6 +2925,7 @@ impl App {
                     &mut index,
                     &items,
                     ui_kit::tab_bar::TabSize::Nav,
+                    Some(&TAB_ANCHORS),
                 );
                 if response.changed() {
                     current = index;
@@ -3360,7 +3367,7 @@ impl App {
         .on_hover_text(t!("menu.view.tip"));
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
-        ui.menu_button(t!("menu.help"), |ui| {
+        let help = ui.menu_button(t!("menu.help"), |ui| {
             if ui
                 .button(t!("menu.help.shortcuts"))
                 .on_hover_text(t!("menu.help.shortcuts.tip"))
@@ -3377,7 +3384,7 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
-            ui.menu_button(t!("menu.help.tours"), |ui| {
+            let tours = ui.menu_button(t!("menu.help.tours"), |ui| {
                 for tour in &self.tours.tour {
                     let list_key = tour.list_key();
                     let label = pcbcraft_text::lookup(&list_key, &[]);
@@ -3385,9 +3392,11 @@ impl App {
                     ui.button(label)
                         .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
                 }
-            })
-            .response
-            .on_hover_text(t!("menu.help.tours.tip"));
+            });
+            tour::anchor::anchor(ui, "menu.help.tours", &tours.response);
+            tours
+                .response
+                .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -3413,9 +3422,9 @@ impl App {
                     .color(self.muted()),
             )
             .on_hover_text(t!("app.version.tip"));
-        })
-        .response
-        .on_hover_text(t!("menu.help.tip"));
+        });
+        tour::anchor::anchor(ui, "shell.menu.help", &help.response);
+        help.response.on_hover_text(t!("menu.help.tip"));
     }
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
@@ -3495,6 +3504,12 @@ impl App {
             .iter()
             .position(|t| t.id == self.region().left_tab)
             .unwrap_or(0);
+        let ws = self.workspace().id();
+        let region_ids: Vec<String> = tabs
+            .iter()
+            .map(|t| tour::anchor::region_tab_id(ws, t.id))
+            .collect();
+        let region_refs: Vec<&str> = region_ids.iter().map(String::as_str).collect();
         let tokens = theme::tokens(ui.ctx());
         let response = egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(8, 0))
@@ -3505,6 +3520,7 @@ impl App {
                     &mut current,
                     &items,
                     ui_kit::tab_bar::TabSize::Aside,
+                    Some(&region_refs),
                 )
             })
             .inner;
@@ -6227,7 +6243,7 @@ impl App {
     }
     fn inspector(&mut self, ui: &mut egui::Ui) {
         if Self::narrow_window(ui.ctx()) {
-            egui::Panel::bottom("inspector-narrow")
+            let panel = egui::Panel::bottom("inspector-narrow")
                 .default_size(260.0)
                 .frame(Self::dock_frame(ui.style()))
                 .show(ui, |ui| {
@@ -6235,10 +6251,14 @@ impl App {
                         .auto_shrink([false, false])
                         .show(ui, |ui| self.inspector_body(ui, 0.0));
                 });
+            if let Some(ws) = workspace::workspace_for(self.tab) {
+                let id = format!("{}.inspector", ws.id());
+                tour::anchor::anchor(ui, &id, &panel.response);
+            }
             return;
         }
         let tokens = theme::tokens(ui.ctx());
-        egui::Panel::right("inspector")
+        let panel = egui::Panel::right("inspector")
             .default_size(340.0)
             .min_size(280.0)
             .frame(
@@ -6249,6 +6269,10 @@ impl App {
             .show(ui, |ui| {
                 self.inspector_body(ui, 0.0);
             });
+        if let Some(ws) = workspace::workspace_for(self.tab) {
+            let id = format!("{}.inspector", ws.id());
+            tour::anchor::anchor(ui, &id, &panel.response);
+        }
     }
     /// The layers tree over the properties page, in the side dock or, in a
     /// narrow window, in the strip under the drawing. `top_h` is the height
@@ -6273,6 +6297,7 @@ impl App {
                 &mut index,
                 &items,
                 ui_kit::tab_bar::TabSize::Aside,
+                None,
             );
             if response.changed() {
                 self.preferences.aside_lower_tab = index as _;
@@ -7202,6 +7227,12 @@ impl App {
                     self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {
+                        let canvas_id = format!("canvas.{}", workspace.id());
+                        tour::anchor::anchor_rect(
+                            ui,
+                            &canvas_id,
+                            ui.available_rect_before_wrap(),
+                        );
                         workspace.center(self, ui);
                     } else {
                         match self.tab {

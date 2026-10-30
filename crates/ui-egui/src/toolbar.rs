@@ -430,6 +430,11 @@ impl App {
                 break;
             }
         }
+        let tool_ws = if self.tab == Tab::Pcb {
+            "layout"
+        } else {
+            "schematic"
+        };
         let mut action = None;
         ui.horizontal_centered(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
@@ -439,6 +444,8 @@ impl App {
                     Self::toolbar_divider(ui, &t);
                 }
                 let r = self.toolbar_button(ui, item);
+                let anchor = tour::anchor::tool_id(tool_ws, item.id);
+                tour::anchor::anchor(ui, &anchor, &r);
                 self.record_icon(item.id, r.rect);
                 if r.clicked() {
                     action = Some(item.act);

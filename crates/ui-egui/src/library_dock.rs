@@ -353,6 +353,10 @@ impl App {
                     .desired_width(f32::INFINITY),
             )
             .on_hover_text(t!("library.browser.search_parts_by_name.tip"));
+        if let Some(ws) = workspace::workspace_for(self.tab) {
+            let id = format!("{}.library.search", ws.id());
+            tour::anchor::anchor(ui, &id, &search);
+        }
         icons::icon_at(
             ui,
             Rect::from_center_size(
