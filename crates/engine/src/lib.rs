@@ -28717,7 +28717,12 @@ mod tests {
                 .filter(|f| {
                     !matches!(
                         f["code"].as_str(),
-                        Some("zone_unconnected" | "zone_island" | "thermal_starved")
+                        Some(
+                            "zone_unconnected"
+                                | "zone_island"
+                                | "zone_island_removed"
+                                | "thermal_starved",
+                        )
                     ) && f["objects"]
                         .as_array()
                         .is_some_and(|o| o.contains(&json!(zone)))
