@@ -63,8 +63,8 @@ pub(crate) fn track_radius_findings(project: &Project) -> Vec<Finding> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::drc;
     use super::super::Finding;
+    use super::super::drc;
     use pcbcraft_doc::{Id, Layer, Net, NetClass, Track};
     use pcbcraft_geom::Point;
 

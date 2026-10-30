@@ -34,10 +34,7 @@ fn node_index(nodes: &mut Vec<Node>, at: Point) -> usize {
     {
         return i;
     }
-    nodes.push(Node {
-        at,
-        tracks: vec![],
-    });
+    nodes.push(Node { at, tracks: vec![] });
     nodes.len() - 1
 }
 
@@ -60,13 +57,7 @@ fn internal_angle_deg(ax: f64, ay: f64, bx: f64, by: f64) -> Option<f64> {
     Some(between.min(180.0 - between))
 }
 
-fn acute_message(
-    project: &Project,
-    net: Id,
-    at: Point,
-    angle: f64,
-    detail: &str,
-) -> String {
+fn acute_message(project: &Project, net: Id, at: Point, angle: f64, detail: &str) -> String {
     format!(
         "{}: {detail} at ({:.3}, {:.3}) with a {:.1}° corner; at least {:.0}° is easier to etch; try track.round_corners",
         project.net_name(net),
@@ -193,17 +184,16 @@ fn track_pad_findings(project: &Project, layer: Layer) -> Vec<Finding> {
             if !pad_is_rect(&geometry.shape) {
                 continue;
             }
-            if !geometry
-                .layers
-                .iter()
-                .any(|l| layer.name() == l.as_str())
-            {
+            if !geometry.layers.iter().any(|l| layer.name() == l.as_str()) {
                 continue;
             }
             let at = f.pad_world_position(pad);
-            for track in project.board.tracks.iter().filter(|t| {
-                t.net == net && t.layer == layer && t.arc.is_none()
-            }) {
+            for track in project
+                .board
+                .tracks
+                .iter()
+                .filter(|t| t.net == net && t.layer == layer && t.arc.is_none())
+            {
                 let (into_pad, outward) = if track.start.distance(at) <= NODE_MERGE_MM {
                     (track.end, track.start)
                 } else if track.end.distance(at) <= NODE_MERGE_MM {
@@ -254,8 +244,8 @@ pub(crate) fn acute_corner_findings(project: &Project) -> Vec<Finding> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::drc;
     use super::super::Finding;
+    use super::super::drc;
     use pcbcraft_doc::{Footprint, Id, Layer, Net, Pad, Track, component_template};
     use pcbcraft_geom::Point;
     use pcbcraft_library::FootprintPad;
@@ -303,10 +293,7 @@ mod tests {
             ..Default::default()
         });
         track(&mut p, 20, Point::new(0.0, 0.0), Point::new(10.0, 0.0));
-        let tip = Point::new(
-            10.0 + 10.0 * (-0.5),
-            10.0 * (3.0_f64).sqrt() / 2.0,
-        );
+        let tip = Point::new(10.0 + 10.0 * (-0.5), 10.0 * (3.0_f64).sqrt() / 2.0);
         track(&mut p, 21, Point::new(10.0, 0.0), tip);
         p.validate()?;
         let found = acute(&p);
@@ -376,12 +363,7 @@ mod tests {
                 }),
             }],
         });
-        track(
-            &mut p,
-            40,
-            Point::new(14.0, 11.0),
-            Point::new(10.0, 10.0),
-        );
+        track(&mut p, 40, Point::new(14.0, 11.0), Point::new(10.0, 10.0));
         p.validate()?;
         let found = acute(&p);
         assert_eq!(found.len(), 1);
