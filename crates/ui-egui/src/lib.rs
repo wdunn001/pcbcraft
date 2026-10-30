@@ -7138,12 +7138,17 @@ impl App {
         });
     }
     fn board3d_tab(&mut self, ui: &mut egui::Ui) {
+        let design_dir = std::path::Path::new(&self.path)
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty());
         let env = board3d::Env {
             project: &self.project,
             revision: self.revision,
             selected: self.selected,
             bg: self.surface(),
             muted: self.muted(),
+            design_dir,
+            message: Some(&mut self.message),
         };
         if let Some(id) = board3d::show(&mut self.view3d, ui, &env) {
             self.select(Some(id));

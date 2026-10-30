@@ -1296,6 +1296,15 @@ fn parse_height(text: &str) -> Option<f64> {
 
 /// Build the whole mesh for a validated project.
 pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> {
+    board_mesh_with_dir(p, layers, None)
+}
+
+/// Like [`board_mesh`], with `design_dir` used to resolve relative model paths.
+pub fn board_mesh_with_dir(
+    p: &Project,
+    layers: MeshLayers,
+    design_dir: Option<&std::path::Path>,
+) -> Result<BoardMesh, String> {
     p.validate()?;
     let thickness = p.board.thickness;
     let mut budget = Budget { triangles: 0 };
@@ -1593,8 +1602,16 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
+                let library = component
+                    .and_then(|c| c.library_footprint.as_ref())
+                    .map(|l| l.library.as_str());
                 b.part.model = Some(ModelPlacement {
-                    path: model.path.clone(),
+                    path: crate::model_resolve::resolve_model_path(
+                        p,
+                        &model.path,
+                        library,
+                        design_dir,
+                    ),
                     matrix: model_matrix(
                         model,
                         fp.position,
