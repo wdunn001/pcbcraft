@@ -1,5 +1,7 @@
 //! Built-in interface rule profiles (TOML) and apply/list commands.
-use pcbcraft_doc::{DiffPair, Id, NetClass, NetPairRule, Project, RuleArea, RuleRegion};
+use pcbcraft_doc::{
+    CompanionRule, DiffPair, Id, NetClass, NetPairRule, Project, RuleArea, RuleRegion,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -179,6 +181,33 @@ struct ValueSourceToml {
 }
 
 #[derive(Debug, Deserialize)]
+struct CompanionToml {
+    id: String,
+    name: String,
+    #[serde(default)]
+    net_patterns: Vec<String>,
+    required_kind: String,
+    #[serde(default)]
+    value_min: Option<String>,
+    #[serde(default)]
+    value_max: Option<String>,
+    #[serde(default)]
+    before_kind: Option<String>,
+    #[serde(default)]
+    anchor_kind: Option<String>,
+    #[serde(default)]
+    sink_kind: Option<String>,
+    #[serde(default)]
+    count: Option<u32>,
+    #[serde(default)]
+    exactly: Option<bool>,
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    finding_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct ProfileDocument {
     schema: u32,
     profile: ProfileMeta,
@@ -195,7 +224,7 @@ struct ProfileDocument {
     #[serde(default)]
     length_group: Vec<toml::Value>,
     #[serde(default)]
-    companion: Vec<toml::Value>,
+    companion: Vec<CompanionToml>,
 }
 
 fn parse_toml(text: &str) -> Result<ProfileDocument, String> {
@@ -209,13 +238,49 @@ fn validate_profile_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn apply_companion_rows(
+    p: &mut Project,
+    profile_id: &str,
+    rows: &[CompanionToml],
+) -> Result<(), String> {
+    if rows.len() > 64 {
+        return Err("a profile defines at most 64 companion rows".into());
+    }
+    let prefix = format!("{profile_id}:");
+    p.companion_rules
+        .retain(|r| !r.id.starts_with(prefix.as_str()));
+    for row in rows {
+        if prefix.len() + row.id.len() > 64 {
+            return Err("companion rule id is too long with profile prefix".into());
+        }
+        let scoped_id = format!("{prefix}{}", row.id);
+        let rule = CompanionRule {
+            id: scoped_id,
+            name: row.name.clone(),
+            net_patterns: row.net_patterns.clone(),
+            required_kind: row.required_kind.clone(),
+            value_min: row.value_min.clone(),
+            value_max: row.value_max.clone(),
+            before_kind: row.before_kind.clone(),
+            anchor_kind: row.anchor_kind.clone(),
+            sink_kind: row.sink_kind.clone(),
+            count: row.count,
+            exactly: row.exactly,
+            role: row.role.clone(),
+            finding_code: row.finding_code.clone(),
+        };
+        if p.companion_rules.len() >= 64 {
+            return Err("a project carries at most 64 companion rules".into());
+        }
+        p.companion_rules.push(rule);
+    }
+    Ok(())
+}
+
 fn collect_unsupported(doc: &ProfileDocument) -> Vec<String> {
     let mut out = Vec::new();
     if !doc.length_group.is_empty() {
         out.push("length_group".into());
-    }
-    if !doc.companion.is_empty() {
-        out.push("companion".into());
     }
     for class in &doc.net_class {
         if class.max_length.is_some() {
@@ -666,6 +731,7 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                 });
             }
         }
+        apply_companion_rows(p, &profile_id, &doc.companion)?;
         p.validate()?;
         Ok(json!({"applied": true, "plan": plan}))
     })();

@@ -98,7 +98,6 @@ fn unsupported_fields_are_reported_not_dropped() -> Result<(), Error> {
             .iter()
             .any(|s| s.contains("length_group") || s == "length_group")
     );
-    assert!(joined.iter().any(|s| s.contains("companion")));
     Ok(())
 }
 
