@@ -2345,9 +2345,7 @@ mod tests {
                 height_source: None,
                 model: None,
                 color: None,
-                positions: (0..8)
-                    .map(|i| [i as f64, 0.0, 0.0])
-                    .collect(),
+                positions: (0..8).map(|i| [i as f64, 0.0, 0.0]).collect(),
                 indices: vec![0, 1, 2, 0, 2, 3],
             }],
             warnings: vec![],
