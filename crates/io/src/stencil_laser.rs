@@ -456,11 +456,8 @@ mod tests {
     #[test]
     fn stencil_ten_percent_reduction_shrinks_one_millimetre_pad() -> Result<(), String> {
         let project = stencil_fixture_project();
-        let rings =
-            stencil_aperture_rings(&project, Layer::Front, 10.0)?;
-        let ring = rings
-            .first()
-            .ok_or("expected one aperture ring")?;
+        let rings = stencil_aperture_rings(&project, Layer::Front, 10.0)?;
+        let ring = rings.first().ok_or("expected one aperture ring")?;
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         for p in ring.iter().take(ring.len().saturating_sub(1)) {

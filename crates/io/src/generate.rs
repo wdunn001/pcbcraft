@@ -21,11 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, laser_board_cut_dxf, laser_board_cut_svg,
-    netlist_text, odb_package, pdf_document, placement_text, plot_csv, postscript, report_text,
-    specctra_dsn, stackup_text, stats_text, step_board, stencil_plot_dxf, stencil_plot_svg, svg,
-    vrml_board, LaserBoardCutOptions, StencilPlotOptions,
+    LaserBoardCutOptions, StencilPlotOptions, bom_csv, cmp_text, drill_chart_csv, dxf_board,
+    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    laser_board_cut_dxf, laser_board_cut_svg, netlist_text, odb_package, pdf_document,
+    placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text, stats_text,
+    stencil_plot_dxf, stencil_plot_svg, step_board, svg, vrml_board,
 };
 use pcbcraft_doc::Layer;
 

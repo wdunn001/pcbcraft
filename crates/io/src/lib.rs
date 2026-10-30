@@ -85,10 +85,6 @@ pub use laser::{
     laser_galvo_builtin_profile, laser_galvo_profile_for_export, laser_job_lcproj, laser_job_svg,
     laser_job_validate_work_area, laser_job_work_area_mm,
 };
-pub use stencil_laser::{
-    LaserBoardCutOptions, StencilPlotOptions, laser_board_cut_dxf, laser_board_cut_svg,
-    stencil_aperture_rings, stencil_plot_dxf, stencil_plot_svg,
-};
 /// Layer shape types and functions for extracting shapes from project layers.
 /// # Dependencies
 /// - crates/io/src/layers.rs
@@ -139,6 +135,10 @@ pub use raster::{
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
+pub use stencil_laser::{
+    LaserBoardCutOptions, StencilPlotOptions, laser_board_cut_dxf, laser_board_cut_svg,
+    stencil_aperture_rings, stencil_plot_dxf, stencil_plot_svg,
 };
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies

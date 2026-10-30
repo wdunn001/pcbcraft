@@ -549,7 +549,11 @@ fn legend_rings(p: &Project, side: Layer) -> Result<Vec<Vec<Point>>, String> {
     Ok(rings)
 }
 
-fn stencil_cut_rings(p: &Project, side: Layer, reduction_pct: f64) -> Result<Vec<Vec<Point>>, String> {
+fn stencil_cut_rings(
+    p: &Project,
+    side: Layer,
+    reduction_pct: f64,
+) -> Result<Vec<Vec<Point>>, String> {
     let mut rings = crate::stencil_laser::stencil_aperture_rings(p, side, reduction_pct)?;
     let frame = crate::stencil_laser::stencil_frame_ring(p, 0.0)?;
     if polygon_is_simple(&frame) {
