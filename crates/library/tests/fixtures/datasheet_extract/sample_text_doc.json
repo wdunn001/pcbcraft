@@ -1,0 +1,16 @@
+{
+  "pages": [
+    {
+      "page_index": 0,
+      "page_label": 3,
+      "cells": [
+        {"text": "Pin", "page_index": 0, "page_label": 3, "rect": {"x0": 10.0, "y0": 50.0, "x1": 30.0, "y1": 60.0}},
+        {"text": "Description", "page_index": 0, "page_label": 3, "rect": {"x0": 40.0, "y0": 50.0, "x1": 120.0, "y1": 60.0}},
+        {"text": "1", "page_index": 0, "page_label": 3, "rect": {"x0": 10.0, "y0": 70.0, "x1": 20.0, "y1": 80.0}},
+        {"text": "IN+", "page_index": 0, "page_label": 3, "rect": {"x0": 30.0, "y0": 70.0, "x1": 60.0, "y1": 80.0}},
+        {"text": "2", "page_index": 0, "page_label": 3, "rect": {"x0": 10.0, "y0": 90.0, "x1": 20.0, "y1": 100.0}},
+        {"text": "IN-", "page_index": 0, "page_label": 3, "rect": {"x0": 30.0, "y0": 90.0, "x1": 60.0, "y1": 100.0}}
+      ]
+    }
+  ]
+}

@@ -11,6 +11,22 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[features]
+default = []
+datasheet-sidecar = ["dep:hayro", "dep:hayro-syntax", "dep:hayro-interpret"]
+
+[dependencies.hayro]
+version = "0.8"
+optional = true
+
+[dependencies.hayro-syntax]
+version = "0.8"
+optional = true
+
+[dependencies.hayro-interpret]
+version = "0.8"
+optional = true
+
 [dev-dependencies]
 tempfile.workspace = true
 
