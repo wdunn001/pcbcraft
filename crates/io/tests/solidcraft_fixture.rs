@@ -11,7 +11,13 @@ fn fixture_has_the_board_and_one_component_per_part() -> Result<(), String> {
     assert_eq!(doc["format"], "solidcraft/22");
     assert_eq!(doc["components"].as_array().map(Vec::len), Some(2));
     assert_eq!(doc["occurrences"].as_array().map(Vec::len), Some(2));
-    assert_eq!(doc["metadata"]["org.pcbcraft"]["schema"], "pcbcraft-interop/1");
-    assert_eq!(doc["metadata"]["org.pcbcraft"]["bodies"]["R2"]["component"], "R2");
+    assert_eq!(
+        doc["metadata"]["org.pcbcraft"]["schema"],
+        "pcbcraft-interop/1"
+    );
+    assert_eq!(
+        doc["metadata"]["org.pcbcraft"]["bodies"]["R2"]["component"],
+        "R2"
+    );
     Ok(())
 }
