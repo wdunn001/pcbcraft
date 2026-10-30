@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 type JobSender = std::sync::mpsc::Sender<(ModelCacheKey, String)>;
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 enum Entry {
     Loading,
     Ready(pcbcraft_io::SharedModel),

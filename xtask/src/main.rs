@@ -276,7 +276,7 @@ fn wasm() -> Result<(), String> {
         "wasm32-unknown-unknown",
     ];
     for package in WASM_PACKAGES {
-        clippy_args.extend(["-p", package]);
+        clippy_args.extend(["-p", package, "--lib"]);
     }
     clippy_args.extend(["--", "-D", "warnings"]);
     run_env(
