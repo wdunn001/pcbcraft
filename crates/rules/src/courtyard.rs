@@ -299,6 +299,7 @@ mod tests {
             p.components.push(c);
         }
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: id + 10,
             component: id,
             position: at,

@@ -19,7 +19,8 @@ pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_foo
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
+pub use sexpr::{Error, Limits, Node, line_number_at_offset, parse, parse_limits};
+pub use sexpr::{parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
 
