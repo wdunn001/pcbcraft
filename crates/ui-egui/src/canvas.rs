@@ -2059,8 +2059,10 @@ impl App {
         }
     }
     fn paint_board(&self, painter: &egui::Painter, rect: Rect, camera: Camera, p: &Project) {
-        let shown = |name: &str| self.layer_shown(name);
         let art = self.art();
+        let sub_on = |layer: pcbcraft_doc::Layer, sub: crate::layer_visibility::SubLayer| {
+            self.board_sub_effective_on_layer(layer, sub)
+        };
         self.paint_board_body(painter, rect, camera, p);
         underlay::paint(painter, rect, camera, p, "pcb");
         for fid in &p.board.fiducials {
@@ -2100,7 +2102,12 @@ impl App {
             }
         }
         self.paint_datums(painter, rect, camera, p);
-        for c in p.board.cutouts.iter().filter(|_| shown("Cutouts")) {
+        for c in p
+            .board
+            .cutouts
+            .iter()
+            .filter(|_| self.layer_shown("Cutouts"))
+        {
             let center = camera.screen(c.center, rect);
             let radius = c.radius as f32 * camera.zoom;
             painter.circle_filled(center, radius, art.bg);
@@ -2113,7 +2120,10 @@ impl App {
         let stack = &self.stack;
         let copper_count = p.copper_layer_count();
         for z in stack.far_to_near(
-            p.board.zones.iter().filter(|_| shown("Copper zones")),
+            p.board
+                .zones
+                .iter()
+                .filter(|z| sub_on(z.layer, crate::layer_visibility::SubLayer::Zones)),
             |z| z.layer,
         ) {
             let screen: Vec<egui::Pos2> = z
@@ -2162,13 +2172,10 @@ impl App {
             }
         }
         for t in stack.far_to_near(
-            p.board.tracks.iter().filter(|t| {
-                shown(if t.layer == pcbcraft_doc::Layer::Front {
-                    "Top copper"
-                } else {
-                    "Bottom copper"
-                })
-            }),
+            p.board
+                .tracks
+                .iter()
+                .filter(|t| sub_on(t.layer, crate::layer_visibility::SubLayer::Tracks)),
             |t| t.layer,
         ) {
             painter.line_segment(
@@ -2187,7 +2194,12 @@ impl App {
                 ),
             );
         }
-        for v in p.board.vias.iter().filter(|_| shown("Vias")) {
+        for v in p
+            .board
+            .vias
+            .iter()
+            .filter(|_| self.layer_shown("Vias"))
+        {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
             let through = (0..copper_count)
@@ -2279,7 +2291,12 @@ impl App {
                     .definition
                     .graphics
                     .iter()
-                    .filter(|_| shown("Package artwork"))
+                    .filter(|_| {
+                        sub_on(
+                            f.board_side(),
+                            crate::layer_visibility::SubLayer::Silk,
+                        )
+                    })
                 {
                     if matches!(g,pcbcraft_library::Graphic::Text {text,..} if text=="REF**" || text=="%R" || text=="${REFERENCE}" || text=="${VALUE}" || text==&library.definition.name)
                     {
@@ -2307,7 +2324,11 @@ impl App {
                     Stroke::new(1.0, art.courtyard.gamma_multiply(0.6)),
                 );
             }
-            for pad in f.pads.iter().filter(|_| shown("Pads")) {
+            for pad in f
+                .pads
+                .iter()
+                .filter(|_| sub_on(f.board_side(), crate::layer_visibility::SubLayer::Pads))
+            {
                 {
                     let pos = f.pad_world_position(pad);
                     let center = camera.screen(pos, rect);
@@ -2383,7 +2404,9 @@ impl App {
                     }
                 }
             }
-            if let Some(c) = p.component(f.component) {
+            if sub_on(f.board_side(), crate::layer_visibility::SubLayer::Silk)
+                && let Some(c) = p.component(f.component)
+            {
                 let (above, below) = boxes.as_ref().map_or((reference_at, value_at), |(_, y)| {
                     let top = y.iter().fold(f32::INFINITY, |m, q| m.min(q.y));
                     let bottom = y.iter().fold(f32::NEG_INFINITY, |m, q| m.max(q.y));
@@ -2411,7 +2434,12 @@ impl App {
                 self.paint_selection_box(painter, courtyard);
             }
         }
-        for t in &p.board.texts {
+        for t in p
+            .board
+            .texts
+            .iter()
+            .filter(|t| sub_on(t.layer, crate::layer_visibility::SubLayer::Text))
+        {
             let at = camera.screen(t.position, rect);
             let color = if t.layer == pcbcraft_doc::Layer::Front {
                 self.ink()
