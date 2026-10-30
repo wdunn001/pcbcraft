@@ -1,4 +1,13 @@
 //! The single mutation boundary used by UI, CLI and MCP.
+//! `run_command` match arms apply one validated change each and return JSON for callers.
+//!
+//! # Rules
+//! - Handler validation and refusal rules are documented on parameter structs and plain comments on arms without structs.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/io/src/lib.rs
+//! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
 mod dry_run;
@@ -3626,6 +3635,15 @@ struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
 }
+/// Parameters of `barcode.place`: draw a Code 39 barcode as vertical line graphics.
+///
+/// # Rules
+/// - Text is trimmed, uppercased, 1 to 48 characters, and must be encodable in Code 39.
+/// - Layer is schematic or board; height and module width sit in fixed ranges.
+/// - The barcode must fit on the drawing and stay under the graphic count cap.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BarcodeParams {
@@ -3638,6 +3656,15 @@ struct BarcodeParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Parameters of `schematic.table`: lay out a component table as schematic line and text graphics.
+///
+/// # Rules
+/// - Position must be valid; at most three column keys, each 1 to 32 bytes.
+/// - Row cap is 1 to 200 when set; default columns are reference and value when none are given.
+/// - The table bounding box and graphic budget must fit the schematic limits.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SchematicTableParams {
@@ -3713,6 +3740,14 @@ struct GraphicParams {
     #[serde(default)]
     color: String,
 }
+/// Parameters of `graphic.scale`: scale every vertex of one graphic about an anchor.
+///
+/// # Rules
+/// - The scale factor must be between 0.01 and 100; the anchor point must be valid when set.
+/// - Scaled vertices and stroke width must stay within drawing limits unless `keep_width` is true.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicScaleParams {
@@ -3721,6 +3756,14 @@ struct GraphicScaleParams {
     around: Option<Point>,
     keep_width: Option<bool>,
 }
+/// Parameters of `plot.to_schematic`: copy board copper and optional text into schematic graphics.
+///
+/// # Rules
+/// - The plot origin must be valid; at most 4096 elements are created.
+/// - Plotted points and stroke sizes must stay within drawing limits; text length is capped.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlotToSchematicParams {
@@ -3730,6 +3773,15 @@ struct PlotToSchematicParams {
     #[serde(default = "plot_text")]
     include_text: bool,
 }
+/// Parameters of `graphic.to_track`: turn a line or polyline graphic into board tracks on a net.
+///
+/// # Rules
+/// - Only line or polygon graphics with at least two vertices qualify.
+/// - The net must exist; width defaults to the graphic stroke when omitted.
+/// - Zero-length segments and out-of-range points are refused; the graphic is removed after conversion.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicToTrackParams {
@@ -3740,6 +3792,15 @@ struct GraphicToTrackParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Parameters of `graphic.set`: change layer, stroke width, or text on one graphic.
+///
+/// # Rules
+/// - At least one of `layer`, `width`, or `text` must be set.
+/// - Layer must be schematic or board; width and text limits match other graphic commands.
+/// - Text may only be set on text-shaped graphics.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicSetParams {
@@ -3751,6 +3812,13 @@ struct GraphicSetParams {
     #[serde(default)]
     text: Option<String>,
 }
+/// Parameters of `graphic.set_point`: move one vertex of a graphic polyline or polygon.
+///
+/// # Rules
+/// - The vertex index must be in range; the new position must be valid.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicPointParams {
@@ -3758,6 +3826,15 @@ struct GraphicPointParams {
     index: usize,
     position: Point,
 }
+/// Parameters of `label.place`: add a net label, power symbol, or junction on the schematic.
+///
+/// # Rules
+/// - `kind` must be a known label kind; bus labels use `label.place_bus` instead.
+/// - The net must exist; position and rotation must be valid.
+/// - Junction labels must sit on a drawn wire vertex of the same net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelParams {
@@ -3767,12 +3844,27 @@ struct LabelParams {
     #[serde(default)]
     rotation: f64,
 }
+/// Parameters of `wire.draw_bus`: draw a bus polyline and ensure its member nets exist.
+///
+/// # Rules
+/// - The polyline needs 2 to 256 distinct valid vertices.
+/// - The bus name must parse as stem*count; missing member nets are created.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BusWireParams {
     points: Vec<Point>,
     name: String,
 }
+/// Parameters of `label.place_bus`: place a bus label and ensure its member nets exist.
+///
+/// # Rules
+/// - Position and rotation must be valid; the bus name must parse as stem*count.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BusLabelParams {
@@ -3781,12 +3873,27 @@ struct BusLabelParams {
     #[serde(default)]
     rotation: f64,
 }
+/// Parameters of `label.set_bus`: rename a bus label and refresh its member nets.
+///
+/// # Rules
+/// - The target must be a bus label; the new name must differ and parse as stem*count.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BusLabelSetParams {
     id: Id,
     name: String,
 }
+/// Parameters of `pin.no_connect`: mark a schematic pin as intentionally unconnected.
+///
+/// # Rules
+/// - The pin must exist on the component and must not already be wired.
+/// - Duplicate no-connect flags on the same pin are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NoConnectParams {
@@ -4005,6 +4112,15 @@ struct SvgImportParams {
     #[serde(default)]
     use_outline: bool,
 }
+/// Parameters of `schematic.import_sheet`: load a sheet file and append it as a new page.
+///
+/// # Rules
+/// - The path must read a valid sheet file; the resolved sheet name is 1 to 128 bytes and unique.
+/// - Imported references must not collide; unknown symbol kinds and port net rules are enforced like placement.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ImportSheetParams {
@@ -4012,6 +4128,15 @@ struct ImportSheetParams {
     #[serde(default)]
     name: Option<String>,
 }
+/// Parameters of `via.place`: add a plated via on a net, optionally spanning inner layers.
+///
+/// # Rules
+/// - The net must exist; position must be valid.
+/// - Diameter defaults from the net class when omitted; drill defaults to 0 when omitted.
+/// - Diameter and drill must be finite with drill smaller than the pad; layer span must be allowed on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaParams {
@@ -4081,6 +4206,14 @@ fn resolve_via_span(
         (b.index() != last).then_some(b),
     ))
 }
+/// Parameters of `board.datum_add`: record a fabrication datum by point or by anchoring to a hole.
+///
+/// # Rules
+/// - The name must be valid and unique; exactly one of `position` or `hole` must be supplied.
+/// - Position must lie inside the board; at most 64 datums per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DatumAddParams {
@@ -4088,6 +4221,13 @@ struct DatumAddParams {
     position: Option<Point>,
     hole: Option<Id>,
 }
+/// Parameters of `board.datum_rename`: rename a board datum.
+///
+/// # Rules
+/// - The new name must be valid and unique among other datums.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DatumRenameParams {
@@ -4118,12 +4258,26 @@ fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
     }
     Ok(())
 }
+/// Parameters of `board.hole_place`: add a round unplated hole.
+///
+/// # Rules
+/// - Position must be valid; drill diameter is 0.05 to 25 mm; at most 512 holes per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HolePlaceParams {
     position: Point,
     diameter: f64,
 }
+/// Parameters of `board.fiducial_place`: add a circular fiducial on F.Cu or B.Cu.
+///
+/// # Rules
+/// - Position must be valid; diameter is 0.2 to 10 mm; at most 128 fiducials per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
@@ -4133,6 +4287,14 @@ struct FiducialPlaceParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Parameters of `board.fiducial_set`: change fiducial diameter and/or copper layer.
+///
+/// # Rules
+/// - At least one of `diameter` or `layer` must be set.
+/// - Diameter and layer values follow the same limits as placement; unchanged size and layer is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FiducialSetParams {
@@ -4142,6 +4304,14 @@ struct FiducialSetParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Parameters of `board.nettie_place`: place a two-pad net tie between two nets.
+///
+/// # Rules
+/// - The two nets must differ and exist; position must be valid.
+/// - Pad diameter is 0.3 to 20 mm with a finite rotation; at most 128 ties per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetTiePlaceParams {
@@ -4152,6 +4322,14 @@ struct NetTiePlaceParams {
     rotation: Option<f64>,
     diameter: f64,
 }
+/// Parameters of `board.nettie_set`: change the nets and/or pad size of a net tie.
+///
+/// # Rules
+/// - At least one field must be set; the two nets must differ and exist after the update.
+/// - Diameter stays within 0.3 to 20 mm; identical net pair and size is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetTieSetParams {
@@ -4163,6 +4341,13 @@ struct NetTieSetParams {
     #[serde(default)]
     diameter: Option<f64>,
 }
+/// Parameters of `board.nettie_move`: move a net tie and optionally set its rotation.
+///
+/// # Rules
+/// - Position must be valid; rotation when set must be finite.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetTieMoveParams {
@@ -4171,12 +4356,27 @@ struct NetTieMoveParams {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Parameters of `board.hole_set_size`: change the drill diameter of an unplated hole.
+///
+/// # Rules
+/// - Diameter must be 0.05 to 25 mm; the hole id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HoleSizeParams {
     id: Id,
     diameter: f64,
 }
+/// Parameters of `hole.slot`: add a slotted unplated hole from two centre points.
+///
+/// # Rules
+/// - Both centres must be valid; width is 0.05 to 25 mm; span is at least 0.01 mm and at most 50 mm.
+/// - The slot capsule must fit inside the board rectangle; the hole count cap applies.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SlotParams {
@@ -4184,6 +4384,14 @@ struct SlotParams {
     end: Point,
     width: f64,
 }
+/// Parameters of `pattern.repeat`: step-and-repeat holes or round cutouts on a grid.
+///
+/// # Rules
+/// - Grid is 1 to 64 by 1 to 64 with positive spacing; 1 to 64 source ids, each a hole or cutout once.
+/// - At least two copies total; every copy is checked to fit before any id is allocated.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RepeatParams {
@@ -4199,6 +4407,14 @@ enum PatternSource {
     Hole(Hole),
     Cutout(Cutout),
 }
+/// Parameters of `board.notch`: cut a rectangular notch into one board outline edge.
+///
+/// # Rules
+/// - Segment index must name an outline edge; width is 0 to 50 mm and depth 0 to 25 mm along valid ranges.
+/// - The notch must sit within the edge and cannot cut through the board; outline vertex cap is 64.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NotchParams {
@@ -5234,6 +5450,14 @@ struct RenameParams {
     id: Id,
     name: String,
 }
+/// Parameters of `schematic.move_component`: move one component onto another schematic page.
+///
+/// # Rules
+/// - The destination sheet must exist when it is not 0.
+/// - Moving to the sheet the component already occupies is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MoveToSheet {
@@ -5251,6 +5475,15 @@ struct SetPageSetting {
 fn valid_hex_colour(text: &str) -> bool {
     text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
+/// Parameters of `schematic.remove_sheet`: delete a schematic page and optionally reassign its parts.
+///
+/// # Rules
+/// - The root sheet id 0 cannot be removed.
+/// - If the sheet still holds components, `move_to` must name another sheet or the root (0).
+/// - `move_to` cannot equal the sheet being removed; the destination must exist when not 0.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemoveSheet {
@@ -5272,6 +5505,15 @@ struct SetSheetParent {
 struct NetPagesParams {
     net: Id,
 }
+/// Parameters of `schematic.place_port`: add a hierarchical port that carries one net onto a page.
+///
+/// # Rules
+/// - The port name is 1 to 63 ASCII letters, digits or underscores.
+/// - The net and page must exist; the position must be valid.
+/// - The name must be unique on that page and must not name a different net on another page.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PortParams {
@@ -5280,6 +5522,16 @@ struct PortParams {
     sheet: Id,
     position: Point,
 }
+/// Parameters of `schematic.move_port`: move a port to a new position, page, or both.
+///
+/// # Rules
+/// - At least one of `position` or `sheet` must be set.
+/// - The target page must exist; the position must be valid.
+/// - The port name must stay unique on the destination page.
+/// - A no-op move is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MovePort {
@@ -5289,6 +5541,14 @@ struct MovePort {
     #[serde(default)]
     sheet: Option<Id>,
 }
+/// Parameters of `schematic.rename_port`: change a port name while keeping its net and page.
+///
+/// # Rules
+/// - The new name follows the same rules as `schematic.place_port`.
+/// - The name must stay unique on the page and must not name a different net elsewhere.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenamePort {
@@ -5302,12 +5562,27 @@ struct GraphicRotateParams {
     degrees: f64,
     around: Option<Point>,
 }
+/// Parameters of `label.rotate`: add degrees to a label rotation.
+///
+/// # Rules
+/// - `degrees` must be finite; the stored angle is normalized modulo 360.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelRotateParams {
     id: Id,
     degrees: f64,
 }
+/// Parameters of `label.set`: change a label kind and/or net.
+///
+/// # Rules
+/// - At least one of `kind` or `net` must be set; bus labels cannot be retyped or switched here.
+/// - Junction labels must remain on a wire vertex of the chosen net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelSetParams {
@@ -5356,6 +5631,13 @@ struct TrackWidthParams {
     id: Id,
     width: f64,
 }
+/// Parameters of `schematic.remove_port`, `board.fiducial_remove`, `board.nettie_remove`, and `board.datum_remove`: remove one object by id.
+///
+/// # Rules
+/// - The id must match an existing object of the kind the command removes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct IdParams {
@@ -5716,6 +5998,13 @@ struct RadialParams {
     point: Point,
     layer: String,
 }
+/// Parameters of `label.move`: reposition a schematic label.
+///
+/// # Rules
+/// - The position must be valid; junction labels must stay on a wire vertex of their net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelMoveParams {
@@ -11268,6 +11557,7 @@ fn run_command(
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
         }
+        // schematic.cleanup: merge duplicate junction labels and drop redundant wire vertices; refuses when nothing would change.
         "schematic.cleanup" => {
             let mut merged = 0usize;
             let mut keep: Vec<(Point, Id)> = Vec::new();
