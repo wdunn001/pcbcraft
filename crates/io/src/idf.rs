@@ -134,7 +134,10 @@ fn collect_library(project: &Project) -> Result<BTreeMap<LibraryKey, LibraryEntr
                     entry.height_mm = height;
                 }
             })
-            .or_insert(LibraryEntry { height_mm: height, outline });
+            .or_insert(LibraryEntry {
+                height_mm: height,
+                outline,
+            });
     }
     Ok(entries)
 }
@@ -156,9 +159,7 @@ pub fn idf_library(p: &Project) -> Result<String, String> {
     let entries = collect_library(p)?;
     let mut out = String::new();
     out.push_str(".HEADER\n");
-    out.push_str(&format!(
-        "LIBRARY_FILE 3.0 \"{SOURCE}\" {EXPORT_STAMP} 1\n"
-    ));
+    out.push_str(&format!("LIBRARY_FILE 3.0 \"{SOURCE}\" {EXPORT_STAMP} 1\n"));
     out.push_str(".END_HEADER\n");
     for (key, entry) in entries {
         let section = if key.mechanical {
@@ -192,9 +193,7 @@ pub fn idf_board(p: &Project) -> Result<String, String> {
     let board_name = idf_string(&p.name.replace('"', "'"));
     let mut out = String::new();
     out.push_str(".HEADER\n");
-    out.push_str(&format!(
-        "BOARD_FILE 3.0 \"{SOURCE}\" {EXPORT_STAMP} 1\n"
-    ));
+    out.push_str(&format!("BOARD_FILE 3.0 \"{SOURCE}\" {EXPORT_STAMP} 1\n"));
     out.push_str(&format!("{board_name} MM\n"));
     out.push_str(".END_HEADER\n");
     out.push_str(".BOARD_OUTLINE ECAD\n");
@@ -211,7 +210,9 @@ pub fn idf_board(p: &Project) -> Result<String, String> {
         let back = fp.board_side() == Layer::Back;
         out.push_str(&format!(
             "{} {} {}\n",
-            key.geometry, key.part_number, idf_string(&component.reference)
+            key.geometry,
+            key.part_number,
+            idf_string(&component.reference)
         ));
         out.push_str(&format!(
             "{} {} 0.000 {} {} PLACED\n",
@@ -236,7 +237,9 @@ fn project_component<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{Component, Footprint, LibraryFootprint, Pad, Pin, Project};
+    use pcbcraft_doc::{
+        Component, ComponentField, Footprint, LibraryFootprint, Pad, Pin, Project,
+    };
     use pcbcraft_library::{FootprintDefinition, FootprintPad};
 
     fn pad(number: &str, x: f64) -> FootprintPad {
@@ -293,7 +296,10 @@ mod tests {
                     unsupported: vec![],
                 },
             }),
-            fields: vec![("height".into(), "2.5mm".into())],
+            fields: vec![ComponentField {
+                key: "height".into(),
+                value: "2.5mm".into(),
+            }],
         });
         project.components.push(Component {
             sheet: 0,
@@ -379,7 +385,11 @@ mod tests {
             library.starts_with(".HEADER\nLIBRARY_FILE 3.0"),
             "library declares IDF 3.0"
         );
-        assert_eq!(library.matches(".ELECTRICAL").count(), 1, "one footprint entry");
+        assert_eq!(
+            library.matches(".ELECTRICAL").count(),
+            1,
+            "one footprint entry"
+        );
         assert!(
             library.contains("TEST_ONE Test/TEST_ONE MM 2.500"),
             "height comes from the component body field"

@@ -15,6 +15,7 @@ pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
+mod idf;
 mod laser;
 mod layers;
 mod library_render;
@@ -23,7 +24,6 @@ mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
-mod idf;
 mod part_bodies;
 mod plot_read;
 mod raster;
@@ -67,7 +67,6 @@ pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
-pub use idf::{idf_board, idf_library};
 /// Gerber file generation for copper and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
@@ -76,6 +75,7 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
 pub use gerber_job::{gerber_job, gerber_zip};
+pub use idf::{idf_board, idf_library};
 /// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
 /// Laser marking job types, profiles, and export functions.
@@ -9533,7 +9533,11 @@ mod tests {
             text.contains("TEST_ONE Test/TEST_ONE U1\n30.000 20.000 0.000 0.000 TOP PLACED\n"),
             "every part is listed in placement order"
         );
-        assert_eq!(library.matches(".ELECTRICAL").count(), 1, "one library outline");
+        assert_eq!(
+            library.matches(".ELECTRICAL").count(),
+            1,
+            "one library outline"
+        );
         assert!(
             library.contains("TEST_ONE Test/TEST_ONE MM 1.500"),
             "library height defaults match component bodies export"
