@@ -19,8 +19,9 @@ mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod import_cache;
 mod model_cache;
-mod model_disk_cache;
+mod model_compact;
 mod model_load;
 mod model_resolve;
 mod neoden_yy1;
@@ -99,8 +100,8 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use import_cache::{default_import_cache_dir, ImportCache};
 pub use model_cache::ModelCache;
-pub use model_disk_cache::default_model_cache_dir;
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,

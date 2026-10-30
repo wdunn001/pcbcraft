@@ -1,6 +1,6 @@
 //! Turn a footprint's model reference into a path the loader can open on this
-//! machine. Library-table nicknames, KiCad-style `${…_3DMODEL_DIR}/…` prefixes,
-//! and paths relative to the saved design file are handled here.
+//! machine. Library-table nicknames, legacy `${…_3DMODEL_DIR}/…` prefixes, and
+//! paths relative to the saved design file are handled here.
 use pcbcraft_doc::Project;
 use std::path::{Path, PathBuf};
 
@@ -28,9 +28,8 @@ fn path_is_absolute(path: &str) -> bool {
             && path.as_bytes().first().is_some_and(|b| b.is_ascii_alphabetic()))
 }
 
-/// Drop a KiCad `${KICAD…_3DMODEL_DIR}/` prefix so the tail can be joined
-/// onto a library folder.
-fn strip_kicad_3dmodel_prefix(path: &str) -> &str {
+/// Drop a legacy `${…_3DMODEL_DIR}/` prefix so the tail can join a library folder.
+fn strip_legacy_3dmodel_prefix(path: &str) -> &str {
     if path.starts_with("${KICAD") {
         if let Some(rest) = path.strip_prefix("${KICAD") {
             if let Some(tail) = rest.split_once("}/") {
@@ -75,7 +74,7 @@ pub fn resolve_model_path(
     if path_is_absolute(&table_resolved) {
         return table_resolved;
     }
-    let relative = strip_kicad_3dmodel_prefix(&table_resolved);
+    let relative = strip_legacy_3dmodel_prefix(&table_resolved);
     if let Some(dir) = design_dir {
         for candidate in [dir.join(relative), dir.join(&table_resolved)] {
             if let Some(hit) = existing_file(candidate) {
