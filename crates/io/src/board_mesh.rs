@@ -1012,7 +1012,7 @@ fn decal_text(component: Option<&Component>) -> Option<String> {
     }
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, '.', '-', '_', ' ') {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ' ') || ch == '-' {
             out.push(ch.to_ascii_uppercase());
         }
     }
