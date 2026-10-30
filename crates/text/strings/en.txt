@@ -2249,6 +2249,20 @@ web.download_desktop = Download the desktop app
 web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
 web.needs_desktop = Open, Save and Export need the desktop app. In the browser your work stays in this tab only.
 web.limits = Browser version: your work stays in this tab. Open, Save, Export, library folders and the assistant keys need the desktop app.
+props.copper_layers = Copper layers
+props.thickness = Thickness
+props.board_more = Holes, origins and marks
+props.track = Track
+props.track.tip = Width, corners and splitting for this track.
+props.zone = Zone
+props.zone.tip = Pour settings and stitching vias for this zone.
+web.needs_webgpu = PCBCraft in the browser needs WebGPU. Try a recent Chrome or Edge, or download the desktop app.
+web.download_desktop = Download the desktop app
+web.download_desktop.tip = Open the releases page, where the desktop app for your computer is listed.
+web.needs_desktop = Open, Save and Export need the desktop app. In the browser your work stays in this tab only.
+web.limits = Browser version: your work stays in this tab. Open, Save, Export, library folders and the assistant keys need the desktop app.
+# on-demand fallback font for a language the built-in fonts cannot draw
+font.the_font_file_for_this = The font file {file} was not found next to the program. Text in this language shows as empty boxes until the fonts folder is installed.
 # Layers tree: what each row is (hover text on every row of both trees)
 tree.explain.board = The board itself: its outline, its size and the stack of layers it is built from.
 tree.explain.copper_layer = One layer of copper foil. The tracks, pads and pours on it carry the signals.
@@ -2354,7 +2368,6 @@ props.sheet.drawing.colour.reset.tip = Go back to the default ink colour for new
 props.sheet.power.no_nets = Connect a part to a net first; a power port ties to an existing net.
 tree.explain.net_layer = The copper of this net on one layer: the tracks and pours that carry it there.
 props.sheet.power.select = Select
-
 board.canvas.map.tip = Map: peek at the whole design and jump to a region. Hover here or hold G.
 minimap.title = Minimap
 minimap.announce = Going to the region around x {x}, y {y}. Press Enter to go.
