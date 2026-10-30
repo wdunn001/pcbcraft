@@ -91,15 +91,17 @@ pub fn line_diff(expected: &str, actual: &str) -> String {
     out
 }
 
-fn compare_golden(
+pub fn compare_golden_in(
+    dir: &Path,
+    bless: bool,
     kind: &str,
     actual: &str,
     failures: &mut Vec<String>,
     skip_notes: &mut Vec<String>,
 ) -> Result<(), String> {
-    let path = golden_dir().join(format!("{kind}.golden"));
-    if blessing() {
-        let _ = std::fs::create_dir_all(golden_dir());
+    let path = dir.join(format!("{kind}.golden"));
+    if bless {
+        let _ = std::fs::create_dir_all(dir);
         std::fs::write(&path, actual).map_err(|e| format!("write golden: {e}"))?;
         return Ok(());
     }
@@ -110,10 +112,26 @@ fn compare_golden(
             line_diff(&expected, actual)
         )),
         Err(_) => skip_notes.push(format!(
-            "skip golden diff for {kind}: tests/fixtures/artifacts/{kind}.golden not blessed yet (run PCBCRAFT_BLESS=1 on a build host)"
+            "tests/fixtures/artifacts/{kind}.golden not blessed yet (run PCBCRAFT_BLESS=1 on a build host)"
         )),
     }
     Ok(())
+}
+
+fn compare_golden(
+    kind: &str,
+    actual: &str,
+    failures: &mut Vec<String>,
+    skip_notes: &mut Vec<String>,
+) -> Result<(), String> {
+    compare_golden_in(
+        &golden_dir(),
+        blessing(),
+        kind,
+        actual,
+        failures,
+        skip_notes,
+    )
 }
 
 fn kind_owners() -> Result<HashMap<String, String>, String> {
