@@ -27359,6 +27359,10 @@ mod tests {
         let c = s.project.component(r1).ok_or_else(missing)?;
         assert_eq!(c.field("Manufacturer"), Some("Example Components"));
         assert_eq!(c.field("MPN"), Some("SAMPLE-R-10K"));
+        assert_eq!(
+            c.field("Datasheet"),
+            Some("https://example.invalid/d.pdf")
+        );
         assert_eq!(c.field("Sample Shop SKU"), Some("SS-1"));
         assert!(
             s.execute(
