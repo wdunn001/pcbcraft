@@ -184,6 +184,19 @@ fn a_profile_renames_and_reorders_columns() -> Result<(), String> {
 }
 
 #[test]
+fn a_profile_can_replace_the_default_header_block() -> Result<(), String> {
+    let project = two_side_board()?;
+    let profile = AssemblyPlacementProfile {
+        header_lines: vec!["House centroid export".into()],
+        ..AssemblyPlacementProfile::legacy_default()
+    };
+    let text = placement_text_with_profile(&project, Some(&profile))?;
+    assert!(text.contains("#\tHouse centroid export\n"));
+    assert!(!text.contains("Pick and Place File"));
+    Ok(())
+}
+
+#[test]
 fn a_bottom_rotation_policy_changes_only_bottom_parts() -> Result<(), String> {
     let project = two_side_board()?;
     let base = placement_text_with_profile(&project, None)?;
