@@ -221,7 +221,7 @@ fn hydrate_document(mut doc: Value, parts: &BTreeMap<String, Vec<u8>>) -> Result
             if let Some(object) = mesh_value.as_object_mut() {
                 object.insert(
                     "positions".into(),
-                    Value::Array(flat.into_iter().map(json).collect()),
+                    Value::Array(flat.into_iter().map(|v| json!(v)).collect()),
                 );
                 object.insert(
                     "triangles".into(),

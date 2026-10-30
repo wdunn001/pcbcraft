@@ -1,13 +1,6 @@
 //! JSON SolidCraft design subset: read, write, and metadata preservation.
 use super::container::{self, MAX_EXPANDED};
-use super::mesh;
 use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
-
-pub use super::board::{
-    SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, SolidcraftLayers,
-    solidcraft_board,
-};
 
 /// Newest SolidCraft format number this reader has been tested against.
 pub const SOLIDCRAFT_FORMAT_MAX: u32 = 22;
@@ -136,6 +129,7 @@ fn normalize(value: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use super::mesh;
     use super::*;
 
     #[test]
