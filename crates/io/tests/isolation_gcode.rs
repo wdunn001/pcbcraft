@@ -46,6 +46,8 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        include_in_bom: true,
+        include_in_placement: true,
         sheet: 0,
     });
     p.components.push(Component {
@@ -68,6 +70,8 @@ fn sample_two_pads_track() -> Project {
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        include_in_bom: true,
+        include_in_placement: true,
         sheet: 0,
     });
     let fp1 = Footprint {

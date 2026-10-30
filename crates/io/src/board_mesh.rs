@@ -1964,6 +1964,8 @@ mod tests {
                 definition,
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
         });
         p.board.footprints.push(footprint(pads));

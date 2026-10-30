@@ -863,6 +863,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.validate()?;
         let shape_front = copper_shape_counts(&project, true)?;

@@ -2895,6 +2895,9 @@ pub fn ipc2581_text(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
+        if !c.in_placement() {
+            continue;
+        }
         let back = f.board_side() == pcbcraft_doc::Layer::Back;
         let side = if back { "bottom" } else { "top" };
         out.push_str(&format!(
@@ -3554,6 +3557,9 @@ pub fn placement_text(p: &Project) -> Result<String, String> {
         let c = refs
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
+        if !c.in_placement() {
+            continue;
+        }
         let back = f.board_side() == pcbcraft_doc::Layer::Back;
         let tht = f.pads.iter().any(|pad| {
             pad.geometry
@@ -7161,6 +7167,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 601,
@@ -7957,6 +7965,8 @@ mod tests {
                 definition: footprint,
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,
@@ -8651,6 +8661,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.validate()?;
         let files = gerber_files(&project)?;
@@ -8882,6 +8894,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             });
             project.board.footprints.push(oval_pad(id));
         }
@@ -8983,6 +8997,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -9088,6 +9104,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             });
         }
         project.nets.push(pcbcraft_doc::Net {
@@ -9191,6 +9209,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -9347,6 +9367,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             };
         let footprint =
             |id: u64, component: u64, x: f64, y: f64, back: bool| pcbcraft_doc::Footprint {
@@ -9509,6 +9531,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.components.push(pcbcraft_doc::Component {
             sheet: 0,
@@ -9544,6 +9568,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 10,
@@ -9693,6 +9719,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             };
         project
             .components
@@ -9841,6 +9869,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             };
         project.components.push(component(1, "R2", [None, Some(9)]));
         project
@@ -10439,6 +10469,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             });
         }
         project.variants.push(pcbcraft_doc::Variant {
@@ -10610,6 +10642,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             });
         }
         project.validate()?;
@@ -10771,6 +10805,8 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             };
         let footprint = |id: u64, component: u64, x: f64, y: f64, rotation: f64, back: bool| {
             pcbcraft_doc::Footprint {
@@ -10915,6 +10951,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 11,
@@ -11083,6 +11121,8 @@ mod tests {
                 library_symbol: None,
                 library_footprint: None,
                 fields: vec![],
+                include_in_bom: true,
+                include_in_placement: true,
             });
         }
         project.validate()?;
@@ -11169,6 +11209,8 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.drawn_wires.push(pcbcraft_doc::DrawnWire {
             id: 2,
@@ -11609,6 +11651,8 @@ mod tests {
             }),
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.validate()?;
         let png = preview_png(&project, "schematic")?;
@@ -12812,6 +12856,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         project.board.footprints.push(pcbcraft_doc::Footprint {
             id: 2,

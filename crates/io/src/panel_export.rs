@@ -1,8 +1,8 @@
 //! Panel fabrication export: duplicated board artwork, mechanical holes and placement.
 
 use pcbcraft_doc::{
-    Board, CopperZone, Cutout, Fiducial, Footprint, Hole, Layer, PanelLayout, PanelSeparation,
-    PanelSettings, Project, Track, Via, panel_layout,
+    panel_layout, Board, CopperZone, Cutout, Fiducial, Footprint, Hole, Layer, PanelLayout,
+    PanelSeparation, PanelSettings, Project, Track, Via,
 };
 use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
@@ -429,6 +429,9 @@ pub fn panel_placement_text(p: &Project) -> Result<String, String> {
             let c = refs
                 .get(&f.component)
                 .ok_or("footprint references an unknown component")?;
+            if !c.in_placement() {
+                continue;
+            }
             let back = f.pads.iter().any(|pad| {
                 pad.geometry.as_ref().is_some_and(|g| {
                     g.pad_type == "smd"

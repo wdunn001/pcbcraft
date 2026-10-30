@@ -660,6 +660,8 @@ mod tests {
                 }]),
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.board.footprints.push(Footprint {
             id: 9401,
@@ -767,6 +769,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -878,6 +882,8 @@ mod tests {
                 }]),
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
         });
         p.board.footprints.push(Footprint {
             id: 9301,

@@ -164,10 +164,30 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// When false the part is left out of the bill and grouped BOM exports.
+    #[serde(
+        default = "default_inclusion_yes",
+        skip_serializing_if = "inclusion_flag_is_default",
+        rename = "in_bom"
+    )]
+    pub include_in_bom: bool,
+    /// When false the part is left out of pick-and-place and machine placement exports.
+    #[serde(
+        default = "default_inclusion_yes",
+        skip_serializing_if = "inclusion_flag_is_default",
+        rename = "in_placement"
+    )]
+    pub include_in_placement: bool,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
+}
+fn default_inclusion_yes() -> bool {
+    true
+}
+fn inclusion_flag_is_default(v: &bool) -> bool {
+    *v
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -249,15 +269,22 @@ pub struct ComponentField {
     pub key: String,
     pub value: String,
 }
-/// The component property that keeps a part out of the bill of materials.
-/// Set it to `yes` with `component.field`; clear it to put the part back.
+/// Legacy component property that keeps a part out of the bill of materials.
+/// Prefer `component.set_in_bom`; this field is still honoured on load.
 pub const BOM_EXCLUDE_FIELD: &str = "Exclude from BOM";
 impl Component {
-    /// True unless the part carries `BOM_EXCLUDE_FIELD` set to `yes`.
+    /// True when the part is included in BOM exports (variants may still omit it).
     pub fn in_bom(&self) -> bool {
+        if !self.include_in_bom {
+            return false;
+        }
         !self
             .field(BOM_EXCLUDE_FIELD)
             .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
+    }
+    /// True when the part is included in placement exports (variants may still omit it).
+    pub fn in_placement(&self) -> bool {
+        self.include_in_placement
     }
     /// Value of a named component property, if the component carries it.
     pub fn field(&self, key: &str) -> Option<&str> {
@@ -3525,6 +3552,8 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        include_in_bom: true,
+        include_in_placement: true,
         sheet: 0,
         pins: names
             .iter()
@@ -5602,6 +5631,8 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        include_in_bom: true,
+        include_in_placement: true,
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,
@@ -6670,6 +6701,25 @@ mod via_covering_tests {
             covering,
         });
         p
+    }
+
+    #[test]
+    fn component_inclusion_flags_default_and_omit_true_on_save() -> Result<(), String> {
+        let json = r#"{"id":1,"reference":"R1","value":"10k","kind":"resistor","position":{"x":0.0,"y":0.0},"rotation":0.0,"pins":[]}"#;
+        let c: Component = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        assert!(c.in_bom());
+        assert!(c.in_placement());
+        let saved = serde_json::to_string(&c).map_err(|e| e.to_string())?;
+        assert!(
+            !saved.contains("in_bom") && !saved.contains("in_placement"),
+            "included parts omit the flags"
+        );
+        let mut excluded = c.clone();
+        excluded.include_in_bom = false;
+        excluded.include_in_placement = false;
+        let saved = serde_json::to_string(&excluded).map_err(|e| e.to_string())?;
+        assert!(saved.contains("\"in_bom\":false") && saved.contains("\"in_placement\":false"));
+        Ok(())
     }
 
     #[test]

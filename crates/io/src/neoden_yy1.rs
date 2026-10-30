@@ -154,6 +154,9 @@ fn generate(
         let c = components
             .get(&f.component)
             .ok_or("footprint references an unknown component")?;
+        if !c.in_placement() {
+            continue;
+        }
         if is_through_hole(f) {
             continue;
         }
@@ -552,6 +555,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
         });
         p.board.footprints.push(Footprint {

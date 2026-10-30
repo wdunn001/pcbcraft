@@ -355,6 +355,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.set_in_bom",
+            "Include or exclude one part from the bill of materials and grouped BOM exports; assembly variants can still leave it unpopulated",
+            schema(
+                json!({"id":id_schema(),"in_bom":{"type":"boolean"}}),
+                &["id", "in_bom"],
+            ),
+        ),
+        (
+            "component.set_in_placement",
+            "Include or exclude one part from pick-and-place and machine placement exports; assembly variants can still leave it unpopulated",
+            schema(
+                json!({"id":id_schema(),"in_placement":{"type":"boolean"}}),
+                &["id", "in_placement"],
+            ),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -1201,6 +1217,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"width":{"type":"number","exclusiveMinimum":0},"height":{"type":"number","exclusiveMinimum":0}}),
                 &["width", "height"],
+            ),
+        ),
+        (
+            "board.clearance.set",
+            "Set the board default copper clearance in millimetres",
+            schema(
+                json!({"clearance":{"type":"number","exclusiveMinimum":0,"maximum":100}}),
+                &["clearance"],
             ),
         ),
         (
@@ -3032,6 +3056,23 @@ struct DockEdgeParams {
 struct LockParams {
     id: Id,
     locked: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentInBomParams {
+    id: Id,
+    in_bom: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComponentInPlacementParams {
+    id: Id,
+    in_placement: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoardClearanceParams {
+    clearance: f64,
 }
 /// Move one object by (dx, dy) millimetres: a part, footprint, track, via,
 /// zone, cutout, datum, board text or drawn graphic. Shared by `object.nudge`
@@ -4994,12 +5035,12 @@ type BomGroups =
 ///
 /// # Rules
 /// - Reads the project only; never changes it.
-/// - Skips parts that carry `pcbcraft_doc::BOM_EXCLUDE_FIELD` set to `yes`, parts
-///   a named variant leaves unpopulated, and, when `ids` is not empty, every
-///   part not listed.
+/// - Skips parts with `in_bom` false, parts that carry legacy
+///   `pcbcraft_doc::BOM_EXCLUDE_FIELD` set to `yes`, parts a named variant leaves
+///   unpopulated, and, when `ids` is not empty, every part not listed.
 ///
 /// # Dependencies
-/// - crates/doc/src/lib.rs (`Component::in_bom`).
+/// - crates/doc/src/lib.rs (`Component::in_bom`, `component.set_in_bom`).
 ///
 /// # Do not
 /// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
@@ -8161,6 +8202,26 @@ fn run_command(
                 .ok_or_else(missing)?;
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "component.set_in_bom" => {
+            let a: ComponentInBomParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.include_in_bom = a.in_bom;
+            Ok(json!({"id": a.id, "in_bom": a.in_bom}))
+        }
+        "component.set_in_placement" => {
+            let a: ComponentInPlacementParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.include_in_placement = a.in_placement;
+            Ok(json!({"id": a.id, "in_placement": a.in_placement}))
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
@@ -16097,6 +16158,16 @@ fn run_command(
             p.board.height = a.height;
             Ok(json!({"width":a.width,"height":a.height}))
         }
+        "board.clearance.set" => {
+            let a: BoardClearanceParams = parse(params)?;
+            if !fab_mm_ok(a.clearance) {
+                return Err(Error::Invalid(
+                    "clearance must be between 0.001 and 100 millimetres".into(),
+                ));
+            }
+            p.board.clearance = a.clearance;
+            Ok(json!({"clearance": p.board.clearance}))
+        }
         "board.rules.set" => {
             let a: BoardRulesSetParams = parse(params)?;
             if a.clearance.is_none() && !a.touches_fab() {
@@ -23688,6 +23759,68 @@ mod tests {
             s.execute("bom.export", json!({"ids": vec![1u64; 4097]}), None)
                 .is_err(),
             "too many ids are refused"
+        );
+        s.execute(
+            "component.set_in_bom",
+            json!({"id": ids[0], "in_bom": false}),
+            None,
+        )?;
+        assert_eq!(
+            s.execute("bom.export", json!({}), None)?["result"]["components"],
+            1,
+            "the document flag leaves the bill too"
+        );
+        Ok(())
+    }
+    #[test]
+    fn per_part_output_flags_and_board_clearance_undo() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R1","value":"10k","position":{"x":10.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let r2 = s
+            .execute(
+                "component.add",
+                json!({"kind":"resistor","reference":"R2","value":"10k","position":{"x":20.0,"y":10.0}}),
+                None,
+            )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        s.execute(
+            "component.set_in_bom",
+            json!({"id": r2, "in_bom": false}),
+            None,
+        )?;
+        assert_eq!(
+            s.execute("bom.export", json!({}), None)?["result"]["components"],
+            1
+        );
+        s.execute(
+            "component.set_in_placement",
+            json!({"id": r1, "in_placement": false}),
+            None,
+        )?;
+        let placement = pcbcraft_io::placement_text(&s.project).map_err(Error::Invalid)?;
+        assert!(
+            !placement.contains("R1") && placement.contains("R2"),
+            "placement export skips parts flagged out"
+        );
+        let before = s.project.board.clearance;
+        s.execute("board.clearance.set", json!({"clearance": 0.25}), None)?;
+        assert!((s.project.board.clearance - 0.25).abs() < 1e-9);
+        s.undo()?;
+        assert!((s.project.board.clearance - before).abs() < 1e-9);
+        s.undo()?;
+        s.undo()?;
+        assert_eq!(
+            s.execute("bom.export", json!({}), None)?["result"]["components"],
+            2
         );
         Ok(())
     }
