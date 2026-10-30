@@ -1,4 +1,4 @@
-//! Six-layer fixture for the pour and keepout obstacle lists (issue #800).
+//! Six-layer fixture for the pour and keepout obstacle lists (issue #644).
 //!
 //! Each test builds a small six-layer board and asks which objects the pour
 //! sees on each copper layer. A via is copper only on the layers of its span, a
