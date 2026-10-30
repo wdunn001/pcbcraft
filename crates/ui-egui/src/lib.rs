@@ -7204,8 +7204,11 @@ mod tests {
         app.change_tab(Tab::Libraries);
         app.refresh();
         let ctx = egui::Context::default();
-        for _ in 0..80 {
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
             if app.library.catalog.is_some() && app.library.sources.is_some() {
                 break;
             }
@@ -7223,8 +7226,11 @@ mod tests {
         app.library.new_source = shelf.clone();
         authoring::tests::tap(&ctx, &mut app, "Add folder")?;
         let mut added = false;
-        for _ in 0..80 {
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
             if app.library.notice.contains("Added") {
                 added = true;
                 break;
@@ -7242,8 +7248,11 @@ mod tests {
             "the folder is remembered in the config file"
         );
         let mut listed = false;
-        for _ in 0..80 {
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
             listed = app
                 .library
                 .catalog
@@ -7283,8 +7292,11 @@ mod tests {
         app.library.path = added_path;
         authoring::tests::tap(&ctx, &mut app, "Remove source")?;
         let mut removed = false;
-        for _ in 0..80 {
+        // A worker thread answers; wait for it by the clock (up to 20 s)
+        // rather than by a frame count, so a loaded machine only slows this.
+        for _ in 0..4000 {
             frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+            std::thread::sleep(std::time::Duration::from_millis(5));
             if app.library.notice.contains("Removed") {
                 removed = true;
                 break;
