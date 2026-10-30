@@ -1,5 +1,5 @@
 use super::{
-    is_unknown, load_list_snapshot, load_rule_set, push_hit, push_unverified, ComplianceFinding,
+    is_unknown, load_list_snapshot, load_rule_set, push_hit, ComplianceFinding,
     ComplianceRuleSpec,
 };
 use pcbcraft_doc::{ComplianceStatus, Project};
