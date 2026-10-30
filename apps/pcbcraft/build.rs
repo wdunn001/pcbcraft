@@ -21,7 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let rc = out.join("pcbcraft.rc");
     std::fs::write(
         &rc,
-        format!("1 ICON \"{}\"\n", copy.display().to_string().replace('\\', "/")),
+        format!(
+            "1 ICON \"{}\"\n",
+            copy.display().to_string().replace('\\', "/")
+        ),
     )?;
     embed_resource::compile_for(&rc, ["pcbcraft"], embed_resource::NONE).manifest_required()?;
     Ok(())
