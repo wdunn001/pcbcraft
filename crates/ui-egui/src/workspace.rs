@@ -1,5 +1,5 @@
-//! Workspaces: one contract per work area (Files, Schematic, Layout,
-//! Manufacture) that says what each region of the window holds.
+//! Workspaces: one contract per work area (Files, Library, Schematic,
+//! Layout, Manufacture) that says what each region of the window holds.
 //!
 //! Context: issue #795, epic #758. The shell (menu bar, tab row, status bar)
 //! is fixed; everything between is a region the workspace fills: toolbar,
@@ -61,7 +61,7 @@ impl RegionLayout {
 /// - `center` draws everything between the toolbar and the bottom sheet.
 ///
 /// # Implementations
-/// - `crates/ui-egui/src/workspace.rs` holds `FilesWorkspace`, `SchematicWorkspace`,
+/// - `crates/ui-egui/src/workspace.rs` holds `FilesWorkspace`, `LibraryWorkspace`, `SchematicWorkspace`,
 ///   `LayoutWorkspace`, and `ManufactureWorkspace`.
 ///
 /// # Do not
@@ -132,6 +132,8 @@ fn drawing_left(app: &mut App, tab: &str, ui: &mut egui::Ui) {
 
 /// Files: project overview.
 pub(crate) struct FilesWorkspace;
+/// Library: read, compare and edit parts.
+pub(crate) struct LibraryWorkspace;
 /// Schematic: the sheet.
 pub(crate) struct SchematicWorkspace;
 /// Layout: the board, in 2D or 3D.
@@ -153,6 +155,29 @@ impl Workspace for FilesWorkspace {
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| App::padded(ui, |ui| app.files_tab(ui)));
+    }
+    fn default_layout(&self) -> RegionLayout {
+        RegionLayout::new("library", "findings")
+    }
+}
+
+impl Workspace for LibraryWorkspace {
+    // Contract: this file, `Workspace`. The left region is the Library browser, reused; the
+    // centre is the page of the showing part; the right aside is drawn by `App::inspector`.
+    fn id(&self) -> &'static str {
+        "library"
+    }
+    fn toolbar(&self, app: &mut App, ui: &mut egui::Ui) {
+        app.library_toolbar(ui);
+    }
+    fn left_tabs(&self) -> &'static [RegionTab] {
+        &LIBRARY_ONLY
+    }
+    fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
+        drawing_left(app, tab, ui);
+    }
+    fn center(&self, app: &mut App, ui: &mut egui::Ui) {
+        app.library_center(ui);
     }
     fn default_layout(&self) -> RegionLayout {
         RegionLayout::new("library", "findings")
@@ -258,6 +283,7 @@ impl Workspace for ManufactureWorkspace {
 }
 
 static FILES: FilesWorkspace = FilesWorkspace;
+static LIBRARY: LibraryWorkspace = LibraryWorkspace;
 static SCHEMATIC: SchematicWorkspace = SchematicWorkspace;
 static LAYOUT: LayoutWorkspace = LayoutWorkspace;
 static MANUFACTURE: ManufactureWorkspace = ManufactureWorkspace;
@@ -267,6 +293,7 @@ static MANUFACTURE: ManufactureWorkspace = ManufactureWorkspace;
 pub(crate) fn workspace_for(tab: Tab) -> Option<&'static dyn Workspace> {
     match tab {
         Tab::Files => Some(&FILES),
+        Tab::Library => Some(&LIBRARY),
         Tab::Schematic => Some(&SCHEMATIC),
         Tab::Pcb | Tab::Board3d => Some(&LAYOUT),
         Tab::PlotFiles => Some(&MANUFACTURE),
@@ -300,12 +327,15 @@ impl App {
     /// The full-width tool bar under the tab nav, for the workspaces that have one.
     ///
     /// # Rules
-    /// - Files and Manufacture have no tool bar, so no panel is drawn for them.
+    /// - Library, Schematic and Layout have one; Files and Manufacture have no tool bar, so no panel is drawn for them.
     ///
     /// # Dependencies
     /// - crates/ui-egui/src/toolbar.rs
     pub(crate) fn toolbar_panel(&mut self, ui: &mut egui::Ui) {
-        if !matches!(self.tab, Tab::Schematic | Tab::Pcb | Tab::Board3d) {
+        if !matches!(
+            self.tab,
+            Tab::Library | Tab::Schematic | Tab::Pcb | Tab::Board3d
+        ) {
             return;
         }
         let tokens = crate::theme::tokens(ui.ctx());

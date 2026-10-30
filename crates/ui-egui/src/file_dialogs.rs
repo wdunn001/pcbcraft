@@ -1069,6 +1069,7 @@ impl App {
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
+            Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
             _ => {}
         }
     }

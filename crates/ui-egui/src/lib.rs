@@ -26,6 +26,7 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
+mod library_workspace;
 mod modifier_ui;
 mod motion;
 mod number_entry;
@@ -613,6 +614,7 @@ use serde_json::{Value, json};
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Files,
+    Library,
     Schematic,
     Pcb,
     Board3d,
@@ -1044,6 +1046,8 @@ pub struct App {
     frames: u32,
     library: library::Browser,
     dock: library_dock::Dock,
+    /// The Library tab: open parts, the showing page, recorded supplier answers.
+    libws: library_workspace::State,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
 }
@@ -1420,6 +1424,7 @@ impl App {
             tab: match tab {
                 Some("pcb" | "layout") => Tab::Pcb,
                 Some("files") => Tab::Files,
+                Some("library") => Tab::Library,
                 Some("rules") => Tab::Rules,
                 Some("settings") => Tab::Settings,
                 Some("checks") => Tab::Checks,
@@ -1526,6 +1531,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            libws: library_workspace::State::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             renumber_open: false,
@@ -2514,12 +2520,13 @@ impl App {
                 });
             });
     }
-    /// The tab row: Files, Schematic, Layout, 3D and Manufacture, left-aligned
+    /// The tab row: Files, Library, Schematic, Layout and Manufacture, left-aligned
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let shown: [(Tab, String); 4] = [
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
+            (Tab::Library, t!("docks.workbench_tabs.library")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
@@ -3076,8 +3083,14 @@ impl App {
         if Self::narrow_window(ui.ctx()) {
             return;
         }
-        egui::Panel::left("left-aside")
-            .default_size(320.0)
+        // The Library tab gives its browser more room; the saved width is kept per panel id.
+        let (id, width) = if self.tab == Tab::Library {
+            ("left-aside-library", 380.0)
+        } else {
+            ("left-aside", 320.0)
+        };
+        egui::Panel::left(id)
+            .default_size(width)
             .min_size(240.0)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
@@ -5542,6 +5555,12 @@ impl App {
         }
         if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
             assistant::pane::show(self, ui);
+            return;
+        }
+        if self.tab == Tab::Library {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| self.library_properties(ui));
             return;
         }
         egui::ScrollArea::vertical()

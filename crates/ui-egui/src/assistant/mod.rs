@@ -369,6 +369,7 @@ impl App {
             Tab::Libraries => "libraries",
             Tab::PlotFiles => "output files",
             Tab::Files => "files",
+            Tab::Library => "library",
             Tab::Settings => "settings",
         };
         let selection = self.selected.map(|id| {

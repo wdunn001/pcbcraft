@@ -21,6 +21,7 @@ mod layout;
 mod library;
 mod library_browser;
 mod library_dock;
+mod library_workspace;
 mod modifiers;
 mod nets;
 mod pairs;
