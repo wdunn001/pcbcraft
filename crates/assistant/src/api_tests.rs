@@ -311,6 +311,14 @@ fn a_401_reply_becomes_a_plain_sentence_without_the_key_in_it() -> Result<(), St
 }
 
 #[test]
+fn http_error_429_and_500_use_plain_reasons() {
+    let busy = http_error(429, &json!({"error": {"message": "x"}}));
+    assert!(busy.contains("the endpoint is busy"));
+    let down = http_error(500, &json!({"error": {"message": "x"}}));
+    assert!(down.contains("the endpoint had an error"));
+}
+
+#[test]
 fn a_key_never_goes_to_a_plain_http_address_off_this_computer() {
     assert!(key_safe_for("https://api.example.com/v1"));
     assert!(key_safe_for("http://localhost:11434/v1"));
