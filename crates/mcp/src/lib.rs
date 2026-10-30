@@ -23,10 +23,11 @@ pub fn shared(session: Session) -> SharedSession {
 }
 pub fn tool_list() -> Value {
     let object = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
-    let loose = |properties: Value, required: &[&str]| {
-        json!({"type":"object","properties":properties,"required":required,"additionalProperties":true})
-    };
-    let point = loose(json!({"x":{"type":"number"},"y":{"type":"number"}}), &["x", "y"]);
+    let loose = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":true});
+    let point = loose(
+        json!({"x":{"type":"number"},"y":{"type":"number"}}),
+        &["x", "y"],
+    );
     let finding = loose(
         json!({"code":{"type":"string"},"severity":{"type":"string"},"message":{"type":"string"},"objects":{"type":"array","items":{"type":"integer"}}}),
         &["code", "severity", "message", "objects"],
@@ -2836,7 +2837,11 @@ mod tests {
         let content = reply
             .get("structuredContent")
             .ok_or("missing structuredContent")?;
-        validate_schema(content, &output_schema_for("inspect_design")?, "structuredContent")?;
+        validate_schema(
+            content,
+            &output_schema_for("inspect_design")?,
+            "structuredContent",
+        )?;
         Ok(())
     }
 
