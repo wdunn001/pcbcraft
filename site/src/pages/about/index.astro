@@ -1,0 +1,26 @@
+---
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+import { url } from '../../lib/site';
+---
+
+<MarketingLayout title="About" description="About the PCBCraft project.">
+  <section class="section">
+    <div class="wrap prose">
+      <p class="eyebrow">About</p>
+      <h1>About PCBCraft</h1>
+      <p class="lede">PCBCraft is one native window for schematic, board layout, libraries and checks. Every edit goes through a typed engine command, and the desktop app, the command line and MCP call the same commands.</p>
+      <p>It is a working foundation, not a finished production suite. The open items are tracked in the public roadmap.</p>
+      <p data-slot="COPY #718">Placeholder for the project story and the people behind it. Final copy lands with #718.</p>
+      <p><a href="https://github.com/tangency-labs/pcbcraft">Source code</a> · <a href="https://github.com/tangency-labs/pcbcraft/blob/main/ROADMAP.md">Roadmap</a> · <a href={url('license/')}>License</a></p>
+    </div>
+  </section>
+</MarketingLayout>
+
+<style>
+  .prose {
+    max-width: 46rem;
+  }
+  .prose p {
+    margin: 0 0 1.1rem;
+  }
+</style>

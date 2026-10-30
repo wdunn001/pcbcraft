@@ -132,6 +132,8 @@ pub fn diff(walk: &str, touched: &str, exempt: &Exemptions) -> Report {
         let mut cols = line.split('\t');
         match (cols.next(), cols.next(), cols.next()) {
             (Some("P"), Some(id), _) => {
+                // An id cut at a fixed length can end in a space; the touch log is trimmed.
+                let id = id.trim_end();
                 report.painted += 1;
                 seen.push(("story", id));
                 if !touched.contains(id) && !exempt.skips("story", id) {

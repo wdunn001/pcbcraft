@@ -12,7 +12,7 @@ fn a_newcomer_puts_a_logo_on_the_silk() -> Result<(), String> {
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Settings")?;
+    authoring::tests::open_page(&ctx, &mut app, "Settings")?;
     assert!(
         scrolled_to_at(&ctx, &mut app, "REFERENCE IMAGE", 700.0)?,
         "the settings page has a plainly named reference image section"

@@ -1,0 +1,16 @@
+[
+ {
+  "id": "cd65abe4c58c441d33ff68382e47773e699c3238",
+  "name": "Conn_01x02.kicad_sym",
+  "type": "blob",
+  "path": "Connector_Generic.kicad_symdir/Conn_01x02.kicad_sym",
+  "mode": "100644"
+ },
+ {
+  "id": "d07c05d6d73d3233e497ab1cfb553893500acd7d",
+  "name": "Conn_01x04.kicad_sym",
+  "type": "blob",
+  "path": "Connector_Generic.kicad_symdir/Conn_01x04.kicad_sym",
+  "mode": "100644"
+ }
+]

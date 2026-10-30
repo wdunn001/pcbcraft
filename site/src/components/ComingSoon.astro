@@ -1,0 +1,14 @@
+---
+// Stub body for pages whose real content is another issue. Marked so nobody mistakes it for copy.
+// Rules: always name the issue that replaces the page.
+interface Props { heading: string; issue: string; note?: string }
+const { heading, issue, note } = Astro.props;
+---
+
+<section class="section">
+  <div class="wrap">
+    <p class="eyebrow">Placeholder page · {issue}</p>
+    <h1>{heading}</h1>
+    <p class="lede">{note ?? `This page is a stub. Its content lands with ${issue}.`}</p>
+  </div>
+</section>

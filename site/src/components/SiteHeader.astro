@@ -1,0 +1,194 @@
+---
+// Site header shared by the marketing layout and the Starlight Header override, so the nav
+// is identical on every page. Slots: `search` (docs search or a link) and `theme`.
+// Rules: wide screens show the links inline; below 64rem a disclosure menu lists them.
+// Do not: add links here without adding them to NAV in ../lib/site.ts.
+import Brand from './Brand.astro';
+import { NAV, MORE, url } from '../lib/site';
+
+interface Props {
+  current?: string;
+}
+const { current = Astro.url.pathname } = Astro.props;
+
+const isCurrent = (path: string) => !path.startsWith('#') && current.startsWith(url(path));
+---
+
+<div class="bar">
+  <Brand />
+  <nav class="nav" aria-label="Main">
+    <ul>
+      {
+        NAV.map((item) => (
+          <li>
+            <a href={url(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>
+              {item.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+  {MORE.length > 0 && <details class="more">
+    <summary>More</summary>
+    <ul class="panel">
+      {MORE.map((item) => (<li><a href={url(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>{item.label}</a></li>))}
+    </ul>
+  </details>}
+  <div class="tools">
+    <slot name="search" />
+    <slot name="theme" />
+    <details class="menu">
+      <summary aria-label="Menu" title="Menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </summary>
+      <ul class="panel">
+        {
+          [...NAV, ...MORE].map((item) => (
+            <li>
+              <a href={url(item.path)} aria-current={isCurrent(item.path) ? 'page' : undefined}>
+                {item.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </details>
+  </div>
+</div>
+
+<style>
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 1.75rem;
+    height: 100%;
+    min-width: 0;
+  }
+  .nav {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .nav ul {
+    display: flex;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .nav a {
+    position: relative;
+    display: block;
+    padding: 0.45rem 0.75rem;
+    color: var(--pc-muted);
+    font-size: 0.95rem;
+    text-decoration: none;
+    border-radius: 4px;
+  }
+  .nav a:hover {
+    color: var(--pc-text);
+  }
+  .nav a[aria-current='page'] {
+    color: var(--pc-text);
+  }
+  /* trace stub under the current page */
+  .nav a[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: -0.55rem;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--pc-copper);
+  }
+  .tools {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-inline-start: auto;
+  }
+  .more {
+    position: relative;
+  }
+  .more summary {
+    padding: 0.45rem 0.75rem;
+    color: var(--pc-muted);
+    font-size: 0.95rem;
+    cursor: pointer;
+    list-style: none;
+    border-radius: 4px;
+  }
+  .more summary::-webkit-details-marker {
+    display: none;
+  }
+  .more summary::after {
+    content: ' ▾';
+  }
+  .more summary:hover {
+    color: var(--pc-text);
+  }
+  .more .panel {
+    inset-inline-end: auto;
+    inset-inline-start: 0;
+  }
+  .menu {
+    position: relative;
+    display: none;
+  }
+  .menu summary {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    color: var(--pc-text);
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-edge);
+    border-radius: 6px;
+    cursor: pointer;
+    list-style: none;
+  }
+  .menu summary::-webkit-details-marker {
+    display: none;
+  }
+  .panel {
+    position: absolute;
+    inset-inline-end: 0;
+    top: calc(100% + 0.6rem);
+    z-index: 30;
+    min-width: 13rem;
+    margin: 0;
+    padding: 0.5rem;
+    list-style: none;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-edge);
+    border-radius: 8px;
+    box-shadow: var(--pc-shadow);
+  }
+  .panel a {
+    display: block;
+    padding: 0.65rem 0.85rem;
+    color: var(--pc-text);
+    text-decoration: none;
+    border-radius: 4px;
+  }
+  .panel a:hover,
+  .panel a[aria-current='page'] {
+    background: var(--pc-raised);
+    color: var(--pc-copper);
+  }
+  @media (max-width: 63.99rem) {
+    .nav,
+    .more {
+      display: none;
+    }
+    .menu {
+      display: block;
+    }
+    .bar {
+      gap: 1rem;
+    }
+  }
+</style>

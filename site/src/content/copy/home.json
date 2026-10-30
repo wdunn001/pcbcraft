@@ -1,0 +1,23 @@
+{
+  "_note": "Copy for the one-page landing. Every sentence states something the app does today (see src/data/features.yaml).",
+  "hero": {
+    "eyebrow": { "text": "Open-source electronics design", "placeholder": false },
+    "title": { "text": "Design circuit boards in one window.", "placeholder": false },
+    "lede": { "text": "PCBCraft is an app for drawing a schematic, laying out the board, picking parts from libraries and writing the files a manufacturer needs.", "placeholder": false },
+    "primary": { "text": "Get PCBCraft", "placeholder": false },
+    "secondary": { "text": "View on GitHub", "placeholder": false },
+    "meta": { "text": "Code GPL-3.0. Docs and screenshots CC BY-SA 4.0.", "placeholder": false },
+    "caption": { "text": "Layout view", "placeholder": false }
+  },
+  "bands": [
+    { "area": "schematic", "tag": "Schematic", "title": { "text": "Draw the circuit and name the nets.", "placeholder": false }, "body": { "text": "Place parts, join them with wires and buses, and add labels and power symbols. Split a design over named pages and hand a net from one page to another with a port.", "placeholder": false } },
+    { "area": "layout", "tag": "Layout", "title": { "text": "Place the parts, route the copper, read the findings.", "placeholder": false }, "body": { "text": "Route tracks between pads on any copper layer, with an optional shove mode. The Layers tree lists layers, parts and nets, and each row can be shown, hidden or locked. Run the checks and the Findings list shows what is still open.", "placeholder": false } },
+    { "area": "libraries", "tag": "Libraries", "title": { "text": "Find the part and place it.", "placeholder": false }, "body": { "text": "Search the installed symbol and footprint libraries by keyword. Each card shows where the part comes from and its pad and pin counts. Edit pins, pads and shapes in your project library.", "placeholder": false } },
+    { "area": "outputs", "tag": "Outputs", "title": { "text": "Write the files your manufacturer asks for.", "placeholder": false }, "body": { "text": "Export Gerber copper and outline layers and a drill file, a bill of materials and placement data. Bundle them in one zip with a manifest.", "placeholder": false } }
+  ],
+  "download": {
+    "title": { "text": "Get PCBCraft", "placeholder": false },
+    "sub": { "text": "PCBCraft is built from source. You need a Rust toolchain. The command opens the sample board.", "placeholder": false },
+    "source": { "text": "Build and run:", "placeholder": false }
+  }
+}

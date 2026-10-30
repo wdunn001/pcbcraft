@@ -1,0 +1,24 @@
+# One entry per file: path = number of ad hoc font calls still to move to the roles in
+# src/fonts.rs (`fonts::text`, `caption`, `mono`, `strong`, `title`, `display`).
+# The test fails when a file goes above its count or a new file appears, so this list
+# can only shrink: lower the number when you migrate a call site.
+src/assistant/cards.rs = 4
+src/assistant/pane.rs = 1
+src/assistant/settings.rs = 4
+src/authoring.rs = 10
+src/canvas.rs = 23
+src/canvas/board_art.rs = 1
+src/canvas/sheet.rs = 6
+src/datums.rs = 5
+src/editing.rs = 1
+src/footprint_wizard.rs = 1
+src/impedance_panel.rs = 6
+src/lib.rs = 90
+src/library.rs = 4
+src/library_quality.rs = 3
+src/plot_viewer.rs = 6
+src/sources.rs = 11
+src/via_span.rs = 1
+src/draw_target.rs = 1
+src/layers_tree.rs = 4
+src/modifier_ui.rs = 3

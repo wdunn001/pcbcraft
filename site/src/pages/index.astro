@@ -1,0 +1,216 @@
+---
+// One-page landing: hero, four feature bands, Get PCBCraft block. Text comes from
+// src/content/copy/home.json; images from the screen catalog via ShotFrame.
+import MarketingLayout from '../layouts/MarketingLayout.astro';
+import ShotFrame from '../components/ShotFrame.astro';
+import { areas } from '../lib/features';
+import { home, slot } from '../lib/copy';
+import { REPO_URL } from '../lib/site';
+import mark from '../assets/brand/concept-2.svg';
+
+const bandAlt: Record<string, string> = {
+  schematic: 'The schematic editor with a sheet of connected parts',
+  layout: 'The board layout view with routed copper',
+  libraries: 'The part library browser beside a footprint preview',
+  outputs: 'The outputs panel listing the fabrication files',
+};
+---
+
+<MarketingLayout title="PCBCraft" description="PCBCraft is an open-source app for drawing a schematic, laying out the board, picking parts from libraries and writing manufacturing files.">
+  <!-- Hero -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="lockup" aria-hidden="true"><img src={mark.src} width="48" height="48" alt="" /><span>PCBCraft</span></p>
+        <p class="eyebrow" {...slot(home.hero.eyebrow)}>{home.hero.eyebrow.text}</p>
+        <h1 {...slot(home.hero.title)}>{home.hero.title.text}</h1>
+        <p class="lede" {...slot(home.hero.lede)}>{home.hero.lede.text}</p>
+        <div class="cta">
+          <a class="btn primary" href="#get">{home.hero.primary.text}</a>
+          <a class="btn ghost" href={REPO_URL} rel="noopener">{home.hero.secondary.text}</a>
+        </div>
+        <p class="meta mono">{home.hero.meta.text}</p>
+      </div>
+      <div class="hero-shot">
+        <ShotFrame id="hero-layout" alt="The PCBCraft Layout tab" title="PCBCraft · layout" caption={home.hero.caption.text} eager />
+      </div>
+    </div>
+  </section>
+
+  <!-- Four bands -->
+  {
+    home.bands.map((b, i) => (
+      <section id={i === 0 ? 'features' : undefined} class={`section band ${i % 2 ? 'flip' : ''}`} aria-labelledby={`band-${b.area}`}>
+        <div class="wrap band-grid">
+          <div class="band-copy">
+            <p class={`tag t-${areas.find((a) => a.id === b.area)?.tone}`}><span class="pad"></span>{b.tag}</p>
+            <h2 id={`band-${b.area}`} {...slot(b.title)}>{b.title.text}</h2>
+            <p class="lede" {...slot(b.body)}>{b.body.text}</p>
+          </div>
+          <div class={b.area === 'layout' ? 'pair' : undefined}>
+            <ShotFrame id={b.area === 'layout' ? 'feature-layout' : `home-${b.area}`} alt={bandAlt[b.area]} title={`PCBCraft · ${b.tag.toLowerCase()}`} />
+            {b.area === 'layout' && <ShotFrame id="layers-tree" alt="The Layers tree" title="Layers" />}
+          </div>
+        </div>
+      </section>
+    ))
+  }
+
+  <!-- Download strip -->
+  <section class="section" id="get" aria-labelledby="dl-h">
+    <div class="wrap dl">
+      <div>
+        <h2 id="dl-h">{home.download.title.text}</h2>
+        <p class="sub" {...slot(home.download.sub)}>{home.download.sub.text}</p>
+        <div class="cta">
+          <a class="btn primary" href={REPO_URL} rel="noopener">View on GitHub</a>
+        </div>
+      </div>
+      <div class="src">
+        <p class="mono">{home.download.source.text}</p>
+        <pre class="code"><code>git clone https://github.com/wdunn001/pcbcraft.git
+cd pcbcraft
+cargo run -p pcbcraft -- --sample</code></pre>
+      </div>
+    </div>
+  </section>
+
+</MarketingLayout>
+
+<style>
+  .hero {
+    padding: 3.5rem 0 3rem;
+  }
+  .hero-grid {
+    display: grid;
+    gap: 3rem;
+    align-items: center;
+  }
+  @media (min-width: 62rem) {
+    .hero-grid {
+      grid-template-columns: 1fr 1.12fr;
+    }
+  }
+  .lockup {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin: 0 0 1.6rem;
+    font: 600 1.7rem/1 var(--pc-font-body);
+    letter-spacing: -0.01em;
+  }
+  .lockup img {
+    border-radius: 10px;
+  }
+  .hero-copy .eyebrow {
+    display: inline-block;
+  }
+  .meta {
+    margin: 1.4rem 0 0;
+    color: var(--pc-muted);
+    font-size: 0.8rem;
+  }
+  .pair {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 40rem) {
+    .pair {
+      grid-template-columns: 1fr 10rem;
+    }
+  }
+  .tight {
+    padding: 3rem 0 4rem;
+  }
+  .band-grid {
+    display: grid;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  @media (min-width: 56rem) {
+    .band-grid {
+      grid-template-columns: 1fr 1.25fr;
+    }
+    .flip .band-grid {
+      grid-template-columns: 1.25fr 1fr;
+    }
+    .flip .band-copy {
+      order: 2;
+    }
+  }
+  .band-copy .tag {
+    margin: 0 0 1rem;
+  }
+  .band-link {
+    margin: 1.2rem 0 0;
+    font-weight: 600;
+  }
+  .area-grid {
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 48rem) {
+    .area-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .all {
+    margin: 2rem 0 0;
+  }
+  .shots {
+    display: grid;
+    gap: 1.2rem;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  }
+  .dl {
+    display: grid;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  @media (min-width: 56rem) {
+    .dl {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .src p {
+    margin: 0 0 0.6rem;
+    color: var(--pc-muted);
+    font-size: 0.85rem;
+  }
+  .code {
+    margin: 0;
+    padding: 1.1rem 1.2rem;
+    overflow-x: auto;
+    color: var(--pc-text);
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-edge);
+    border-radius: 8px;
+    font: 0.88rem/1.7 var(--pc-font-mono);
+  }
+  .docs {
+    display: grid;
+    gap: 1.1rem;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  }
+  .docs .card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 1.4rem 1.5rem;
+    color: var(--pc-muted);
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+    border-radius: 8px;
+    text-decoration: none;
+  }
+  .docs .card:hover {
+    border-color: var(--pc-copper);
+  }
+  .docs .card b {
+    color: var(--pc-cyan);
+    font: 700 1.3rem var(--pc-font-head);
+  }
+</style>

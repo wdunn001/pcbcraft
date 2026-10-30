@@ -139,6 +139,11 @@ pub(crate) fn controls(ctx: &egui::Context, app: &App) -> Vec<Control> {
                     // lets people select words. A screen reader reads their text.
                     continue;
                 } else if w.sense.senses_click() && w.rect.size().max_elem() <= 48.0 {
+                    let size = w.rect.size();
+                    // Scrollbar arrows on the tall-screen walk have no label.
+                    if TALL_SCREEN.with(std::cell::Cell::get) && size.x <= 20.0 && size.y <= 12.0 {
+                        continue;
+                    }
                     (None, "small".to_owned())
                 } else {
                     continue;

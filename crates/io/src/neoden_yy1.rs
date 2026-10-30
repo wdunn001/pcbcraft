@@ -234,9 +234,8 @@ fn generate(
 fn is_bottom(f: &Footprint) -> bool {
     f.pads.iter().any(|pad| {
         pad.geometry.as_ref().is_some_and(|g| {
-            g.pad_type == "smd"
-                && !g.layers.is_empty()
-                && !g.layers.iter().any(|l| l.starts_with("F."))
+            let layers = f.pad_geometry_layers(pad);
+            g.pad_type == "smd" && !layers.is_empty() && !layers.iter().any(|l| l.starts_with("F."))
         })
     })
 }
@@ -521,6 +520,7 @@ mod tests {
         pad_kind: (&str, &str),
     ) {
         p.components.push(Component {
+            sourcing: Default::default(),
             id,
             reference: reference.into(),
             value: value.into(),
@@ -561,8 +561,20 @@ mod tests {
             position: Point::new(at.0, at.1),
             rotation: at.2,
             locked: None,
+            side: None,
             pads: vec![pad(pad_kind.0, pad_kind.1)],
         });
+    }
+
+    /// Flip a placed part to the bottom the way the `footprint.flip` command
+    /// does: the side is set and the pads are mirrored about the local Y axis.
+    fn flip_to_bottom(p: &mut Project, footprint: u64) {
+        for f in p.board.footprints.iter_mut().filter(|f| f.id == footprint) {
+            f.side = Some(Layer::Back);
+            for pad in &mut f.pads {
+                pad.offset = Point::new(-pad.offset.x, pad.offset.y);
+            }
+        }
     }
 
     fn sample() -> Project {
@@ -655,8 +667,11 @@ mod tests {
             "10k",
             "0603",
             (10.0, 5.0, 30.0),
-            ("smd", "B.Cu"),
+            ("smd", "F.Cu"),
         );
+        // The normal path: library footprints stay authored on the top and the
+        // placed part is flipped to the bottom, as `footprint.flip` does.
+        flip_to_bottom(&mut p, 101);
         let out = generate(&p, YySide::Bottom, &yy1()?, &native())?;
         let file = text(&out, "Bottom.csv")?;
         assert!(file.contains("R1,10k,0603,40.00,5.00,330.00,"), "{file}");

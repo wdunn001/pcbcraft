@@ -1,0 +1,7 @@
+# Catalog strings that still read like developer output. One per line:
+#   key | #issue | reason
+# The gate in src/ui_kit/gates.rs fails on any other catalog string with developer
+# wording (revision counters, key hint lists, tool readouts, command ids), and fails
+# when a listed key stops matching, so this list can only shrink.
+board.footer.rev_revision | #765 | design system rule 1: no revision counter in the footer
+board.footer.tool_tool_words | #765 | design system rule 1: no "Tool: Pick" readout

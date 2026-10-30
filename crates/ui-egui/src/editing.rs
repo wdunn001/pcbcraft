@@ -1,5 +1,5 @@
 //! Everyday editing gestures on the canvas: picking several objects at once
-//! (drag box, shift-click), the pick filters, the measure tool, the text
+//! (drag box, shift-click), the measure tool, the text
 //! clipboard shortcuts and track cleanup. Everything here is reachable by
 //! direct manipulation and calls the typed engine commands underneath.
 
@@ -14,54 +14,13 @@ const MEASURE_SNAP: f64 = 10.0;
 /// How far each repeated paste steps away from the copied objects, in mm.
 const PASTE_STEP: f64 = 5.0;
 
-/// The four kinds of object the pick filter chips switch on and off.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum Kind {
-    Part,
-    Copper,
-    Graphic,
-    Text,
-    Other,
-}
-
-/// Which kinds of object a click or a drag box may pick up.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) struct SelectionFilter {
-    pub parts: bool,
-    pub copper: bool,
-    pub graphics: bool,
-    pub text: bool,
-}
-
-impl Default for SelectionFilter {
-    fn default() -> Self {
-        Self {
-            parts: true,
-            copper: true,
-            graphics: true,
-            text: true,
-        }
-    }
-}
-
-impl SelectionFilter {
-    pub(super) fn allows(self, kind: Kind) -> bool {
-        match kind {
-            Kind::Part => self.parts,
-            Kind::Copper => self.copper,
-            Kind::Graphic => self.graphics,
-            Kind::Text => self.text,
-            Kind::Other => true,
-        }
-    }
-}
-
 /// Everything the editing gestures remember between frames.
 #[derive(Default)]
 pub(super) struct EditState {
     /// Selected objects besides the primary one (`App::selected`).
     pub extra: Vec<Id>,
-    pub filter: SelectionFilter,
+    /// The Import, Save as and Export dialog (see file_dialogs.rs).
+    pub dialog: crate::file_dialogs::DialogState,
     pub box_from: Option<Point>,
     pub box_to: Option<Point>,
     pub box_extend: bool,
@@ -73,11 +32,23 @@ pub(super) struct EditState {
     /// What was selected when the clip was taken, to select the copies.
     pub clip_sources: Vec<Id>,
     pub pastes: u32,
+    /// The array dialog (see arrange.rs).
+    pub arrange: crate::arrange::ArrangeState,
     /// Centre of the objects when they were copied; Paste from the menu moves
     /// the copies from here to where the menu was opened.
     pub clip_origin: Option<Point>,
     /// Where the right-click menu was opened, in world millimetres.
     pub menu_at: Option<Point>,
+    /// A press that is turning into a drag; see `canvas/gestures.rs`.
+    pub press: Option<crate::canvas::gestures::Press>,
+    /// What the pointer hovers and what a click there will do.
+    pub hover: Option<crate::canvas::gestures::Hover>,
+    /// Modifier actions held this frame for the active tool.
+    pub live: crate::tool_modifiers::ActionSet,
+    /// The status hint for the hovered target and held keys.
+    pub hint: String,
+    /// The rename-a-net prompt, open after a double-click on a net label.
+    pub rename: Option<crate::canvas::gestures::Rename>,
 }
 
 /// Distance, dx, dy and angle between two points, as one plain sentence.
@@ -127,34 +98,16 @@ impl App {
         ids
     }
 
-    pub(super) fn kind_of(&self, id: Id) -> Kind {
-        let board = &self.project.board;
-        if self.project.component(id).is_some() || self.project.footprint(id).is_some() {
-            Kind::Part
-        } else if board.tracks.iter().any(|t| t.id == id)
-            || board.vias.iter().any(|v| v.id == id)
-            || board.zones.iter().any(|z| z.id == id)
-        {
-            Kind::Copper
-        } else if self.project.graphics.iter().any(|g| g.id == id)
-            || board.cutouts.iter().any(|c| c.id == id)
-            || board.holes.iter().any(|h| h.id == id)
-        {
-            Kind::Graphic
-        } else if board.texts.iter().any(|t| t.id == id)
-            || self.project.labels.iter().any(|l| l.id == id)
-        {
-            Kind::Text
-        } else {
-            Kind::Other
-        }
-    }
-
+    /// True when the Layers tree has not locked the layer `id` sits on, so a
+    /// click or a drag box may pick it up.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/layers_tree.rs` `is_locked` decides what a lock covers.
     pub(super) fn id_allowed(&self, id: Id) -> bool {
-        self.edit.filter.allows(self.kind_of(id))
+        !crate::layers_tree::is_locked(&self.project, &self.tree.locked, id)
     }
 
-    /// The object under the pointer, skipping kinds the filter chips turned off.
+    /// The object under the pointer, skipping anything on a locked Layers tree row.
     pub(super) fn pick_filtered(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.pick_object(pos, zoom)
             .filter(|id| self.id_allowed(*id))
@@ -220,7 +173,7 @@ impl App {
     }
 
     /// Every object on this tab whose box touches the world rectangle and
-    /// that the filter chips allow.
+    /// that no locked Layers tree row covers.
     pub(super) fn ids_in_rect(&self, a: Point, b: Point) -> Vec<Id> {
         let (lo, hi) = (
             Point::new(a.x.min(b.x), a.y.min(b.y)),
@@ -251,6 +204,12 @@ impl App {
         candidates
             .into_iter()
             .filter(|id| self.id_allowed(*id))
+            .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
+            .filter(|id| !self.sheet_row_hidden(*id))
+            .filter(|id| {
+                self.tab != Tab::Schematic
+                    || self.project.on_schematic_page(self.schematic_page(), *id)
+            })
             .filter(|id| {
                 self.bounds_of(*id)
                     .is_some_and(|(l, h)| l.x <= hi.x && h.x >= lo.x && l.y <= hi.y && h.y >= lo.y)
@@ -697,50 +656,6 @@ impl App {
                     FontId::monospace(12.0),
                     self.ink(),
                 );
-            }
-        }
-    }
-
-    /// The pick filter chips and the measure button, in the tool strip.
-    pub(super) fn editing_controls(&mut self, ui: &mut egui::Ui) {
-        if ui
-            .selectable_label(matches!(self.tool, Tool::Measure), "Measure")
-            .on_hover_text(
-                "Click two points to read the distance, the across and up-down parts and the angle. Holes, pads and pins snap. Shortcut U; Esc clears.",
-            )
-            .clicked()
-        {
-            self.arm_measure();
-        }
-        ui.separator();
-        ui.label("Pick:")
-            .on_hover_text("Choose which kinds of object a click or a drag box may pick up.");
-        let chips = [
-            (
-                "Parts",
-                "Parts and their symbols. Turn off to pick only the rest.",
-            ),
-            (
-                "Copper",
-                "Tracks, vias and copper zones. Turn off to leave wiring alone.",
-            ),
-            ("Graphics", "Drawn shapes, cutouts and holes."),
-            ("Text", "Text labels and net labels."),
-        ];
-        for (label, tip) in chips {
-            let f = &mut self.edit.filter;
-            let flag = match label {
-                "Parts" => &mut f.parts,
-                "Copper" => &mut f.copper,
-                "Graphics" => &mut f.graphics,
-                _ => &mut f.text,
-            };
-            if ui
-                .selectable_label(*flag, label)
-                .on_hover_text(tip)
-                .clicked()
-            {
-                *flag = !*flag;
             }
         }
     }

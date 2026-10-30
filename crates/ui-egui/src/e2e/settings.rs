@@ -13,9 +13,12 @@ fn a_newcomer_visits_settings_and_comes_back_to_the_same_zoom() -> Result<(), St
     let mut app = fresh();
     let ctx = egui::Context::default();
     app.change_tab(Tab::Pcb);
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The asides settle over the first frames; set the zoom after that.
+    for _ in 0..4 {
+        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    }
     app.pcb.zoom = 33.0;
-    for tab in [Tab::Settings, Tab::Rules, Tab::Checks, Tab::Pcb] {
+    for tab in [Tab::Settings, Tab::Rules, Tab::Pcb] {
         app.change_tab(tab);
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     }
@@ -27,7 +30,7 @@ fn a_newcomer_visits_settings_and_comes_back_to_the_same_zoom() -> Result<(), St
 fn a_newcomer_reads_settings_with_room_around_the_text() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();
-    for tab in [Tab::Settings, Tab::Rules, Tab::Checks] {
+    for tab in [Tab::Settings, Tab::Rules] {
         app.change_tab(tab);
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
         let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -100,7 +103,7 @@ fn a_newcomer_types_a_decimal_comma_in_german() -> Result<(), String> {
     app.width = 12.5;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "12,5")?,
+        scrolled_to_at(&ctx, &mut app, "12,5", 700.0)?,
         "a German install shows the board width with a comma"
     );
     type_into_the_width_box(&ctx, &mut app, "12,5", "1,6")?;
@@ -120,12 +123,14 @@ fn zoom_after_one_wheel_frame(reduced: bool) -> (f32, f32) {
     let ctx = egui::Context::default();
     app.change_tab(Tab::Pcb);
     let at = egui::pos2(700.0, 450.0);
-    frame(
-        &ctx,
-        &mut app,
-        vec![egui::Event::PointerMoved(at)],
-        egui::Modifiers::NONE,
-    );
+    for _ in 0..4 {
+        frame(
+            &ctx,
+            &mut app,
+            vec![egui::Event::PointerMoved(at)],
+            egui::Modifiers::NONE,
+        );
+    }
     let before = app.pcb.zoom;
     frame(
         &ctx,
@@ -373,6 +378,27 @@ fn a_newcomer_brings_in_a_drawing_and_uses_its_edge_as_the_board() -> Result<(),
 }
 
 #[test]
+fn a_newcomer_toggles_schematic_board_sync_in_settings() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    assert!(
+        app.project.auto_sync,
+        "sample designs keep automatic sync on"
+    );
+    tap_id(
+        &ctx,
+        &mut app,
+        "checkbox:Keep the board in sync with the schematic automatically",
+    )?;
+    app.refresh();
+    assert!(
+        !app.project.auto_sync,
+        "one tap turns automatic sync off: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_changes_how_the_app_looks() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     tap_id(&ctx, &mut app, "button:Light")?;
@@ -408,10 +434,9 @@ fn a_newcomer_changes_how_the_app_looks() -> Result<(), String> {
 fn a_newcomer_jumps_from_settings_to_the_list_of_findings() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     tap_id(&ctx, &mut app, "button:# electrical · # board >")?;
-    assert_eq!(
-        app.tab,
-        Tab::Checks,
-        "the findings button opens the checks tab"
+    assert!(
+        app.region().bottom_open,
+        "the findings button opens the bottom sheet on Findings"
     );
     Ok(())
 }
@@ -455,6 +480,24 @@ fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> 
     assert!(
         app.preferences.assistant_always_allow.is_empty(),
         "one click forgets every standing allowance"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_keys_section_to_pick_tool_keys() -> Result<(), String> {
+    let mut app = fresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Keys", 700.0)?,
+        "the settings page has a Keys section"
+    );
+    tap_id(&ctx, &mut app, "button:Keys")?;
+    assert!(
+        scrolled_to_at(&ctx, &mut app, "Reset keys", 700.0)?,
+        "the section opens onto the tool keys and a way back to the defaults"
     );
     Ok(())
 }

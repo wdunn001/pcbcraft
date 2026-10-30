@@ -37,7 +37,7 @@ export DIST
 
 export PCBCRAFT_BUILD_DATE="${PCBCRAFT_BUILD_DATE:-$(date -u +%Y-%m-%d)}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
-APP_ID=io.github.tangency-labs.pcbcraft
+APP_ID=io.github.tangency_labs.pcbcraft
 export APP_ID
 
 warn() {
@@ -51,18 +51,15 @@ copy_docs() {
   done
 }
 
+# Copy the generated hicolor icon tree (PNG sizes and the scalable SVG) into
+# "$2". The tree is built from the masters in assets/brand by assets/brand/build.sh
+# and committed, so packaging needs no rasteriser.
 make_icons() {
-  local out="$2" s src="$ROOT/assets/icons/app/linux/source.svg"
-  if [ ! -f "$src" ]; then
-    echo "error: missing icon source $src" >&2
+  local out="$2" src="$ROOT/assets/brand/generated/linux/hicolor"
+  if [ ! -d "$src" ]; then
+    echo "error: missing generated icons $src (run assets/brand/build.sh)" >&2
     return 1
   fi
-  if ! command -v rsvg-convert >/dev/null; then
-    echo "error: rsvg-convert required (librsvg2-bin)" >&2
-    return 1
-  fi
-  for s in 16 24 32 48 64 128 256 512; do
-    mkdir -p "$out/hicolor/${s}x${s}/apps"
-    rsvg-convert -w "$s" -h "$s" "$src" -o "$out/hicolor/${s}x${s}/apps/$APP_ID.png" || return
-  done
+  mkdir -p "$out"
+  cp -R "$src" "$out/"
 }

@@ -1,3 +1,26 @@
+//! KiCad library file readers.
+//!
+//! Parses .kicad_sym symbol libraries, .kicad_mod footprint files, and
+//! Specctra design session files into typed definitions. All readers validate
+//! inputs, bound output sizes, and record unsupported features in the
+//! `unsupported` field rather than failing.
+//!
+//! # Rules
+//! - Coordinates are validated for finite range and bounded magnitude
+//! - Inheritance chains are depth-limited and cycle-checked
+//! - Duplicate symbol names in a library are errors
+//! - Unsupported features are preserved in raw_source with a note
+//!
+//! # Dependencies
+//! - crates/library/src/lib.rs SymbolDefinition, FootprintDefinition, and other public types
+//! - crates/library/src/sexpr.rs S-expression parser for KiCad file format
+//! - crates/geom/src/lib.rs Point type
+//!
+//! # Do not
+//! - Change coordinate system handling (y-flip for symbol pins)
+//! - Add support for features without explicit design approval
+//! - Remove unsupported-feature tracking
+
 use crate::{
     sexpr::{self, Node},
     *,

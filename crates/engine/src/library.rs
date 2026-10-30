@@ -720,7 +720,67 @@ pub fn list_with_project(
     list_over(args, project, paths())
 }
 
-fn list_over(
+/// Find the footprint a symbol's package text names, such as
+/// `Resistor_SMD:R_0805_2012Metric`, in the installed footprint folders.
+///
+/// # Rules
+/// - A text without a colon is a bare footprint name, searched in every folder.
+/// - Names with path separators or `..` are refused; nothing outside the
+///   registered folders is read.
+///
+/// # Dependencies
+/// `catalog_paths` and [`footprint`] in this file.
+///
+/// # Do not
+/// Run on the frame thread; it reads files.
+pub fn resolve_footprint_over(
+    roots: Vec<PathBuf>,
+    package: &str,
+) -> Result<FootprintDefinition, String> {
+    let (library, name) = match package.split_once(':') {
+        Some((l, n)) => (Some(l), n),
+        None => (None, package),
+    };
+    if name.is_empty()
+        || name.len() > 256
+        || [name, library.unwrap_or("")]
+            .iter()
+            .any(|t| t.contains(['/', '\\']) || t.contains(".."))
+    {
+        return Err("that package name cannot be looked up".into());
+    }
+    let catalog = catalog_paths(roots, 4096)?;
+    for lib in catalog["footprint_libraries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        if library.is_some_and(|l| lib["name"].as_str() != Some(l)) {
+            continue;
+        }
+        if let Some(dir) = lib["path"].as_str() {
+            let file = Path::new(dir).join(format!("{name}.kicad_mod"));
+            if file.is_file() {
+                return footprint(&file);
+            }
+        }
+    }
+    Err(format!("no installed footprint called {package}"))
+}
+
+/// [`resolve_footprint_over`] over the user's own installed folders.
+pub fn resolve_footprint(package: &str) -> Result<FootprintDefinition, String> {
+    resolve_footprint_over(paths(), package)
+}
+/// `library.list` over chosen installed folders instead of the user's own.
+///
+/// # Rules
+/// Same arguments and answer as [`list_with_project`].
+/// # Dependencies
+/// [`list_listings`] in this file.
+/// # Do not
+/// Change the project or any library.
+pub fn list_over(
     args: &Value,
     project: Option<&pcbcraft_doc::Project>,
     roots: Vec<PathBuf>,
@@ -1108,6 +1168,26 @@ mod tests {
         assert!(read_tool("library.list", &json!({"filter": many})).is_err());
     }
 
+    #[test]
+    fn a_package_text_finds_its_installed_footprint_and_refuses_paths() -> Result<(), String> {
+        let root = TestDirectory::new()?;
+        let pretty = root.0.join("footprints/Resistor_SMD.pretty");
+        std::fs::create_dir_all(&pretty).map_err(|e| e.to_string())?;
+        let fixture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../library/tests/fixtures/R_0805_2012Metric.kicad_mod"
+        );
+        std::fs::copy(fixture, pretty.join("R_0805_2012Metric.kicad_mod"))
+            .map_err(|e| e.to_string())?;
+        let roots = vec![root.0.clone()];
+        let found = resolve_footprint_over(roots.clone(), "Resistor_SMD:R_0805_2012Metric")?;
+        assert!(!found.pads.is_empty());
+        assert!(resolve_footprint_over(roots.clone(), "R_0805_2012Metric").is_ok());
+        assert!(resolve_footprint_over(roots.clone(), "Other:R_0805_2012Metric").is_err());
+        assert!(resolve_footprint_over(roots.clone(), "Resistor_SMD:../x").is_err());
+        assert!(resolve_footprint_over(roots, "Resistor_SMD:Nope").is_err());
+        Ok(())
+    }
     #[test]
     fn library_list_over_installed_and_fixture_sources_returns_both_kinds() -> Result<(), String> {
         let dir = TestDirectory::new()?;
