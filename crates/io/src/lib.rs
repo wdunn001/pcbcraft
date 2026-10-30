@@ -12,6 +12,12 @@ mod diff;
 mod drawn;
 mod fab_export;
 pub mod formats;
+mod bom_flavour;
+pub use bom_flavour::{
+    BomColumn, BomLimits, BomProfile, BomTable, DERIVED_TOKENS, ExportOptions, MissingField,
+    PART_FIELDS, PartField, bom_profile, bom_profiles, default_bom_profile, default_export_values,
+    limit_notes, parse_bom_flavours, profile_of, render_bom, table_from_items,
+};
 mod generate;
 mod gerber;
 mod gerber_job;

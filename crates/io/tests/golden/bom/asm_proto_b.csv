@@ -1,0 +1,42 @@
+﻿Line#,Quantity Per Part Number,Reference Designator,Part Number,Part Description,Package,Type
+1,1,C10,MP-100nF,Analog supply filter,project:Chip_0402,Surface mount
+2,1,C13,MP-100nF,Flash decoupling,project:Chip_0402,Surface mount
+3,3,"C14, C15, C16",MP-100nF,Sensor decoupling,project:Chip_0402,Surface mount
+4,3,"C7, C8, C9",MP-100nF,Supply decoupling,project:Chip_0402,Surface mount
+5,1,R5,MP-10k,Reset pull-up,project:Chip_0402,Surface mount
+6,1,C1,MP-10uF,Supply input capacitor,project:Chip_0603,Surface mount
+7,1,Y1,MP-16MHz,Main crystal,project:Crystal_3225,Surface mount
+8,2,"C5, C6",MP-18pF,Crystal load capacitor,project:Chip_0402,Surface mount
+9,1,R4,MP-1k,Charge indicator resistor,project:Chip_0402,Surface mount
+10,6,"R10, R11, R12, R13, R14, R15",MP-1k,LED series resistor,project:Chip_0603,Surface mount
+11,1,C12,MP-1uF,Analog supply bulk,project:Chip_0402,Surface mount
+12,1,C17,MP-1uF,Sensor rail capacitor,project:Chip_0603,Surface mount
+13,1,C3,MP-22uF,Regulator input capacitor,project:Chip_0603,Surface mount
+14,1,C4,MP-22uF,Regulator output capacitor,project:Chip_0603,Surface mount
+15,1,R3,MP-2k,Charge current set,project:Chip_0402,Surface mount
+16,1,TP2,MP-3V3,Supply test point,project:Test_Pad,Surface mount
+17,2,"R8, R9",MP-47k,I2C pull-up,project:Chip_0402,Surface mount
+18,1,C2,MP-47uF,Battery decoupling,project:Chip_0603,Surface mount
+19,1,C11,MP-47uF,Bulk capacitor,project:Chip_0603,Surface mount
+20,1,R1,MP-51k,USB CC1 pull-down,project:Chip_0402,Surface mount
+21,1,R2,MP-51k,USB CC2 pull-down,project:Chip_0402,Surface mount
+22,1,F1,MP-500mA,Resettable fuse,project:Chip_1206,Surface mount
+23,1,D1,MP-Amber,Charge indicator,project:LED_0603,Surface mount
+24,2,"D6, D7",MP-Amber,Status LED,project:LED_0603,Surface mount
+25,1,J2,MP-Battery,Two-pin battery connector,project:Battery_2P,Thru-hole
+26,1,U1,MP-Charger,Single-cell linear charger,project:SOT-23-5,Surface mount
+27,1,U5,MP-Climate,"Temperature, humidity and pressure sensor",project:DFN-8,Surface mount
+28,1,J3,MP-Debug,Programming and serial header,project:Header_1x7_1.27,Thru-hole
+29,1,U4,MP-Flash,Serial flash memory,project:SOIC-8,Surface mount
+30,3,"D3, D4, D5",MP-Green,Status LED,project:LED_0603,Surface mount
+31,1,U2,MP-LDO3V3,Low-dropout regulator,project:SOT-23-5,Surface mount
+32,1,U6,MP-Light,Ambient light sensor,project:SOT-23-6,Surface mount
+33,1,U3,MP-MCU,"32-bit microcontroller, USB device",project:QFN-32,Surface mount
+34,1,D8,MP-Red,Status LED,project:LED_0603,Surface mount
+35,1,SW1,MP-Reset,Reset button,project:Tact_4p5,Surface mount
+36,1,U7,MP-Switch,High-side switch for the sensor rail,project:SOT-23-5,Surface mount
+37,1,D2,MP-TVS,Transient suppressor on the USB supply,project:SOD-323,Surface mount
+38,1,J1,MP-USBC,Power and USB 2.0 receptacle,project:USB_C_Receptacle,Hybrid
+39,1,SW2,MP-User1,User button,project:Tact_4p5,Surface mount
+40,1,SW3,MP-User2,User button,project:Tact_4p5,Surface mount
+41,1,TP1,MP-VBAT,Battery test point,project:Test_Pad,Surface mount
