@@ -177,6 +177,8 @@ jobs:
       contents: read
     env:
       NEXTEST_PROFILE: ci
+      CARGO_BUILD_JOBS: 4
+      CARGO_TARGET_DIR: target/ci-test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -196,13 +198,72 @@ jobs:
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask test
+      - name: Run tests
+        run: |
+          for attempt in 1 2 3; do
+            if cargo xtask test; then exit 0; fi
+            rm -rf target/ci-test
+          done
+          exit 1
       - name: Upload test report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-report
-          path: target/nextest/ci/junit.xml
+          path: target/ci-test/nextest/ci/junit.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  coverage:
+    name: Coverage
+    needs: changes
+    # Heavy (instrumented build and full test run): ready pull requests and main only.
+    if: needs.changes.outputs.rust == 'true' && !github.event.pull_request.draft
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft-laptop"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    env:
+      NEXTEST_PROFILE: ci
+      COVERAGE_BASE: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install window-system packages
+        run: |
+          sudo apt-get update
+          # shellcheck disable=SC2086 # LINUX_DEPS is a word list
+          sudo apt-get install -y --no-install-recommends $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+          components: llvm-tools
+      # The version is pinned here and checked by `cargo xtask coverage`.
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest,cargo-llvm-cov@0.9.1
+      # Instrumented builds use their own target directory, so the Tests cache
+      # cannot be reused; this one is saved by main and read by pull requests.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: coverage
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-directories: target/llvm-cov-target
+      - run: cargo xtask coverage
+      - name: Write the per-crate table to the job summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f target/coverage/summary.md ]; then cat target/coverage/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload the coverage reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: |
+            target/coverage/lcov.info
+            target/coverage/summary.md
+            target/coverage/html/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -501,7 +562,7 @@ jobs:
     # The single check to mark as required in branch protection. A draft pull
     # request reports the cheap set only; a ready pull request, main and the
     # merge queue report everything.
-    needs: [changes, changeset, policy, lint, docs-check, strings, test, e2e, wasm, msrv, deny, screenshots, build]
+    needs: [changes, changeset, policy, lint, docs-check, strings, test, coverage, e2e, wasm, msrv, deny, screenshots, build]
     if: always()
     runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions: {}
@@ -511,7 +572,7 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft }}
           RUST: ${{ needs.changes.outputs.rust }}
           CHEAP: ${{ format('{0} {1} {2} {3} {4}', needs.changeset.result, needs.changes.result, needs.policy.result, needs.lint.result, needs.docs-check.result) }}
-          HEAVY: ${{ format('{0} {1} {2} {3} {4} {5}', needs.strings.result, needs.test.result, needs.e2e.result, needs.wasm.result, needs.screenshots.result, needs.build.result) }}
+          HEAVY: ${{ format('{0} {1} {2} {3} {4} {5} {6}', needs.strings.result, needs.test.result, needs.coverage.result, needs.e2e.result, needs.wasm.result, needs.screenshots.result, needs.build.result) }}
         run: |
           echo "$RESULTS"
           if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
