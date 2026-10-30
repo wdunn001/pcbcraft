@@ -32,6 +32,8 @@ fn flip_each(ctx: &egui::Context, app: &mut App, pairs: &[(&str, &str)]) -> Resu
 #[test]
 fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Schematic);
+    // The sample has no power ports or drawing, which the tree leaves out until asked.
+    tap_id(&ctx, &mut app, "button:Show empty")?;
     let missing = press_each(
         &ctx,
         &mut app,
@@ -46,7 +48,6 @@ fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
             "button:D#, Green LED",
             "button:J#, #V input",
             "button:R#, # \u{3a9}",
-            "button:Sheet #",
         ],
     );
     assert!(missing.is_empty(), "rows not in the tree: {missing:?}");
@@ -55,20 +56,28 @@ fn a_newcomer_picks_each_row_of_the_schematic_tree() -> Result<(), String> {
         "the last part row selects its part on the drawing: {}",
         app.message
     );
+    let missing = press_each(&ctx, &mut app, &["button:Sheet #"]);
+    assert!(missing.is_empty(), "rows not in the tree: {missing:?}");
+    assert_eq!(
+        app.tree.selected_key.as_deref(),
+        Some("sec:sheet:0"),
+        "the sheet row selects its page so Properties shows it: {}",
+        app.message
+    );
     Ok(())
 }
 
 #[test]
 fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), String> {
     let (ctx, mut app) = practice(Tab::Schematic);
+    tap_id(&ctx, &mut app, "button:Show empty")?;
     flip_each(
         &ctx,
         &mut app,
         &[
             ("button:Hide Symbols", "button:Show Symbols"),
-            // The drawing paints no power ports or title block yet: the eye is inert.
-            ("button:Hide Power ports", "button:Hide Power ports"),
-            ("button:Hide Title block", "button:Hide Title block"),
+            ("button:Hide Power ports", "button:Show Power ports"),
+            ("button:Hide Title block", "button:Show Title block"),
             ("button:Hide Drawing", "button:Show Drawing"),
             ("button:Hide Nets", "button:Show Nets"),
             ("button:Lock Symbols", "button:Unlock Symbols"),
@@ -78,7 +87,7 @@ fn a_newcomer_hides_and_locks_each_schematic_layer_from_its_row() -> Result<(), 
         ],
     )?;
     assert!(
-        app.tree.locked.contains("symbols"),
+        app.tree.locked.contains("page:0:symbols"),
         "a locked row is remembered by the tree: {:?}",
         app.tree.locked
     );
@@ -112,6 +121,21 @@ fn a_newcomer_opens_and_closes_the_branches_of_the_schematic_tree() -> Result<()
             &format!("button:Expand {branch}"),
         )?;
     }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_the_parts_row_of_the_schematic_tree() -> Result<(), String> {
+    let (ctx, mut app) = practice(Tab::Schematic);
+    tap_id(&ctx, &mut app, "button:Parts")?;
+    assert!(
+        app.tree.cursor.is_some() || app.tree.selected_key.is_some(),
+        "pressing the Parts row puts the tree cursor on it"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Parts")?,
+        "the Parts row stays in the tree after it is picked"
+    );
     Ok(())
 }
 

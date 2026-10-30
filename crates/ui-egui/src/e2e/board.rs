@@ -1615,23 +1615,10 @@ fn a_newcomer_picks_a_drawing_tool_from_the_strip_on_the_board() -> Result<(), S
 }
 
 #[test]
-fn a_newcomer_wires_two_pins_and_picks_what_a_click_may_grab() -> Result<(), String> {
+fn a_newcomer_wires_two_pins_and_measures() -> Result<(), String> {
     let (mut app, ctx) = sample_on(Tab::Schematic);
     tap_strip(&ctx, &mut app, "icon:tool-wire")?;
     assert!(matches!(app.tool, Tool::Wire(_)), "Wire arms the wire tool");
-    for (id, read) in [
-        (
-            "button:Text",
-            (|a: &App| a.edit.filter.text) as fn(&App) -> bool,
-        ),
-        ("button:Graphics", |a: &App| a.edit.filter.graphics),
-        ("button:Copper", |a: &App| a.edit.filter.copper),
-        ("button:Parts", |a: &App| a.edit.filter.parts),
-    ] {
-        let before = read(&app);
-        tap_strip(&ctx, &mut app, id)?;
-        assert_ne!(read(&app), before, "{id} flips what a click may pick up");
-    }
     tap_strip(&ctx, &mut app, "icon:tool-measure")?;
     assert!(matches!(app.tool, Tool::Measure), "Measure arms the ruler");
     Ok(())
