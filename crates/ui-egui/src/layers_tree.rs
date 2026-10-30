@@ -3957,6 +3957,7 @@ mod tests {
         project.sheets.push(pcbcraft_doc::Sheet {
             id: 9001,
             name: "Power".into(),
+            interchange_uuid: None,
             parent: None,
             entry: None,
         });
