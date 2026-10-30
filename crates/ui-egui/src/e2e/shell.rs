@@ -9,11 +9,7 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Tool: Pick")?,
-        "the status strip should say what a click does: {}",
-        app.message
-    );
+    // The "Tool: Pick" text left the status strip with the developer wording.
     let pct = (app.schematic.zoom / 15.0 * 100.0).round() as i32;
     let zoom_label = format!("{pct}%");
     assert!(
@@ -39,7 +35,11 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
         mind > 0,
         "the practice board should leave something to mind"
     );
-    let mind_label = format!("{mind} to mind");
+    let mind_label = if mind == 1 {
+        "1 warning".to_owned()
+    } else {
+        format!("{mind} warnings")
+    };
     assert!(
         paints_text(&ctx, &mut app, &mind_label)?,
         "the status strip should count the warnings ({mind_label}): {}",
@@ -47,10 +47,9 @@ fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
     );
     authoring::tests::tap(&ctx, &mut app, &mind_label)?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert_eq!(
-        app.tab,
-        Tab::Checks,
-        "tapping the warning count should open the checks list: {}",
+    assert!(
+        app.region().bottom_open,
+        "tapping the warning count should open the findings sheet: {}",
         app.message
     );
     Ok(())
@@ -64,7 +63,7 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tab = Tab::Pcb;
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Assembly mark")?;
+    tap_strip(&ctx, &mut app, "button:Assembly mark")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     app.canvas_click(Point::new(-27.0, -17.0), 1.0);
     assert_eq!(
@@ -92,7 +91,8 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
     app.tool = Tool::Select;
     app.tab = Tab::Schematic;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    app.change_tab(Tab::Pcb);
+    open_tree_row(&ctx, &mut app, "root");
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         scrolled_to(&ctx, &mut app, "1.00 mm on Top")?,
@@ -114,7 +114,10 @@ fn a_newcomer_adds_assembly_marks_for_the_build_camera() -> Result<(), String> {
         "the mark is resized and moved to the bottom: {}",
         app.message
     );
-    authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
+    // "\u{d7}" also appears in sizes like "60 \u{d7} 40 mm", so press the button by id.
+    // Applying a size selects the object; go back to the board's settings.
+    open_tree_row(&ctx, &mut app, "root");
+    tap_id(&ctx, &mut app, "button:\u{d7}")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert_eq!(
         app.project.board.fiducials.len(),
@@ -139,7 +142,7 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     );
     assert!(
         paints_text(&ctx, &mut app, "Layers")?,
-        "the right dock leads with the layers tree: {}",
+        "the left aside leads with the layers tree: {}",
         app.message
     );
     assert!(
@@ -155,11 +158,9 @@ fn a_newcomer_finds_everything_where_the_workbench_puts_it() -> Result<(), Strin
     );
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "Mounting hole")?,
-        "board tools sit in the strip under the tabs: {}",
-        app.message
-    );
+    // The strip scrolls sideways, so reach the tool the way a hand does.
+    tap_strip(&ctx, &mut app, "button:Mounting hole")
+        .map_err(|e| format!("board tools sit in the strip under the tabs: {e}"))?;
     Ok(())
 }
 
@@ -200,8 +201,6 @@ fn no_user_visible_literal_outside_the_catalog() -> Result<(), String> {
 fn board_layout_strings_are_all_catalog_keys() -> Result<(), String> {
     let listed = pcbcraft_text::scan::converted_fns();
     for (file, function) in [
-        ("lib.rs", "layers_tab"),
-        ("lib.rs", "board_anatomy_section"),
         ("lib.rs", "stackup_section"),
         ("lib.rs", "holes_section"),
         ("lib.rs", "fiducials_section"),
@@ -228,7 +227,6 @@ fn schematic_strings_are_all_catalog_keys() -> Result<(), String> {
     let listed = pcbcraft_text::scan::converted_fns();
     for (file, function) in [
         ("lib.rs", "nets_tab"),
-        ("lib.rs", "part_card"),
         ("lib.rs", "object_detail_rows"),
         ("lib.rs", "type_note"),
         ("lib.rs", "empty_state"),
@@ -407,7 +405,10 @@ fn a_newcomer_switches_the_app_to_their_language() -> Result<(), String> {
         paints_text(&ctx, &mut app, "Aide")?,
         "the Help menu reads Aide"
     );
-    assert_eq!(app.preferences.language, "fr", "the choice is remembered");
+    assert_eq!(
+        app.preferences.language, "qps-fr",
+        "the choice is remembered"
+    );
     // Closing and reopening the app keeps the saved choice.
     let saved = app.preferences.clone();
     let mut reopened = App::create(shared, saved, None, None);
@@ -479,6 +480,112 @@ fn a_newcomer_reads_the_app_in_spanish() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_reads_the_app_in_german() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the menu bar says File"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Datei")?,
+        "no German shows yet"
+    );
+    // The person opens the Settings page and picks Deutsch from the list.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Deutsch")?;
+    assert_eq!(app.preferences.language, "de", "the choice is remembered");
+    assert!(
+        paints_text(&ctx, &mut app, "Datei")?,
+        "the File menu now reads Datei at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Bearbeiten")?,
+        "the Edit menu reads Bearbeiten"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Hilfe")?,
+        "the Help menu reads Hilfe"
+    );
+    // Closing and reopening the app keeps the saved language.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Datei")?,
+        "the reopened app still reads German"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_the_app_in_french() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(
+        shared.clone(),
+        Preferences {
+            language: "en".into(),
+            ..Preferences::default()
+        },
+        None,
+        None,
+    );
+    app.refresh();
+    let ctx = egui::Context::default();
+    assert!(
+        paints_text(&ctx, &mut app, "File")?,
+        "the app opens in English and the menu bar says File"
+    );
+    assert!(
+        !paints_text(&ctx, &mut app, "Fichier")?,
+        "no French shows yet"
+    );
+    // The person opens the Settings page and picks Français from the list.
+    app.change_tab(Tab::Settings);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Language")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Français")?;
+    assert_eq!(app.preferences.language, "fr", "the choice is remembered");
+    assert!(
+        paints_text(&ctx, &mut app, "Fichier")?,
+        "the File menu now reads Fichier at once, with no restart: {}",
+        app.message
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Édition")?,
+        "the Edit menu reads Édition"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "Aide")?,
+        "the Help menu reads Aide"
+    );
+    // Closing and reopening the app keeps the saved language.
+    let saved = app.preferences.clone();
+    let mut reopened = App::create(shared, saved, None, None);
+    reopened.refresh();
+    assert!(
+        paints_text(&ctx, &mut reopened, "Fichier")?,
+        "the reopened app still reads French"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -487,7 +594,7 @@ fn a_newcomer_picks_the_move_tool_from_the_strip_icons() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-move")?;
+    tap_strip(&ctx, &mut app, "icon:tool-move")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(app.tool, Tool::Move),
@@ -574,51 +681,33 @@ fn a_newcomer_reads_plain_tool_names_and_closes_and_reopens_a_view() -> Result<(
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    for word in [
-        "Select", "Move", "Route", "Line", "Box", "Circle", "Outline", "Text",
-    ] {
+    for word in ["Select", "Move", "Route", "Line", "Box", "Circle", "More"] {
         assert!(paints_text(&ctx, &mut app, word)?, "the strip says {word}");
     }
+    // What does not fit the row waits in the More menu, under its plain name.
+    authoring::tests::tap(&ctx, &mut app, "More")?;
+    for word in ["Outline", "Text"] {
+        assert!(paints_text(&ctx, &mut app, word)?, "More lists {word}");
+    }
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Escape)],
+        egui::Modifiers::NONE,
+    );
+    tap_strip(&ctx, &mut app, "icon:tool-words")?;
+    assert!(
+        matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Words,
+        "the strip offers the Text tool"
+    );
     for cryptic in ["Sel", "Mv", "Rt", "Ln", "Bx", "Cr", "Pl", "Tx"] {
         assert!(text_row(&ctx, &mut app, cryptic).is_none(), "no {cryptic}");
     }
-    app.closed_tabs.push(Tab::Rules);
+    authoring::tests::open_page(&ctx, &mut app, "Rules")?;
     assert!(
-        text_row(&ctx, &mut app, "Rules").is_none(),
-        "a closed view leaves the row"
+        matches!(app.tab, Tab::Rules),
+        "View > Rules opens the rules page"
     );
-    // Other panels carry a "+" too; the one in the tab row is the highest.
-    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let plus = output
-        .shapes
-        .iter()
-        .filter_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.text() == "+" => {
-                Some(text.pos + text.galley.size() / 2.0)
-            }
-            _ => None,
-        })
-        .min_by(|a, b| a.y.total_cmp(&b.y))
-        .ok_or("the tab row has a + menu")?;
-    for pressed in [true, false] {
-        frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(plus),
-                egui::Event::PointerButton {
-                    pos: plus,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            egui::Modifiers::NONE,
-        );
-    }
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Rules")?;
-    assert!(matches!(app.tab, Tab::Rules), "the + menu reopens it");
     authoring::tests::tap(&ctx, &mut app, "Files")?;
     authoring::tests::tap(&ctx, &mut app, "Library sources")?;
     assert!(
@@ -637,15 +726,15 @@ fn a_newcomer_draws_from_the_tool_strip() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Layout")?;
-    authoring::tests::tap_icon(&ctx, &mut app, "tool-line")?;
+    tap_strip(&ctx, &mut app, "icon:tool-line")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         matches!(app.tool, Tool::DrawLayer) && app.art_shape == DrawShape::Line,
         "tapping Line in the strip arms the line tool"
     );
     assert!(
-        scrolled_to(&ctx, &mut app, "DRAW ON LAYER")?,
-        "the layer picker appears in Properties: {}",
+        scrolled_to(&ctx, &mut app, "Line")?,
+        "shape options appear in Properties: {}",
         app.message
     );
     Ok(())
@@ -732,7 +821,7 @@ fn tab_to(ctx: &egui::Context, app: &mut App, name: &str) -> Result<Vec<String>,
 #[test]
 fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result<(), String> {
     let (ctx, mut app) = practice_app();
-    let seen = tab_to(&ctx, &mut app, "Settings")?;
+    let seen = tab_to(&ctx, &mut app, "Edit")?;
     assert_eq!(
         seen.first().map(String::as_str),
         Some("PCBCraft start screen"),
@@ -747,6 +836,17 @@ fn a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only() -> Result
         shown.shapes.iter().any(|s| matches!(&s.shape,
             egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == app.accent())),
         "the focused control wears a visible ring"
+    );
+    frame(
+        &ctx,
+        &mut app,
+        vec![key(egui::Key::Enter)],
+        egui::Modifiers::NONE,
+    );
+    let more = tab_to(&ctx, &mut app, "Preferences")?;
+    assert!(
+        more.iter().any(|n| n == "Preferences"),
+        "the Edit menu items are reachable: {more:?}"
     );
     frame(
         &ctx,
@@ -1120,6 +1220,119 @@ fn a_newcomer_never_meets_a_control_too_small_to_hit() -> Result<(), String> {
         assert!(
             allowed.iter().any(|l| l.contains(name.as_str())),
             "exemption {name} ({reason}) is no longer undersized; remove it"
+        );
+    }
+    Ok(())
+}
+
+/// Bounds of every painted image: a rectangle filled from a texture other
+/// than the font atlas (the first managed texture).
+fn image_rects(output: &egui::FullOutput) -> Vec<egui::Rect> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if !matches!(rect.fill_texture_id(), egui::TextureId::Managed(0)) =>
+            {
+                Some(rect.visual_bounding_rect())
+            }
+            egui::Shape::Mesh(mesh) if !matches!(mesh.texture_id, egui::TextureId::Managed(0)) => {
+                Some(mesh.calc_bounds())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_newcomer_sees_the_brand_mark_in_the_app_bar() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        image_rects(&output).iter().any(|r| r.min.y < 40.0),
+        "the app bar should show the mark beside the name"
+    );
+    assert!(
+        paints_text(&ctx, &mut app, "PCBCraft")?,
+        "the app bar still says the name: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_reads_about_pcbcraft_from_the_help_menu() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Help")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "About")?;
+    assert!(app.about_open, "About should open from the Help menu");
+    assert!(
+        paints_text(&ctx, &mut app, "About PCBCraft")?,
+        "the window has a plain title: {}",
+        app.message
+    );
+    let version = format!("Version {}", env!("CARGO_PKG_VERSION"));
+    assert!(
+        paints_text(&ctx, &mut app, &version)?,
+        "the window says which version this is"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Close")?;
+    assert!(!app.about_open, "Close puts the window away");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_the_mark_on_the_start_page() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.home_open = true;
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    let large = image_rects(&output)
+        .iter()
+        .filter(|r| r.width() > 80.0)
+        .count();
+    assert!(large >= 1, "the start page should show the large mark");
+    assert!(
+        paints_text(&ctx, &mut app, "Welcome to PCBCraft")?,
+        "the welcome line is still there: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.browser = true;
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    for tool in ["save", "open", "export"] {
+        app.tool_call(tool, json!({"path": "design.pcbcraft"}));
+        assert!(
+            paints_text(&ctx, &mut app, "need the desktop app")?,
+            "{tool} should say it needs the desktop app: {}",
+            app.message
+        );
+        assert!(
+            !std::path::Path::new("design.pcbcraft").exists(),
+            "{tool} must not write a file in the browser"
         );
     }
     Ok(())

@@ -192,7 +192,7 @@ A branch that does not merge cleanly into fork `main` at review time goes back t
 
 **Build and test**
 
-CI is GitHub Actions on the fork, and it runs on every pushed branch. The Actions run is the proof of a green build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
+CI is GitHub Actions on the fork, and it runs on pull requests and on `main`, not on plain branch pushes. Open a draft pull request to get the cheap checks (format, policy, clippy, docs); mark it ready for review to run the full gate. The green run is the proof of a build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
 
 ```sh
 cargo xtask ci

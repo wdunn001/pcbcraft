@@ -1,0 +1,8 @@
+---
+// Starlight ThemeProvider override without an inline script (the host allows script-src 'self').
+// The external file sets html[data-theme] before paint; the toggle in ../ThemeToggle.astro
+// handles clicks. Starlight's own provider also fed its select; that select is replaced.
+import { url } from '../../lib/site';
+---
+
+<script is:inline src={url('theme-init.js')}></script>

@@ -182,7 +182,7 @@ pub(crate) fn stub_length_findings(project: &Project, items: &[Copper]) -> Vec<F
             continue;
         };
         for net in &class.nets {
-            for layer in [Layer::Front, Layer::Back] {
+            for layer in project.copper_layers() {
                 let tracks: Vec<&Track> = project
                     .board
                     .tracks
@@ -295,6 +295,7 @@ mod tests {
             position: at,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),

@@ -8,8 +8,6 @@ lib.rs file_menu
 lib.rs edit_menu
 lib.rs help_menu
 lib.rs language_menu
-lib.rs layers_tab
-lib.rs board_anatomy_section
 lib.rs stackup_section
 lib.rs holes_section
 lib.rs fiducials_section
@@ -24,7 +22,6 @@ canvas.rs paint_board
 canvas.rs canvas_click
 board3d.rs show
 lib.rs nets_tab
-lib.rs part_card
 lib.rs object_detail_rows
 lib.rs type_note
 canvas.rs paint_schematic
@@ -83,3 +80,9 @@ lib.rs copy_plot_to_clipboard
 lib.rs refusal_text
 authoring.rs pad_shape_controls
 authoring.rs pad_shape_label
+library_dock.rs library_dock_body
+library_dock.rs dock_chips
+library_dock.rs dock_sets
+library_dock.rs dock_card
+toolbar.rs toolbar_row
+toolbar.rs toolbar_options

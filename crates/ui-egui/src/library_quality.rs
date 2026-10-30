@@ -122,23 +122,24 @@ impl App {
         self.refresh_footprint_quality();
         ui.label(
             egui::RichText::new(t!("library.library_checks_section.library"))
-                .size(18.0)
+                .size(App::SECTION)
                 .strong(),
         );
+        ui.add_space(2.0);
         ui.label(
             egui::RichText::new(t!(
                 "library.library_checks_section.whether_the_footprints_in_this"
             ))
-            .small()
+            .size(App::CAPTION)
             .color(self.muted()),
         );
+        ui.add_space(8.0);
         let findings = self.library.quality.findings.clone();
         if findings.is_empty() {
             ui.label(
-                egui::RichText::new(t!(
-                    "library.library_checks_section.no_findings_in_the_implemented"
-                ))
-                .color(self.accent()),
+                egui::RichText::new(t!("checks.checks_view.no_problems"))
+                    .size(App::BODY)
+                    .color(self.accent()),
             );
         }
         let mut groups: Vec<(String, Vec<QualityFinding>)> = Vec::new();

@@ -128,7 +128,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                 .geometry
                 .as_ref()
                 .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+            if !plated && !p.pad_on_copper(f, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -181,10 +181,12 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     let idx = layer.index();
     let index = idx + 1;
-    let side = match idx {
-        0 => "Top",
-        1 => "Bot",
-        _ => "Inr",
+    let side = if idx == 0 {
+        "Top"
+    } else if p.is_bottom(layer) {
+        "Bot"
+    } else {
+        "Inr"
     };
     Ok(format!(
         "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
@@ -396,8 +398,8 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(pad: &Pad, layer: Layer) -> bool {
-    let (front, back, _) = pad_sides(pad);
+fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+    let (front, back, _) = pad_sides(fp, pad);
     match layer {
         Layer::Back => back,
         // Only the outer sides carry mask, paste and silk; an inner layer
@@ -492,7 +494,7 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(DEFAULT_MASK_MARGIN);
         for pad in &f.pads {
-            if !pad_on_side(pad, layer) {
+            if !pad_on_side(f, pad, layer) {
                 continue;
             }
             let Some(at) = f.pad_position(&pad.number) else {
@@ -528,7 +530,7 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
         for pad in &f.pads {
-            if !pad_on_side(pad, layer) || !pad_is_smd(pad) {
+            if !pad_on_side(f, pad, layer) || !pad_is_smd(pad) {
                 continue;
             }
             let Some(at) = f.pad_position(&pad.number) else {
@@ -555,7 +557,7 @@ fn silk_openings(p: &Project, layer: Layer) -> Vec<(Point, Point)> {
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(DEFAULT_MASK_MARGIN);
         for pad in &f.pads {
-            if !pad_on_side(pad, layer) {
+            if !pad_on_side(f, pad, layer) {
                 continue;
             }
             let outline: Vec<Point> = pad
@@ -871,6 +873,7 @@ mod tests {
     ) -> Component {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
+            sourcing: Default::default(),
             sheet: 0,
             id,
             reference: reference.into(),
@@ -968,6 +971,7 @@ mod tests {
             position: front.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: front_pads.iter().map(placed).collect(),
         });
         project.board.footprints.push(Footprint {
@@ -976,6 +980,7 @@ mod tests {
             position: through.position,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![placed(&through_pad())],
         });
         front.id = 1;
@@ -1009,6 +1014,7 @@ mod tests {
             width: 0.15,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         Ok(project)
@@ -1240,21 +1246,18 @@ mod tests {
         pad.layers = vec!["B.Cu".into(), "B.Paste".into(), "B.Mask".into()];
         let placed = placed(&pad);
         assert!(pad_is_smd(&placed), "a pad without a drill takes paste");
-        assert!(!pad_on_side(&placed, Layer::Front));
-        assert!(pad_on_side(&placed, Layer::Back));
-        let opening = pad_opening(
-            &Footprint {
-                id: 1,
-                component: 1,
-                position: Point::new(0.0, 0.0),
-                rotation: 0.0,
-                locked: None,
-                pads: vec![],
-            },
-            &placed,
-            MASK_RULE,
-            true,
-        )?;
+        let footprint = Footprint {
+            id: 1,
+            component: 1,
+            position: Point::new(0.0, 0.0),
+            rotation: 0.0,
+            locked: None,
+            side: None,
+            pads: vec![],
+        };
+        assert!(!pad_on_side(&footprint, &placed, Layer::Front));
+        assert!(pad_on_side(&footprint, &placed, Layer::Back));
+        let opening = pad_opening(&footprint, &placed, MASK_RULE, true)?;
         assert_eq!(opening, Opening::Rect(1_400, 1_000));
         Ok(())
     }

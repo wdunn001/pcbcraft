@@ -1,0 +1,13 @@
+---
+// Starlight Header override: the shared site header with Starlight's search in the slot.
+// Context: keeps the nav identical to the marketing pages (issue #712 item 6).
+// Do not: render Starlight's SiteTitle or SocialIcons here; Brand and NAV replace them.
+import Search from '@astrojs/starlight/components/Search.astro';
+import ThemeToggle from '../ThemeToggle.astro';
+import SiteHeader from '../SiteHeader.astro';
+---
+
+<SiteHeader>
+  <Search slot="search" />
+  <ThemeToggle slot="theme" />
+</SiteHeader>

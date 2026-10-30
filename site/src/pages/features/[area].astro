@@ -1,0 +1,105 @@
+---
+// One page per feature area. Static paths come from AREAS in src/lib/features-core.js.
+// The intro line is a copy slot (#718); the list is the same data as /features/.
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+import ShotFrame from '../../components/ShotFrame.astro';
+import FeatureList from '../../components/FeatureList.astro';
+import { areas, inArea } from '../../lib/features';
+import { url } from '../../lib/site';
+
+export function getStaticPaths() {
+  return areas.map((a) => ({ params: { area: a.id }, props: { area: a } }));
+}
+const { area } = Astro.props;
+const items = inArea(area.id);
+const others = areas.filter((a) => a.id !== area.id);
+---
+
+<MarketingLayout title={area.label} description={`PCBCraft features for ${area.label.toLowerCase()}, each with its status and proof.`}>
+  <section class="head">
+    <div class="wrap grid">
+      <div>
+        <nav class="crumbs mono" aria-label="Breadcrumb">
+          <a href={url('features/')}>Features</a> <span aria-hidden="true">/</span> <span aria-current="page">{area.label}</span>
+        </nav>
+        <p class={`tag t-${area.tone}`}><span class="pad"></span>{area.label}</p>
+        <h1>{area.label}</h1>
+        <p class="lede" data-slot="COPY #718">Placeholder introduction for {area.label.toLowerCase()}. Final copy lands with #718.</p>
+      </div>
+      <ShotFrame id={`feature-${area.id}`} alt={`A capture of PCBCraft showing ${area.label.toLowerCase()}`} title={`PCBCraft · ${area.label.toLowerCase()}`} eager />
+    </div>
+  </section>
+  {
+    area.id === 'layout' && (
+      <section class="wrap closer" aria-labelledby="closer-h">
+        <h2 id="closer-h">Layers and findings</h2>
+        <div class="closer-grid">
+          <ShotFrame id="layers-tree" alt="The Layers tree" title="Layers" caption="Layers tree" />
+          <ShotFrame id="bottom-sheet" alt="The bottom sheet" title="Findings" caption="Bottom sheet" />
+        </div>
+      </section>
+    )
+  }
+  <section class="wrap list" aria-labelledby="what">
+    <h2 id="what">What is in this area</h2>
+    <FeatureList items={items} />
+  </section>
+  <section class="wrap more" aria-labelledby="other">
+    <h2 id="other">Other areas</h2>
+    <ul>
+      {others.map((a) => <li><a href={url(`features/${a.id}/`)}>{a.label}</a></li>)}
+    </ul>
+    <p><a href={url('features/')}>The full list with search <span aria-hidden="true">→</span></a></p>
+  </section>
+</MarketingLayout>
+
+<style>
+  .closer {
+    padding-bottom: 2rem;
+  }
+  .closer-grid {
+    display: grid;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (min-width: 56rem) {
+    .closer-grid {
+      grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+    }
+  }
+  .head {
+    padding: 3rem 0 2rem;
+  }
+  .grid {
+    display: grid;
+    gap: 2.5rem;
+    align-items: center;
+  }
+  @media (min-width: 56rem) {
+    .grid {
+      grid-template-columns: 1fr 1.2fr;
+    }
+  }
+  .crumbs {
+    margin: 0 0 1.4rem;
+    color: var(--pc-muted);
+    font-size: 0.78rem;
+  }
+  .tag {
+    margin: 0;
+  }
+  .list {
+    padding-top: 2rem;
+  }
+  .more ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+    margin: 0 0 1rem;
+    padding: 0;
+    list-style: none;
+  }
+  .more {
+    padding-top: 3.5rem;
+  }
+</style>

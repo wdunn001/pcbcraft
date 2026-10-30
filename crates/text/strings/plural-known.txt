@@ -1,5 +1,5 @@
 # Hand-built plurals that predate the guard: <file under crates/ui-egui/src> <count>.
 # Convert one to Catalog::plural, then lower or remove its line. Never raise a count.
-lib.rs 1
+library_dock.rs 1
 plot_viewer.rs 2
 reference_panel.rs 1

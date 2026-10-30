@@ -565,9 +565,11 @@ mod tests {
             position: Point::default(),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pad],
         });
         p.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 9002,
             reference: "R99".into(),

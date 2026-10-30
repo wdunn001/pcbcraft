@@ -838,6 +838,7 @@ pub mod tests {
 
     fn sample_component(id: Id, reference: &str) -> Component {
         Component {
+            sourcing: Default::default(),
             id,
             reference: reference.into(),
             value: reference.into(),
@@ -881,6 +882,7 @@ pub mod tests {
                 position: Point::new(5.0, 7.5),
                 rotation: 0.0,
                 locked: None,
+                side: None,
                 pads: vec![Pad {
                     number: "1".into(),
                     offset: Point::default(),
@@ -896,6 +898,7 @@ pub mod tests {
                 position: Point::new(15.0, 7.5),
                 rotation: 0.0,
                 locked: None,
+                side: None,
                 pads: vec![Pad {
                     number: "1".into(),
                     offset: Point::default(),

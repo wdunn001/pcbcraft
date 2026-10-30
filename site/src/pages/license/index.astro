@@ -1,0 +1,57 @@
+---
+// License page. The terms below are the owner's decision of 2026-10-29. The brand-use paragraph
+// is a placeholder until the owner approves wording (#728 shows it on the brand page too).
+import MarketingLayout from '../../layouts/MarketingLayout.astro';
+---
+
+<MarketingLayout title="License" description="Licenses for the PCBCraft code, documentation, screenshots, name and logo.">
+  <section class="section">
+    <div class="wrap prose">
+      <p class="eyebrow">License</p>
+      <h1>How PCBCraft is licensed</h1>
+      <table>
+        <thead><tr><th scope="col">What</th><th scope="col">License</th></tr></thead>
+        <tbody>
+          <tr><td>Code</td><td><a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="noopener">GPL-3.0</a>. The full text is the LICENSE file in the repository.</td></tr>
+          <tr><td>Documentation and screenshots</td><td><a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license noopener">CC BY-SA 4.0</a>. The full legal text is site/LICENSE-docs in the repository.</td></tr>
+          <tr><td>PCBCraft name and logo</td><td>Reserved.</td></tr>
+        </tbody>
+      </table>
+      <h2>Name and logo</h2>
+      <p data-slot="COPY #718">Placeholder for the acceptable-use paragraph about the PCBCraft name and logo. The owner approves the wording.</p>
+      <h2>Code samples in the docs</h2>
+      <p>Code samples inside the documentation are under the GPL-3.0, like the code they come from.</p>
+    </div>
+  </section>
+</MarketingLayout>
+
+<style>
+  .prose {
+    max-width: 46rem;
+  }
+  .prose :global(h2) {
+    margin-top: 2.5rem;
+    font-size: 1.5rem !important;
+  }
+  table {
+    width: 100%;
+    margin: 1.5rem 0;
+    border-collapse: collapse;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-line);
+  }
+  th,
+  td {
+    padding: 0.8rem 1rem;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--pc-line);
+  }
+  th {
+    color: var(--pc-muted);
+    background: var(--pc-raised);
+    font: 600 0.75rem var(--pc-font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+</style>

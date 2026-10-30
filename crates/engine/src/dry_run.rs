@@ -70,6 +70,8 @@ impl Session {
                 &mut next,
                 &command.command,
                 &command.params,
+                self.revision.saturating_add(1),
+                true,
             )?);
             candidate.validate()?;
         }

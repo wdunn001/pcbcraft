@@ -13,7 +13,12 @@ pcbcraft-ui-egui.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-io.workspace = true
+serde_json.workspace = true
 eframe = { workspace = true, features = ["accesskit"] }
 pcbcraft-assistant.workspace = true
+pcbcraft-library.workspace = true
 ureq = { version = "2", default-features = false, features = ["tls"] }
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile.workspace = true

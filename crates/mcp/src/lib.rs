@@ -673,7 +673,7 @@ pub(crate) fn invoke_session(
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
                 "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
-                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
@@ -1015,6 +1015,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod http_tests;
 #[cfg(test)]
@@ -1076,6 +1078,15 @@ mod tests {
             .as_array()
             .cloned()
             .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_tool_name_is_listed_once() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?").to_string();
+            assert!(seen.insert(name.clone()), "tool {name} is listed twice");
+        }
+        Ok(())
     }
     #[test]
     fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
@@ -1313,6 +1324,61 @@ mod tests {
                 .unwrap_or("")
                 .contains("copper-only"),
             "the quick pass says what it ran"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn online_library_commands_are_listed_and_import_through_a_tool_call() -> Result<(), String> {
+        let session = shared(Session::default());
+        let listed = call_tool(&session, "list_commands", &json!({}));
+        let ids: Vec<String> = listed
+            .pointer("/structuredContent/commands")
+            .and_then(Value::as_array)
+            .map(|all| {
+                all.iter()
+                    .filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ["library.import_online", "library.place_online"] {
+            assert!(ids.iter().any(|x| x == id), "{id} is listed");
+        }
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym");
+        let inspected = call_tool(
+            &session,
+            "library.inspect_symbol",
+            &json!({"path":path,"name":"R"}),
+        );
+        let symbol = inspected
+            .pointer("/structuredContent/definition")
+            .cloned()
+            .ok_or("missing definition")?;
+        let imported = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.import_online","params":{
+                "symbol":symbol,
+                "notices":["Imported symbol from a test source. Licence CC-BY-SA 4.0."]}}),
+        );
+        assert_eq!(imported.get("isError"), Some(&json!(false)));
+        let state = session.lock().map_err(|_| "session unavailable")?.inspect();
+        assert_eq!(
+            state
+                .pointer("/project/library/notices/0")
+                .and_then(Value::as_str),
+            Some("Imported symbol from a test source. Licence CC-BY-SA 4.0.")
+        );
+        let refused = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.place_online","params":{"target":"layout","position":{"x":1.0,"y":1.0}}}),
+        );
+        assert_eq!(
+            refused.get("isError"),
+            Some(&json!(true)),
+            "a symbol is required"
         );
         Ok(())
     }

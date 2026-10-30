@@ -1,0 +1,397 @@
+# Feature list for the marketing site: the home page section and /features/.
+# Context: one entry per shipped feature. Both pages read this file (src/lib/features.ts).
+# Rules: every entry needs at least one `evidence` item, or the build fails.
+#   evidence prefixes: command:<engine command id>, mcp:<tool name>, test:<test fn name>,
+#   issue:#<merged issue number>, file:<path in the repo>.
+#   status: browser (desktop and browser build), available (shipped in the desktop app,
+#   browser behaviour not checked), desktop (needs files or sockets, desktop only).
+#   key: true puts the entry in the short list on the home page (at most 4 per area).
+# Do not: add an entry without proof, name another EDA tool, or claim more than the evidence shows.
+# #718 owns the wording and adds the rest; these entries are the seed.
+
+# ---------- Schematic ----------
+- area: schematic
+  name: Wires and buses
+  summary: Draw free-form wires with your own vertices, and multi-net buses named like DB*8.
+  status: browser
+  key: true
+  evidence: [command:wire.draw, command:wire.draw_bus]
+- area: schematic
+  name: Pages and hierarchy ports
+  summary: Add named schematic pages and hand a net from one page to another with a port.
+  status: browser
+  key: true
+  evidence: [command:schematic.new_sheet, command:schematic.place_port]
+- area: schematic
+  name: Labels and no-connect flags
+  summary: Name nets with labels and mark pins that are meant to stay unconnected.
+  status: browser
+  key: true
+  evidence: [command:label.place, command:pin.no_connect]
+- area: schematic
+  name: Parts table on the sheet
+  summary: Draw a table of every component and its properties as ordinary graphics.
+  status: browser
+  key: true
+  evidence: [command:schematic.table]
+- area: schematic
+  name: Net chain walk
+  summary: Follow a net from a pin through two-pin parts in series and see where it ends.
+  status: browser
+  evidence: [command:net.chain]
+- area: schematic
+  name: Code 39 barcodes
+  summary: Draw a Code 39 barcode of up to 48 characters as bar graphics.
+  status: browser
+  evidence: [command:barcode.place]
+
+# ---------- Board layout and routing ----------
+- area: layout
+  name: Routing with 45-degree steps
+  summary: Connect two points on a copper layer around other copper, with an optional shove mode.
+  status: browser
+  key: true
+  evidence: [command:track.route]
+- area: layout
+  name: Differential pairs
+  summary: Route both nets of a declared pair together with coupled geometry.
+  status: browser
+  key: true
+  evidence: [command:track.route_pair, test:a_newcomer_routes_a_pair_in_one_drag]
+- area: layout
+  name: Length tuning
+  summary: Replace a straight track with a serpentine until the net reaches a target length.
+  status: browser
+  key: true
+  evidence: [command:track.tune_length]
+- area: layout
+  name: Copper zones
+  summary: Pour zones with thermal spokes and read back the copper a zone really fills.
+  status: browser
+  key: true
+  evidence: [command:zone.pour, command:zone.fill]
+- area: layout
+  name: Via stitching
+  summary: Fill a rectangle with a grid of vias on an existing net.
+  status: browser
+  evidence: [command:via.stitch]
+- area: layout
+  name: Teardrops
+  summary: Grow teardrop copper where tracks meet pads and vias.
+  status: browser
+  evidence: [command:teardrop.add]
+- area: layout
+  name: Step and repeat
+  summary: Clone a placed footprint into a grid of numbered copies, undone in one step.
+  status: browser
+  evidence: [command:footprint.array]
+- area: layout
+  name: Edge connectors and castellated pads
+  summary: Dock a footprint flush against a board edge and flag castellated pads.
+  status: browser
+  evidence: [command:footprint.dock_edge, command:footprint.set_castellated]
+- area: layout
+  name: Round cutouts
+  summary: Add dimensioned circular cutouts to the board outline.
+  status: browser
+  evidence: [command:board.cutout.add]
+- area: layout
+  name: Assembly marks
+  summary: Place bare copper fiducials that the pick and place camera uses to find the board.
+  status: browser
+  evidence: [command:board.fiducial_place, test:a_newcomer_adds_assembly_marks_for_the_build_camera]
+- area: layout
+  name: Panel planning
+  summary: Plan a panel of board copies with gaps and rails and read the finished size.
+  status: browser
+  evidence: [command:board.panel, test:a_newcomer_plans_a_panel_of_board_copies]
+- area: layout
+  name: Assembly variants
+  summary: Describe a build that leaves parts off or swaps a package, and export its bill of materials.
+  status: browser
+  evidence: [command:variant.create, test:a_newcomer_describes_a_build_that_leaves_a_part_off]
+
+# ---------- Libraries and part search ----------
+- area: libraries
+  name: Part search
+  summary: Search installed symbol and footprint libraries and place a part that is ready to use.
+  status: desktop
+  key: true
+  evidence: [mcp:library.search, test:a_newcomer_searches_for_a_part_and_it_is_ready_to_place]
+- area: libraries
+  name: Footprint generator
+  summary: Build a land pattern from a package family and its parameters.
+  status: browser
+  key: true
+  evidence: [command:library.footprint.generate]
+- area: libraries
+  name: Symbol and footprint editors
+  summary: Edit pins, pads and drawing shapes in your project library.
+  status: browser
+  key: true
+  evidence: [command:library.symbol.upsert, command:library.footprint.pad_set]
+- area: libraries
+  name: Part sources
+  summary: Record manufacturer, part number, datasheet link and distributor order number on a part.
+  status: browser
+  key: true
+  evidence: [command:part.attach_source]
+- area: libraries
+  name: Part sourcing fields
+  summary: Typed manufacturer, part number, description and supplier numbers on a part, edited in Properties and read by the bill of materials.
+  status: browser
+  evidence: [command:component.set_sourcing, command:component.set_supplier]
+- area: libraries
+  name: Import library files
+  summary: Read symbols and footprints from files on disk into the project library.
+  status: desktop
+  evidence: [command:library.import_symbol_file, command:library.import_footprint_file]
+- area: libraries
+  name: Courtyards
+  summary: Generate a courtyard around a footprint's pads and artwork with a margin.
+  status: browser
+  evidence: [command:library.footprint.generate_courtyard]
+- area: libraries
+  name: Bulk footprint assignment
+  summary: Assign one footprint to every component whose reference matches a pattern.
+  status: browser
+  evidence: [command:footprint.assign_pattern]
+- area: libraries
+  name: Compare two parts
+  summary: Compare two symbols or two footprints and list the pin or pad differences.
+  status: desktop
+  evidence: [mcp:library.compare]
+
+# ---------- Rules and checks ----------
+- area: rules
+  name: Electrical and design rule checks
+  summary: Find shorts, clearance problems, unrouted nets and more, grouped by check.
+  status: browser
+  key: true
+  evidence: [mcp:checks, test:a_newcomer_sees_findings_grouped_by_check]
+- area: rules
+  name: Fabrication presets
+  summary: Apply a named fabrication capability preset to the board rules in one undo step.
+  status: browser
+  key: true
+  evidence: [command:rules.preset_apply]
+- area: rules
+  name: Your own checks
+  summary: Write a check from one measurement and one limit; it re-runs after every edit.
+  status: browser
+  key: true
+  evidence: [command:checks.custom_add, test:a_newcomer_writes_their_own_check]
+- area: rules
+  name: Quiet a check
+  summary: Set a check to error, warning or off, or silence it inside a rectangle.
+  status: browser
+  key: true
+  evidence: [command:rules.severity, command:rules.exclude_region, test:a_newcomer_silences_a_check_around_a_spot]
+- area: rules
+  name: Rule sets
+  summary: Add a named rule set, tune its numbers and put connections under it.
+  status: browser
+  evidence: [test:a_newcomer_adds_a_rule_set_and_tunes_its_numbers]
+- area: rules
+  name: Impedance calculator
+  summary: Calculate microstrip, coupled and stripline impedance and solve a width for a target.
+  status: browser
+  evidence: [command:impedance.calc]
+- area: rules
+  name: Board statistics
+  summary: Count footprints, routed copper length, vias, zones and drilled holes.
+  status: browser
+  evidence: [command:board.statistics]
+
+# ---------- 3D view ----------
+- area: view3d
+  name: 3D view
+  summary: See the board as a 3D model with default part bodies. Model files are not loaded.
+  status: browser
+  key: true
+  evidence: [test:a_newcomer_opens_the_3d_view_and_sees_the_parts]
+- area: view3d
+  name: Turn the board around
+  summary: Orbit the board with the pointer to look at any side.
+  status: browser
+  key: true
+  evidence: [test:a_newcomer_turns_the_board_around_in_3d]
+- area: view3d
+  name: Pick a part in 3D
+  summary: Click a part, or choose it from a list, and see its properties.
+  status: browser
+  key: true
+  evidence: [test:a_newcomer_clicks_a_part_in_3d_and_sees_its_properties, test:a_newcomer_picks_a_part_from_the_3d_list]
+- area: view3d
+  name: Board mesh and STEP file
+  summary: Read the board as a triangle mesh, or write a STEP file of the outline and pads.
+  status: desktop
+  evidence: [mcp:board_mesh, mcp:step.write]
+
+# ---------- Outputs and fabrication ----------
+- area: outputs
+  name: Gerber and drill files
+  summary: Write RS-274X copper and outline layers and an Excellon drill file into a folder.
+  status: desktop
+  key: true
+  evidence: [mcp:gerber.export]
+- area: outputs
+  name: Fabrication bundle
+  summary: Package gerbers, drills, bill of materials and placement into one zip with a manifest.
+  status: desktop
+  key: true
+  evidence: [command:output_job.package]
+- area: outputs
+  name: Bill of materials
+  summary: Group components by value and footprint, with or without an assembly variant.
+  status: desktop
+  key: true
+  evidence: [command:bom.export]
+- area: outputs
+  name: Output jobs
+  summary: Record a recipe of files and write all of them in one step.
+  status: desktop
+  key: true
+  evidence: [command:output_job.run]
+- area: outputs
+  name: Netlist
+  summary: Export every net with its pins, and import a netlist table back in.
+  status: desktop
+  evidence: [command:netlist.export, command:netlist.import]
+- area: outputs
+  name: PDF and DXF drawings
+  summary: Write a one-page vector PDF or an ASCII DXF drawing of the board.
+  status: desktop
+  evidence: [mcp:pdf.write, mcp:dxf.export]
+- area: outputs
+  name: Exchange files
+  summary: Write IPC-2581 style XML, an ODB++ style package and an in-circuit test netlist.
+  status: desktop
+  evidence: [mcp:ipc2581.write, mcp:odb.write, mcp:ipc356.write]
+- area: outputs
+  name: Drill chart and pad table
+  summary: Report drilled holes grouped by size and every pad with its net and drill.
+  status: browser
+  evidence: [command:drill.chart, command:pad.table]
+
+# ---------- CAM and machines ----------
+- area: machines
+  name: Machine profiles
+  summary: Profiles for CNC mills, a galvo laser, a UV printer and a pick and place machine ship in the repository.
+  status: desktop
+  key: true
+  evidence: [command:machine.list, file:machine-profiles/SCHEMA.md]
+- area: machines
+  name: Import and export a profile
+  summary: Read a machine profile from a TOML file or write one out.
+  status: desktop
+  key: true
+  evidence: [command:machine.import, command:machine.export]
+- area: machines
+  name: Laser job export
+  summary: Export a galvo laser job as millimetre SVG or LaserCraft JSON.
+  status: desktop
+  key: true
+  evidence: [command:laser_job.export]
+- area: machines
+  name: Pick and place file
+  summary: Write a placement file and feeder sheet for a pick and place machine profile.
+  status: desktop
+  key: true
+  evidence: [command:placement_yy1.export]
+- area: machines
+  name: Import drawings and images
+  summary: Bring in DXF or SVG drawings as board graphics, or trace a PNG into outlines.
+  status: desktop
+  evidence: [command:dxf.import, command:svg.import, command:image.trace]
+
+# ---------- Assistant and MCP ----------
+- area: assistant
+  name: Assistant panel
+  summary: Open the assistant, connect a model and ask it to change the design.
+  status: desktop
+  key: true
+  evidence: [test:a_newcomer_opens_the_assistant_and_is_told_how_to_connect_a_model, test:a_newcomer_asks_the_assistant_to_add_a_resistor]
+- area: assistant
+  name: You approve every change
+  summary: Allow or refuse each change, and take back a group of changes with one undo.
+  status: desktop
+  key: true
+  evidence: [test:a_newcomer_denies_a_change_and_the_design_stays_as_it_was, test:a_newcomer_allows_two_changes_and_takes_them_back_with_one_undo]
+- area: assistant
+  name: Local model servers
+  summary: Add a model server running on your own machine and test the connection.
+  status: desktop
+  key: true
+  evidence: [test:a_newcomer_adds_a_local_model_server_and_tests_it]
+- area: assistant
+  name: MCP server
+  summary: Every engine command is also a tool for any MCP client, with its input schema.
+  status: desktop
+  key: true
+  evidence: [mcp:list_commands]
+- area: assistant
+  name: Batches, preview and undo
+  summary: Run up to 128 commands as one step, preview them first, and undo the step.
+  status: browser
+  evidence: [mcp:batch, mcp:dry_run, mcp:undo]
+- area: assistant
+  name: Command line
+  summary: List and run the same engine commands from a terminal.
+  status: desktop
+  evidence: [file:apps/pcbcraft-cli]
+
+# ---------- Accessibility and languages ----------
+- area: access
+  name: Names for every control
+  summary: Every interactive control has a name a screen reader can read.
+  status: browser
+  key: true
+  evidence: [test:every_interactive_control_has_an_accessible_name]
+- area: access
+  name: Keyboard use
+  summary: Switch views and open settings from the keyboard alone.
+  status: browser
+  key: true
+  evidence: [test:a_newcomer_switches_view_with_the_keyboard_only, test:a_newcomer_opens_settings_from_the_app_bar_with_the_keyboard_only]
+- area: access
+  name: Screen reader announcements
+  summary: The status after a command is announced, and not announced twice.
+  status: browser
+  key: true
+  evidence: [test:a_newcomer_with_a_screen_reader_hears_the_status_after_a_command, test:an_unchanged_message_is_not_announced_twice]
+- area: access
+  name: Contrast and target size
+  summary: Every theme is checked against WCAG contrast minimums, and no control is too small to hit.
+  status: browser
+  key: true
+  evidence: [test:every_theme_meets_contrast_minimums, test:a_newcomer_never_meets_a_control_too_small_to_hit]
+- area: access
+  name: Reduced motion
+  summary: A setting turns off motion you did not start, and it is remembered.
+  status: browser
+  evidence: [test:reduced_motion_survives_a_preferences_round_trip]
+- area: access
+  name: Your language
+  summary: Interface text comes from a catalog, and the app can switch to another language.
+  status: browser
+  evidence: [test:a_newcomer_switches_the_app_to_their_language, file:crates/text/strings/en.txt]
+
+# ---------- Browser build ----------
+- area: browser
+  name: Runs in a browser tab
+  summary: The shared interface compiles to WebAssembly. Opening, saving and exporting files need the desktop app.
+  status: browser
+  key: true
+  evidence: [file:apps/pcbcraft-web]
+- area: browser
+  name: Sample design
+  summary: Load the LED indicator example and look around.
+  status: browser
+  key: true
+  evidence: [mcp:sample_design]
+- area: browser
+  name: Project archive
+  summary: Write the whole design with its attached files to one archive a colleague can open.
+  status: desktop
+  evidence: [command:project.export_archive]
