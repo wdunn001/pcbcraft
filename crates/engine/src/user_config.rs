@@ -1,7 +1,7 @@
 //! Where this computer keeps the app's own settings files.
 //!
 //! The recent-designs list, the library source list and the assistant
-//! conversations are host knowledge, not design content. Each [`Session`]
+//! conversations are host knowledge, not design content. Each [`crate::Session`]
 //! carries one `UserConfig`, so a test gives its session a private folder and
 //! two tests never see each other's files.
 //!
