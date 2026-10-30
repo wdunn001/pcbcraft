@@ -90,8 +90,10 @@ pub fn known_value_source_fields() -> &'static [&'static str] {
         "net_class.max_width",
         "net_class.target_length",
         "net_class.length_tolerance",
+        "net_class.target_impedance",
         "pair.gap",
         "pair.length_tolerance",
+        "pair.impedance",
         "pair_rule.clearance",
         "rule_area.clearance",
     ]
@@ -128,6 +130,8 @@ struct NetClassToml {
     #[serde(default)]
     length_tolerance: Option<f64>,
     #[serde(default)]
+    target_impedance: Option<f64>,
+    #[serde(default)]
     max_length: Option<f64>,
     #[serde(default)]
     patterns: Vec<String>,
@@ -138,6 +142,13 @@ struct NetClassToml {
 }
 
 #[derive(Debug, Deserialize)]
+struct PairImpedanceToml {
+    target: f64,
+    #[serde(default)]
+    tolerance: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct PairToml {
     name: String,
     net_p: String,
@@ -145,6 +156,8 @@ struct PairToml {
     gap: f64,
     #[serde(default)]
     length_tolerance: Option<f64>,
+    #[serde(default)]
+    impedance: Option<PairImpedanceToml>,
     #[serde(default)]
     equal_vias: Option<bool>,
 }
@@ -207,6 +220,20 @@ fn validate_profile_id(id: &str) -> Result<(), String> {
         return Err("profile id must be 1 to 64 bytes".into());
     }
     Ok(())
+}
+
+fn pair_impedance_fields(pair: &PairToml) -> Result<(Option<f64>, Option<f64>), String> {
+    let Some(spec) = &pair.impedance else {
+        return Ok((None, None));
+    };
+    if !spec.target.is_finite() || !(1.0..=2000.0).contains(&spec.target) {
+        return Err(format!("invalid impedance target on pair {}", pair.name));
+    }
+    let tolerance = spec.tolerance.unwrap_or(0.0);
+    if !tolerance.is_finite() || !(0.0..=1.0).contains(&tolerance) {
+        return Err(format!("invalid impedance tolerance on pair {}", pair.name));
+    }
+    Ok((Some(spec.target), Some(tolerance)))
 }
 
 fn collect_unsupported(doc: &ProfileDocument) -> Vec<String> {
@@ -388,6 +415,11 @@ fn apply_class_fields(class: &mut NetClass, spec: &NetClassToml) {
     class.max_width = spec.max_width;
     class.target_length = spec.target_length;
     class.length_tolerance = spec.length_tolerance;
+    if let Some(z) = spec.target_impedance {
+        if z.is_finite() && (1.0..=2000.0).contains(&z) {
+            class.target_impedance = Some(z);
+        }
+    }
 }
 
 fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<(), String> {
@@ -554,6 +586,7 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
             if tolerance.is_some_and(|t| !t.is_finite() || !(0.0..=100.0).contains(&t)) {
                 return Err("invalid pair length tolerance".into());
             }
+            let (target_z, z_tol) = pair_impedance_fields(pair)?;
             let pairs = &mut p.board.diff_pairs;
             if let Some(existing) = pairs.iter_mut().find(|d| {
                 d.name == pair.name && d.profile.as_deref().is_some_and(|t| t == profile_id)
@@ -562,12 +595,16 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                 existing.net_n = net_n;
                 existing.gap = pair.gap;
                 existing.length_tolerance = tolerance;
+                existing.target_impedance = target_z;
+                existing.impedance_tolerance = z_tol;
                 existing.profile = Some(profile_id.clone());
             } else if let Some(existing) = pairs.iter_mut().find(|d| d.name == pair.name) {
                 existing.net_p = net_p;
                 existing.net_n = net_n;
                 existing.gap = pair.gap;
                 existing.length_tolerance = tolerance;
+                existing.target_impedance = target_z;
+                existing.impedance_tolerance = z_tol;
                 existing.profile = Some(profile_id.clone());
             } else {
                 if pairs.len() >= 64 {
@@ -582,6 +619,8 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                     gap: pair.gap,
                     length_tolerance: tolerance,
                     profile: Some(profile_id.clone()),
+                    target_impedance: target_z,
+                    impedance_tolerance: z_tol,
                 });
             }
         }

@@ -594,7 +594,7 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
@@ -602,6 +602,7 @@ pub(crate) fn invoke_session(
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
+                    "diffpair_impedance",
                 ];
                 let keep = |key: &str| {
                     report[key]
@@ -616,7 +617,7 @@ pub(crate) fn invoke_session(
                     "erc": keep("erc"),
                     "drc": keep("drc"),
                     "airwires": report["airwires"],
-                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair checks; ERC findings are omitted. See checks.scope for the full rule set.",
+                    "scope": "Quick copper-only pass: clearance, track width, stub length, unrouted copper and differential-pair gap, skew and impedance checks; ERC findings are omitted. See checks.scope for the full rule set.",
                 })));
             }
             report

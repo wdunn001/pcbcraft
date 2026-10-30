@@ -1128,6 +1128,7 @@ check.copper_to_edge = Kupfer zu Kante
 check.cut_hits_via = Schnitt trifft Via
 check.cutout_clearance = Ausschnittabstand
 check.diffpair_gap = Abstand der Differenzialpaare
+check.diffpair_impedance = Impedanz des Differenzialpaars
 check.diffpair_skew = Laufzeitversatz der Differenzialpaare
 check.keepout = Sperrbereich
 check.length_group_skew = Laufzeitversatz der Längengruppe

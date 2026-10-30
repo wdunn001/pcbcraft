@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
+mod diffpair_impedance;
 mod drill;
 mod silk;
 mod stub;
@@ -1270,6 +1271,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![pair.net_p, pair.net_n],
         });
     }
+    result.extend(diffpair_impedance::findings(project));
     for group in &board.length_groups {
         let routed: Vec<(Id, f64)> = group
             .nets

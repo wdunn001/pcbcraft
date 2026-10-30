@@ -413,6 +413,10 @@ pub struct NetClass {
     /// Default coupling gap for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_gap: Option<f64>,
+    /// Target single-ended impedance in ohms for member nets; stored for
+    /// profiles and future checks, not enforced by differential-pair rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -464,6 +468,13 @@ pub struct DiffPair {
     /// Rule profile that last applied this differential pair, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
+    /// Target differential impedance in ohms; absent means no impedance check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
+    /// Allowed fractional deviation from the target, for example 0.1 for ten
+    /// percent; defaults to zero when a target is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_tolerance: Option<f64>,
 }
 impl DiffPair {
     fn valid(&self) -> bool {
@@ -477,6 +488,15 @@ impl DiffPair {
             && self
                 .length_tolerance
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+            && self.target_impedance.is_none_or(|z| {
+                z.is_finite() && (1.0..=2000.0).contains(&z)
+                    && self.impedance_tolerance.is_none_or(|t| {
+                        t.is_finite() && (0.0..=1.0).contains(&t)
+                    })
+            })
+            && self.impedance_tolerance.is_none_or(|t| {
+                self.target_impedance.is_some() && t.is_finite() && (0.0..=1.0).contains(&t)
+            })
     }
 }
 /// Which kinds of copper a keepout keeps out. Every kind is forbidden unless
@@ -4637,6 +4657,8 @@ impl Project {
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
                 || c.pair_gap
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
+                || c.target_impedance
+                    .is_some_and(|z| !z.is_finite() || !(1.0..=2000.0).contains(&z))
             {
                 return Err("invalid net class".into());
             }
