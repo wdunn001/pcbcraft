@@ -9,9 +9,7 @@ use pcbcraft_assistant::{
 use serde_json::json;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
-use support::{
-    FakeServer, Reply, assert_request_shape, first_tool_name,
-};
+use support::{FakeServer, Reply, assert_request_shape, first_tool_name};
 
 fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
     ApiConfig {

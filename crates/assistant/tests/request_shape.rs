@@ -25,7 +25,9 @@ fn a_tool_message_without_tool_call_id_fails_the_request_shape_check() -> Result
             {"role": "tool", "content": "ok"}
         ]}),
     };
-    let err = assert_request_shape(&bad).err().ok_or("expected shape failure")?;
+    let err = assert_request_shape(&bad)
+        .err()
+        .ok_or("expected shape failure")?;
     assert!(err.contains("tool_call_id"), "{err}");
 
     let bad_anthropic = Seen {

@@ -69,14 +69,9 @@ impl Reply {
     /// A 200 Anthropic message asking for `n` tool uses of `name` with empty input.
     pub fn anthropic_calls(name: &str, n: usize) -> Reply {
         let blocks: Vec<Value> = (0..n)
-            .map(|i| {
-                json!({"type": "tool_use", "id": format!("c{i}"), "name": name, "input": {}})
-            })
+            .map(|i| json!({"type": "tool_use", "id": format!("c{i}"), "name": name, "input": {}}))
             .collect();
-        Reply::json(
-            200,
-            json!({"content": blocks, "stop_reason": "tool_use"}),
-        )
+        Reply::json(200, json!({"content": blocks, "stop_reason": "tool_use"}))
     }
     /// A reply whose headers promise `full_len` bytes but the connection sends only `send_len`.
     ///
