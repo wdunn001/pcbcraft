@@ -4,6 +4,8 @@ pub mod cad_cache;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+pub mod part_validation;
+pub mod pin_pad_map;
 pub mod listing;
 pub mod listing_adapters;
 pub mod online_import;
@@ -14,7 +16,17 @@ mod sexpr;
 pub mod sources;
 mod symbol_check;
 mod validation;
-pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use footprint_check::{
+    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
+};
+pub use part_validation::{
+    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
+    replacement_check, validate_catalog_fields, validate_part,
+};
+pub use pin_pad_map::{
+    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
+    validate_pin_pad_map,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
