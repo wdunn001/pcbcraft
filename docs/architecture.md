@@ -34,6 +34,11 @@ Headless MCP owns a session. Live MCP forwards calls over a loopback-only JSON-l
 bridge into the exact session displayed by the desktop. The bridge is local trusted
 automation, not a remotely exposed service; do not bind to all interfaces.
 
+The desktop may keep up to eight designs open at once. Shared tab title and dirty
+rules live in `pcbcraft_engine::design_document`; the live bridge routes tools through
+`DocumentHub` in `pcbcraft_mcp`. Per-design workbench tabs, selection and tool state
+stay on each UI document slot in `ui-egui` (see issue #268).
+
 ### Single-window flow
 
 Schematic, PCB, Libraries and Checks are workspace tabs in one window. Browser,

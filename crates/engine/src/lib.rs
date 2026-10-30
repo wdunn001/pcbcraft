@@ -3,6 +3,7 @@ mod artifacts;
 mod authoring;
 mod dry_run;
 mod images;
+pub mod design_document;
 pub mod library;
 mod online;
 mod outline;
