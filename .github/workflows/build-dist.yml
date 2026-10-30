@@ -268,6 +268,13 @@ jobs:
       - name: Build the browser bundle
         working-directory: apps/pcbcraft-web
         run: trunk build --release --public-url ./
+      - name: Ship fonts beside the bundle
+        # The browser fetches fonts/<file> only when a language needs it;
+        # the .br mirror lets a brotli-aware server answer with less data.
+        run: |
+          mkdir -p apps/pcbcraft-web/dist/fonts
+          cp crates/ui-egui/assets/fonts/NotoSansJP-Regular.otf crates/ui-egui/assets/fonts/NotoSansSC-Regular.otf crates/ui-egui/assets/fonts/OFL-NotoSansCJK.txt apps/pcbcraft-web/dist/fonts/
+          brotli -q 11 apps/pcbcraft-web/dist/fonts/NotoSansJP-Regular.otf apps/pcbcraft-web/dist/fonts/NotoSansSC-Regular.otf
       - name: Package
         env:
           VERSION: ${{ inputs.version }}

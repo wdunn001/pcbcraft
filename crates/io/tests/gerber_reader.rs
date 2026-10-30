@@ -53,7 +53,21 @@ fn gerber_minimal_reader_counts_flashes_per_aperture_on_sample_board() -> Result
         from_layer: None,
         to_layer: None,
         covering: None,
+layer: pcbcraft_doc::Layer::Front,
+        arc: None,
+    });
+    project.board.vias.push(pcbcraft_doc::Via {
+        id: 3,
+        net: 1,
+        position: Point::new(20.0, 10.0),
+        diameter: 0.6,
+        drill: 0.3,
+        from_layer: None,
+        to_layer: None,
+        covering: None,
         backdrill: None,
+        covering_bottom: None,
+    });
     });
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;

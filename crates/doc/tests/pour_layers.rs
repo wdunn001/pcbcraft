@@ -1,4 +1,4 @@
-//! Six-layer fixture for the pour and keepout obstacle lists (issue #800).
+//! Six-layer fixture for the pour and keepout obstacle lists (issue #805).
 //!
 //! Each test builds a small six-layer board and asks which objects the pour
 //! sees on each copper layer. A via is copper only on the layers of its span, a
@@ -42,7 +42,8 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
         from_layer: from.map(layer).transpose()?,
         to_layer: to.map(layer).transpose()?,
         covering: None,
-        backdrill: None,
+backdrill: None,
+        covering_bottom: None,
     })
 }
 
