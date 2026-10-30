@@ -11,6 +11,14 @@ pub mod open_library;
 mod paths;
 mod reader;
 mod sexpr;
+pub mod credentials;
+pub mod http_client;
+pub mod rate_limit;
+pub mod source_log;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
 pub mod sources;
 mod symbol_check;
 mod validation;
