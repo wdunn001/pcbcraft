@@ -9,7 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-pcbcraft-calc.workspace = true
+pcbcraft-calc = { path = "../calc" }
 pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
 pcbcraft-library.workspace = true
