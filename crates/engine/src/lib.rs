@@ -11,6 +11,7 @@ pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
+mod sim;
 mod snapmaker;
 mod summary;
 mod tuning;
@@ -2317,6 +2318,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(sim::commands())
         .collect()
 }
 
@@ -7129,6 +7131,7 @@ fn run(
 fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Error> {
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
+        "sim.dc" => sim::run_read(p, params),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
@@ -7229,7 +7232,7 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation" || snapmaker::handles(command) {
+    if command == "cam.isolation" || command == "sim.dc" || snapmaker::handles(command) {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {
