@@ -22643,12 +22643,7 @@ mod tests {
         let keepout = |s: &Session| {
             s.checks()["drc"]
                 .as_array()
-                .and_then(|items| {
-                    items
-                        .iter()
-                        .find(|x| x["code"] == "keepout")
-                        .cloned()
-                })
+                .and_then(|items| items.iter().find(|x| x["code"] == "keepout").cloned())
         };
         assert!(
             keepout(&s).is_some(),

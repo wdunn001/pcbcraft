@@ -618,11 +618,7 @@ fn board_piece(project: &Project) -> Piece {
 fn rectangle(region: crate::RuleRegion) -> Piece {
     let corners = region.axis_corners();
     vec![vec![
-        corners[0],
-        corners[1],
-        corners[2],
-        corners[3],
-        corners[0],
+        corners[0], corners[1], corners[2], corners[3], corners[0],
     ]]
 }
 
