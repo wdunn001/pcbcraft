@@ -3,6 +3,7 @@ use egui::{Pos2, Sense};
 use pcbcraft_doc::{Component, Id, Layer, PinRef, Project};
 use pcbcraft_geom::point_segment;
 mod board_art;
+mod context;
 pub(crate) mod gestures;
 mod layout_art;
 
@@ -106,6 +107,7 @@ pub(crate) fn fit_camera(lo: Point, hi: Point, panel: (f32, f32)) -> Camera {
         .clamp(0.02, 100.0) as f32;
     Camera {
         mirror: false,
+        turns: 0,
         center: Point::new((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0),
         zoom,
     }
@@ -387,7 +389,8 @@ impl App {
             painter.add(
                 egui::epaint::TextShape::new(top_left, galley, color).with_angle_and_anchor(
                     ((-angle - rotation) * if camera.mirror { -1.0 } else { 1.0 }).to_radians()
-                        as f32,
+                        as f32
+                        + camera.turns as f32 * std::f32::consts::FRAC_PI_2,
                     Align2::CENTER_CENTER,
                 ),
             );
@@ -455,7 +458,15 @@ impl App {
         let resized = fitted_at.is_some_and(|last| last != size);
         if (self.needs_fit || resized) && rect.width() > 40.0 && rect.height() > 40.0 {
             let (lo, hi) = view_bounds(&self.project, self.tab == Tab::Pcb);
-            camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let panel = if keep_turns % 2 == 1 {
+                (rect.height(), rect.width())
+            } else {
+                (rect.width(), rect.height())
+            };
+            camera = fit_camera(lo, hi, panel);
+            camera.mirror = keep_mirror;
+            camera.turns = keep_turns;
             self.needs_fit = false;
             ui.ctx().data_mut(|d| d.insert_temp(fit_key, size));
         }
@@ -465,17 +476,22 @@ impl App {
             && let Some(id) = self.selected
             && let Some((lo, hi)) = selection_bounds(&self.project, id)
         {
-            camera = fit_camera(lo, hi, (rect.width(), rect.height()));
+            let (keep_mirror, keep_turns) = (camera.mirror, camera.turns);
+            let panel = if keep_turns % 2 == 1 {
+                (rect.height(), rect.width())
+            } else {
+                (rect.width(), rect.height())
+            };
+            camera = fit_camera(lo, hi, panel);
+            camera.mirror = keep_mirror;
+            camera.turns = keep_turns;
             self.needs_zoom_selection = false;
         }
-        camera.mirror = self.seen_from_below();
         let held = crate::tool_modifiers::held_now(ui.ctx());
         if response.hovered() {
             let (scroll, sideways, scale) = self.wheel_plan(ui, held);
             if sideways.abs() > 0.01 {
-                camera.center = camera
-                    .center
-                    .offset(Point::new(-sideways as f64 / camera.zoom as f64, 0.0));
+                camera.pan_screen(Vec2::new(sideways, 0.0));
             }
             if scroll.abs() > 0.01
                 && let Some(mouse) = ui.input(|i| i.pointer.hover_pos())
@@ -492,14 +508,13 @@ impl App {
         if response.dragged_by(egui::PointerButton::Middle) {
             let d = ui.input(|i| i.pointer.delta());
             ui.ctx().data_mut(|d| d.remove_temp::<(i32, i32)>(fit_key));
-            let along = if camera.mirror { d.x } else { -d.x };
-            camera.center = camera.center.offset(Point::new(
-                along as f64 / camera.zoom as f64,
-                -d.y as f64 / camera.zoom as f64,
-            ));
+            camera.pan_screen(d);
         }
         if self.tab == Tab::Pcb {
             self.pcb = camera;
+            self.step_layers_by_key(ui);
+            let focus = self.focus_target();
+            self.stack = self.stack_view(ui.ctx(), focus);
         } else {
             self.schematic = camera;
         }
@@ -902,7 +917,6 @@ impl App {
                             {
                                 self.needs_fit = true;
                             }
-                            self.view_from_below_button(ui);
                         });
                     });
             });
@@ -958,22 +972,7 @@ impl App {
             }
         }
         if let Some((screen, kind)) = self.canvas_menu.take() {
-            let mut close = false;
-            egui::Area::new(egui::Id::new("canvas-context-menu"))
-                .fixed_pos(screen)
-                .order(egui::Order::Foreground)
-                .show(ui.ctx(), |ui| {
-                    egui::Frame::menu(ui.style())
-                        .inner_margin(egui::Margin::same(8))
-                        .show(ui, |ui| {
-                            ui.set_min_width(140.0);
-                            ui.spacing_mut().item_spacing.y = 4.0;
-                            close |= self.paint_canvas_menu(ui, &kind);
-                        });
-                });
-            if !close {
-                self.canvas_menu = Some((screen, kind));
-            }
+            self.show_canvas_menu(ui.ctx(), screen, kind);
         }
     }
     /// Draw the shapes the designer put on their own layers. Cut layers read
@@ -1380,391 +1379,6 @@ impl App {
         }
         self.edit.menu_at = Some(pos);
         self.canvas_menu = Some((screen, kind));
-    }
-    /// "Assign layers": the spans this board allows for a via, each running
-    /// `via.set_span`. The span the via already has is marked in text.
-    fn assign_span_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
-        let Some(via) = self.project.board.vias.iter().find(|v| v.id == id).cloned() else {
-            return false;
-        };
-        let current = self.project.via_span(&via);
-        let last = self.project.copper_layer_count().saturating_sub(1);
-        let tip = command_tip("via.set_span");
-        let mut done = false;
-        ui.menu_button("Assign layers", |ui| {
-            for (a, b) in self.project.allowed_via_spans() {
-                let mut label = if a.index() == 0 && b.index() >= last {
-                    "Top to bottom".to_string()
-                } else {
-                    format!(
-                        "{} to {}",
-                        self.project.layer_name(a),
-                        self.project.layer_name(b)
-                    )
-                };
-                if (a, b) == current {
-                    label.push_str(" (current)");
-                }
-                if Self::canvas_menu_button(ui, &label, &tip) {
-                    self.run(
-                        "via.set_span",
-                        json!({
-                            "id": id,
-                            "from_layer": self.project.layer_name(a),
-                            "to_layer": self.project.layer_name(b),
-                        }),
-                    );
-                    done = true;
-                    ui.close();
-                }
-            }
-        })
-        .response
-        .on_hover_text("Choose which copper layers this via connects.");
-        done
-    }
-    /// "Copy" for menus that open on a part's pad or pin: the part is already
-    /// selected by the right-click, so this copies the whole part.
-    fn copy_part_menu(&mut self, ui: &mut egui::Ui) -> bool {
-        let tip = command_tip("selection.copy_text");
-        if Self::canvas_menu_button(ui, "Copy", &tip) {
-            let ctx = ui.ctx().clone();
-            self.copy_selection(&ctx);
-            return true;
-        }
-        false
-    }
-    pub(crate) fn canvas_menu_button(ui: &mut egui::Ui, label: &str, tip: &str) -> bool {
-        ui.button(label).on_hover_text(tip).clicked()
-    }
-    /// "Assign layer": a small submenu listing the copper faces a track can
-    /// move to. The face it is already on is left out.
-    fn assign_layer_menu(&mut self, ui: &mut egui::Ui, id: Id) -> bool {
-        let Some(current) = self
-            .project
-            .board
-            .tracks
-            .iter()
-            .find(|t| t.id == id)
-            .map(|t| t.layer)
-        else {
-            return false;
-        };
-        let mut done = false;
-        let bottom = self.project.bottom_layer();
-        ui.menu_button("Assign layer", |ui| {
-            for (layer, label, name, tip) in [
-                (
-                    Layer::Front,
-                    "Front",
-                    "F.Cu",
-                    "Move this wire to the front copper layer.",
-                ),
-                (
-                    bottom,
-                    "Back",
-                    "B.Cu",
-                    "Move this wire to the back copper layer.",
-                ),
-            ] {
-                if layer == current {
-                    continue;
-                }
-                if Self::canvas_menu_button(ui, label, tip) {
-                    self.run("track.set_layer", json!({"id": id, "layer": name}));
-                    done = true;
-                    ui.close();
-                }
-            }
-        })
-        .response
-        .on_hover_text("Choose which copper layer this wire lives on.");
-        done
-    }
-    /// The menu items, then a muted hint of what the modifier keys do for the
-    /// active tool (the same words as the toolbar tooltip and status bar).
-    fn paint_canvas_menu(&mut self, ui: &mut egui::Ui, kind: &CanvasMenuKind) -> bool {
-        let done = self.paint_canvas_menu_items(ui, kind);
-        if !done {
-            let hint = crate::modifier_ui::menu_hint(
-                &self.preferences.modifiers,
-                self.tool.kind(),
-                crate::tool_modifiers::Platform::of(ui.ctx()),
-            );
-            if !hint.is_empty() {
-                ui.separator();
-                ui.label(egui::RichText::new(hint).small().color(self.muted()))
-                    .on_hover_text(t!("modifier.menu.tip"));
-            }
-        }
-        done
-    }
-    fn paint_canvas_menu_items(&mut self, ui: &mut egui::Ui, kind: &CanvasMenuKind) -> bool {
-        match kind {
-            CanvasMenuKind::Empty => {
-                if Self::canvas_menu_button(
-                    ui,
-                    "Fit view",
-                    "Zoom the view so the whole design fits.",
-                ) {
-                    self.needs_fit = true;
-                    return true;
-                }
-                let ready = self.edit.clip.is_some();
-                let paste_tip = if ready {
-                    command_tip("selection.paste")
-                } else {
-                    "Copy something first".to_string()
-                };
-                if ui
-                    .add_enabled(ready, egui::Button::new("Paste"))
-                    .on_hover_text(&paste_tip)
-                    .on_disabled_hover_text(&paste_tip)
-                    .clicked()
-                {
-                    if let Some(at) = self.edit.menu_at {
-                        self.paste_last_copy_at(at);
-                    }
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Clear selection",
-                    "Drop the current highlight so nothing is selected.",
-                ) {
-                    self.select(None);
-                    return true;
-                }
-            }
-            CanvasMenuKind::Pin(pin) => {
-                if self.copy_part_menu(ui) {
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Start wire",
-                    "Wire tool: click another pin to connect them.",
-                ) {
-                    self.tool = Tool::Wire(Some(PinRef {
-                        component: pin.component,
-                        pin: pin.pin.clone(),
-                    }));
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Mark no connect",
-                    "Mark this pin deliberately unconnected, or clear an existing mark.",
-                ) {
-                    self.tool = Tool::NoConnect;
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Properties",
-                    "Load this pin's part into the inspector.",
-                ) {
-                    self.load_properties();
-                    return true;
-                }
-            }
-            CanvasMenuKind::Pad(id, pad) => {
-                if self.copy_part_menu(ui) {
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Start route",
-                    "Route tool: click another pad to draw a track between them.",
-                ) {
-                    self.tool = Tool::Route(Some((*id, pad.clone())));
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Properties",
-                    "Load this pad's package into the inspector.",
-                ) {
-                    self.load_properties();
-                    return true;
-                }
-            }
-            CanvasMenuKind::Track(id) => {
-                if Self::canvas_menu_button(
-                    ui,
-                    "Cut",
-                    "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
-                ) {
-                    if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == *id) {
-                        let at = Point::new(
-                            (track.start.x + track.end.x) / 2.0,
-                            (track.start.y + track.end.y) / 2.0,
-                        );
-                        self.run(
-                            "track.split",
-                            json!({"id": *id, "at": {"x": at.x, "y": at.y}}),
-                        );
-                    }
-                    return true;
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Change width",
-                    "Set this wire to the width shown in the inspector.",
-                ) {
-                    self.run(
-                        "track.set_width",
-                        json!({"id": *id, "width": self.track_width}),
-                    );
-                    return true;
-                }
-                if self.assign_layer_menu(ui, *id) {
-                    return true;
-                }
-                if Self::canvas_menu_button(ui, "Properties", "Load this wire into the inspector.")
-                {
-                    self.load_properties();
-                    return true;
-                }
-                let delete_tip = command_tip("object.delete");
-                if Self::canvas_menu_button(ui, "Delete", &delete_tip) {
-                    self.run("object.delete", json!({"id": *id}));
-                    self.select(None);
-                    return true;
-                }
-            }
-            CanvasMenuKind::Object(id) => {
-                let copy_tip = command_tip("selection.copy_text");
-                if Self::canvas_menu_button(ui, "Copy", &copy_tip) {
-                    let ctx = ui.ctx().clone();
-                    self.copy_selection(&ctx);
-                    return true;
-                }
-                if self.project.board.vias.iter().any(|v| v.id == *id)
-                    && self.assign_span_menu(ui, *id)
-                {
-                    return true;
-                }
-                let is_track = self.project.board.tracks.iter().any(|t| t.id == *id);
-                let component = self.project.component(*id).is_some();
-                let footprint = self.project.footprint(*id).is_some();
-                if component || footprint {
-                    if Self::canvas_menu_button(
-                        ui,
-                        "Duplicate",
-                        "Places a copy of this part nearby, with its own new reference number. Undo removes the copy.",
-                    ) {
-                        let target = self.project.footprint(*id).map_or(*id, |fp| fp.component);
-                        self.run(
-                            "object.duplicate",
-                            json!({"ids": [target], "offset": {"x": 2.0, "y": 2.0}}),
-                        );
-                        return true;
-                    }
-                    let part_locked = self
-                        .project
-                        .footprint(*id)
-                        .is_some_and(|fp| fp.locked == Some(true));
-                    let rotate_tip = if part_locked {
-                        "This part is locked. Unlock it first."
-                    } else {
-                        "Turn the selected object by 90 degrees."
-                    };
-                    if ui
-                        .add_enabled(!part_locked, egui::Button::new("Rotate"))
-                        .on_hover_text(rotate_tip)
-                        .on_disabled_hover_text(rotate_tip)
-                        .clicked()
-                    {
-                        self.rotate();
-                        return true;
-                    }
-                    if footprint {
-                        let locked = self
-                            .project
-                            .footprint(*id)
-                            .is_some_and(|fp| fp.locked == Some(true));
-                        if Self::canvas_menu_button(
-                            ui,
-                            if locked { "Unlock" } else { "Lock in place" },
-                            if locked {
-                                "Let this part move, rotate and dock again."
-                            } else {
-                                "Freeze this part so no accidental click, key or dock can nudge it off where you placed it."
-                            },
-                        ) {
-                            self.run(
-                                "footprint.set_locked",
-                                json!({"id": *id, "locked": !locked}),
-                            );
-                            return true;
-                        }
-                    }
-                }
-                if is_track {
-                    if Self::canvas_menu_button(
-                        ui,
-                        "Cut",
-                        "Break this stretch of wire into two equal halves so you can bend, branch or re-route part of it. Undo joins it back into one.",
-                    ) {
-                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == *id)
-                        {
-                            let at = Point::new(
-                                (track.start.x + track.end.x) / 2.0,
-                                (track.start.y + track.end.y) / 2.0,
-                            );
-                            self.run(
-                                "track.split",
-                                json!({"id": *id, "at": {"x": at.x, "y": at.y}}),
-                            );
-                        }
-                        return true;
-                    }
-                    if Self::canvas_menu_button(
-                        ui,
-                        "Change width",
-                        "Set this wire to the width shown in the inspector.",
-                    ) {
-                        self.run(
-                            "track.set_width",
-                            json!({"id": *id, "width": self.track_width}),
-                        );
-                        return true;
-                    }
-                    if self.assign_layer_menu(ui, *id) {
-                        return true;
-                    }
-                }
-                if Self::canvas_menu_button(
-                    ui,
-                    "Properties",
-                    "Load this object into the inspector.",
-                ) {
-                    self.load_properties();
-                    return true;
-                }
-                let part_locked = self
-                    .project
-                    .footprint(*id)
-                    .is_some_and(|fp| fp.locked == Some(true));
-                let delete_tip = if part_locked {
-                    "This part is locked. Unlock it first.".to_string()
-                } else {
-                    command_tip("object.delete")
-                };
-                if ui
-                    .add_enabled(!part_locked, egui::Button::new("Delete"))
-                    .on_hover_text(&delete_tip)
-                    .on_disabled_hover_text(&delete_tip)
-                    .clicked()
-                {
-                    self.run("object.delete", json!({"id": *id}));
-                    self.select(None);
-                    return true;
-                }
-            }
-        }
-        false
     }
     pub(super) fn canvas_click(&mut self, pos: Point, zoom: f32) {
         match self.tool.clone() {
@@ -2456,11 +2070,13 @@ impl App {
             self.paint_keepout_ring(painter, center, radius);
         }
         self.paint_ratsnest(painter, rect, camera, p);
-        let mirrored = camera.mirror;
-        for z in board_side::bottom_last(
+        // Paint far to near as the viewer sees the stack; layers nearer than the
+        // focused one are see-through and those behind it are dimmed.
+        let stack = &self.stack;
+        let copper_count = p.copper_layer_count();
+        for z in stack.far_to_near(
             p.board.zones.iter().filter(|_| shown("Copper zones")),
-            mirrored,
-            |z| z.layer != Layer::Front,
+            |z| z.layer,
         ) {
             let screen: Vec<egui::Pos2> = z
                 .outline
@@ -2473,10 +2089,11 @@ impl App {
                 self.colours().canvas.back
             };
             let rgb = [zone_colour.r(), zone_colour.g(), zone_colour.b()];
+            let far = stack.copper_alpha(z.layer);
             let fill = if self.selected == Some(z.id) {
                 self.accent().linear_multiply(0.35)
             } else {
-                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.3)
+                Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(0.07 * far)
             };
             if z.filled || self.selected == Some(z.id) {
                 painter.add(egui::Shape::convex_polygon(
@@ -2487,7 +2104,10 @@ impl App {
             }
             painter.add(egui::Shape::closed_line(
                 screen.clone(),
-                Stroke::new(1.0, Color32::from_rgb(rgb[0], rgb[1], rgb[2])),
+                Stroke::new(
+                    1.0,
+                    Color32::from_rgb(rgb[0], rgb[1], rgb[2]).linear_multiply(far),
+                ),
             ));
             for cut in &z.cutouts {
                 let cut_screen: Vec<egui::Pos2> =
@@ -2503,7 +2123,7 @@ impl App {
                 ));
             }
         }
-        for t in board_side::bottom_last(
+        for t in stack.far_to_near(
             p.board.tracks.iter().filter(|t| {
                 shown(if t.layer == pcbcraft_doc::Layer::Front {
                     "Top copper"
@@ -2511,8 +2131,7 @@ impl App {
                     "Bottom copper"
                 })
             }),
-            mirrored,
-            |t| t.layer != Layer::Front,
+            |t| t.layer,
         ) {
             painter.line_segment(
                 [camera.screen(t.start, rect), camera.screen(t.end, rect)],
@@ -2522,8 +2141,10 @@ impl App {
                         self.accent()
                     } else if t.layer == Layer::Front {
                         self.copper(Some(t.net), self.colours().canvas.front)
+                            .linear_multiply(stack.copper_alpha(t.layer))
                     } else {
                         self.copper(Some(t.net), self.colours().canvas.back)
+                            .linear_multiply(stack.copper_alpha(t.layer))
                     },
                 ),
             );
@@ -2531,10 +2152,15 @@ impl App {
         for v in p.board.vias.iter().filter(|_| shown("Vias")) {
             let at = camera.screen(v.position, rect);
             let radius = (v.diameter as f32 / 2.0 * camera.zoom).max(2.0);
+            let through = (0..copper_count)
+                .filter_map(|i| Layer::from_index(i).ok())
+                .map(|l| stack.copper_alpha(l))
+                .fold(0.0f32, f32::max);
             let base = if self.selected == Some(v.id) {
                 self.accent()
             } else {
                 self.copper(Some(v.net), self.colours().canvas.front)
+                    .linear_multiply(through)
             };
             if via_on_layer(p, v, self.route_layer) {
                 painter.circle_filled(at, radius, base);
@@ -2572,10 +2198,12 @@ impl App {
                 );
             }
         }
-        for f in board_side::bottom_last(p.board.footprints.iter(), mirrored, |f| {
-            f.board_side() != Layer::Front
+        for f in stack.far_to_near(p.board.footprints.iter(), |f| {
+            crate::stack_view::mount_copper(copper_count, f.board_side())
         }) {
             let on_bottom = f.board_side() != Layer::Front;
+            let mount = crate::stack_view::mount_copper(copper_count, f.board_side());
+            let pad_alpha = stack.copper_alpha(mount);
             let points = f
                 .drawing_points(p)
                 .into_iter()
@@ -2596,12 +2224,13 @@ impl App {
                 - Vec2::new(0.0, 12.0);
             let value_at = camera.screen(f.position.offset(Point::new(label_x, max.y)), rect)
                 + Vec2::new(0.0, 12.0);
+            let silk_fade = stack.silk_alpha(on_bottom);
             let color = if let Some(kind) = self.compare_tint.get(&f.id).copied() {
                 self.compare_kind_color(kind)
             } else if let Some(kind) = self.compare_tint.get(&f.component).copied() {
                 self.compare_kind_color(kind)
             } else {
-                art.silk
+                art.silk.linear_multiply(silk_fade)
             };
             let boxes = Self::footprint_boxes(f, rect, camera);
             if let Some(library) = p
@@ -2661,7 +2290,8 @@ impl App {
                                 } else {
                                     art.top_copper
                                 },
-                            ),
+                            )
+                            .linear_multiply(pad_alpha),
                         ));
                     }
                     let hole = pad.drill_outline_points();
@@ -2727,14 +2357,14 @@ impl App {
                     Align2::CENTER_BOTTOM,
                     &c.reference,
                     FontId::proportional(13.0),
-                    art.text,
+                    art.text.linear_multiply(stack.silk_alpha(on_bottom)),
                 );
                 painter.text(
                     below,
                     Align2::CENTER_TOP,
                     &c.value,
                     FontId::proportional(10.5),
-                    art.muted,
+                    art.muted.linear_multiply(stack.silk_alpha(on_bottom)),
                 );
             }
             if self.selected == Some(f.id)
@@ -2761,7 +2391,7 @@ impl App {
         self.draw_user_layers(painter, rect, camera, p);
         self.paint_board_graphics(painter, rect, camera, p);
         self.paint_board_dimensions(painter, rect, camera, p);
-        self.paint_axis_glyph(painter, rect);
+        self.paint_axis_glyph(painter, rect, camera);
         self.paint_rulers(painter, rect, camera);
     }
 }
@@ -2838,6 +2468,7 @@ mod library_render_tests {
                 let rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0));
                 let camera = Camera {
                     mirror: false,
+                    turns: 0,
                     center: Point::default(),
                     zoom: 10.0,
                 };
@@ -2931,6 +2562,7 @@ mod library_render_tests {
                         Rect::from_min_max(Pos2::ZERO, Pos2::new(500.0, 500.0)),
                         Camera {
                             mirror: false,
+                            turns: 0,
                             center: Point::default(),
                             zoom: 20.0,
                         },
