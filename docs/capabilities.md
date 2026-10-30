@@ -26,7 +26,9 @@ the project, named component properties, bill of materials grouping.
 
 Front SMD and plated through-hole pads (circle, rectangle, roundrect, oval).
 Straight, two-segment orthogonal and arc tracks. Plated vias, including stitch
-grids. Poured zones with cutouts; unfilled zones are outline only. Rectangular
+grids. Teardrop copper grown where tracks meet pads and vias, removed in one
+pass, exported with other filled copper. Poured zones with cutouts; unfilled
+zones are outline only. Rectangular
 or polygonal outline, circular cutouts, Edge.Cuts export. Copper move, width
 and layer edits update clearance findings. Step-and-repeat arrays, placement
 locks, edge docking, castellated pad flags.

@@ -59,7 +59,8 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [x] Checks on drawn machine layers against the copper and vias they cross (#277)
 - [ ] Design-intent electrical checks: power pins, decoupling and pull-ups (#334) (#334 subset on fork main; #492, #498, #499, #501 remain open)
 - [x] Many fabrication plots, drill, placement, BOM and named output jobs (#286 subset on fork main; fabrication-valid copper gerbers #351 remain open)
-- [ ] Everyday editing: copy and paste, box select, measure, groups and track cleanup (#342) (#342 subset on fork main; #427, #428 remain open)
+- [ ] Everyday editing: copy and paste, box select, measure, groups and track cleanup (#166) (#166 subset on fork main; #254, #255, #256, #257, #258 remain open)
+- [x] Teardrop copper at pad and via junctions (`teardrop.add`, `teardrop.remove`)
 - [x] Logos and reference images placed as bitmaps and traced to silk, mask or copper (#343)
 - [x] Initial Gerber copper layer writer (pad flashes and tracks)
 
