@@ -24864,6 +24864,90 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn netclass_rise_time_enables_crosstalk_estimates() -> Result<(), Error> {
+        let mut s = Session::default();
+        let clk = s.execute("net.create", json!({"name":"CLK"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let data = s.execute("net.create", json!({"name":"DATA"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"CLK","clearance":0.2,"width":0.2,"nets":[clk,data]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let width = 0.2;
+        let gap = width;
+        s.execute(
+            "track.add",
+            json!({"net":clk,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":width}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({
+                "net":data,
+                "start":{"x":0.0,"y":width + gap},
+                "end":{"x":10.0,"y":width + gap},
+                "width":width
+            }),
+            None,
+        )?;
+        fn drc_messages(s: &Session, code: &str) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == code)
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        assert!(
+            drc_messages(&s, "parallel_crosstalk").is_empty(),
+            "without rise time the estimate stays off"
+        );
+        s.execute(
+            "netclass.rise_time",
+            json!({"class":class,"rise_time":1e-9}),
+            None,
+        )?;
+        let parallel = drc_messages(&s, "parallel_crosstalk");
+        assert_eq!(parallel.len(), 1);
+        assert!(parallel[0].contains("estimate"));
+        s.execute(
+            "netclass.rise_time",
+            json!({"class":class,"rise_time":null}),
+            None,
+        )?;
+        assert!(drc_messages(&s, "parallel_crosstalk").is_empty());
+        s.execute(
+            "track.add",
+            json!({"net":clk,"start":{"x":10.0,"y":0.0},"end":{"x":90.0,"y":0.0},"width":width}),
+            None,
+        )?;
+        s.execute(
+            "netclass.rise_time",
+            json!({"class":class,"rise_time":1e-9}),
+            None,
+        )?;
+        let long = drc_messages(&s, "net_electrically_long");
+        assert_eq!(long.len(), 1);
+        assert!(long[0].contains("electrically long"));
+        for params in [
+            json!({"class":class,"rise_time":0.0}),
+            json!({"class":class,"rise_time":0.002}),
+            json!({"class":999,"rise_time":1e-9}),
+            json!({"class":class,"rise_time":"fast"}),
+            json!({"class":class,"rise_time":1e-9,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.rise_time", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
     fn checks_scope_lists_courtyard_and_silk_checks() {
         let scope = Session::default().checks()["scope"]
             .as_str()
