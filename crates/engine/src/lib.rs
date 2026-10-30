@@ -2899,7 +2899,7 @@ fn height_findings(p: &Project) -> Vec<Value> {
             continue;
         };
         let region = &area.region;
-        for body in pcbcraft_io::part_bodies::part_boxes(p) {
+        for body in pcbcraft_io::part_boxes(p) {
             let stand = body.z1 - thickness;
             if stand <= limit + 1e-9 {
                 continue;
@@ -22770,10 +22770,7 @@ mod tests {
             json!({"code":"part_too_tall","severity":"warning"}),
             None,
         )?;
-        assert_eq!(
-            part_too_tall_findings(&s)?[0]["severity"],
-            "warning"
-        );
+        assert_eq!(part_too_tall_findings(&s)?[0]["severity"], "warning");
         s.execute(
             "rules.severity",
             json!({"code":"part_too_tall","severity":"off"}),
