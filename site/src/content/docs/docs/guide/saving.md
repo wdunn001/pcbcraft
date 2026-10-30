@@ -2,7 +2,7 @@
 title: Save your design
 description: Write the design to its file and know where the file is.
 sidebar:
-  order: 7
+  order: 8
 ---
 
 A design is one file with the extension `.pcbcraft`. Saving writes the whole design to that file.

@@ -2,7 +2,7 @@
 title: Route the board
 description: Turn the dashed connections on the board into copper tracks.
 sidebar:
-  order: 5
+  order: 6
 ---
 
 On the board, dashed lines show which pads must connect. Routing draws copper tracks along them.
@@ -23,7 +23,7 @@ Open the sample with `cargo run -p pcbcraft -- --sample`. Click the **Layout** t
 1. In the Layers tree, find **Copper** under **Layer 1 · Top**. It carries the **Active** tag, so new tracks go on the top side.
 2. Look at the **Corners** switch at the right end of the tool strip. **45** cuts corners at 45 degrees. **90** keeps them square.
 
-The status strip shows the active layer, for example Layer 1 of 2 · Top copper. In **Settings** the **Route on** entry also picks Top or Bottom.
+The status strip shows the active layer, for example Layer 1 of 2 · Top copper. On the **Preferences** page the **Route on** entry also picks Top or Bottom.
 
 ## Route two pads
 
@@ -62,4 +62,5 @@ The app says why in the status strip and changes nothing. The sentence names the
 ## Related
 
 - [The Layers tree](../layers-tree/)
+- [Copper and drill plot files](../plot-files/)
 - [Checks and findings](../checks/)

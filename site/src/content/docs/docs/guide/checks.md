@@ -2,7 +2,7 @@
 title: Checks and findings
 description: Read the findings the checks report, jump to the item, and hide or mute one you have reviewed.
 sidebar:
-  order: 6
+  order: 7
 ---
 
 Checks look for problems in the schematic and the board. They run on every edit. Each problem is listed as a finding.

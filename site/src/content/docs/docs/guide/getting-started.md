@@ -58,6 +58,8 @@ Click a row to select that item on the drawing. The next pages show what each ro
 - [The Layers tree](../layers-tree/)
 - [Place parts from the Library](../place-parts/)
 - [Draw on the schematic](../draw-schematic/)
+- [Update the board from the schematic](../update-board-from-schematic/)
 - [Route the board](../route-board/)
 - [Checks and findings](../checks/)
 - [Save your design](../saving/)
+- [Copper and drill plot files](../plot-files/)

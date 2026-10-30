@@ -61,4 +61,5 @@ Every edit is one undoable step. **Redo** steps forward again.
 ## Related
 
 - [Place parts from the Library](../place-parts/)
+- [Update the board from the schematic](../update-board-from-schematic/)
 - [Route the board](../route-board/)
