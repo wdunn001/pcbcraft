@@ -15,7 +15,7 @@ mod types;
 #[cfg(feature = "datasheet-sidecar")]
 mod sidecar_hayro;
 
-pub use apply::{PartFieldPatch, apply_patch_to_symbol};
+pub use apply::{PartFieldPatch, apply_patch_to_symbol, build_part_patch};
 pub use parse::{TextTableExtractor, extract_from_text_document};
 pub use provenance::{DatasheetRect, DatasheetSourceRecord, bounded_quote};
 pub use review::{ReviewDecision, ReviewedField, effective_text, set_decision};

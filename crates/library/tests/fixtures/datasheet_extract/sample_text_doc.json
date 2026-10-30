@@ -11,6 +11,22 @@
         {"text": "2", "page_index": 0, "page_label": 3, "rect": {"x0": 10.0, "y0": 90.0, "x1": 20.0, "y1": 100.0}},
         {"text": "IN-", "page_index": 0, "page_label": 3, "rect": {"x0": 30.0, "y0": 90.0, "x1": 60.0, "y1": 100.0}}
       ]
+    },
+    {
+      "page_index": 1,
+      "page_label": 7,
+      "cells": [
+        {"text": "Absolute", "page_index": 1, "page_label": 7, "rect": {"x0": 10.0, "y0": 40.0, "x1": 60.0, "y1": 50.0}},
+        {"text": "Maximum", "page_index": 1, "page_label": 7, "rect": {"x0": 65.0, "y0": 40.0, "x1": 120.0, "y1": 50.0}},
+        {"text": "Ratings", "page_index": 1, "page_label": 7, "rect": {"x0": 125.0, "y0": 40.0, "x1": 170.0, "y1": 50.0}},
+        {"text": "VDD", "page_index": 1, "page_label": 7, "rect": {"x0": 10.0, "y0": 60.0, "x1": 35.0, "y1": 70.0}},
+        {"text": "6.0", "page_index": 1, "page_label": 7, "rect": {"x0": 80.0, "y0": 60.0, "x1": 100.0, "y1": 70.0}},
+        {"text": "V", "page_index": 1, "page_label": 7, "rect": {"x0": 105.0, "y0": 60.0, "x1": 115.0, "y1": 70.0}},
+        {"text": "Ordering", "page_index": 1, "page_label": 7, "rect": {"x0": 10.0, "y0": 120.0, "x1": 60.0, "y1": 130.0}},
+        {"text": "Information", "page_index": 1, "page_label": 7, "rect": {"x0": 65.0, "y0": 120.0, "x1": 130.0, "y1": 130.0}},
+        {"text": "LM358DR", "page_index": 1, "page_label": 7, "rect": {"x0": 10.0, "y0": 140.0, "x1": 70.0, "y1": 150.0}},
+        {"text": "SOIC-8", "page_index": 1, "page_label": 7, "rect": {"x0": 75.0, "y0": 140.0, "x1": 120.0, "y1": 150.0}}
+      ]
     }
   ]
 }

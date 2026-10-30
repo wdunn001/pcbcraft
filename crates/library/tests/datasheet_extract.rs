@@ -20,6 +20,31 @@ fn fixture_yields_pin_table_with_page_numbers() -> Result<(), String> {
     assert_eq!(bundle.pin_table_page_labels(), vec![3]);
     assert_eq!(bundle.pin_table[0].value.pin_name, "IN+");
     assert_eq!(bundle.pin_table[0].value.source.page_label, 3);
+    let rect = bundle.pin_table[0].value.source.rect;
+    assert_eq!(rect.x0, 10.0);
+    assert_eq!(rect.y0, 70.0);
+    assert_eq!(rect.x1, 60.0);
+    assert_eq!(rect.y1, 80.0);
+    Ok(())
+}
+
+#[test]
+fn fixture_yields_ratings_and_ordering_with_provenance() -> Result<(), String> {
+    let doc = fixture_doc()?;
+    let bundle = extract_from_text_document(&doc)?;
+    assert_eq!(bundle.absolute_maximum_ratings.len(), 1);
+    let rating = &bundle.absolute_maximum_ratings[0].value;
+    assert_eq!(rating.parameter, "VDD");
+    assert_eq!(rating.value, "6.0");
+    assert_eq!(rating.unit, "V");
+    assert_eq!(rating.source.page_label, 7);
+    assert!(rating.source.rect.x1 > rating.source.rect.x0);
+
+    assert_eq!(bundle.ordering_codes.len(), 1);
+    let order = &bundle.ordering_codes[0].value;
+    assert_eq!(order.code, "LM358DR");
+    assert_eq!(order.description, "SOIC-8");
+    assert_eq!(order.source.page_label, 7);
     Ok(())
 }
 
