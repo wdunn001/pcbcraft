@@ -1,7 +1,11 @@
 //! MCP stdio server plus a loopback bridge into the desktop's actual engine session.
 mod document_hub;
 #[cfg(not(target_arch = "wasm32"))]
+mod gated_bridge;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod http;
+#[cfg(not(target_arch = "wasm32"))]
+pub use gated_bridge::{ToolRequest, start_gated_bridge};
 mod prompts;
 mod resources;
 use base64::Engine as _;
@@ -773,7 +777,12 @@ fn validate_schema(value: &Value, schema: &Value, path: &str) -> Result<(), Stri
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})
 }
-pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> Option<Value> {
+pub fn handle_rpc(
+    hub: &DocumentHub,
+    request: Value,
+    connect: Option<&str>,
+    bridge_token: Option<&str>,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str);
     if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
@@ -844,7 +853,7 @@ pub fn handle_rpc(hub: &DocumentHub, request: Value, connect: Option<&str>) -> O
             if let Some(address) = connect {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    match forward(address, &request) {
+                    match forward(address, &request, bridge_token) {
                         Ok(response) => return Some(response),
                         Err(e) => error_result(e),
                     }
@@ -925,6 +934,7 @@ pub fn serve(
     writer: &mut impl Write,
     hub: &DocumentHub,
     connect: Option<&str>,
+    bridge_token: Option<&str>,
 ) -> Result<(), String> {
     let mut initialized = false;
     while let Some(line) = read_message(reader)? {
@@ -937,7 +947,7 @@ pub fn serve(
                         .map(|id| rpc_error(id.clone(), -32002, "initialize the MCP session first"))
                 } else {
                     let initialize = method == Some("initialize");
-                    let response = handle_rpc(hub, request, connect);
+                    let response = handle_rpc(hub, request, connect, bridge_token);
                     if initialize && response.as_ref().is_some_and(|r| r.get("result").is_some()) {
                         initialized = true;
                     }
@@ -965,7 +975,14 @@ fn loopback(address: &str) -> Result<std::net::SocketAddr, String> {
     Ok(address)
 }
 #[cfg(not(target_arch = "wasm32"))]
-pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
+pub fn forward(address: &str, request: &Value, bridge_token: Option<&str>) -> Result<Value, String> {
+    let mut payload = request.clone();
+    if let Some(token) = bridge_token {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.entry("token".into())
+                .or_insert_with(|| Value::String(token.to_string()));
+        }
+    }
     let mut stream = std::net::TcpStream::connect_timeout(
         &loopback(address)?,
         std::time::Duration::from_secs(3),
@@ -977,7 +994,7 @@ pub fn forward(address: &str, request: &Value) -> Result<Value, String> {
     stream
         .set_write_timeout(Some(std::time::Duration::from_secs(3)))
         .map_err(|e| e.to_string())?;
-    serde_json::to_writer(&mut stream, request).map_err(|e| e.to_string())?;
+    serde_json::to_writer(&mut stream, &payload).map_err(|e| e.to_string())?;
     stream.write_all(b"\n").map_err(|e| e.to_string())?;
     let text =
         read_message(&mut BufReader::new(stream))?.ok_or("bridge closed without a response")?;
@@ -1000,7 +1017,7 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
                     let mut reader = BufReader::new(reader);
                     if let Ok(Some(line)) = read_message(&mut reader) {
                         let response = match serde_json::from_str(&line) {
-                            Ok(request) => handle_rpc(&hub, request, None),
+                            Ok(request) => handle_rpc(&hub, request, None, None),
                             Err(_) => Some(rpc_error(Value::Null, -32700, "parse error")),
                         };
                         if let Some(response) = response {
@@ -1028,7 +1045,7 @@ mod tests {
         let hub = DocumentHub::new(Session::default(), None)?;
         let input: String = lines.iter().map(|line| format!("{line}\n")).collect();
         let mut output = vec![];
-        serve(&mut input.as_bytes(), &mut output, &hub, None)?;
+        serve(&mut input.as_bytes(), &mut output, &hub, None, None)?;
         String::from_utf8(output)
             .map_err(|e| e.to_string())?
             .lines()
@@ -2808,6 +2825,7 @@ mod tests {
             &hub,
             json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}),
             None,
+            None,
         );
         assert_eq!(
             response
@@ -2819,7 +2837,8 @@ mod tests {
             handle_rpc(
                 &hub,
                 json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
-                None
+                None,
+                None,
             )
             .is_none()
         );
@@ -2838,7 +2857,8 @@ mod tests {
                 &mut BufReader::new(messages.as_bytes()),
                 &mut output,
                 &hub,
-                None
+                None,
+                None,
             )
             .is_ok()
         );

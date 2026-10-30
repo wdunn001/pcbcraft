@@ -21,7 +21,7 @@ fn initialize(version: &str) -> Value {
 }
 
 fn call(hub: &DocumentHub, request: Value) -> Result<Value, String> {
-    handle_rpc(hub, request, None).ok_or_else(|| "expected a reply".to_string())
+    handle_rpc(hub, request, None, None).ok_or_else(|| "expected a reply".to_string())
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn a_notification_never_gets_a_reply() -> Result<(), String> {
         "notifications/cancelled",
         "nonsense",
     ] {
-        let reply = handle_rpc(&hub, json!({"jsonrpc":"2.0","method":method}), None);
+        let reply = handle_rpc(&hub, json!({"jsonrpc":"2.0","method":method}), None, None);
         assert!(reply.is_none(), "{method} got {reply:?}");
     }
     Ok(())
@@ -108,7 +108,7 @@ fn serve_lines(input: &[u8]) -> Result<(Vec<Value>, Result<(), String>), String>
     let hub = hub()?;
     let mut output = vec![];
     let mut reader = input;
-    let outcome = serve(&mut reader, &mut output, &hub, None);
+    let outcome = serve(&mut reader, &mut output, &hub, None, None);
     let replies = String::from_utf8(output)
         .map_err(|e| e.to_string())?
         .lines()

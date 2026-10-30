@@ -224,7 +224,7 @@ fn dispatch(hub: &DocumentHub, body: &[u8]) -> (u16, &'static str, Option<Value>
             if is_client_response {
                 return (202, "Accepted", None);
             }
-            match handle_rpc(hub, message, None) {
+            match handle_rpc(hub, message, None, None) {
                 Some(reply) => (200, "OK", Some(reply)),
                 None => (202, "Accepted", None),
             }
