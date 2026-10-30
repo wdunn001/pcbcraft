@@ -1760,14 +1760,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "rules.decoupling_max_mm",
-            "Set the maximum board distance in millimetres from an IC power pin pad to a decoupling capacitor on the same net",
-            schema(
-                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":50,"description":"pad-centre limit in millimetres; schematic-only designs ignore distance"}}),
-                &["max_mm"],
-            ),
-        ),
-        (
             "erc.matrix_set",
             "Set one cell of the pin-type connection matrix used by ERC",
             schema(
@@ -1779,6 +1771,14 @@ pub fn commands() -> Vec<CommandSpec> {
             "erc.matrix_reset",
             "Restore the default pin-type connection matrix, clearing every override",
             schema(json!({}), &[]),
+        ),
+        (
+            "rules.decoupling_max_mm",
+            "Set the maximum board distance in millimetres from an IC power pin pad to a decoupling capacitor on the same net",
+            schema(
+                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":50,"description":"pad-centre limit in millimetres; schematic-only designs ignore distance"}}),
+                &["max_mm"],
+            ),
         ),
         (
             "rules.exclude",
