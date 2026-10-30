@@ -201,7 +201,8 @@ pub(crate) fn stub_length_findings(project: &Project, items: &[Copper]) -> Vec<F
                             project.net_name(*net),
                         ),
                         objects: ids,
-                    });
+            hint: None,
+        });
                 }
             }
         }
