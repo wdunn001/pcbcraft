@@ -782,10 +782,7 @@ fn is_decoupling_cap(project: &Project, c: &pcbcraft_doc::Component, rail: Id) -
 }
 
 fn decoupling_copper_limit_mm(project: &Project) -> f64 {
-    project
-        .design_limits
-        .decoupling_distance_mm
-        .unwrap_or(2.0)
+    project.design_limits.decoupling_distance_mm.unwrap_or(2.0)
 }
 
 fn decoupling_ground_via_limit_mm(project: &Project) -> f64 {
@@ -918,20 +915,13 @@ fn pad_copper_indices(items: &[Copper], net: Id, point: Point) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter(|(_, c)| {
-            c.pad
-                && c.net == net
-                && c.start.distance(point) <= 1e-6 + c.contact_radius
+            c.pad && c.net == net && c.start.distance(point) <= 1e-6 + c.contact_radius
         })
         .map(|(i, _)| i)
         .collect()
 }
 
-fn shortest_copper_path_mm(
-    project: &Project,
-    from: Point,
-    to: Point,
-    net: Id,
-) -> Option<f64> {
+fn shortest_copper_path_mm(project: &Project, from: Point, to: Point, net: Id) -> Option<f64> {
     let items = copper(project);
     let adj = build_copper_path_adjacency(project, &items);
     let starts = pad_copper_indices(&items, net, from);
@@ -949,7 +939,11 @@ fn nearest_decoupling_cap_path(
     pin: &pcbcraft_doc::Pin,
 ) -> Option<(Id, f64)> {
     let rail = pin.net?;
-    let ic_fp = project.board.footprints.iter().find(|f| f.component == ic)?;
+    let ic_fp = project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == ic)?;
     let from = ic_fp.pad_position(&pin.number)?;
     let mut best: Option<(Id, f64)> = None;
     for c in &project.components {
@@ -959,7 +953,12 @@ fn nearest_decoupling_cap_path(
         if !project.board.footprints.iter().any(|f| f.component == c.id) {
             continue;
         }
-        let Some(cap_fp) = project.board.footprints.iter().find(|f| f.component == c.id) else {
+        let Some(cap_fp) = project
+            .board
+            .footprints
+            .iter()
+            .find(|f| f.component == c.id)
+        else {
             continue;
         };
         for p in &c.pins {
@@ -1046,7 +1045,10 @@ fn decoupling_drc_findings(project: &Project) -> Vec<Finding> {
             if pin_flagged_no_connect(project, c.id, &p.number) {
                 continue;
             }
-            if !project.components.iter().any(|cap| is_decoupling_cap(project, cap, rail))
+            if !project
+                .components
+                .iter()
+                .any(|cap| is_decoupling_cap(project, cap, rail))
             {
                 continue;
             }
@@ -1120,8 +1122,7 @@ fn decoupling_drc_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("decoupling_ground_via", "warning"),
                 message: format!(
                     "{} ground pad needs a ground via or pour within {:.1} mm of copper",
-                    c.reference,
-                    via_limit
+                    c.reference, via_limit
                 ),
                 objects: vec![c.id, cap_fp.id],
             });
@@ -2442,8 +2443,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Component, FabRules, Footprint, Label, LibraryFootprint, LibrarySymbol, Net,
-        NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
+        Component, FabRules, Footprint, Label, LibraryFootprint, LibrarySymbol, Net, NoConnectFlag,
+        Pad, Pin, PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, SymbolDefinition};
 
@@ -2932,11 +2933,7 @@ mod tests {
     #[test]
     fn decoupling_distance_clean_when_cap_one_mm_by_track() -> Result<(), String> {
         let p = routed_decoupling_fixture(1.0)?;
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_distance")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_distance"));
         Ok(())
     }
 
@@ -2958,11 +2955,7 @@ mod tests {
         p.board.footprints[1].position = Point::new(1.0, 0.0);
         p.board.tracks[0].end = Point::new(0.5, 0.0);
         p.validate()?;
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_distance")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_distance"));
         Ok(())
     }
 
@@ -2970,8 +2963,7 @@ mod tests {
     fn decoupling_distance_nearest_of_two_caps_wins() -> Result<(), String> {
         let mut p = routed_decoupling_fixture(5.0)?;
         let cap_near = 203;
-        p.components
-            .push(decoupling_cap(cap_near, "C2", 101, 102)?);
+        p.components.push(decoupling_cap(cap_near, "C2", 101, 102)?);
         p.board.footprints.push(two_pad_footprint(
             303,
             cap_near,
@@ -2997,11 +2989,7 @@ mod tests {
             drill: 0.3,
         });
         p.validate()?;
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_distance")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_distance"));
         Ok(())
     }
 
@@ -3054,11 +3042,7 @@ mod tests {
         ));
         p.validate()?;
         assert!(drc(&p).iter().any(|f| f.code == "unrouted"));
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_distance")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_distance"));
         Ok(())
     }
 
@@ -3075,11 +3059,7 @@ mod tests {
     #[test]
     fn decoupling_ground_via_clears_when_via_added() -> Result<(), String> {
         let p = routed_decoupling_fixture(1.0)?;
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_ground_via")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_ground_via"));
         Ok(())
     }
 
@@ -3088,19 +3068,11 @@ mod tests {
         let mut p = routed_decoupling_fixture(5.0)?;
         p.rule_severity
             .insert("decoupling_distance".into(), "off".into());
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_distance")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_distance"));
         p.rule_severity.clear();
         p.rule_exclusions
             .insert("decoupling_distance".into(), vec![201, 202]);
-        assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "decoupling_distance")
-        );
+        assert!(!drc(&p).iter().any(|f| f.code == "decoupling_distance"));
         Ok(())
     }
     #[test]

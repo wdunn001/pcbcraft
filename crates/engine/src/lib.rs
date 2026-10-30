@@ -21248,13 +21248,28 @@ mod tests {
             None,
         )?;
         assert!(
-            (s.project.design_limits.decoupling_distance_mm.unwrap_or(0.0) - 2.5).abs() < 1e-9
+            (s.project
+                .design_limits
+                .decoupling_distance_mm
+                .unwrap_or(0.0)
+                - 2.5)
+                .abs()
+                < 1e-9
         );
         assert!(
-            (s.project.design_limits.decoupling_ground_via_mm.unwrap_or(0.0) - 0.8).abs() < 1e-9
+            (s.project
+                .design_limits
+                .decoupling_ground_via_mm
+                .unwrap_or(0.0)
+                - 0.8)
+                .abs()
+                < 1e-9
         );
         let before = s.inspect();
-        for params in [json!({"decoupling_distance_mm": 0.05}), json!({"decoupling_ground_via_mm": 60.0})] {
+        for params in [
+            json!({"decoupling_distance_mm": 0.05}),
+            json!({"decoupling_ground_via_mm": 60.0}),
+        ] {
             assert!(
                 s.execute("project.limits_set", params, None).is_err(),
                 "out-of-range limits leave the project unchanged"
