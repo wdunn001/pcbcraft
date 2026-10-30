@@ -29379,6 +29379,52 @@ mod tests {
     }
 
     #[test]
+    fn tune_skew_brings_pair_inside_tolerance_and_undo_restores() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        let (fp_j1, fp_j2, net_p, net_n) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        s.execute(
+            "board.set_diffpair",
+            json!({"name":"USB","net_p":net_p,"net_n":net_n,"gap":gap,"length_tolerance":0.5}),
+            None,
+        )?;
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net_p,"start":{"x":50.0,"y":20.0},"end":{"x":55.0,"y":20.0},"width":width}),
+            None,
+        )?;
+        assert!(
+            drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "extra positive-side copper should exceed the tolerance"
+        );
+        let tracks_before = s.project.board.tracks.clone();
+        s.execute("track.tune_skew", json!({"name":"USB"}), None)?;
+        assert!(
+            !drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "tuning should bring skew inside tolerance"
+        );
+        s.undo()?;
+        assert_eq!(s.project.board.tracks, tracks_before);
+        assert!(
+            drc_codes(&mut s)?.contains(&"diffpair_skew".to_string()),
+            "undo should restore the pre-tune skew finding"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn unplated_holes_drill_move_resize_and_keep_copper_away() -> Result<(), Error> {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
