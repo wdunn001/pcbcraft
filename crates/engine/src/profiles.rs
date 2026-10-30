@@ -369,6 +369,7 @@ fn find_or_create_class<'a>(
         via_drill: None,
         pair_width: None,
         pair_gap: None,
+        corner_radius: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
     });

@@ -484,6 +484,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.corner_radius",
+            "Set the default corner rounding radius for tracks on a net class; null clears it",
+            schema(
+                json!({"class":id_schema(),"corner_radius":{"type":["number","null"],"exclusiveMinimum":0,"maximum":100}}),
+                &["class"],
+            ),
+        ),
+        (
             "netclass.clearance",
             "Change the clearance a net class requires between its copper and everything else",
             schema(
@@ -4371,6 +4379,12 @@ struct LengthRulesParams {
 struct StubRulesParams {
     class: Id,
     max_stub: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CornerRadiusRulesParams {
+    class: Id,
+    corner_radius: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8666,6 +8680,7 @@ fn run_command(
                 via_drill: None,
                 pair_width: None,
                 pair_gap: None,
+                corner_radius: None,
                 nets: a.nets,
                 profile: None,
             });
@@ -8802,6 +8817,37 @@ fn run_command(
             Ok(json!({
                 "class": a.class,
                 "max_stub": class.max_stub,
+            }))
+        }
+        "netclass.corner_radius" => {
+            let a: CornerRadiusRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.corner_radius = match &a.corner_radius {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let r = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v > 0.0 && *v <= 100.0)
+                        .ok_or_else(|| {
+                            Error::Invalid(
+                                "corner radius must be between 0 and 100 millimetres".into(),
+                            )
+                        })?;
+                    Some(r)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "corner radius must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "corner_radius": class.corner_radius,
             }))
         }
         "netclass.clearance" => {
@@ -24814,6 +24860,51 @@ mod tests {
             json!({"class":class,"max_stub":1.0,"extra":1}),
         ] {
             assert!(s.execute("netclass.stub_rules", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn netclass_corner_radius_sets_and_clears_default() -> Result<(), Error> {
+        let mut s = Session::default();
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"ROUND","clearance":0.2,"width":0.25}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "netclass.corner_radius",
+            json!({"class":class,"corner_radius":0.8}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.corner_radius == Some(0.8)),
+            "the radius round-trips on the class"
+        );
+        s.execute(
+            "netclass.corner_radius",
+            json!({"class":class,"corner_radius":null}),
+            None,
+        )?;
+        assert!(
+            s.project
+                .net_classes
+                .iter()
+                .any(|c| c.id == class && c.corner_radius.is_none()),
+            "null clears the default"
+        );
+        for params in [
+            json!({"class":class,"corner_radius":0.0}),
+            json!({"class":class,"corner_radius":101.0}),
+            json!({"class":999,"corner_radius":1.0}),
+            json!({"class":class,"corner_radius":"wide"}),
+        ] {
+            assert!(s.execute("netclass.corner_radius", params, None).is_err());
         }
         assert!(s.project.validate().is_ok());
         Ok(())

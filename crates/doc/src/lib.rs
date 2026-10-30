@@ -13,6 +13,11 @@ pub use panel::{
 };
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+mod track_shape;
+pub use track_shape::{
+    DEFAULT_CORNER_RADIUS_WIDTH_FACTOR, TEARDROPS_DEFAULT_CLASS3, TrackArcExport,
+    TrackCornerFillet, arc_chord_count, flatten_arc, net_class_corner_radius, track_corner_fillet,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};
@@ -413,6 +418,10 @@ pub struct NetClass {
     /// Default coupling gap for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_gap: Option<f64>,
+    /// Default corner rounding radius for member tracks, in millimetres. When
+    /// set, rounding commands use this before the three-times-width default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_radius: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -4637,6 +4646,8 @@ impl Project {
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
                 || c.pair_gap
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
+                || c.corner_radius
+                    .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
             {
                 return Err("invalid net class".into());
             }

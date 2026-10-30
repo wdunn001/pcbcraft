@@ -9665,6 +9665,7 @@ mod tests {
             via_drill: None,
             pair_width: None,
             pair_gap: None,
+            corner_radius: None,
             nets: vec![5],
             profile: None,
         });
