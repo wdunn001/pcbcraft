@@ -2771,7 +2771,7 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
         };
         let values: Vec<String> = columns
             .iter()
-            .map(|(key, _)| c.field(key).unwrap_or("").to_string())
+            .map(|(key, _)| c.bom_value(key))
             .collect();
         groups
             .entry((c.value.clone(), c.kind.clone(), footprint, values))
@@ -10345,6 +10345,72 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn bom_csv_reads_typed_sourcing_columns() -> Result<(), String> {
+        let mut project = Project::default();
+        let mut c = pcbcraft_doc::Component {
+            sourcing: Default::default(),
+            sheet: 0,
+            id: 1,
+            reference: "R1".into(),
+            value: "10k".into(),
+            kind: "resistor".into(),
+            position: Point::new(10.0, 10.0),
+            rotation: 0.0,
+            pins: vec![
+                pcbcraft_doc::Pin {
+                    number: "1".into(),
+                    name: String::new(),
+                    offset: Point::new(-1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+                pcbcraft_doc::Pin {
+                    number: "2".into(),
+                    name: String::new(),
+                    offset: Point::new(1.0, 0.0),
+                    net: None,
+                    electrical_type: "passive".into(),
+                    direction: None,
+                    unit: 1,
+                },
+            ],
+            units: vec![],
+            library_symbol: None,
+            library_footprint: None,
+            fields: vec![],
+        };
+        c.sourcing.manufacturer = "Yageo".into();
+        c.sourcing.mpn = "RC0603".into();
+        c.sourcing
+            .set_supplier("Digi-Key", Some("311-ND"), None)
+            .map_err(|e| e.to_string())?;
+        project.components.push(c);
+        project.validate()?;
+        let text = bom_csv(
+            &project,
+            &[
+                "MPN".to_string(),
+                "Manufacturer".to_string(),
+                "Suppliers".to_string(),
+            ],
+            None,
+        )?;
+        assert!(
+            text.contains("RC0603"),
+            "typed MPN in bom.csv: {text}"
+        );
+        assert!(text.contains("Yageo"), "typed manufacturer in bom.csv: {text}");
+        assert!(
+            text.contains("Digi-Key: 311-ND"),
+            "supplier list in bom.csv: {text}"
+        );
+        Ok(())
+    }
+
     #[test]
     fn bom_csv_prints_project_defined_columns_under_their_labels() -> Result<(), String> {
         let mut project = Project::default();

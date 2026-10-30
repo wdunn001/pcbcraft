@@ -23,8 +23,6 @@ use pcbcraft_library::{
 };
 use serde::{Deserialize, Serialize};
 
-pub use pcbcraft_library::SUPPLIER_KEY_PREFIX;
-
 /// Longest manufacturer, part number, supplier name or description, in bytes.
 pub const MAX_SOURCING_TEXT: usize = 256;
 /// Longest supplier link, in bytes.
