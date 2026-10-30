@@ -162,7 +162,7 @@ pub fn load(path: &Path) -> Result<Project, String> {
 /// # Do not
 /// - Call with paths to binary files
 pub fn read_text(path: &Path) -> Result<String, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut text = String::new();
     file.take(MAX_FILE_BYTES + 1)
         .read_to_string(&mut text)
@@ -174,7 +174,7 @@ pub fn read_text(path: &Path) -> Result<String, String> {
 }
 /// Read a binary file at the given path, enforcing the 8 MiB size limit.
 pub fn read_bytes(path: &Path) -> Result<Vec<u8>, String> {
-    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut bytes = Vec::new();
     file.take(MAX_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
@@ -6982,7 +6982,9 @@ mod tests {
         std::fs::write(&path, "line one\nline two").map_err(|e| e.to_string())?;
         assert_eq!(read_text(&path)?, "line one\nline two");
         let missing = dir.join("missing.txt");
-        let err = read_text(&missing).err().ok_or("missing file should fail")?;
+        let err = read_text(&missing)
+            .err()
+            .ok_or("missing file should fail")?;
         assert!(
             err.contains("missing.txt"),
             "error should name the path: {err}"
