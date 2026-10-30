@@ -2864,11 +2864,7 @@ fn custom_findings(p: &Project) -> Vec<Value> {
                 return;
             }
             out.push(check_finding_json(
-                &code,
-                &severity,
-                &message,
-                objects,
-                None,
+                &code, &severity, &message, objects, None,
             ))
         };
         match c.measure.as_str() {
@@ -36019,11 +36015,7 @@ mod tests {
             None,
         )?;
         assert_eq!(
-            s.project
-                .board
-                .rules
-                .as_ref()
-                .and_then(|r| r.min_track),
+            s.project.board.rules.as_ref().and_then(|r| r.min_track),
             Some(0.2)
         );
         s.undo()?;

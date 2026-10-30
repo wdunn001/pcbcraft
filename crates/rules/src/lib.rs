@@ -747,8 +747,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                     severity: project.rule_severity("unassigned_pin", "warning"),
                     message: format!("{} pin {} has no net", c.reference, p.number),
                     objects: vec![c.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -765,8 +765,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("single_pin_net", "warning"),
                 message: format!("{} has {pins} connected pins", net.name),
                 objects: vec![net.id],
-            hint: None,
-        });
+                hint: None,
+            });
         }
     }
     for net in &project.nets {
@@ -859,8 +859,8 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                             pin.number, net.name
                         ),
                         objects: vec![*id],
-            hint: None,
-        });
+                        hint: None,
+                    });
                 }
             }
         }
@@ -1109,8 +1109,8 @@ fn panel_findings(project: &Project) -> Vec<Finding> {
                         copy.row, copy.column, PANEL_SCORE_COMPONENT_MIN_MM
                     ),
                     objects: vec![footprint.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -1169,8 +1169,8 @@ fn copper_findings(
                             required
                         ),
                         objects: vec![a.id, b.id],
-            hint: None,
-        });
+                        hint: None,
+                    });
                 }
             }
         }
@@ -1196,8 +1196,8 @@ fn copper_findings(
                 severity: project.rule_severity("board_edge", "error"),
                 message: format!("Copper is {:.3} mm from the board edge", edge),
                 objects: vec![a.id],
-            hint: None,
-        });
+                hint: None,
+            });
         }
         for cut in &board.cutouts {
             let clearance = if let Some(points) = &a.outline {
@@ -1211,8 +1211,8 @@ fn copper_findings(
                     severity: project.rule_severity("cutout_clearance", "error"),
                     message: format!("Copper violates cutout clearance ({clearance:.3} mm)"),
                     objects: vec![a.id, cut.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -1246,8 +1246,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         min
                     ),
                     objects: vec![track.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
             if let Some(max) = class.max_width.filter(|max| track.width > *max) {
                 result.push(Finding {
@@ -1261,8 +1261,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         max
                     ),
                     objects: vec![track.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -1285,8 +1285,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("missing_footprint", "warning"),
                 message: format!("{} has no PCB footprint; sync the board", c.reference),
                 objects: vec![c.id],
-            hint: None,
-        });
+                hint: None,
+            });
         }
     }
     let mut lengths: BTreeMap<Id, f64> = BTreeMap::new();
@@ -1324,8 +1324,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         pair.gap
                     ),
                     objects: vec![a.id, b.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
         let Some(tolerance) = pair.length_tolerance else {
@@ -1425,8 +1425,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     tolerance
                 ),
                 objects: vec![*net],
-            hint: None,
-        });
+                hint: None,
+            });
         }
     }
     for net in &project.nets {
@@ -1598,8 +1598,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     severity: project.rule_severity("pour_fill", "error"),
                     message,
                     objects: vec![zone.id],
-            hint: None,
-        });
+                    hint: None,
+                });
                 continue;
             }
         };
@@ -1629,8 +1629,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     zone.id
                 ),
                 objects: vec![zone.id],
-            hint: None,
-        });
+                hint: None,
+            });
         } else if fill.islands > 0 {
             result.push(Finding {
                 code: "zone_island",
@@ -1643,8 +1643,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     fill.removed
                 ),
                 objects: vec![zone.id],
-            hint: None,
-        });
+                hint: None,
+            });
         }
     }
     match pcbcraft_doc::keepout_hits(project) {
@@ -1661,8 +1661,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         hit.area
                     ),
                     objects: vec![hit.object, hit.area],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
         Err(message) => result.push(Finding {
@@ -1743,8 +1743,8 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                     project.layer_name(lower)
                 ),
                 objects: vec![via.id],
-            hint: None,
-        });
+                hint: None,
+            });
         }
         if let Some(message) = via_aspect_warning(project, via) {
             result.push(Finding {
@@ -1752,8 +1752,8 @@ fn via_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("via_aspect_ratio", "warning"),
                 message,
                 objects: vec![via.id],
-            hint: None,
-        });
+                hint: None,
+            });
         }
     }
     for (i, a) in board.vias.iter().enumerate() {
@@ -1803,8 +1803,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                         min
                     ),
                     objects: vec![track.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -1819,8 +1819,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                         via.drill, min
                     ),
                     objects: vec![via.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
         for fp in &board.footprints {
@@ -1836,8 +1836,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                             drill, min
                         ),
                         objects: vec![fp.id],
-            hint: None,
-        });
+                        hint: None,
+                    });
                 }
             }
         }
@@ -1857,8 +1857,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                         ring, min
                     ),
                     objects: vec![via.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -1877,8 +1877,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                             ring, min
                         ),
                         objects: vec![fp.id],
-            hint: None,
-        });
+                        hint: None,
+                    });
                 }
             }
         }
@@ -1905,8 +1905,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                     severity: project.rule_severity("copper_to_edge", "error"),
                     message: format!("Copper is {:.3} mm from the routed edge", edge_dist),
                     objects: vec![a.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
@@ -1936,8 +1936,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                     board.thickness, smallest, max_ratio
                 ),
                 objects: vec![],
-            hint: None,
-        });
+                hint: None,
+            });
         }
     }
     if let Some(min) = rules.min_space {
@@ -1960,8 +1960,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                             min
                         ),
                         objects: vec![a.id, b.id],
-            hint: None,
-        });
+                        hint: None,
+                    });
                 }
             }
         }
@@ -1983,8 +1983,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                         size, min
                     ),
                     objects: vec![layer.id],
-            hint: None,
-        });
+                    hint: None,
+                });
             }
         }
     }
