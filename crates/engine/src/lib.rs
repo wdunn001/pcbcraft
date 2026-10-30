@@ -1,6 +1,7 @@
 //! The single mutation boundary used by UI, CLI and MCP.
 mod artifacts;
 mod authoring;
+mod calc;
 mod dry_run;
 mod images;
 pub mod library;
@@ -2317,6 +2318,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(calc::commands())
         .collect()
 }
 
@@ -7231,6 +7233,12 @@ fn run_command(
 ) -> Result<Value, Error> {
     if command == "cam.isolation" || snapmaker::handles(command) {
         return run_read_only(p, command, params);
+    }
+    if let Some(result) = calc::run(p, command, params) {
+        return result;
+    }
+    if let Some(result) = calc::run_mut(p, command, params) {
+        return result;
     }
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
