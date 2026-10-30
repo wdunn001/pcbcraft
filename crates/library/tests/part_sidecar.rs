@@ -1,6 +1,6 @@
 use pcbcraft_library::{
-    PartAlternate, PartProvenance, PartSidecar, PartSidecarField, PART_SIDECAR_FORMAT,
-    PART_SIDECAR_VERSION, read_part_sidecar, write_part_sidecar,
+    PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate, PartProvenance, PartSidecar,
+    PartSidecarField, read_part_sidecar, write_part_sidecar,
 };
 use std::path::Path;
 

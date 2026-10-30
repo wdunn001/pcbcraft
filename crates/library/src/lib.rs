@@ -8,8 +8,8 @@ pub mod listing;
 pub mod listing_adapters;
 pub mod online_import;
 pub mod open_library;
-mod paths;
 pub mod part_sidecar;
+mod paths;
 mod reader;
 mod sexpr;
 pub mod sources;
@@ -17,12 +17,12 @@ mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
-use pcbcraft_geom::Point;
 pub use part_sidecar::{
-    PartAlternate, PartProvenance, PartSidecar, PartSidecarField, PART_SIDECAR_EXTENSION,
-    PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, read_part_sidecar, sidecar_path_in_folder,
+    PART_SIDECAR_EXTENSION, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate,
+    PartProvenance, PartSidecar, PartSidecarField, read_part_sidecar, sidecar_path_in_folder,
     write_part_sidecar,
 };
+use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};

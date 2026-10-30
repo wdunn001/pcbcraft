@@ -1,13 +1,12 @@
 //! Save project parts to the project library or to registered folder libraries.
-use super::{Error, Project, parse, schema, CommandSpec};
-use pcbcraft_library::{
-    FootprintDefinition, PartAlternate, PartProvenance, PartSidecar, PartSidecarField,
-    PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, sidecar_path_in_folder, write_part_sidecar,
-    SymbolDefinition,
-};
+use super::{CommandSpec, Error, Project, parse, schema};
 use pcbcraft_doc::ComponentField;
+use pcbcraft_library::{
+    FootprintDefinition, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate, PartProvenance,
+    PartSidecar, PartSidecarField, SymbolDefinition, sidecar_path_in_folder, write_part_sidecar,
+};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     [(
@@ -270,12 +269,7 @@ fn save_to_project(
 }
 
 fn upsert_symbol(p: &mut Project, symbol: &SymbolDefinition) {
-    if let Some(def) = p
-        .library
-        .symbols
-        .iter_mut()
-        .find(|s| s.name == symbol.name)
-    {
+    if let Some(def) = p.library.symbols.iter_mut().find(|s| s.name == symbol.name) {
         *def = symbol.clone();
     } else {
         p.library.symbols.push(symbol.clone());
@@ -305,8 +299,7 @@ fn save_to_folder(
 ) -> Result<Value, Error> {
     let folder = crate::library::folder_for_role(target).map_err(Error::Invalid)?;
     let symbol_path = folder.join(format!("{}.kicad_sym", resolved.symbol.name));
-    let symbol_text =
-        pcbcraft_io::symbol_library_text(&resolved.symbol).map_err(Error::Invalid)?;
+    let symbol_text = pcbcraft_io::symbol_library_text(&resolved.symbol).map_err(Error::Invalid)?;
     pcbcraft_io::atomic_write(&symbol_path, symbol_text.as_bytes()).map_err(Error::Invalid)?;
     let mut footprint_path = None;
     if let Some(footprint) = &resolved.footprint {
@@ -330,8 +323,8 @@ fn save_to_folder(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::library::{add_folder, set_source_role, SOURCES_PATH_TEST, SOURCES_TEST_LOCK};
     use crate::Session;
+    use crate::library::{SOURCES_PATH_TEST, SOURCES_TEST_LOCK, add_folder, set_source_role};
     use pcbcraft_library::{SymbolDefinition, SymbolPin};
     use serde_json::json;
     use std::sync::Mutex;
@@ -425,11 +418,7 @@ mod tests {
 
         let mut s = Session::default();
         let symbol = sample_symbol();
-        s.execute(
-            "library.symbol.upsert",
-            json!({"definition": symbol}),
-            None,
-        )?;
+        s.execute("library.symbol.upsert", json!({"definition": symbol}), None)?;
         let footprint = pcbcraft_library::read_footprint(
             "(footprint SaveMeFP (layer F.Cu) (pad 1 smd rect (at 0 0) (size 1 1) (layers F.Cu)))",
         )
@@ -471,7 +460,10 @@ mod tests {
         assert_eq!(loaded.fields[0].key, "Manufacturer");
         assert_eq!(loaded.alternates.len(), 1);
         assert!(
-            loaded.provenance.as_ref().is_some_and(|p| !p.notice.is_empty()),
+            loaded
+                .provenance
+                .as_ref()
+                .is_some_and(|p| !p.notice.is_empty()),
             "copy out keeps a provenance notice"
         );
         Ok(())

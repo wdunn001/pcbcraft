@@ -232,9 +232,9 @@ pub fn request(
         || commands_of(tool, args).iter().any(|c| {
             let name = c.get("command").and_then(Value::as_str).unwrap_or("");
             is_file_tool(name)
-                || c
-                    .get("params")
-                    .is_some_and(|p| params_touch_files(p) || command_writes_folder_library(name, p))
+                || c.get("params").is_some_and(|p| {
+                    params_touch_files(p) || command_writes_folder_library(name, p)
+                })
         })
         || (!matches!(tool, "execute" | "batch") && params_touch_files(args));
     if files {

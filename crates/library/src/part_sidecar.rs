@@ -126,10 +126,7 @@ fn validate_alternate(alt: &PartAlternate) -> Result<(), String> {
     if alt.mpn.trim().is_empty() || alt.mpn.len() > MAX_TEXT {
         return Err("alternate mpn is out of range".into());
     }
-    if alt.datasheet.len() > MAX_TEXT
-        || alt.distributor.len() > 48
-        || alt.sku.len() > MAX_TEXT
-    {
+    if alt.datasheet.len() > MAX_TEXT || alt.distributor.len() > 48 || alt.sku.len() > MAX_TEXT {
         return Err("alternate field is out of range".into());
     }
     Ok(())
