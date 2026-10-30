@@ -43,7 +43,12 @@ fn component_on_net(project: &Project, component: Id, net: Id) -> bool {
         .is_some_and(|c| c.pins.iter().any(|p| p.net == Some(net)))
 }
 
-fn matches_target(project: &Project, component: Id, target_kind: &str, value: Option<&str>) -> bool {
+fn matches_target(
+    project: &Project,
+    component: Id,
+    target_kind: &str,
+    value: Option<&str>,
+) -> bool {
     let Some(c) = project.component(component) else {
         return false;
     };
@@ -105,13 +110,7 @@ pub fn find(project: &Project, q: &Query<'_>) -> Vec<Hit> {
     queue.push_back((start_net, 0u8, Vec::<Id>::new()));
 
     while let Some((net, hops, prefix)) = queue.pop_front() {
-        hits.extend(hits_on_net(
-            project,
-            net,
-            q.target_kind,
-            q.value,
-            &prefix,
-        ));
+        hits.extend(hits_on_net(project, net, q.target_kind, q.value, &prefix));
         if hops >= limit {
             continue;
         }
@@ -235,9 +234,7 @@ fn resistor_other_pin_reaches_power(project: &Project, resistor: Id, net: Id) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{
-        Component, Label, Net, Pin, PinRef, Project, component_template,
-    };
+    use pcbcraft_doc::{Component, Net, Pin, PinRef, Project, component_template};
     use pcbcraft_geom::Point;
     use pcbcraft_library::{SymbolDefinition, SymbolPin};
 
@@ -288,12 +285,12 @@ mod tests {
         }
     }
 
-    fn wire_resistor(id: Id, a: Id, b: Id) -> Component {
+    fn wire_resistor(id: Id, a: Id, b: Id) -> Result<Component, String> {
         let mut r = component_template("resistor", id, format!("R{id}"), Point::default())
-            .expect("resistor template");
+            .ok_or("resistor template missing")?;
         r.pins[0].net = Some(a);
         r.pins[1].net = Some(b);
-        r
+        Ok(r)
     }
 
     #[test]
@@ -318,8 +315,8 @@ mod tests {
                 unit: 1,
             }],
         ));
-        let mut cap = component_template("capacitor", 3, "C1".into(), Point::default())
-            .ok_or("cap")?;
+        let mut cap =
+            component_template("capacitor", 3, "C1".into(), Point::default()).ok_or("cap")?;
         for pin in &mut cap.pins {
             pin.net = Some(vdd);
         }
@@ -370,9 +367,9 @@ mod tests {
                 unit: 1,
             }],
         ));
-        p.components.push(wire_resistor(20, a, b));
-        let mut cap = component_template("capacitor", 30, "C1".into(), Point::default())
-            .ok_or("cap")?;
+        p.components.push(wire_resistor(20, a, b)?);
+        let mut cap =
+            component_template("capacitor", 30, "C1".into(), Point::default()).ok_or("cap")?;
         for pin in &mut cap.pins {
             pin.net = Some(b);
         }
@@ -422,8 +419,8 @@ mod tests {
                 unit: 1,
             }],
         ));
-        p.components.push(wire_resistor(20, a, b));
-        p.components.push(wire_resistor(21, b, a));
+        p.components.push(wire_resistor(20, a, b)?);
+        p.components.push(wire_resistor(21, b, a)?);
         p.validate()?;
         let hits = find(
             &p,
@@ -467,10 +464,10 @@ mod tests {
         ));
         for i in 0..4 {
             p.components
-                .push(wire_resistor(200 + i as Id, nets[i], nets[i + 1]));
+                .push(wire_resistor(200 + i as Id, nets[i], nets[i + 1])?);
         }
-        let mut cap = component_template("capacitor", 300, "C1".into(), Point::default())
-            .ok_or("cap")?;
+        let mut cap =
+            component_template("capacitor", 300, "C1".into(), Point::default()).ok_or("cap")?;
         for pin in &mut cap.pins {
             pin.net = Some(nets[4]);
         }
@@ -557,8 +554,8 @@ mod tests {
                 },
             ],
         ));
-        let mut cap = component_template("capacitor", 30, "C1".into(), Point::default())
-            .ok_or("cap")?;
+        let mut cap =
+            component_template("capacitor", 30, "C1".into(), Point::default()).ok_or("cap")?;
         for pin in &mut cap.pins {
             pin.net = Some(b);
         }
@@ -608,9 +605,9 @@ mod tests {
                 unit: 1,
             }],
         ));
-        p.components.push(wire_resistor(20, a, b));
-        let mut cap = component_template("capacitor", 30, "C1".into(), Point::default())
-            .ok_or("cap")?;
+        p.components.push(wire_resistor(20, a, b)?);
+        let mut cap =
+            component_template("capacitor", 30, "C1".into(), Point::default()).ok_or("cap")?;
         for pin in &mut cap.pins {
             pin.net = Some(b);
         }
