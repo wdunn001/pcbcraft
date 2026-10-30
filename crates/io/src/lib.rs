@@ -40,6 +40,7 @@ mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod snapmaker;
+mod solidcraft;
 mod solidcraft_format;
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
@@ -144,6 +145,14 @@ pub use solidcraft_format::{
     SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence,
     read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container,
     write_solidcraft_json,
+};
+/// SolidCraft board export and interchange test helpers.
+/// # Dependencies
+/// - crates/io/src/solidcraft/mod.rs
+pub use solidcraft::{
+    SOLIDCRAFT_FORMAT, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA, Bounds, PartSnapshot,
+    SolidcraftLayers, bounds_close, design_as_value, designs_equal, part_snapshots,
+    solidcraft_board, solidcraft_counts, transforms_close,
 };
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies
