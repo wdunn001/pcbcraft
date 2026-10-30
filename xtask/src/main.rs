@@ -15,6 +15,7 @@
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
 mod e2e;
+mod registry_check;
 mod showcase;
 mod tooltips;
 
@@ -40,6 +41,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   strings      extract | check: list text catalog keys, or fail on a bad catalog
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
+  registry     check | bless: verify or rebuild the static registry fixture catalogue
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -531,6 +533,7 @@ fn run() -> Result<(), String> {
             wasm()?;
             docs()?;
             doc_check::run(&[])?;
+            registry_check::run(&root()?, false)?;
         }
         "policy" => {
             layers()?;
@@ -551,6 +554,10 @@ fn run() -> Result<(), String> {
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,
         "showcase" => showcase::run(&root()?)?,
+        "registry" => {
+            let bless = args.get(1).map(String::as_str) == Some("bless");
+            registry_check::run(&root()?, bless)?;
+        }
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
         "bless-parity" => run_env(
             "cargo",

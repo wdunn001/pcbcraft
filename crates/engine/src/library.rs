@@ -890,6 +890,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
                 &optional("name_b")?,
             )
         }
+        name if name.starts_with("registry.") => crate::registry::read_tool(name, args),
         _ => Err("unknown library query".into()),
     }
 }

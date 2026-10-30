@@ -4,6 +4,7 @@ mod authoring;
 mod dry_run;
 mod images;
 pub mod library;
+mod registry;
 mod online;
 mod outline;
 pub mod profiles;
