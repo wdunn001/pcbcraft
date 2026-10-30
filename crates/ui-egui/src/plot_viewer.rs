@@ -88,6 +88,7 @@ pub fn ui(
     theme: Theme,
     message: &mut String,
     make_dir: &str,
+    browser: bool,
 ) {
     ui.ctx().input(|i| {
         if i.key_pressed(egui::Key::Escape) && state.measure_mode {
@@ -96,6 +97,16 @@ pub fn ui(
         }
     });
 
+    if browser {
+        ui.label(
+            egui::RichText::new(crate::browser::desktop_only_panel())
+                .small()
+                .color(theme.muted),
+        );
+        ui.add_space(8.0);
+    }
+
+    if !browser {
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new("Plot folder")
@@ -157,6 +168,7 @@ pub fn ui(
             *message = "Plot viewer cleared".into();
         }
     });
+    }
 
     if let Some(hint) = &state.hint_banner {
         ui.label(egui::RichText::new(hint).small().color(theme.muted));

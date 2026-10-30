@@ -1316,14 +1316,14 @@ fn a_newcomer_sees_the_mark_on_the_start_page() -> Result<(), String> {
 }
 
 #[test]
-fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
+fn a_newcomer_sees_that_open_and_export_need_the_desktop_app() -> Result<(), String> {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.browser = true;
     app.refresh();
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    for tool in ["save", "open", "export"] {
+    for tool in ["open", "export"] {
         app.tool_call(tool, json!({"path": "design.pcbcraft"}));
         assert!(
             paints_text(&ctx, &mut app, "need the desktop app")?,
@@ -1335,5 +1335,26 @@ fn a_newcomer_sees_that_saving_needs_the_desktop_app() -> Result<(), String> {
             "{tool} must not write a file in the browser"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_can_download_a_copy_with_save_in_the_browser() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.browser = true;
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.tool_call("save", json!({"path": "design.pcbcraft"}));
+    assert!(
+        paints_text(&ctx, &mut app, "Downloaded")?,
+        "Save should offer a download in the browser: {}",
+        app.message
+    );
+    assert!(
+        !std::path::Path::new("design.pcbcraft").exists(),
+        "Save must not write a file on disk in the browser"
+    );
     Ok(())
 }

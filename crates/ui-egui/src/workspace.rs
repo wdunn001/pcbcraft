@@ -224,15 +224,17 @@ impl Workspace for ManufactureWorkspace {
         &MANUFACTURE_TABS
     }
     fn left_body(&self, app: &mut App, tab: &str, ui: &mut egui::Ui) {
-        let words = match tab {
-            "outputs" => t!("workspace.outputs_hint"),
-            "machines" => t!("workspace.machines_hint"),
-            _ => return,
-        };
-        ui.label(egui::RichText::new(words).color(app.muted()));
-        if tab == "outputs" {
-            app.bom_outputs_ui(ui);
-        }
+        App::padded(ui, |ui| {
+            let words = match tab {
+                "outputs" => t!("workspace.outputs_hint"),
+                "machines" => t!("workspace.machines_hint"),
+                _ => return,
+            };
+            ui.label(egui::RichText::new(words).color(app.muted()));
+            if tab == "outputs" {
+                app.bom_outputs_ui(ui);
+            }
+        });
     }
     fn center(&self, app: &mut App, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
@@ -248,6 +250,7 @@ impl Workspace for ManufactureWorkspace {
                     theme,
                     &mut app.message,
                     app.make_dir.trim(),
+                    app.browser,
                 );
             });
         });
