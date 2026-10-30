@@ -1,6 +1,6 @@
 //! Drawing frame layout and rendering for PDF, SVG and plot output.
 
-use pcbcraft_doc::{DrawingFrame, Id, Project, sheet_page_numbers, PAGE_SIZES};
+use pcbcraft_doc::{DrawingFrame, Id, PAGE_SIZES, Project, sheet_page_numbers};
 use pcbcraft_geom::Point;
 
 use crate::{DrawPage, escape};
@@ -49,9 +49,7 @@ pub fn drawing_frame_layout(
     let settings = p.page_settings_of(sheet);
     let paper = Some(frame.page_size.clone())
         .filter(|s| !s.is_empty())
-        .or_else(|| {
-            Some(settings.size.clone()).filter(|s| !s.is_empty())
-        })
+        .or_else(|| Some(settings.size.clone()).filter(|s| !s.is_empty()))
         .or_else(|| {
             p.meta
                 .get("paper")
@@ -247,10 +245,7 @@ pub fn draw_drawing_frame(
             let x = layout.inner_lo.x
                 + (layout.inner_hi.x - layout.inner_lo.x) * i as f64 / layout.cols as f64;
             page.path(
-                &[
-                    Point::new(x, 0.0),
-                    Point::new(x, layout.inner_lo.y),
-                ],
+                &[Point::new(x, 0.0), Point::new(x, layout.inner_lo.y)],
                 zone_ink,
                 0.1,
                 false,
@@ -272,10 +267,7 @@ pub fn draw_drawing_frame(
                 &label,
             )?;
             page.text(
-                Point::new(
-                    x - 1.0,
-                    layout.height_mm - layout.band_mm * 0.65,
-                ),
+                Point::new(x - 1.0, layout.height_mm - layout.band_mm * 0.65),
                 1.4,
                 zone_ink,
                 &label,
@@ -285,10 +277,7 @@ pub fn draw_drawing_frame(
             let y = layout.inner_lo.y
                 + (layout.inner_hi.y - layout.inner_lo.y) * j as f64 / layout.rows as f64;
             page.path(
-                &[
-                    Point::new(0.0, y),
-                    Point::new(layout.inner_lo.x, y),
-                ],
+                &[Point::new(0.0, y), Point::new(layout.inner_lo.x, y)],
                 zone_ink,
                 0.1,
                 false,
@@ -333,13 +322,7 @@ pub struct MappedDrawPage<'a, P: DrawPage + ?Sized> {
 }
 
 impl<P: DrawPage + ?Sized> DrawPage for MappedDrawPage<'_, P> {
-    fn path(
-        &mut self,
-        points: &[Point],
-        rgb: [f64; 3],
-        w: f64,
-        fill: bool,
-    ) -> Result<(), String> {
+    fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String> {
         let mapped: Vec<Point> = points
             .iter()
             .map(|pt| {
@@ -364,7 +347,8 @@ impl<P: DrawPage + ?Sized> DrawPage for MappedDrawPage<'_, P> {
             self.origin.x + center.x * self.scale,
             self.origin.y + center.y * self.scale,
         );
-        self.inner.circle(at, radius * self.scale, rgb, w * self.scale, fill)
+        self.inner
+            .circle(at, radius * self.scale, rgb, w * self.scale, fill)
     }
 
     fn text(&mut self, at: Point, size: f64, rgb: [f64; 3], value: &str) -> Result<(), String> {
@@ -395,11 +379,7 @@ pub fn render_framed_view(
     super::pdf_draw(&mut mapped, p, view)
 }
 
-pub fn drawing_frame_svg_fragment(
-    p: &Project,
-    sheet: Id,
-    layout: &DrawingFrameLayout,
-) -> String {
+pub fn drawing_frame_svg_fragment(p: &Project, sheet: Id, layout: &DrawingFrameLayout) -> String {
     let frame = &p.drawing_frame;
     let mut s = String::new();
     s.push_str(&format!(

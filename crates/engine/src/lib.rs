@@ -13784,7 +13784,9 @@ fn run_command(
             }
             if let Some(logo_text) = a.logo_text {
                 if logo_text.len() > pcbcraft_doc::MAX_LOGO_TEXT {
-                    return Err(Error::Invalid("drawing frame logo text fits 256 bytes".into()));
+                    return Err(Error::Invalid(
+                        "drawing frame logo text fits 256 bytes".into(),
+                    ));
                 }
                 if frame.logo_text == logo_text {
                     return Err(Error::Invalid(

@@ -27,9 +27,9 @@ mod material;
 pub use material::{MATERIALS, Material, material};
 mod drawing_frame;
 pub use drawing_frame::{
-    DrawingFrame, TitleBlockField, MAX_LOGO_TEXT, MAX_TITLE_BLOCK_FIELDS,
-    MAX_TITLE_BLOCK_LABEL, MAX_TITLE_BLOCK_TEMPLATE, PAGE_SIZES, known_page_size,
-    page_size_mm, sheet_page_numbers,
+    DrawingFrame, MAX_LOGO_TEXT, MAX_TITLE_BLOCK_FIELDS, MAX_TITLE_BLOCK_LABEL,
+    MAX_TITLE_BLOCK_TEMPLATE, PAGE_SIZES, TitleBlockField, known_page_size, page_size_mm,
+    sheet_page_numbers,
 };
 mod net_members;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};

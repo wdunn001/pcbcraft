@@ -39,13 +39,8 @@ pub use bitmap_trace::{
 mod cam;
 mod cam_drill;
 mod cam_shapes;
-mod snapmaker;
 mod drawing_frame;
-pub use drawing_frame::{
-    content_plot_transform, draw_drawing_frame, drawing_frame_layout,
-    drawing_frame_svg_fragment, render_framed_view, resolve_meta_template, uses_drawing_frame,
-    DrawingFrameLayout, MappedDrawPage,
-};
+mod snapmaker;
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
@@ -65,6 +60,11 @@ pub use cam_drill::{
 };
 pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
 pub use diff::{DesignChange, DesignDiff, project_diff};
+pub use drawing_frame::{
+    DrawingFrameLayout, MappedDrawPage, content_plot_transform, draw_drawing_frame,
+    drawing_frame_layout, drawing_frame_svg_fragment, render_framed_view, resolve_meta_template,
+    uses_drawing_frame,
+};
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
@@ -966,7 +966,11 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
         page.fit(content_bounds.0, content_bounds.1);
     }
     page.color([1.0, 1.0, 1.0], false)?;
-    page.op(&format!("0 0 {} {} re f", PdfPage::n(page_w_pt), PdfPage::n(page_h_pt)))?;
+    page.op(&format!(
+        "0 0 {} {} re f",
+        PdfPage::n(page_w_pt),
+        PdfPage::n(page_h_pt)
+    ))?;
     if let Some(ref layout) = frame_layout {
         render_framed_view(
             &mut page,
@@ -1003,10 +1007,7 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     .enumerate()
     {
         offsets[index] = pdf.len() as u32;
-        pdf.extend_from_slice(
-            format!("{} 0 obj\n{}\nendobj\n", index + 1, body)
-                .as_bytes(),
-        );
+        pdf.extend_from_slice(format!("{} 0 obj\n{}\nendobj\n", index + 1, body).as_bytes());
     }
     let xref_at = pdf.len() as u32;
     pdf.extend_from_slice(b"xref\n0 5\n0000000000 65535 f \n");
@@ -1032,9 +1033,11 @@ pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
         .then(|| drawing_frame_layout(p, 0, content_bounds.0, content_bounds.1));
     let mut page = PdfPage::new();
     page.pdf_font = false;
-    let (page_w, page_h, margin) = frame_layout.as_ref().map_or((792.0, 612.0, 36.0), |layout| {
-        (layout.width_mm * PDF_K, layout.height_mm * PDF_K, 0.0)
-    });
+    let (page_w, page_h, margin) = frame_layout
+        .as_ref()
+        .map_or((792.0, 612.0, 36.0), |layout| {
+            (layout.width_mm * PDF_K, layout.height_mm * PDF_K, 0.0)
+        });
     if let Some(ref layout) = frame_layout {
         page.fit_to(
             page_w,
@@ -1047,7 +1050,11 @@ pub fn postscript(p: &Project, view: &str) -> Result<String, String> {
         page.fit_to(792.0, 612.0, 36.0, content_bounds.0, content_bounds.1);
     }
     page.color([1.0, 1.0, 1.0], false)?;
-    page.op(&format!("0 0 {} {} re f", PdfPage::n(page_w), PdfPage::n(page_h)))?;
+    page.op(&format!(
+        "0 0 {} {} re f",
+        PdfPage::n(page_w),
+        PdfPage::n(page_h)
+    ))?;
     if let Some(ref layout) = frame_layout {
         render_framed_view(
             &mut page,
