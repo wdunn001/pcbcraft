@@ -600,6 +600,7 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            sourcing: Default::default(),
         });
         p.validate()?;
         Ok(p)

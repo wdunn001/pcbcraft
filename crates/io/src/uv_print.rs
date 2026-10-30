@@ -660,6 +660,7 @@ mod tests {
                 }]),
             }),
             fields: vec![],
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 9401,
@@ -767,6 +768,7 @@ mod tests {
                 },
             }),
             fields: vec![],
+            sourcing: Default::default(),
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -878,6 +880,7 @@ mod tests {
                 }]),
             }),
             fields: vec![],
+            sourcing: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: 9301,

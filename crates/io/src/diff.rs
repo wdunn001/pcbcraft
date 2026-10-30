@@ -724,6 +724,7 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            sourcing: Default::default(),
             sheet: 0,
         });
         p.board.footprints.push(Footprint {

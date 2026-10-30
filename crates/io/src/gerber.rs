@@ -896,6 +896,7 @@ mod tests {
                 },
             }),
             fields: vec![],
+            sourcing: Default::default(),
         }
     }
 

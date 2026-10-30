@@ -6,6 +6,8 @@ mod footprint_generate;
 mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
+pub mod part_fields;
+pub mod vendor_fields;
 pub mod online_import;
 pub mod open_library;
 mod paths;

@@ -355,6 +355,39 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.set_sourcing",
+            "Set or clear typed sourcing fields on a component; keys left out stay unchanged and null clears a field",
+            schema(
+                json!({
+                    "id": id_schema(),
+                    "manufacturer": {"type": ["string", "null"]},
+                    "mpn": {"type": ["string", "null"]},
+                    "lifecycle": {"type": ["string", "null"]},
+                    "moisture_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
+                    "rohs": {"type": ["boolean", "null"]},
+                    "reach": {"type": ["boolean", "null"]},
+                    "halogen_free": {"type": ["boolean", "null"]},
+                    "packaging": {"type": ["string", "null"]},
+                    "alternates": {"type": ["array", "null"], "maxItems": 8},
+                    "datasheet_url": {"type": ["string", "null"]},
+                    "model3d_url": {"type": ["string", "null"]}
+                }),
+                &["id"],
+            ),
+        ),
+        (
+            "component.apply_listing",
+            "Copy matching fields from a part listing into typed sourcing; skips values already set unless overwrite is true",
+            schema(
+                json!({
+                    "id": id_schema(),
+                    "listing": {"type": "object"},
+                    "overwrite": {"type": "boolean"}
+                }),
+                &["id", "listing"],
+            ),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -5059,10 +5092,7 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
                     None => "starter pads".into(),
                 },
             };
-        let values: Vec<String> = keys
-            .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
-            .collect();
+        let values: Vec<String> = keys.iter().map(|key| c.bom_value(key)).collect();
         let apart = if a.group {
             String::new()
         } else {
@@ -5157,6 +5187,49 @@ struct FieldParams {
     key: String,
     #[serde(default)]
     value: Option<String>,
+}
+/// Reads a key that may be absent (leave alone), null (clear) or a value (set).
+fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourcingParams {
+    id: Id,
+    #[serde(default, deserialize_with = "present")]
+    manufacturer: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    mpn: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
+    #[serde(default, deserialize_with = "present")]
+    moisture_level: Option<Option<u8>>,
+    #[serde(default, deserialize_with = "present")]
+    rohs: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    reach: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    halogen_free: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    packaging: Option<Option<pcbcraft_library::listing::Packaging>>,
+    #[serde(default, deserialize_with = "present")]
+    alternates: Option<Option<Vec<PartAlternate>>>,
+    #[serde(default, deserialize_with = "present")]
+    datasheet_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    model3d_url: Option<Option<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplyListingParams {
+    id: Id,
+    listing: pcbcraft_library::listing::PartListing,
+    #[serde(default)]
+    overwrite: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8161,6 +8234,68 @@ fn run_command(
                 .ok_or_else(missing)?;
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "component.set_sourcing" => {
+            let a: SourcingParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            let text = |slot: &mut String, v: Option<Option<String>>| {
+                if let Some(v) = v {
+                    *slot = v.map(|t| t.trim().to_owned()).unwrap_or_default();
+                }
+            };
+            text(&mut next.manufacturer, a.manufacturer);
+            text(&mut next.mpn, a.mpn);
+            if let Some(v) = a.lifecycle {
+                next.lifecycle = v;
+            }
+            if let Some(v) = a.moisture_level {
+                next.moisture_level = v;
+            }
+            if let Some(v) = a.rohs {
+                next.rohs = v;
+            }
+            if let Some(v) = a.reach {
+                next.reach = v;
+            }
+            if let Some(v) = a.halogen_free {
+                next.halogen_free = v;
+            }
+            if let Some(v) = a.packaging {
+                next.packaging = v;
+            }
+            if let Some(v) = a.alternates {
+                next.alternates = v.unwrap_or_default();
+            }
+            if let Some(v) = a.datasheet_url {
+                next.datasheet_url = v.filter(|u| !u.trim().is_empty());
+            }
+            if let Some(v) = a.model3d_url {
+                next.model3d_url = v.filter(|u| !u.trim().is_empty());
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
+        }
+        "component.apply_listing" => {
+            let a: ApplyListingParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component
+                .sourcing
+                .apply_listing(&a.listing, a.overwrite);
+            component
+                .sourcing
+                .validate()
+                .map_err(Error::Invalid)?;
+            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;

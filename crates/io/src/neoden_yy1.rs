@@ -552,6 +552,7 @@ mod tests {
                 },
             }),
             fields: vec![],
+            sourcing: Default::default(),
             sheet: 0,
         });
         p.board.footprints.push(Footprint {

@@ -25,6 +25,10 @@ pub const MAX_ITEMS: usize = 2048;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod sourcing;
+pub use sourcing::{
+    lifecycle_text, PartAlternate, Sourcing, MAX_ALTERNATES, MAX_SOURCING_TEXT, MAX_SOURCING_URL,
+};
 mod net_members;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub mod fill;
@@ -164,6 +168,9 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// Typed sourcing facts. Empty records are not saved. See `sourcing.rs`.
+    #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
+    pub sourcing: Sourcing,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -3525,6 +3532,7 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Sourcing::default(),
         sheet: 0,
         pins: names
             .iter()
@@ -5602,6 +5610,7 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        sourcing: Sourcing::default(),
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,

@@ -66,6 +66,7 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
         let mut next = project.ids().max().unwrap_or(0).saturating_add(1);
         project.migrate_output_jobs_to_artifacts(&mut next)?;
     }
+    project.adopt_free_form_sourcing();
     Ok(())
 }
 
