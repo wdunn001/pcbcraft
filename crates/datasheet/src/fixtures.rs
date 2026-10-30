@@ -12,6 +12,7 @@ pub struct Fixture {
     pub has_ink: bool,
 }
 
+#[cfg(any(test, not(target_arch = "wasm32")))]
 fn build(pages: &[(&str, (u32, u32))], rotate: u32) -> Vec<u8> {
     let mut objs: Vec<String> = Vec::new();
     objs.push("<< /Type /Catalog /Pages 2 0 R >>".into());
@@ -58,6 +59,7 @@ fn build(pages: &[(&str, (u32, u32))], rotate: u32) -> Vec<u8> {
 }
 
 /// All fixtures used by unit tests and UI stories.
+#[cfg(any(test, not(target_arch = "wasm32")))]
 pub fn all() -> Vec<Fixture> {
     let text = "BT /F1 18 Tf 72 720 Td (LM317 Adjustable Regulator) Tj ET\n\
                 BT /F1 11 Tf 72 690 Td (Vin 3 V to 40 V, Iout 1.5 A, TO-220) Tj ET\n\

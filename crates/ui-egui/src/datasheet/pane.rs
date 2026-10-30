@@ -1,8 +1,8 @@
 //! Floating datasheet window with search, selection, and highlights.
 
 use crate::a11y::{self, Named};
-use crate::ui_kit::button::{Size, secondary_button};
 use crate::theme;
+use crate::ui_kit::button::{Size, secondary_button};
 use egui::{Color32, Context, Id, Pos2, Rect, Sense, TextureHandle, TextureOptions, Vec2};
 use pcbcraft_datasheet::{CharBox, DocSearch, Document, Selection, char_at_point, selected_text};
 use pcbcraft_text::t;
@@ -173,7 +173,13 @@ impl Pane {
             if hit.page != self.page {
                 continue;
             }
-            let r = self.page_to_screen(rect, hit.bounds.x0, hit.bounds.y0, hit.bounds.x1, hit.bounds.y1);
+            let r = self.page_to_screen(
+                rect,
+                hit.bounds.x0,
+                hit.bounds.y0,
+                hit.bounds.x1,
+                hit.bounds.y1,
+            );
             let col = if i == self.search.active {
                 active_col
             } else {
@@ -197,11 +203,7 @@ impl Pane {
         let Some(doc) = self.doc.as_ref() else {
             return;
         };
-        if self
-            .texture
-            .as_ref()
-            .is_some_and(|(p, _)| *p == self.page)
-        {
+        if self.texture.as_ref().is_some_and(|(p, _)| *p == self.page) {
             return;
         }
         let Ok(bmp) = doc.render(self.page, 120.0) else {
@@ -272,7 +274,11 @@ impl Pane {
                     self.texture = None;
                     self.layer_page = usize::MAX;
                 }
-                ui.label(t!("datasheet.pane.page", page = self.page + 1, pages = pages));
+                ui.label(t!(
+                    "datasheet.pane.page",
+                    page = self.page + 1,
+                    pages = pages
+                ));
                 let next = secondary_button(
                     ui,
                     None,
@@ -294,7 +300,7 @@ impl Pane {
                         .hint_text(t!("datasheet.pane.search"))
                         .desired_width(180.0),
                 )
-                .named(t!("datasheet.pane.search"));
+                .named(&t!("datasheet.pane.search"));
             if search.changed() && self.search_draft.len() > SEARCH_MAX {
                 self.search_draft.truncate(SEARCH_MAX);
             }
@@ -364,9 +370,10 @@ impl Pane {
         if let Some(doc) = self.doc.as_ref() {
             if let Ok(label) = doc.page_plain_text(self.page) {
                 if !label.is_empty() {
-                    ui.ctx().accesskit_node_builder(self.page_response_id, |node| {
-                        node.set_label(label);
-                    });
+                    ui.ctx()
+                        .accesskit_node_builder(self.page_response_id, |node| {
+                            node.set_label(label);
+                        });
                 }
             }
         }
@@ -389,7 +396,8 @@ impl Pane {
             self.copy_selection(ctx);
         }
         if response.drag_started() {
-            let (x, y) = self.screen_to_page(rect, response.interact_pointer_pos().unwrap_or(rect.min));
+            let (x, y) =
+                self.screen_to_page(rect, response.interact_pointer_pos().unwrap_or(rect.min));
             if let Some(idx) = char_at_point(&self.layer, x, y) {
                 self.selection = Some(Selection {
                     anchor: idx,
@@ -408,7 +416,8 @@ impl Pane {
             }
         }
         if response.clicked() {
-            let (x, y) = self.screen_to_page(rect, response.interact_pointer_pos().unwrap_or(rect.min));
+            let (x, y) =
+                self.screen_to_page(rect, response.interact_pointer_pos().unwrap_or(rect.min));
             if let Some(idx) = char_at_point(&self.layer, x, y) {
                 self.selection = Some(Selection {
                     anchor: idx,
@@ -423,17 +432,9 @@ impl Pane {
     }
 
     #[cfg(test)]
-    pub(crate) fn open_fixture(
-        &mut self,
-        ctx: &Context,
-        bytes: Vec<u8>,
-    ) -> Result<(), String> {
+    pub(crate) fn open_fixture(&mut self, ctx: &Context, bytes: Vec<u8>) -> Result<(), String> {
         let err = self.open_bytes("Fixture".into(), bytes, ctx);
-        if err.is_empty() {
-            Ok(())
-        } else {
-            Err(err)
-        }
+        if err.is_empty() { Ok(()) } else { Err(err) }
     }
 
     #[cfg(test)]

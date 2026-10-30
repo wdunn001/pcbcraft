@@ -1,8 +1,8 @@
 //! CI: generated fixtures render, search, and document-wide lookup.
 
 use pcbcraft_datasheet::{
-    Document, find, fixtures, open, page_size, render_page, search_document, selected_text,
-    text_layer, Selection,
+    Document, Selection, find, fixtures, open, page_size, render_page, search_document,
+    selected_text, text_layer,
 };
 use hayro::RenderCache;
 use hayro::hayro_interpret::InterpreterCache;
@@ -46,10 +46,14 @@ fn document_search_finds_every_page() {
         .find(|f| f.name == "two-pages.pdf")
         .unwrap_or_else(|| panic!("fixture"));
     let doc = Document::open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
-    let found = doc.search("LM317").unwrap_or_else(|e| panic!("search: {e}"));
+    let found = doc
+        .search("LM317")
+        .unwrap_or_else(|e| panic!("search: {e}"));
     assert_eq!(found.count(), 1);
     assert_eq!(found.hits[0].page, 0);
-    let ratings = doc.search("Absolute").unwrap_or_else(|e| panic!("search: {e}"));
+    let ratings = doc
+        .search("Absolute")
+        .unwrap_or_else(|e| panic!("search: {e}"));
     assert_eq!(ratings.count(), 1);
     assert_eq!(ratings.hits[0].page, 1);
     let many = doc.search("Pin").unwrap_or_else(|e| panic!("search: {e}"));
@@ -83,7 +87,8 @@ fn ink_only_page_has_no_text_layer() {
         .unwrap_or_else(|| panic!("fixture"));
     let doc = Document::open(f.bytes).unwrap_or_else(|e| panic!("open: {e}"));
     assert!(
-        !doc.page_has_text(0).unwrap_or_else(|e| panic!("layer: {e}")),
+        !doc.page_has_text(0)
+            .unwrap_or_else(|e| panic!("layer: {e}")),
         "vector ink alone is not a text layer"
     );
 }
