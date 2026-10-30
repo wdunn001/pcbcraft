@@ -31198,6 +31198,32 @@ mod tests {
     }
 
     #[test]
+    fn each_shop_preset_imports_via_machine_import() -> Result<(), Error> {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let presets_dir = manifest.join("../../machine-profiles");
+        for id in pcbcraft_io::builtin_machine_profile_ids() {
+            let path = presets_dir.join(format!("{id}.toml"));
+            if !path.is_file() {
+                return Err(Error::Invalid(format!("missing preset file for {id}")));
+            }
+            let mut s = Session::sample()?;
+            s.execute(
+                "machine.import",
+                json!({"path": path.to_string_lossy()}),
+                None,
+            )?;
+            let profile = s
+                .project
+                .machine_profiles
+                .iter()
+                .find(|m| m.id == *id)
+                .ok_or_else(|| Error::Invalid(format!("import did not store {id}")))?;
+            profile.validate().map_err(Error::Invalid)?;
+        }
+        Ok(())
+    }
+
+    #[test]
     fn machine_import_then_export_matches_golden() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
