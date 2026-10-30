@@ -1,0 +1,25 @@
+//! Throwaway check: SolidCraft's own reader opens a PCBCraft export and evaluates it.
+use solidcraft_doc::Document;
+
+#[test]
+fn opens_pcbcraft_export() {
+    let path = std::env::var("PCBCRAFT_FIXTURE").unwrap_or_else(|_| "board_mini.solidcraft".into());
+    let bytes = std::fs::read(&path).expect("fixture");
+    let doc: Document = solidcraft_io::read_design(&bytes).expect("read_design");
+    let components = doc.components.len();
+    let occurrences = doc.occurrences.len();
+    let features = doc.features.len();
+    println!("components={components} occurrences={occurrences} features={features}");
+    let mut model = solidcraft_doc::Model::new();
+    model.evaluate(&doc);
+    for r in &model.results {
+        assert!(r.error.is_none(), "feature {} failed: {:?}", r.id, r.error);
+    }
+    let state = solidcraft_doc::world_state(&doc, &model.state());
+    let names: Vec<String> = state.bodies.iter().map(|b| b.name.clone()).collect();
+    println!("bodies={names:?}");
+    assert_eq!(components, 1);
+    assert_eq!(occurrences, 1);
+    assert!(names.iter().any(|n| n == "Board"));
+    assert!(names.iter().any(|n| n == "R1"));
+}

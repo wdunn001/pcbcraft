@@ -40,6 +40,7 @@ mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod snapmaker;
+mod solidcraft;
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
@@ -134,6 +135,15 @@ pub use raster::{
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,
     snapmaker_settings, spindle_percent, spindle_percent_for_tool,
+};
+/// SolidCraft project exchange (JSON and ZIP container subset).
+/// # Dependencies
+/// - crates/io/src/solidcraft/mod.rs
+pub use solidcraft::{
+    SOLIDCRAFT_FORMAT, SOLIDCRAFT_FORMAT_MAX, SOLIDCRAFT_METADATA_KEY, SOLIDCRAFT_SCHEMA,
+    Bounds, PartSnapshot, SolidcraftLayers, bounds_close, designs_equal, merge_unknown,
+    part_snapshots, read_solidcraft, solidcraft_board, solidcraft_counts, split_unknown,
+    transforms_close, write_container, write_json,
 };
 /// UV printing types, profiles, and job file generation functions.
 /// # Dependencies
