@@ -20,9 +20,9 @@ mod coverage;
 mod doc_check;
 mod e2e;
 mod showcase;
-mod test_standards;
 mod status_data;
 mod status_schema;
+mod test_standards;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
