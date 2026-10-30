@@ -3252,6 +3252,9 @@ pub struct ProjectLibrary {
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
+    /// Second sources and alternates keyed by project-library symbol name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_substitutes: BTreeMap<String, pcbcraft_library::PartSubstitutes>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3260,6 +3263,31 @@ impl ProjectLibrary {
         }
         if self.symbols.len() > 256 || self.footprints.len() > 256 {
             return Err("project library supports at most 256 symbols and 256 footprints".into());
+        }
+        if self.part_substitutes.len() > 256 {
+            return Err("part substitute records exceed the library symbol limit".into());
+        }
+        for (name, subs) in &self.part_substitutes {
+            if name.is_empty() || name.len() > 128 {
+                return Err("part substitute keys must be 1 to 128 bytes".into());
+            }
+            if !self.symbols.iter().any(|s| s.name == *name) {
+                return Err(format!("no library symbol named {name} for substitute record"));
+            }
+            subs.validate()?;
+            for alt in &subs.alternates {
+                if alt.symbol == *name {
+                    return Err("a part cannot list itself as an alternate".into());
+                }
+                if !self.symbols.iter().any(|s| s.name == alt.symbol) {
+                    return Err(format!("no library symbol named {}", alt.symbol));
+                }
+                if !alt.footprint.is_empty()
+                    && !self.footprints.iter().any(|f| f.name == alt.footprint)
+                {
+                    return Err(format!("no library footprint named {}", alt.footprint));
+                }
+            }
         }
         let mut names = BTreeSet::new();
         for s in &self.symbols {
