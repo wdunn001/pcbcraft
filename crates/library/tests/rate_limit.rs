@@ -1,8 +1,8 @@
 use pcbcraft_library::http_client::{HttpRequest, HttpResponse, RecordedHttp};
 use pcbcraft_library::rate_limit::{FixedClock, TokenBucket, retry_after_secs};
 use pcbcraft_library::sources::{PartResult, PartSource, ResponseCache, SourceError};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[test]
 fn bucket_refuses_when_empty_and_reports_the_wait() {
