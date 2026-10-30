@@ -35,10 +35,7 @@ fn node_index(nodes: &mut Vec<Node>, at: Point) -> usize {
     {
         return i;
     }
-    nodes.push(Node {
-        at,
-        tracks: vec![],
-    });
+    nodes.push(Node { at, tracks: vec![] });
     nodes.len() - 1
 }
 
@@ -79,8 +76,7 @@ pub(crate) fn acute_angle_findings(project: &Project) -> Vec<Finding> {
             by_net.insert(t.net);
         }
         for net in by_net {
-            let net_tracks: Vec<&Track> =
-                tracks.iter().copied().filter(|t| t.net == net).collect();
+            let net_tracks: Vec<&Track> = tracks.iter().copied().filter(|t| t.net == net).collect();
             let mut nodes: Vec<Node> = vec![];
             for (i, track) in net_tracks.iter().enumerate() {
                 let a = node_index(&mut nodes, track.start);
@@ -149,8 +145,8 @@ pub(crate) fn acute_angle_findings(project: &Project) -> Vec<Finding> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::drc;
     use super::super::Finding;
+    use super::super::drc;
     use pcbcraft_doc::{Layer, Net, Track};
 
     fn track(p: &mut pcbcraft_doc::Project, id: Id, a: Point, b: Point) {
