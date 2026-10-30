@@ -341,9 +341,7 @@ pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use pcbcraft_doc::{
-        ArtLayer, BoardText, Footprint, LibraryFootprint, Pad, component_template,
-    };
+    use pcbcraft_doc::{ArtLayer, BoardText, Footprint, LibraryFootprint, Pad, component_template};
     use pcbcraft_library::{FootprintDefinition, Graphic};
 
     /// One part with a round 1.0 mm pad at (10, 10).
