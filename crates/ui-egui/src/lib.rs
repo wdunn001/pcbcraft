@@ -26,6 +26,7 @@ mod library_dock;
 mod library_online;
 mod library_quality;
 mod modifier_ui;
+mod model_transform;
 mod motion;
 mod number_entry;
 mod pages;

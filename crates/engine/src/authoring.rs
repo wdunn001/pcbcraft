@@ -20,6 +20,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
+        ("library.footprint.set_model_transform","Change the offset, scale or rotation on an existing project-library 3D model without replacing its file path; use preset rotate_90, mirror or pin1_cycle for quick alignment, or give offset, scale and rotate arrays in millimetres and degrees; placed instances keep their embedded copy until footprint.refresh",schema(json!({"name":{"type":"string"},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"preset":{"type":"string","enum":["rotate_90","mirror","pin1_cycle"]}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
@@ -410,6 +411,19 @@ pub(super) struct ModelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ModelTransformParams {
+    name: String,
+    #[serde(default)]
+    offset: Option<[f64; 3]>,
+    #[serde(default)]
+    scale: Option<[f64; 3]>,
+    #[serde(default)]
+    rotate: Option<[f64; 3]>,
+    #[serde(default)]
+    preset: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RulesParams {
     name: String,
     #[serde(default)]
@@ -489,6 +503,65 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         raw_source,
     })
 }
+
+fn transform_triple_sane(t: &[f64; 3], positive_scale: bool) -> bool {
+    t.iter()
+        .all(|x| x.is_finite() && x.abs() <= 100_000.0 && (!positive_scale || *x != 0.0))
+}
+
+fn apply_model_transform(
+    model: &mut pcbcraft_library::Model3D,
+    a: &ModelTransformParams,
+) -> Result<(), Error> {
+    if a.preset.is_none() && a.offset.is_none() && a.scale.is_none() && a.rotate.is_none() {
+        return Err(Error::Invalid(
+            "set offset, scale, rotate or a preset".into(),
+        ));
+    }
+    if let Some(preset) = &a.preset {
+        if a.offset.is_some() || a.scale.is_some() || a.rotate.is_some() {
+            return Err(Error::Invalid("preset cannot mix with explicit transforms".into()));
+        }
+        match preset.as_str() {
+            "rotate_90" => pcbcraft_library::model_rotate_z_90(model),
+            "mirror" => pcbcraft_library::model_mirror_y(model),
+            "pin1_cycle" => pcbcraft_library::model_pin1_cycle(model),
+            other => return Err(Error::Invalid(format!("unknown preset {other}"))),
+        }
+        return Ok(());
+    }
+    if let Some(offset) = a.offset {
+        if !transform_triple_sane(&offset, false) {
+            return Err(Error::Invalid(
+                "model offsets must be finite and within 100000 mm".into(),
+            ));
+        }
+        model.offset = offset;
+    }
+    if let Some(scale) = a.scale {
+        if !transform_triple_sane(&scale, true) {
+            return Err(Error::Invalid(
+                "model scales must be finite, non-zero and within 100000".into(),
+            ));
+        }
+        model.scale = scale;
+    }
+    if let Some(rotate) = a.rotate {
+        if !transform_triple_sane(&rotate, false) {
+            return Err(Error::Invalid(
+                "model rotations must be finite and within 100000 degrees".into(),
+            ));
+        }
+        model.rotate = [
+            pcbcraft_library::normalize_degrees(rotate[0]),
+            pcbcraft_library::normalize_degrees(rotate[1]),
+            pcbcraft_library::normalize_degrees(rotate[2]),
+        ];
+    }
+    pcbcraft_library::refresh_model_raw_source(model);
+    Ok(())
+}
+
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -566,6 +639,26 @@ pub(super) fn run(
             def.model = Some(model);
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
+        }
+        "library.footprint.set_model_transform" => {
+            let a: ModelTransformParams = parse(params)?;
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            let model = def.model.as_mut().ok_or_else(|| {
+                Error::Invalid("footprint has no 3D model to transform".into())
+            })?;
+            apply_model_transform(model, &a)?;
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({
+                "name": a.name,
+                "offset": model.offset,
+                "scale": model.scale,
+                "rotate": model.rotate,
+            }))
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;
