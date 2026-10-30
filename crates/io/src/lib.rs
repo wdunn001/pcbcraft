@@ -7,8 +7,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
-#[cfg(not(target_arch = "wasm32"))]
-mod datasheet;
+mod assembly_profiles;
 mod bitmap_trace;
 mod board_mesh;
 mod datasheet_cache;
@@ -31,7 +30,6 @@ mod interface_profile;
 mod machine_profile;
 mod diff;
 mod drawn;
-mod assembly_profiles;
 mod fab_export;
 mod generate;
 mod gerber;
@@ -88,8 +86,14 @@ mod cam_drill;
 mod cam_shapes;
 mod compliance_report;
 mod snapmaker;
-mod solidcraft;
-mod solidcraft_format;
+/// Assembly house profiles for centroid files and Gerber component layers.
+/// # Dependencies
+/// - crates/io/src/assembly_profiles.rs
+pub use assembly_profiles::{
+    AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField, PlacementRow,
+    PlacementUnits, export_rotation, gerber_component_layers, placement_rows,
+    placement_text_with_profile,
+};
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
@@ -181,11 +185,6 @@ pub use model_cache::ModelCache;
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
-};
-pub use assembly_profiles::{
-    AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField, PlacementRow,
-    PlacementUnits, export_rotation, gerber_component_layers, placement_rows,
-    placement_text_with_profile,
 };
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.

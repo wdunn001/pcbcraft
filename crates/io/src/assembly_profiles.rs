@@ -16,7 +16,9 @@ const MAX_COLUMN_HEADER_LEN: usize = 64;
 /// Length unit for centroid coordinates in the placement file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlacementUnits {
+    /// Millimetres with three decimal places in coordinate columns.
     Millimetres,
+    /// Inches with four decimal places in coordinate columns.
     Inches,
 }
 
@@ -34,19 +36,28 @@ pub enum BottomRotationPolicy {
 /// One column in a centroid file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlacementColumn {
+    /// Which part attribute this column prints.
     pub field: PlacementField,
+    /// Header cell text; an empty string keeps the legacy label for the field.
     pub header: String,
 }
 
 /// Fields that can appear in a centroid row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PlacementField {
+    /// Mount technology label (SMT, THT, or press-fit).
     MountType,
+    /// Designator, quoted when written to CSV.
     Reference,
+    /// X coordinate in the profile length unit.
     X,
+    /// Y coordinate in the profile length unit.
     Y,
+    /// Rotation in degrees after the profile reference angle and bottom policy.
     Rotation,
+    /// Board side tag (T or B).
     Side,
+    /// Footprint or kind name, quoted when written to CSV.
     Package,
 }
 
@@ -55,8 +66,11 @@ pub enum PlacementField {
 pub struct AssemblyPlacementProfile {
     /// Lines printed after the format line and before the column header.
     pub header_lines: Vec<String>,
+    /// Column order and header labels for each data row.
     pub columns: Vec<PlacementColumn>,
+    /// Length unit for X and Y columns.
     pub units: PlacementUnits,
+    /// How bottom-side rotation is transformed before export.
     pub bottom_rotation: BottomRotationPolicy,
     /// Added to every part rotation before the bottom policy runs.
     pub reference_angle_deg: f64,
@@ -71,40 +85,45 @@ impl Default for AssemblyPlacementProfile {
 impl AssemblyPlacementProfile {
     /// The legacy centroid layout: classic header, column names and millimetres.
     pub fn legacy_default() -> Self {
-        let mut profile = Self::default();
-        profile.columns = vec![
-            PlacementColumn {
-                field: PlacementField::MountType,
-                header: "SMT,THT".into(),
-            },
-            PlacementColumn {
-                field: PlacementField::Reference,
-                header: String::new(),
-            },
-            PlacementColumn {
-                field: PlacementField::X,
-                header: "X".into(),
-            },
-            PlacementColumn {
-                field: PlacementField::Y,
-                header: "Y".into(),
-            },
-            PlacementColumn {
-                field: PlacementField::Rotation,
-                header: "Rotation".into(),
-            },
-            PlacementColumn {
-                field: PlacementField::Side,
-                header: "Side".into(),
-            },
-            PlacementColumn {
-                field: PlacementField::Package,
-                header: "Package".into(),
-            },
-        ];
-        profile
+        Self {
+            header_lines: Vec::new(),
+            columns: vec![
+                PlacementColumn {
+                    field: PlacementField::MountType,
+                    header: "SMT,THT".into(),
+                },
+                PlacementColumn {
+                    field: PlacementField::Reference,
+                    header: String::new(),
+                },
+                PlacementColumn {
+                    field: PlacementField::X,
+                    header: "X".into(),
+                },
+                PlacementColumn {
+                    field: PlacementField::Y,
+                    header: "Y".into(),
+                },
+                PlacementColumn {
+                    field: PlacementField::Rotation,
+                    header: "Rotation".into(),
+                },
+                PlacementColumn {
+                    field: PlacementField::Side,
+                    header: "Side".into(),
+                },
+                PlacementColumn {
+                    field: PlacementField::Package,
+                    header: "Package".into(),
+                },
+            ],
+            units: PlacementUnits::Millimetres,
+            bottom_rotation: BottomRotationPolicy::AsAuthored,
+            reference_angle_deg: 0.0,
+        }
     }
 
+    /// Check header lines, columns, and reference angle bounds.
     pub fn validate(&self) -> Result<(), String> {
         if self.header_lines.len() > MAX_HEADER_LINES {
             return Err("a placement profile lists at most 8 header lines".into());
@@ -138,13 +157,21 @@ impl AssemblyPlacementProfile {
 /// One row of a centroid file before formatting.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PlacementRow {
+    /// Mount technology label for this part.
     pub mount: String,
+    /// Designator copied from the component.
     pub reference: String,
+    /// X position in board millimetres.
     pub x: f64,
+    /// Y position in board millimetres.
     pub y: f64,
+    /// Rotation in board degrees before profile export rules.
     pub rotation: f64,
+    /// Side tag (T or B).
     pub side: String,
+    /// Footprint or kind name for the package column.
     pub package: String,
+    /// True when the footprint sits on the bottom copper side.
     pub bottom: bool,
 }
 
@@ -388,10 +415,9 @@ pub fn gerber_component_layers(
     let refs: BTreeMap<u64, &Component> = p.components.iter().map(|c| (c.id, c)).collect();
     let last_layer = p.copper_layer_count().max(1);
     let mut files = BTreeMap::new();
-    for (bottom, suffix, layer_index, side_tag) in [
-        (false, "F", 1_u8, "Top"),
-        (true, "B", last_layer as u8, "Bot"),
-    ] {
+    for (bottom, suffix, layer_index, side_tag) in
+        [(false, "F", 1_u8, "Top"), (true, "B", last_layer, "Bot")]
+    {
         let mut body = String::new();
         let mut ops = 0usize;
         for f in &p.board.footprints {
@@ -476,7 +502,7 @@ pub fn gerber_component_layers(
              {body}M02*\n",
             side_tag = if bottom { "Back" } else { "Front" },
             unit = if inch { "MOIN" } else { "MOMM" },
-            aperture = aperture_mm * if inch { 1.0 } else { 1.0 },
+            aperture = aperture_mm,
         );
         files.insert(format!("pcb-{suffix}.Cmp.gbr"), text);
     }
