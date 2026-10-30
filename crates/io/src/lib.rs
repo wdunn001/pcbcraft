@@ -2710,8 +2710,8 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     fab_export::fab_readme_text(p, file_names)
 }
 
-pub use fab_export::via_mask_opening;
 pub use bom_sheet::{BomSheetParams, BomSheetRow, bom_sheet_generic_csv, bom_sheet_rows};
+pub use fab_export::via_mask_opening;
 /// Bill of materials as generic CSV: the same columns as the Export dialog's
 /// default flavour. Identical parts share one row; references are joined with
 /// `, `. Requested property keys become extra columns after Quantity; with no
@@ -10314,9 +10314,7 @@ mod tests {
         project.validate()?;
         let text = bom_csv(&project, &[], None)?;
         assert!(
-            text.starts_with(
-                "Reference,Value,Footprint,MPN,Manufacturer,Quantity,Rating\n"
-            ),
+            text.starts_with("Reference,Value,Footprint,MPN,Manufacturer,Quantity,Rating\n"),
             "recorded columns print under their labels, falling back to the key"
         );
         assert!(
@@ -10380,9 +10378,7 @@ mod tests {
         project.validate()?;
         let plain = bom_csv(&project, &[], None)?;
         assert!(
-            plain.contains("starter pads")
-                && plain.contains("R1, R2")
-                && !plain.contains("R_0603"),
+            plain.contains("starter pads") && plain.contains("R1, R2") && !plain.contains("R_0603"),
             "the plain bill lists both parts with the placed footprint"
         );
         let slim = bom_csv(&project, &[], Some("Slim"))?;

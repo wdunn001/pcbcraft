@@ -147,11 +147,7 @@ fn csv_cell(text: &str) -> String {
 }
 
 /// Generic CSV matching the default bill flavour: Reference through Quantity, then extra columns.
-pub fn bom_sheet_generic_csv(
-    p: &Project,
-    rows: &[BomSheetRow],
-    keys: &[String],
-) -> String {
+pub fn bom_sheet_generic_csv(p: &Project, rows: &[BomSheetRow], keys: &[String]) -> String {
     let extras = extra_columns(p, keys);
     let mut out = String::from("Reference,Value,Footprint,MPN,Manufacturer,Quantity");
     for (_, label) in &extras {
