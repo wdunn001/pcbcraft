@@ -2133,9 +2133,14 @@ mod tests {
             }],
             ..Default::default()
         };
+        let lookup_ran = std::cell::Cell::new(false);
         let notes = with_models(&mut mesh, |_| {
-            panic!("lookup must not run when the project embeds the model")
+            lookup_ran.set(true);
+            ModelLookup::Failed("lookup should not run for an embedded model".into())
         });
+        if lookup_ran.get() {
+            return Err("lookup must not run when the project embeds the model".into());
+        }
         assert_eq!(notes, vec![(1, ModelStatus::Loaded)]);
         assert!(mesh.parts[0].model.as_ref().is_some_and(|m| m.loaded));
         assert_eq!(embedded.len() > 20, true);
