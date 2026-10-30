@@ -349,6 +349,14 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// Target characteristic impedance in ohms. Nets in a class inherit the
+    /// class value until they record their own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
+    /// Allowed deviation from the impedance target, in percent (0 to 50).
+    /// Defaults to 10 when a target is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_tolerance_pct: Option<f64>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -401,6 +409,12 @@ pub struct NetClass {
     /// Absent means no stub check; zero means no stubs at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_stub: Option<f64>,
+    /// Default target characteristic impedance for member nets, in ohms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
+    /// Default allowed deviation from the impedance target, in percent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_tolerance_pct: Option<f64>,
     /// Default outer via pad diameter for member nets, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_diameter: Option<f64>,
@@ -4195,6 +4209,29 @@ impl Project {
     pub fn net_class_id(&self, net: Id) -> Option<Id> {
         self.net_class(net).map(|c| c.id)
     }
+    /// Effective impedance target and tolerance percent for a net, merging class
+    /// defaults with net overrides.
+    pub fn impedance_target_for_net(&self, net: Id) -> Option<(f64, f64)> {
+        let n = self.nets.iter().find(|x| x.id == net)?;
+        let class = self.net_class(net);
+        let target = n
+            .target_impedance
+            .or_else(|| class.and_then(|c| c.target_impedance))?;
+        if !(10.0..=200.0).contains(&target) {
+            return None;
+        }
+        let tolerance_pct = if n.target_impedance.is_some() {
+            n.impedance_tolerance_pct.unwrap_or(10.0)
+        } else {
+            class
+                .and_then(|c| c.impedance_tolerance_pct)
+                .unwrap_or(10.0)
+        };
+        if !(0.0..=50.0).contains(&tolerance_pct) {
+            return None;
+        }
+        Some((target, tolerance_pct))
+    }
     /// Severity a check code should report at: the project override when it
     /// names one of the two real levels, otherwise the check's own default.
     pub fn rule_severity(&self, code: &str, default: &str) -> String {
@@ -4591,8 +4628,13 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
+                || n.target_impedance
+                    .is_some_and(|z| !z.is_finite() || !(10.0..=200.0).contains(&z))
+                || n.impedance_tolerance_pct
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=50.0).contains(&t))
+                || (n.impedance_tolerance_pct.is_some() && n.target_impedance.is_none())
             {
-                return Err("invalid net length target or tolerance".into());
+                return Err("invalid net length or impedance target".into());
             }
         }
         if self.net_classes.len() > 64 {
@@ -4625,6 +4667,11 @@ impl Project {
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || c.max_stub
                     .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
+                || c.target_impedance
+                    .is_some_and(|z| !z.is_finite() || !(10.0..=200.0).contains(&z))
+                || c.impedance_tolerance_pct
+                    .is_some_and(|t| !t.is_finite() || !(0.0..=50.0).contains(&t))
+                || (c.impedance_tolerance_pct.is_some() && c.target_impedance.is_none())
                 || !profile_tag_valid(&c.profile)
                 || c.via_diameter
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)

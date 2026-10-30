@@ -423,6 +423,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "net.set_impedance",
+            "Set a target characteristic impedance and tolerance percent for one net, or clear the target by omitting it; member nets inherit a class default until they record their own",
+            schema(
+                json!({"id":id_schema(),"target":{"type":["number","null"],"minimum":10,"maximum":200},"tolerance_pct":{"type":["number","null"],"minimum":0,"maximum":50}}),
+                &["id"],
+            ),
+        ),
+        (
             "net.connect",
             "Assign unassigned or same-net component pins to a net",
             schema(
@@ -4394,6 +4402,10 @@ struct ClassSetParams {
     pair_width: Option<f64>,
     #[serde(default)]
     pair_gap: Option<f64>,
+    #[serde(default)]
+    target_impedance: Option<f64>,
+    #[serde(default)]
+    impedance_tolerance_pct: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4408,6 +4420,15 @@ struct NetLengthParams {
     target: Option<f64>,
     #[serde(default)]
     tolerance: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetImpedanceParams {
+    id: Id,
+    #[serde(default)]
+    target: Option<f64>,
+    #[serde(default)]
+    tolerance_pct: Option<f64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8538,6 +8559,44 @@ fn run_command(
                 "tolerance":net.length_tolerance.unwrap_or(0.0),
             }))
         }
+        "net.set_impedance" => {
+            let a: NetImpedanceParams = parse(params)?;
+            if a.target
+                .is_some_and(|z| !z.is_finite() || !(10.0..=200.0).contains(&z))
+            {
+                return Err(Error::Invalid(
+                    "impedance target must be between 10 and 200 ohms".into(),
+                ));
+            }
+            if a.tolerance_pct
+                .is_some_and(|t| !t.is_finite() || !(0.0..=50.0).contains(&t))
+            {
+                return Err(Error::Invalid(
+                    "impedance tolerance must be between 0 and 50 percent".into(),
+                ));
+            }
+            if a.target.is_none() && a.tolerance_pct.is_some() {
+                return Err(Error::Invalid(
+                    "an impedance tolerance needs an impedance target".into(),
+                ));
+            }
+            let net = p
+                .nets
+                .iter_mut()
+                .find(|n| n.id == a.id)
+                .ok_or_else(missing)?;
+            net.target_impedance = a.target;
+            net.impedance_tolerance_pct = if a.target.is_some() {
+                a.tolerance_pct
+            } else {
+                None
+            };
+            Ok(json!({
+                "id": a.id,
+                "target": net.target_impedance,
+                "tolerance_pct": net.impedance_tolerance_pct.unwrap_or(10.0),
+            }))
+        }
         "net.connect" => {
             let a: Connect = parse(params)?;
             assign(p, a.net, &a.pins)?;
@@ -8827,6 +8886,8 @@ fn run_command(
                 && a.via_drill.is_none()
                 && a.pair_width.is_none()
                 && a.pair_gap.is_none()
+                && a.target_impedance.is_none()
+                && a.impedance_tolerance_pct.is_none()
             {
                 return Err(Error::Invalid("give at least one field to change".into()));
             }
@@ -8871,6 +8932,25 @@ fn run_command(
                     "pair gap must be between 0 and 10 millimetres".into(),
                 ));
             }
+            if a.target_impedance
+                .is_some_and(|z| !z.is_finite() || !(10.0..=200.0).contains(&z))
+            {
+                return Err(Error::Invalid(
+                    "impedance target must be between 10 and 200 ohms".into(),
+                ));
+            }
+            if a.impedance_tolerance_pct
+                .is_some_and(|t| !t.is_finite() || !(0.0..=50.0).contains(&t))
+            {
+                return Err(Error::Invalid(
+                    "impedance tolerance must be between 0 and 50 percent".into(),
+                ));
+            }
+            if a.impedance_tolerance_pct.is_some() && a.target_impedance.is_none() {
+                return Err(Error::Invalid(
+                    "an impedance tolerance needs an impedance target".into(),
+                ));
+            }
             let class = p
                 .net_classes
                 .iter_mut()
@@ -8892,6 +8972,10 @@ fn run_command(
                 && a.via_drill.is_none_or(|v| class.via_drill == Some(v))
                 && a.pair_width.is_none_or(|v| class.pair_width == Some(v))
                 && a.pair_gap.is_none_or(|v| class.pair_gap == Some(v))
+                && a.target_impedance.is_none_or(|v| class.target_impedance == Some(v))
+                && a
+                    .impedance_tolerance_pct
+                    .is_none_or(|v| class.impedance_tolerance_pct == Some(v))
             {
                 return Err(Error::Invalid(
                     "that class already carries those values".into(),
@@ -8914,6 +8998,12 @@ fn run_command(
             }
             if let Some(v) = a.pair_gap {
                 class.pair_gap = Some(v);
+            }
+            if let Some(v) = a.target_impedance {
+                class.target_impedance = Some(v);
+            }
+            if let Some(v) = a.impedance_tolerance_pct {
+                class.impedance_tolerance_pct = Some(v);
             }
             Ok(json!({
                 "class": class.id,
@@ -24599,6 +24689,49 @@ mod tests {
             1,
             "undo hands the net back to its class target"
         );
+        Ok(())
+    }
+    #[test]
+    fn net_impedance_target_is_stored_and_drives_drc() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":10.0,"y":10.0},"end":{"x":40.0,"y":10.0},"width":0.3}),
+            None,
+        )?;
+        fn z_findings(s: &Session) -> usize {
+            s.checks()["drc"]
+                .as_array()
+                .map_or(0, |a| {
+                    a.iter()
+                        .filter(|f| f["code"] == "impedance_target")
+                        .count()
+                })
+        }
+        assert_eq!(z_findings(&s), 0);
+        s.execute(
+            "net.set_impedance",
+            json!({"id":sig,"target":50.0,"tolerance_pct":10.0}),
+            None,
+        )?;
+        assert!(z_findings(&s) >= 1, "0.3 mm on the default stackup misses 50 ohm");
+        s.execute(
+            "net.set_impedance",
+            json!({"id":sig,"target":50.0,"tolerance_pct":50.0}),
+            None,
+        )?;
+        assert_eq!(z_findings(&s), 0, "a wide band accepts the same geometry");
+        for bad in [
+            json!({"id":sig,"target":9.0}),
+            json!({"id":sig,"target":201.0}),
+            json!({"id":sig,"target":null,"tolerance_pct":5.0}),
+            json!({"id":999,"target":50.0}),
+        ] {
+            assert!(s.execute("net.set_impedance", bad, None).is_err());
+        }
         Ok(())
     }
     #[test]

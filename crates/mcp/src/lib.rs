@@ -594,7 +594,7 @@ pub(crate) fn invoke_session(
                 .and_then(Value::as_bool)
                 .unwrap_or(false)
             {
-                const COPPER: [&str; 7] = [
+                const COPPER: [&str; 8] = [
                     "clearance",
                     "copper_short",
                     "track_width",
@@ -602,6 +602,7 @@ pub(crate) fn invoke_session(
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
+                    "impedance_target",
                 ];
                 let keep = |key: &str| {
                     report[key]
