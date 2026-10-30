@@ -1,4 +1,7 @@
-//! Summaries used by interchange tests: part names, rigid placements and axis-aligned bounds.
+//! Summaries for SolidCraft interchange tests: names, transforms and bounds.
+//!
+//! # Dependencies
+//! - crates/io/src/solidcraft/design.rs
 use serde_json::Value;
 use std::collections::BTreeMap;
 

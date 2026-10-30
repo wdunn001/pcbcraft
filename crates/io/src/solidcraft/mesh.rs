@@ -1,4 +1,10 @@
-//! SCMESH01 layout for SolidCraft container mesh blobs.
+//! SCMESH01 mesh blobs for SolidCraft container files.
+//!
+//! # Rules
+//! - Layout is little-endian: magic, vertex count, index count, f64 positions, u32 indices.
+//!
+//! # Dependencies
+//! - crates/io/src/solidcraft/container.rs
 use sha2::{Digest, Sha256};
 
 pub const MAGIC: &[u8; 8] = b"SCMESH01";

@@ -158,8 +158,8 @@ fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
         }
         let local_name = read_u16(local_at + 26)? as usize;
         let local_extra = read_u16(local_at + 28)? as usize;
-        if local_at + 30 + local_name > bytes.len() || &bytes[local_at + 30..local_at + 30 + local_name] != name_bytes
-        {
+        let local_name_bytes = &bytes[local_at + 30..local_at + 30 + local_name];
+        if local_at + 30 + local_name > bytes.len() || local_name_bytes != name_bytes {
             return Err(invalid("archive entry headers disagree about the name"));
         }
         let data_at = local_at + 30 + local_name + local_extra;
