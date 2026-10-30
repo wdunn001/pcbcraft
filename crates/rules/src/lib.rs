@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
 mod drill;
+mod return_path;
 mod silk;
 mod stub;
 
@@ -1577,6 +1578,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         }),
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(return_path::return_path_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

@@ -484,6 +484,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.fast_signal",
+            "Mark whether member nets are fast signals for return-path checks",
+            schema(
+                json!({"class":id_schema(),"fast":{"type":"boolean"}}),
+                &["class", "fast"],
+            ),
+        ),
+        (
             "netclass.clearance",
             "Change the clearance a net class requires between its copper and everything else",
             schema(
@@ -4371,6 +4379,12 @@ struct LengthRulesParams {
 struct StubRulesParams {
     class: Id,
     max_stub: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FastSignalParams {
+    class: Id,
+    fast: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8668,6 +8682,7 @@ fn run_command(
                 pair_gap: None,
                 nets: a.nets,
                 profile: None,
+                fast: false,
             });
             Ok(json!({"id": id}))
         }
@@ -8803,6 +8818,16 @@ fn run_command(
                 "class": a.class,
                 "max_stub": class.max_stub,
             }))
+        }
+        "netclass.fast_signal" => {
+            let a: FastSignalParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.fast = a.fast;
+            Ok(json!({"class": a.class, "fast": class.fast}))
         }
         "netclass.clearance" => {
             let a: ClassClearanceParams = parse(params)?;

@@ -1394,6 +1394,7 @@ check.panel_missing_fiducials = Panel missing fiducials
 check.panel_tab_too_narrow = Panel tab too narrow
 check.panel_too_large_for_assembler = Panel too large for assembler
 check.pour_fill = Pour fill
+check.return_path = Return path
 check.silk_text_height = Silk text height
 check.single_pin_net = Single pin net
 check.stacked_microvia = Stacked microvia

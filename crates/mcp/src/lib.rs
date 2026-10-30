@@ -599,6 +599,7 @@ pub(crate) fn invoke_session(
                     "copper_short",
                     "track_width",
                     "stub_length",
+                    "return_path",
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
