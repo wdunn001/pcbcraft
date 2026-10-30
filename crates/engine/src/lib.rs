@@ -7809,7 +7809,7 @@ fn run_command(
                     }
                 };
                 let mut pins = pcbcraft_doc::collapse_symbol_pins(&definition)
-                    .map_err(|e| Error::Invalid(e))?;
+                    .map_err(Error::Invalid)?;
                 for pin in &mut pins {
                     pin.net = old_nets.get(pin.number.as_str()).copied().flatten();
                 }
