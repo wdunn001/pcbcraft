@@ -17,6 +17,7 @@
 //! - crates/library/src/reader.rs
 //! - crates/engine/src/online.rs
 use crate::cad::{CadKind, CadRef, CadSource};
+use crate::open_pool::{OpenPoolPackageRecord, OpenPoolPartRecord};
 use crate::sources::SourceError;
 use crate::{
     FootprintDefinition, Graphic, Model3D, SymbolDefinition, SymbolPin, UnitGraphic,
@@ -255,6 +256,23 @@ pub fn import_footprint_only(
 /// The reference a symbol's own linked-footprint field names, such as
 /// `Resistor_SMD:R_0603_1608Metric`. `None` when the field is empty or not in
 /// `Library:Name` form.
+/// STEP path when a part record points at a package that names a default model.
+///
+/// # Rules
+/// - Returns nothing when the package id on the part does not match the package record.
+///
+/// # Do not
+/// - Load or draw the model; callers cache the path on import.
+pub fn open_pool_step_path(
+    part: &OpenPoolPartRecord,
+    package: &OpenPoolPackageRecord,
+) -> Option<String> {
+    if part.package_id != package.uuid {
+        return None;
+    }
+    package.default_step_path().map(str::to_owned)
+}
+
 pub fn footprint_ref_from_field(field: &str) -> Option<CadRef> {
     let (library, name) = field.trim().split_once(':')?;
     CadRef::new(CadKind::Footprint, library, name).ok()
