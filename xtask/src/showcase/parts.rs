@@ -113,6 +113,7 @@ fn symbol(
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 
@@ -453,6 +454,7 @@ fn footprint(
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 

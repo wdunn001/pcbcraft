@@ -13015,6 +13015,7 @@ mod tests {
                     }),
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
@@ -13438,6 +13439,7 @@ mod tests {
                     rules: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             });
             p.components.push(c);

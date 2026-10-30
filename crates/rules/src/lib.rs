@@ -3668,6 +3668,7 @@ mod pour_tests {
                     rules: None,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             });
             p.components.push(c);
