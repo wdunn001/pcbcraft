@@ -371,6 +371,7 @@ fn find_or_create_class<'a>(
         pair_gap: None,
         nets: Vec::new(),
         profile: Some(profile_id.to_string()),
+        backdrill: None,
     });
     p.net_classes
         .last_mut()

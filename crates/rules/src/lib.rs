@@ -269,7 +269,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             cutouts: vec![],
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
-        for layer in project.via_span_layers(v) {
+        for layer in project.via_conducting_layers(v) {
             let mut pad = item.clone();
             pad.layer = layer;
             result.push(pad);
@@ -1577,6 +1577,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         }),
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(stub::backdrill_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -2108,6 +2109,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -2299,6 +2301,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering: None,
+                backdrill: None,
             });
         }
         p.validate()?;
@@ -3058,6 +3061,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -3130,6 +3134,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
@@ -3518,6 +3523,7 @@ mod tests {
             from_layer: from.and_then(|i| Layer::from_index(i).ok()),
             to_layer: to.and_then(|i| Layer::from_index(i).ok()),
             covering: None,
+            backdrill: None,
         });
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {
@@ -3719,6 +3725,7 @@ mod pour_tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            backdrill: None,
         });
         p.validate()?;
         let findings = drc(&p);

@@ -25,7 +25,7 @@ use std::collections::BTreeMap;
 const MAX_OPS: usize = 100_000;
 const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
-const MAX_TOOLS: usize = 64;
+pub(crate) const MAX_TOOLS: usize = 64;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
 
 /// Whether a via gets a solder-mask opening on top and bottom plots.
@@ -634,6 +634,24 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
             }
         }
     }
+    let back = crate::backdrill::collect_backdrill_hits(p);
+    let mut diameters: Vec<u64> = back.iter().map(|h| h.d_um).collect();
+    diameters.sort_unstable();
+    diameters.dedup();
+    for d_um in diameters {
+        tool_index += 1;
+        let marker_d = (100 + tool_index as u64 * 25).min(500);
+        let code = layer.code(Ap::Circle(marker_d))?;
+        let at: Vec<_> = back.iter().filter(|h| h.d_um == d_um).collect();
+        layer.body.push_str(&format!(
+            "G04 LEGEND T{tool_index},{:.3},0.000,no,{} BACKDRILL *%\n",
+            d_um as f64 / 1000.0,
+            at.len()
+        ));
+        for h in at {
+            layer.flash(code, h.x - origin.x, h.y - origin.y)?;
+        }
+    }
     Ok(layer.finish(&LayerAttrs {
         comment: "drill hole map",
         file_function: "Drillmap",
@@ -946,6 +964,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         .filter(|h| h.plated && h.via_span.is_none())
         .collect();
     let unplated: Vec<DrillHit> = hits.iter().copied().filter(|h| !h.plated).collect();
+    let tolerance = p
+        .board
+        .machining
+        .as_ref()
+        .and_then(|m| m.drill_tolerance);
 
     let edge_plated = p
         .board
@@ -1017,6 +1040,9 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }),
     );
     files.insert("pcb-DrillMap.gbr".into(), drill_map_plot(p)?);
+    files.extend(crate::backdrill::backdrill_files(
+        p, scale, origin, inch, tolerance,
+    )?);
     if !plated.is_empty() {
         files.insert(
             "pcb-Plated.drl".into(),
