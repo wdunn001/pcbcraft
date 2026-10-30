@@ -17,52 +17,91 @@ fn pin(style: &str, visible: bool) -> SymbolPin {
 }
 
 #[test]
-fn graphical_style_supported_matches_standard_token_list() {
+fn graphical_style_supported_matches_standard_token_list() -> Result<(), String> {
     for token in PIN_GRAPHICAL_STYLES {
-        assert!(SymbolPin::graphical_style_supported(token));
+        if !SymbolPin::graphical_style_supported(token) {
+            return Err(format!("expected supported style {token}"));
+        }
     }
-    assert!(!SymbolPin::graphical_style_supported("mystery_shape"));
-    assert!(!SymbolPin::graphical_style_supported(""));
+    if SymbolPin::graphical_style_supported("mystery_shape") {
+        return Err("mystery_shape must be rejected".into());
+    }
+    if SymbolPin::graphical_style_supported("") {
+        return Err("empty style must be rejected".into());
+    }
+    Ok(())
 }
 
 #[test]
-fn stem_end_uses_kicad_angle_in_y_down_space() {
+fn stem_end_uses_kicad_angle_in_y_down_space() -> Result<(), String> {
     let horizontal = pin("line", true);
     let mut h = horizontal.clone();
     h.angle = 0.0;
     h.position = Point::new(0.0, 0.0);
-    assert_eq!(h.stem_end(), Point::new(2.54, 0.0));
+    if h.stem_end() != Point::new(2.54, 0.0) {
+        return Err("horizontal stem_end mismatch".into());
+    }
     let vertical = pin("line", true);
-    assert_eq!(vertical.stem_end(), Point::new(5.0, 7.46));
+    if vertical.stem_end() != Point::new(5.0, 7.46) {
+        return Err("vertical stem_end mismatch".into());
+    }
+    Ok(())
 }
 
 #[test]
-fn circle_points_emits_sixteen_points_on_the_radius() {
-    let pts = SymbolPin::circle_points(Point::new(1.0, 2.0), 3.0);
-    assert_eq!(pts.len(), 16);
-    assert!((pts[0].x - 4.0).abs() < 1e-9 && (pts[0].y - 2.0).abs() < 1e-9);
-    let quarter = pts[4];
-    assert!((quarter.x - 1.0).abs() < 1e-9 && (quarter.y - 5.0).abs() < 1e-9);
+fn circle_points_emits_sixteen_points_on_the_radius() -> Result<(), String> {
+    let center = Point::new(1.0, 2.0);
+    let radius = 3.0;
+    let pts = SymbolPin::circle_points(center, radius);
+    if pts.len() != 16 {
+        return Err(format!("expected 16 points, got {}", pts.len()));
+    }
+    for p in &pts {
+        if (center.distance(*p) - radius).abs() >= 1e-9 {
+            return Err("circle_points must lie on the circle".into());
+        }
+    }
+    if (pts[0].x - 4.0).abs() >= 1e-9 || (pts[0].y - 2.0).abs() >= 1e-9 {
+        return Err("first sample point mismatch".into());
+    }
+    Ok(())
 }
 
 #[test]
-fn decoration_bubbles_draw_respects_visibility_flag() {
+fn decoration_bubbles_draw_respects_visibility_flag() -> Result<(), String> {
     let hidden = pin("inverted", false);
-    assert!(hidden.decoration_bubbles().is_empty());
+    if !hidden.decoration_bubbles().is_empty() {
+        return Err("hidden pin must not emit bubbles".into());
+    }
     let forced = hidden.decoration_bubbles_draw(false);
-    assert_eq!(forced.len(), 1);
-    let (center, radius) = forced[0];
-    assert!((hidden.position.distance(center) - radius).abs() < 0.05);
-    assert!(pin("clock", true).decoration_bubbles_draw(true).is_empty());
+    if forced.len() != 1 {
+        return Err("inverted pin must draw one bubble when forced".into());
+    }
+    let (center, bubble_radius) = forced[0];
+    if (hidden.position.distance(center) - bubble_radius).abs() >= 0.05 {
+        return Err("bubble must sit one radius from the pin".into());
+    }
+    if !pin("clock", true).decoration_bubbles_draw(true).is_empty() {
+        return Err("clock style must not draw bubbles".into());
+    }
+    Ok(())
 }
 
 #[test]
-fn decoration_paths_draw_skips_line_and_builds_clock_wedge() {
-    assert!(pin("line", true).decoration_paths_draw(true).is_empty());
+fn decoration_paths_draw_skips_line_and_builds_clock_wedge() -> Result<(), String> {
+    if !pin("line", true).decoration_paths_draw(true).is_empty() {
+        return Err("line style must not draw decoration paths".into());
+    }
     let paths = pin("clock", true).decoration_paths_draw(true);
-    assert_eq!(paths.len(), 1);
-    assert_eq!(paths[0].len(), 3);
+    if paths.len() != 1 || paths[0].len() != 3 {
+        return Err("clock wedge must be a single three-point path".into());
+    }
     let hidden = pin("clock", false);
-    assert!(hidden.decoration_paths().is_empty());
-    assert_eq!(hidden.decoration_paths_draw(false).len(), 1);
+    if !hidden.decoration_paths().is_empty() {
+        return Err("hidden clock pin must not emit paths".into());
+    }
+    if hidden.decoration_paths_draw(false).len() != 1 {
+        return Err("forced clock pin must draw one path".into());
+    }
+    Ok(())
 }
