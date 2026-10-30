@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod parametric_body;
 mod diff;
 mod drawn;
 mod fab_export;
