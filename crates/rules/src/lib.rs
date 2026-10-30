@@ -2,7 +2,7 @@
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, ViaKind, panel_layout, panel_score_lines,
+    PanelSeparation, PinRef, Project, Via, ViaKind, panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
@@ -800,7 +800,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             if walk::find(
                 project,
                 &walk::Query {
-                    start: pcbcraft_doc::PinRef {
+                    start: PinRef {
                         component: c.id,
                         pin: p.number.clone(),
                     },

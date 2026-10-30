@@ -9,7 +9,7 @@ const HOP_CAP: u8 = 8;
 
 /// Search from a pin for a component kind (and optional value) within passive hops.
 ///
-/// `max_hops` above [`HOP_CAP`] is clamped to [`HOP_CAP`] before searching.
+/// `max_hops` values above 8 are clamped to 8 before searching.
 pub struct Query<'a> {
     pub start: PinRef,
     pub target_kind: &'a str,
@@ -82,7 +82,7 @@ fn hits_on_net(
     out
 }
 
-fn passive_bridges(project: &Project, component: Id, from_net: Id) -> Vec<(Id, Id)> {
+fn passive_other_nets(project: &Project, component: Id, from_net: Id) -> Vec<Id> {
     let Some(c) = project.component(component) else {
         return vec![];
     };
@@ -94,7 +94,7 @@ fn passive_bridges(project: &Project, component: Id, from_net: Id) -> Vec<(Id, I
     }
     c.pins
         .iter()
-        .filter_map(|p| p.net.filter(|n| *n != from_net).map(|n| (n, component)))
+        .filter_map(|p| p.net.filter(|n| *n != from_net))
         .collect()
 }
 
@@ -127,7 +127,7 @@ pub fn find(project: &Project, q: &Query<'_>) -> Vec<Hit> {
             seen_passives.insert(c.id);
             let mut next_prefix = prefix.clone();
             next_prefix.push(c.id);
-            for (other_net, _) in passive_bridges(project, c.id, net) {
+            for other_net in passive_other_nets(project, c.id, net) {
                 queue.push_back((other_net, hops + 1, next_prefix.clone()));
             }
         }
@@ -189,18 +189,19 @@ pub fn pullup_reaches_power(project: &Project, net: Id) -> bool {
     let Some(start) = any_pin_on_net(project, net) else {
         return false;
     };
-    for hit in find(
+    if find(
         project,
         &Query {
-            start: start.clone(),
+            start,
             target_kind: "resistor",
             value: None,
             max_hops: 0,
         },
-    ) {
-        if resistor_other_pin_reaches_power(project, hit.part, net) {
-            return true;
-        }
+    )
+    .into_iter()
+    .any(|hit| resistor_other_pin_reaches_power(project, hit.part, net))
+    {
+        return true;
     }
     project.components.iter().any(|c| {
         let acts_as_passive =
