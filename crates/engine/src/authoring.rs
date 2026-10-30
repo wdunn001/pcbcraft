@@ -1,7 +1,7 @@
 use super::*;
 use pcbcraft_library::{
     FootprintDefinition, FootprintPad, Graphic, LandPatternDensity, LandPatternParams,
-    SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
+    PartSubstitutes, SymbolDefinition, SymbolPin, UnitGraphic, generate_footprint,
 };
 
 pub(super) fn commands() -> Vec<CommandSpec> {
@@ -57,6 +57,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.graphic_scale","Resize one graphic on a project-library footprint about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the package",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the footprint's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the footprint origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.graphic_scale","Resize one graphic on a project-library symbol about the origin by one factor, as one undoable step, scaling its vertices, stroke and text size together, so a single drawing element made at the wrong scale is rescued without touching the rest of the symbol",schema(json!({"name":{"type":"string"},"index":{"type":"integer","description":"zero-based position in the symbol's artwork list"},"factor":{"type":"number","description":"uniform resize factor about the symbol origin, above 0 and up to 1000"}}),&["name","index","factor"])),
         ("library.symbol.set_properties","Retype a project-library symbol's reference prefix, value, description, keywords, linked footprint or set name one field at a time as one undoable step, so imported vendor symbols get cleaned up without rewriting the definition; placed instances keep their embedded copy until symbol.refresh brings the change across",schema(json!({"name":{"type":"string"},"reference":{"type":"string","description":"reference prefix pattern the symbol suggests, e.g. U*"},"value":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"},"footprint":{"type":"string","description":"default footprint name the symbol suggests"},"set":{"type":"string","description":"name of the collection this part belongs to; empty clears it, and the parts list groups parts by set"}}),&["name"])),
+        ("library.part.set_substitute","Add, replace or remove one second source (maker and part number) or one alternate (another project-library symbol) on a project-library part as one undoable step; pass null for mpn to remove a second source, or set clear true with symbol naming the alternate to remove",schema(json!({"name":{"type":"string","description":"project-library symbol name of the primary part"},"kind":{"type":"string","enum":["second_source","alternate"]},"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"symbol":{"type":"string","maxLength":256,"description":"project-library symbol name of the alternate part"},"footprint":{"type":"string","maxLength":256},"note":{"type":"string","maxLength":256},"clear":{"type":"boolean","description":"when true with kind alternate, remove the alternate named by symbol"}}),&["name","kind"])),
         ("library.footprint.set_properties","Retype a project-library footprint's description or keywords one field at a time as one undoable step, so imported packages get cleaned up for search and documentation without rewriting the definition; placed instances keep their embedded copy until footprint.refresh brings the change across",schema(json!({"name":{"type":"string"},"description":{"type":"string"},"keywords":{"type":"string","description":"space separated search words"}}),&["name"])),
         ("library.symbol.rename","Rename a project-library symbol in place as one undoable step, keeping every pin and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
         ("library.footprint.rename","Rename a project-library footprint in place as one undoable step, keeping every pad and graphic exactly as it was, so a typo at the source never needs a delete and re-upsert; placed instances keep the old embedded name",schema(json!({"name":{"type":"string"},"new_name":{"type":"string","minLength":1,"maxLength":128}}),&["name","new_name"])),
@@ -100,6 +101,24 @@ struct PlacePartParams {
 struct SymbolParams {
     definition: SymbolDefinition,
     notice: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPartSubstituteParams {
+    name: String,
+    kind: String,
+    #[serde(default)]
+    manufacturer: Option<String>,
+    #[serde(default)]
+    mpn: Option<Value>,
+    #[serde(default)]
+    symbol: Option<String>,
+    #[serde(default)]
+    footprint: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+    #[serde(default)]
+    clear: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -545,6 +564,13 @@ pub(super) fn run(
                 if before == p.library.symbols.len() {
                     return Err(missing());
                 }
+                p.library.part_substitutes.remove(&a.name);
+                for subs in p.library.part_substitutes.values_mut() {
+                    subs.alternates.retain(|alt| alt.symbol != a.name);
+                }
+                p.library
+                    .part_substitutes
+                    .retain(|_, subs| !subs.is_empty());
             } else {
                 let before = p.library.footprints.len();
                 p.library.footprints.retain(|s| s.name != a.name);
@@ -2123,6 +2149,84 @@ pub(super) fn run(
             p.library.validate()?;
             Ok(json!({"name": item}))
         }
+        "library.part.set_substitute" => {
+            let a: SetPartSubstituteParams = parse(params)?;
+            if a.name.is_empty() || a.name.len() > 128 {
+                return Err(Error::Invalid(
+                    "library names must be 1 to 128 bytes".into(),
+                ));
+            }
+            if !p.library.symbols.iter().any(|s| s.name == a.name) {
+                return Err(Error::Invalid(format!(
+                    "no project-library symbol named {}",
+                    a.name
+                )));
+            }
+            let symbol_exists =
+                |sym: &str| p.library.symbols.iter().any(|s| s.name == sym);
+            let footprint_exists =
+                |foot: &str| p.library.footprints.iter().any(|f| f.name == foot);
+            let record = p
+                .library
+                .part_substitutes
+                .entry(a.name.clone())
+                .or_insert_with(PartSubstitutes::default);
+            match a.kind.as_str() {
+                "second_source" => {
+                    let manufacturer = a.manufacturer.filter(|s| !s.is_empty()).ok_or_else(|| {
+                        Error::Invalid("second_source needs a manufacturer".into())
+                    })?;
+                    let mpn = match a.mpn {
+                        None => {
+                            return Err(Error::Invalid(
+                                "second_source needs mpn or null to remove".into(),
+                            ));
+                        }
+                        Some(Value::Null) => None,
+                        Some(Value::String(text)) => Some(text.as_str()),
+                        Some(_) => {
+                            return Err(Error::Invalid("mpn must be a string or null".into()));
+                        }
+                    };
+                    record
+                        .set_second_source(&manufacturer, mpn, a.note.as_deref())
+                        .map_err(Error::Invalid)?;
+                }
+                "alternate" => {
+                    let symbol = a.symbol.filter(|s| !s.is_empty()).ok_or_else(|| {
+                        Error::Invalid("alternate needs the substitute symbol name".into())
+                    })?;
+                    if a.clear {
+                        record.remove_alternate(&symbol).map_err(Error::Invalid)?;
+                    } else {
+                        if symbol == a.name {
+                            return Err(Error::Invalid(
+                                "a part cannot list itself as an alternate".into(),
+                            ));
+                        }
+                        record
+                            .set_alternate(
+                                &symbol,
+                                a.footprint.as_deref(),
+                                a.note.as_deref(),
+                                symbol_exists,
+                                footprint_exists,
+                            )
+                            .map_err(Error::Invalid)?;
+                    }
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "kind must be second_source or alternate".into(),
+                    ));
+                }
+            }
+            if record.is_empty() {
+                p.library.part_substitutes.remove(&a.name);
+            }
+            p.library.validate()?;
+            Ok(json!({"name": a.name, "kind": a.kind}))
+        }
         "library.symbol.rename" | "library.footprint.rename" => {
             let a: RenameParams = parse(params)?;
             if a.name.is_empty() || a.name.len() > 128 {
@@ -2144,6 +2248,18 @@ pub(super) fn run(
                     )));
                 }
                 p.library.symbols[found].name = a.new_name.clone();
+                if let Some(subs) = p.library.part_substitutes.remove(&a.name) {
+                    p.library
+                        .part_substitutes
+                        .insert(a.new_name.clone(), subs);
+                }
+                for subs in p.library.part_substitutes.values_mut() {
+                    for alt in &mut subs.alternates {
+                        if alt.symbol == a.name {
+                            alt.symbol = a.new_name.clone();
+                        }
+                    }
+                }
             } else {
                 let Some(found) = p.library.footprints.iter().position(|i| i.name == a.name) else {
                     return Err(missing());

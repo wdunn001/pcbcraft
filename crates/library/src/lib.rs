@@ -8,6 +8,7 @@ pub mod listing;
 pub mod listing_adapters;
 pub mod online_import;
 pub mod open_library;
+pub mod part_substitutes;
 mod paths;
 mod reader;
 mod sexpr;
@@ -15,6 +16,11 @@ pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use part_substitutes::{
+    AlternatePart, PartSubstitutes, SecondSource, read_sidecar, sidecar_path_for_symbol,
+    write_sidecar, MAX_SUBSTITUTES_EACH, MAX_SUBSTITUTE_TEXT, PART_SIDECAR_FORMAT,
+    PART_SIDECAR_SUFFIX, PART_SIDECAR_VERSION,
+};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
