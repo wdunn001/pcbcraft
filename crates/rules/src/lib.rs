@@ -10,8 +10,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
 mod drill;
+mod finding_set;
 mod silk;
 mod stub;
+
+pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {

@@ -2,6 +2,7 @@
 mod artifacts;
 mod authoring;
 mod dry_run;
+mod finding_set;
 mod images;
 pub mod library;
 mod online;
