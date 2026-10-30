@@ -418,6 +418,12 @@ pub(crate) fn dialog(app: &mut App, ctx: &egui::Context) {
                     if d.preset != before {
                         d.apply_preset(d.preset);
                     }
+                    if let Some(p) = PRESETS.get(d.preset)
+                        && !p.note.is_empty()
+                    {
+                        ui.add_space(4.0);
+                        ui.label(egui::RichText::new(p.note).small().weak());
+                    }
                     ui.add_space(8.0);
                     ui.label(text::name());
                     ui.text_edit_singleline(&mut d.name)

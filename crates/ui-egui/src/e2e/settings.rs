@@ -485,6 +485,21 @@ fn a_newcomer_decides_how_much_the_assistant_may_change() -> Result<(), String> 
 }
 
 #[test]
+fn a_newcomer_picks_the_ollama_preset_and_reads_the_context_size_note() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    app.preferences.assistant_enabled = true;
+    app.assistant.settings_open = true;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Add connection")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "PARAMETER num_ctx")?,
+        "the Ollama preset explains how to set context size"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_opens_the_keys_section_to_pick_tool_keys() -> Result<(), String> {
     let mut app = fresh();
     let ctx = egui::Context::default();

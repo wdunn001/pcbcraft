@@ -308,7 +308,7 @@ fn a_newcomer_adds_a_local_model_server_and_tests_it() -> Result<(), String> {
         "the first connection is the one in use"
     );
     assert!(
-        paints_text(&ctx, &mut app, "Local model server")?,
+        paints_text(&ctx, &mut app, "Ollama")?,
         "the row is listed"
     );
     Ok(())
