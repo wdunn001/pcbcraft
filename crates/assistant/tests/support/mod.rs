@@ -96,6 +96,11 @@ impl FakeServer {
                     continue;
                 };
                 let is_post = req.method == "POST";
+                let stream = req
+                    .body
+                    .get("stream")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 lock(&log).push(req);
                 let reply = if is_post {
                     let r = script.get(posts).or(script.last()).cloned();
@@ -105,7 +110,7 @@ impl FakeServer {
                     Some(Reply::json(200, json!({"data": []})))
                 };
                 if let Some(r) = reply {
-                    std::thread::spawn(move || answer(conn, r));
+                    std::thread::spawn(move || answer(conn, r, stream));
                 }
             }
         });
@@ -129,15 +134,63 @@ impl FakeServer {
     }
 }
 
-fn answer(mut c: TcpStream, r: Reply) {
+fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     std::thread::sleep(Duration::from_millis(r.delay_ms));
+    let (ctype, body) = if stream && r.status == 200 {
+        (
+            "text/event-stream",
+            openai_completion_to_sse(&r.body),
+        )
+    } else {
+        ("application/json", r.body.clone())
+    };
     let out = format!(
-        "HTTP/1.1 {} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         r.status,
-        r.body.len(),
-        r.body
+        ctype,
+        body.len(),
+        body
     );
     let _ = c.write_all(out.as_bytes());
+}
+
+fn openai_completion_to_sse(json_body: &str) -> String {
+    let v: Value = serde_json::from_str(json_body).unwrap_or(Value::Null);
+    let mut out = String::new();
+    if let Some(t) = v.pointer("/choices/0/message/content").and_then(Value::as_str) {
+        if !t.is_empty() {
+            let line = json!({"choices": [{"delta": {"content": t}}]});
+            out.push_str(&format!("data: {line}\n\n"));
+        }
+    }
+    if let Some(calls) = v
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(Value::as_array)
+    {
+        for (idx, call) in calls.iter().enumerate() {
+            let mut delta_call = call.clone();
+            if let Some(obj) = delta_call.as_object_mut() {
+                obj.insert("index".into(), json!(idx));
+            }
+            let line = json!({"choices": [{"delta": {"tool_calls": [delta_call]}}]});
+            out.push_str(&format!("data: {line}\n\n"));
+        }
+        let fr = v
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            .unwrap_or("tool_calls");
+        let line = json!({"choices": [{"finish_reason": fr, "delta": {}}]});
+        out.push_str(&format!("data: {line}\n\n"));
+    } else {
+        let fr = v
+            .pointer("/choices/0/finish_reason")
+            .and_then(Value::as_str)
+            .unwrap_or("stop");
+        let line = json!({"choices": [{"finish_reason": fr, "delta": {}}]});
+        out.push_str(&format!("data: {line}\n\n"));
+    }
+    out.push_str("data: [DONE]\n\n");
+    out
 }
 
 fn read_request(mut c: &TcpStream) -> Option<Seen> {

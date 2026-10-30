@@ -1,6 +1,7 @@
 //! Assistant conversation model: backend seam, transcript, and turn accounting (no UI).
 mod api;
 mod backend;
+mod stream;
 mod connections;
 mod context;
 mod describe;
@@ -21,7 +22,8 @@ pub use api::{
     key_safe_for, model_list, openai_tools, test_anthropic_endpoint, test_endpoint,
 };
 pub use backend::{
-    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PermissionOption,
+    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, ModelInfo,
+    PermissionOption, deliver_streamed_body,
     PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};

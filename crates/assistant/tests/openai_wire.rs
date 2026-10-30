@@ -168,6 +168,7 @@ fn a_slow_server_hits_the_request_timeout() -> Result<(), String> {
         headers: vec![],
         body: Some(b"{}".to_vec()),
         timeout_s: 1,
+        stream_out: None,
     };
     let t = Instant::now();
     let err = plain_request(&req).err().ok_or("expected a timeout")?;
@@ -184,6 +185,7 @@ fn the_plain_function_refuses_https_and_does_not_follow_redirects() -> Result<()
         headers: vec![],
         body: None,
         timeout_s: 5,
+        stream_out: None,
     };
     assert!(plain_request(&mk("https://127.0.0.1:1/".into())).is_err());
     let srv = FakeServer::start(vec![])?;
