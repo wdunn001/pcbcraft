@@ -7,9 +7,13 @@ use super::eccn::{control_rank, highest_eccn};
 use super::list_snapshot::EntityListSnapshot;
 use super::ruleset::{ComplianceRuleSet, bundled_export_and_trade};
 
+/// Component field keys tried for ECCN values, in order.
 pub const FIELD_ECCN: &[&str] = &["ECCN", "eccn", "Export Control Classification Number"];
+/// Component field keys tried for HTS values, in order.
 pub const FIELD_HTS: &[&str] = &["HTS", "hts", "HTS Code", "Harmonized Tariff"];
+/// Component field keys tried for manufacturer names, in order.
 pub const FIELD_MANUFACTURER: &[&str] = &["Manufacturer", "Mfg", "MFR"];
+/// Component field keys tried for country-of-origin codes, in order.
 pub const FIELD_ORIGIN: &[&str] = &["Country of Origin", "COO", "Origin", "country_of_origin"];
 
 const PARTY_SCREENING_FIXTURE: &str =
@@ -18,41 +22,70 @@ const PARTY_SCREENING_FIXTURE: &str =
 const DISCLAIMER: &str = "Informational summary from part data and user-entered tables only. \
 This is not legal advice and does not state licence or authorization requirements.";
 
+/// One bill line whose manufacturer matched the screening list.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct ScreeningHit {
+    /// Designator of the matched part.
     pub reference: String,
+    /// Manufacturer string that matched.
     pub manufacturer: String,
+    /// Primary list entry name.
     pub list_entry: String,
+    /// Id of the list file used.
     pub snapshot_id: String,
+    /// Retrieved date of the list file.
     pub snapshot_retrieved: String,
+    /// Citation copied from the list entry.
     pub citation: String,
 }
 
+/// Informational duty estimate for one bill line.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct TariffEstimate {
+    /// Designator of the part.
     pub reference: String,
+    /// Declared HTS code on the part.
     pub hts: String,
+    /// Normalized origin country code.
     pub origin: String,
+    /// Rate taken from the matching tariff row.
     pub rate_percent: f64,
+    /// Index of the tariff row in the project table.
     pub row_index: usize,
+    /// Note from the tariff row.
     pub note: String,
+    /// True when the tariff row's effective dates are past.
     pub stale: bool,
 }
 
+/// Export-and-trade summary for one project bill of materials.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct ExportTradeReport {
+    /// Rule set id that produced the report.
     pub rule_set_id: String,
+    /// Rule set title for display.
     pub rule_set_title: String,
+    /// Highest declared ECCN on the bill, if any.
     pub highest_eccn: Option<String>,
+    /// Bill lines without a usable ECCN declaration.
     pub unknown_eccn_count: usize,
+    /// Bill lines without a declared HTS code.
     pub unknown_hts_count: usize,
+    /// User ITAR reminder flag from the project.
     pub itar_flag: bool,
+    /// Count of bill lines per ISO origin code.
     pub origin_totals: BTreeMap<String, u32>,
+    /// Manufacturer screening matches.
     pub screening_hits: Vec<ScreeningHit>,
+    /// Retrieved date of the screening list used.
     pub screening_snapshot_retrieved: String,
+    /// True when the screening list is older than its cadence.
     pub screening_snapshot_stale: bool,
+    /// Tariff estimates from the project table.
     pub tariff_estimates: Vec<TariffEstimate>,
+    /// Indexes of tariff rows whose effective end date has passed.
     pub stale_tariff_row_indexes: Vec<usize>,
+    /// Fixed disclaimer printed on every report.
     pub disclaimer: &'static str,
 }
 
@@ -130,6 +163,7 @@ pub fn export_trade_report(project: &Project, today: &str) -> Result<ExportTrade
     export_trade_report_with_ruleset(project, today, &bundled_export_and_trade()?)
 }
 
+/// Build a report using an explicit rule set definition.
 pub fn export_trade_report_with_ruleset(
     project: &Project,
     today: &str,

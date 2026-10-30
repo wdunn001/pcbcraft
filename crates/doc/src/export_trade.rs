@@ -3,11 +3,14 @@
 //! estimates only.
 use serde::{Deserialize, Serialize};
 
+/// Most rows allowed in the tariff exposure table.
 pub const MAX_TARIFF_ROWS: usize = 64;
+/// Longest tariff table text field, in bytes.
 pub const MAX_TARIFF_TEXT: usize = 256;
+/// Longest tariff row note, in bytes.
 pub const MAX_TARIFF_NOTE: usize = 512;
+/// Longest HTS prefix on a tariff row, in bytes.
 pub const MAX_HTS_PREFIX: usize = 16;
-pub const MAX_ORIGIN_CODE: usize = 3;
 
 fn bounded(text: &str, max: usize, label: &str) -> Result<(), String> {
     if text.len() > max || text.chars().any(char::is_control) {
@@ -50,6 +53,7 @@ pub struct TariffExposureRow {
 }
 
 impl TariffExposureRow {
+    /// Check HTS prefix, origin code, rate and ISO date bounds.
     pub fn validate(&self) -> Result<(), String> {
         bounded(&self.hts_prefix, MAX_HTS_PREFIX, "HTS prefix")?;
         if self.hts_prefix.trim().is_empty() {
@@ -93,10 +97,12 @@ pub struct ExportTradeSettings {
 }
 
 impl ExportTradeSettings {
+    /// True when the ITAR flag is off and no tariff rows or list id are stored.
     pub fn is_empty(&self) -> bool {
         !self.itar_flag && self.tariff_rows.is_empty() && self.screening_list_id.is_empty()
     }
 
+    /// Check row count, list id length and each tariff row.
     pub fn validate(&self) -> Result<(), String> {
         if self.tariff_rows.len() > MAX_TARIFF_ROWS {
             return Err(format!(
