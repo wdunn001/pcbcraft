@@ -2402,14 +2402,11 @@ impl Session {
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
-        if commands
-            .iter()
-            .all(|c| {
-                c.command == "cam.isolation"
-                    || c.command == "cam.isolation_paths"
-                    || snapmaker::handles(&c.command)
-            })
-        {
+        if commands.iter().all(|c| {
+            c.command == "cam.isolation"
+                || c.command == "cam.isolation_paths"
+                || snapmaker::handles(&c.command)
+        }) {
             let mut results = vec![];
             for command in commands {
                 results.push(run_read_only(
