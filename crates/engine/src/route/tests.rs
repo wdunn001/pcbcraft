@@ -1,6 +1,9 @@
-use super::walk::acute;
+use super::walk::{
+    Failure, Hull, Space, Turn, acute, find_path, length, optimize, path_ok, skeletons, walkaround,
+};
 use crate::{Error, Session, missing};
 use pcbcraft_doc::{Id, Layer, Track};
+use pcbcraft_geom::hull::octagon;
 use pcbcraft_geom::{Point, segment_distance};
 use serde_json::{Value, json};
 
@@ -551,4 +554,134 @@ fn drag_unknown_track_and_equal_ends_are_refused() -> Result<(), Error> {
     assert_eq!(f.s.revision, revision);
     assert_eq!(f.s.project.board.tracks, before);
     Ok(())
+}
+
+fn open_space(lo: (f64, f64), hi: (f64, f64), hulls: Vec<Hull>) -> Space {
+    Space {
+        hulls,
+        lo: Point::new(lo.0, lo.1),
+        hi: Point::new(hi.0, hi.1),
+    }
+}
+
+fn pad_hull(x: f64, y: f64, inflate: f64, net: Id) -> Hull {
+    Hull {
+        pts: octagon(&[Point::new(x, y)], inflate),
+        net,
+    }
+}
+
+#[test]
+fn acute_counts_corners_sharper_than_a_right_angle() {
+    let right = vec![
+        Point::new(0.0, 0.0),
+        Point::new(1.0, 0.0),
+        Point::new(1.0, 1.0),
+    ];
+    assert_eq!(acute(&right), 0);
+    let hairpin = vec![
+        Point::new(0.0, 0.0),
+        Point::new(1.0, 0.0),
+        Point::new(0.0, 0.1),
+    ];
+    assert_eq!(acute(&hairpin), 1);
+}
+
+#[test]
+fn skeletons_lists_four_one_bend_routes_for_a_generic_offset() {
+    let a = Point::new(0.0, 0.0);
+    let b = Point::new(4.0, 2.0);
+    let routes = skeletons(a, b);
+    assert_eq!(routes.len(), 4);
+    let via_diag = 2.0 + (2.0f64).hypot(2.0, 2.0);
+    let via_l = 6.0;
+    let mut lengths: Vec<f64> = routes.iter().map(|p| length(p)).collect();
+    lengths.sort_by(|x, y| x.partial_cmp(y).unwrap());
+    assert!((lengths[0] - via_diag).abs() < 1e-6);
+    assert!((lengths[3] - via_l).abs() < 1e-6);
+}
+
+#[test]
+fn path_ok_rejects_hull_crossings_and_points_outside_the_keep_in_box() {
+    let inside = open_space((0.0, 0.0), (10.0, 10.0), vec![]);
+    let clear = vec![Point::new(1.0, 1.0), Point::new(9.0, 1.0)];
+    assert!(path_ok(&clear, &inside));
+    let outside = vec![Point::new(-1.0, 5.0), Point::new(5.0, 5.0)];
+    assert!(!path_ok(&outside, &inside));
+    let blocked = open_space(
+        (0.0, 0.0),
+        (10.0, 10.0),
+        vec![pad_hull(5.0, 5.0, 0.5, 1)],
+    );
+    let through = vec![Point::new(1.0, 5.0), Point::new(9.0, 5.0)];
+    assert!(!path_ok(&through, &blocked));
+}
+
+#[test]
+fn walkaround_detours_around_a_hull_while_fixing_both_ends() {
+    let space = open_space(
+        (0.0, 0.0),
+        (20.0, 20.0),
+        vec![pad_hull(10.0, 10.0, 1.0, 7)],
+    );
+    let line = vec![Point::new(2.0, 10.0), Point::new(18.0, 10.0)];
+    let detoured = walkaround(&line, &space, Turn::Shortest).expect("detour within iteration cap");
+    assert_eq!(detoured.first(), line.first());
+    assert_eq!(detoured.last(), line.last());
+    assert!(path_ok(&detoured, &space));
+    assert!(length(&detoured) > length(&line) + 0.5);
+}
+
+#[test]
+fn optimize_shortens_a_zig_with_a_legal_one_bend_shortcut() {
+    let space = open_space((0.0, 0.0), (20.0, 20.0), vec![]);
+    let zig = vec![
+        Point::new(0.0, 0.0),
+        Point::new(2.0, 0.0),
+        Point::new(2.0, 2.0),
+        Point::new(4.0, 2.0),
+    ];
+    let before = length(&zig);
+    let opt = optimize(zig, &space);
+    assert!(path_ok(&opt, &space));
+    assert!(length(&opt) + 1e-6 < before);
+    assert_eq!(acute(&opt), 0);
+}
+
+#[test]
+fn find_path_picks_a_legal_route_or_reports_a_specific_failure() {
+    let open = open_space((0.0, 0.0), (20.0, 20.0), vec![]);
+    let path = find_path(Point::new(2.0, 2.0), Point::new(18.0, 2.0), &open)
+        .expect("clear horizontal run");
+    assert_eq!(acute(&path), 0);
+    assert!(path_ok(&path, &open));
+
+    match find_path(Point::new(-1.0, 2.0), Point::new(18.0, 2.0), &open).unwrap_err() {
+        Failure::OutsideBoard => {}
+        _ => panic!("expected outside board"),
+    }
+
+    let blocked = open_space(
+        (0.0, 0.0),
+        (20.0, 20.0),
+        vec![pad_hull(10.0, 10.0, 1.0, 42)],
+    );
+    match find_path(Point::new(10.0, 10.0), Point::new(18.0, 2.0), &blocked).unwrap_err() {
+        Failure::TooClose(id) => assert_eq!(id, 42),
+        _ => panic!("expected too close to net 42"),
+    }
+
+    let choke = open_space(
+        (0.0, 0.0),
+        (6.0, 6.0),
+        vec![
+            pad_hull(1.5, 3.0, 0.8, 1),
+            pad_hull(3.0, 3.0, 0.8, 2),
+            pad_hull(4.5, 3.0, 0.8, 3),
+        ],
+    );
+    let detour = find_path(Point::new(0.5, 3.0), Point::new(5.5, 3.0), &choke)
+        .expect("detour above the pad row");
+    assert!(path_ok(&detour, &choke));
+    assert!(length(&detour) > 5.0 + 0.2);
 }
