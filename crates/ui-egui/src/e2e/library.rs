@@ -986,3 +986,67 @@ fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), S
     );
     Ok(())
 }
+
+#[test]
+fn a_newcomer_exports_their_edited_part_to_a_file() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("symbol-editor")?;
+    authoring::tests::clear_symbol_draft(&mut app);
+    type_into(&ctx, &mut app, "textinput:Name", "EditedExportSymbol")?;
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Default value",
+        "CustomValue",
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Save symbol to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(session.project.library.symbols.len(), 1);
+        assert_eq!(
+            session.project.library.symbols[0].name, "EditedExportSymbol",
+            "the edited symbol lives in the project library"
+        );
+    }
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    assert!(
+        paints_text(&ctx, &mut app, "This project's definitions")?,
+        "the project library list is on the Libraries page"
+    );
+    let export_file = std::env::temp_dir().join(format!(
+        "pcbcraft-newcomer-export-{}.kicad_sym",
+        std::process::id()
+    ));
+    let export_path = export_file.to_string_lossy().into_owned();
+    type_into(
+        &ctx,
+        &mut app,
+        "textinput:Symbol export file",
+        &export_path,
+    )?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    assert!(
+        export_file.exists(),
+        "export wrote a symbol library file to the chosen path"
+    );
+    let mut fresh = pcbcraft_engine::Session::default();
+    fresh
+        .execute(
+            "library.import_symbol_file",
+            json!({"path": export_path}),
+            None,
+        )
+        .map_err(|e| e.to_string())?;
+    let imported = fresh
+        .project
+        .library
+        .symbols
+        .iter()
+        .find(|s| s.name == "EditedExportSymbol")
+        .ok_or("the exported symbol did not come back through import")?;
+    assert_eq!(
+        imported.value, "CustomValue",
+        "import brings back the same default value"
+    );
+    let _ = std::fs::remove_file(&export_file);
+    Ok(())
+}

@@ -6,6 +6,7 @@ use pcbcraft_library::{
     ChamferCorners, Drill, FootprintDefinition, FootprintPad, Graphic, MAX_PAD_POLYGON_VERTICES,
     PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
 };
+use std::collections::BTreeSet;
 
 /// Most pads the editor lists one by one; a 40 by 40 BGA fits.
 /// Placing a footprint still stops at 64 pads until the placement limit is lifted.
@@ -53,6 +54,12 @@ pub(super) struct Editor {
     poly_points: Vec<Point>,
     arc_points: Vec<Point>,
     drag_anchor: Option<(LibraryPick, Point)>,
+    /// Path for symbol export: one library file holding every chosen symbol.
+    export_symbol_path: String,
+    /// Folder that receives one footprint library file per chosen footprint.
+    export_footprint_dir: String,
+    selected_symbols: BTreeSet<String>,
+    selected_footprints: BTreeSet<String>,
 }
 impl Default for Editor {
     fn default() -> Self {
@@ -60,6 +67,10 @@ impl Default for Editor {
             mode: 0,
             draft: None,
             path: "parts.pcbcraft-lib".into(),
+            export_symbol_path: "symbols.kicad_sym".into(),
+            export_footprint_dir: "exported_footprints".into(),
+            selected_symbols: BTreeSet::new(),
+            selected_footprints: BTreeSet::new(),
             notice: None,
             wizard: Default::default(),
             tool: LibraryTool::Select,
@@ -1331,6 +1342,43 @@ fn graphic_translate(graphic: &mut Graphic, delta: Point) {
 }
 
 impl App {
+    /// Write project-library definitions through `library.export` without changing the design.
+    fn run_library_export(&mut self, kind: &str, names: Vec<String>, path: &str) {
+        if names.is_empty() {
+            self.library.editor.notice =
+                Some(t!("library.project_library.export_pick_at_least_one").into());
+            return;
+        }
+        let path = path.trim();
+        if path.is_empty() {
+            self.library.editor.notice =
+                Some(t!("library.project_library.export_path_required").into());
+            return;
+        }
+        let params = json!({"kind": kind, "path": path, "names": names});
+        let result = self
+            .session
+            .lock()
+            .map_err(|_| t!("dialogs.run.session_unavailable"))
+            .and_then(|mut s| {
+                s.execute("library.export", params, Some(self.revision))
+                    .map_err(|e| e.to_string())
+            });
+        match result {
+            Ok(_) => {
+                self.refresh();
+                self.library.editor.notice = Some(
+                    t!(
+                        "library.project_library.export_done",
+                        path = path
+                    )
+                    .into(),
+                );
+            }
+            Err(e) => self.library.editor.notice = Some(e),
+        }
+    }
+
     pub(super) fn library_workspaces(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.selectable_value(
@@ -1393,6 +1441,9 @@ impl App {
     fn project_library(&mut self, ui: &mut egui::Ui) {
         ui.heading(t!("library.project_library.this_project_s_definitions"));
         ui.label(t!("library.project_library.saved_here_live_with_the"));
+        if let Some(notice) = &self.library.editor.notice {
+            ui.colored_label(Color32::LIGHT_YELLOW, notice);
+        }
         ui.horizontal(|ui| {
             ui.label(t!("library.project_library.collection_file"));
             ui.add(crate::targets::text_field(&mut self.library.editor.path))
@@ -1414,13 +1465,59 @@ impl App {
         });
         ui.separator();
         ui.heading(t!("library.project_library.symbols"));
+        ui.horizontal(|ui| {
+            ui.label(t!("library.project_library.symbol_export_path"));
+            ui.add(crate::targets::text_field(&mut self.library.editor.export_symbol_path))
+                .named(&t!("library.project_library.symbol_export_path"))
+                .on_hover_text(t!("library.project_library.symbol_export_path.tip"));
+            let export_selected = self.library.editor.selected_symbols.len() > 1;
+            if ui
+                .add_enabled(
+                    export_selected,
+                    egui::Button::new(t!("library.project_library.export_selected")),
+                )
+                .on_hover_text(t!("library.project_library.export_selected.tip"))
+                .clicked()
+            {
+                let names: Vec<String> = self
+                    .library
+                    .editor
+                    .selected_symbols
+                    .iter()
+                    .cloned()
+                    .collect();
+                let path = self.library.editor.export_symbol_path.clone();
+                self.run_library_export("symbol", names, &path);
+            }
+        });
+        ui.add_space(4.0);
         for def in self.project.library.symbols.clone() {
             ui.horizontal_wrapped(|ui| {
+                let mut selected = self
+                    .library
+                    .editor
+                    .selected_symbols
+                    .contains(&def.name);
+                ui.checkbox(&mut selected, "")
+                    .on_hover_text(t!("library.project_library.select_for_export.tip"));
+                if selected {
+                    self.library.editor.selected_symbols.insert(def.name.clone());
+                } else {
+                    self.library.editor.selected_symbols.remove(&def.name);
+                }
                 ui.strong(&def.name);
                 ui.label(t!(
                     "library.project_library.len_physical_pins",
                     len = def.pins.len()
                 ));
+                if ui
+                    .button(t!("library.project_library.export"))
+                    .on_hover_text(t!("library.project_library.export.tip"))
+                    .clicked()
+                {
+                    let path = self.library.editor.export_symbol_path.clone();
+                    self.run_library_export("symbol", vec![def.name.clone()], &path);
+                }
                 if ui
                     .button(t!("library.project_library.edit"))
                     .on_hover_text(t!("library.project_library.edit.tip"))
@@ -1461,12 +1558,66 @@ impl App {
         }
         ui.separator();
         ui.heading(t!("library.project_library.footprints"));
+        ui.horizontal(|ui| {
+            ui.label(t!("library.project_library.footprint_export_folder"));
+            ui.add(crate::targets::text_field(
+                &mut self.library.editor.export_footprint_dir,
+            ))
+            .named(&t!("library.project_library.footprint_export_folder"))
+            .on_hover_text(t!("library.project_library.footprint_export_folder.tip"));
+            let export_selected = self.library.editor.selected_footprints.len() > 1;
+            if ui
+                .add_enabled(
+                    export_selected,
+                    egui::Button::new(t!("library.project_library.export_selected")),
+                )
+                .on_hover_text(t!("library.project_library.export_selected_footprints.tip"))
+                .clicked()
+            {
+                let names: Vec<String> = self
+                    .library
+                    .editor
+                    .selected_footprints
+                    .iter()
+                    .cloned()
+                    .collect();
+                let path = self.library.editor.export_footprint_dir.clone();
+                self.run_library_export("footprint", names, &path);
+            }
+        });
+        ui.add_space(4.0);
         self.refresh_footprint_quality();
         for def in self.project.library.footprints.clone() {
             ui.horizontal_wrapped(|ui| {
+                let mut selected = self
+                    .library
+                    .editor
+                    .selected_footprints
+                    .contains(&def.name);
+                ui.checkbox(&mut selected, "")
+                    .on_hover_text(t!("library.project_library.select_for_export.tip"));
+                if selected {
+                    self.library
+                        .editor
+                        .selected_footprints
+                        .insert(def.name.clone());
+                } else {
+                    self.library
+                        .editor
+                        .selected_footprints
+                        .remove(&def.name);
+                }
                 ui.strong(&def.name);
                 ui.label(t!("library.project_library.len_pads", len = def.pads.len()));
                 self.quality_badge(ui, &def.name);
+                if ui
+                    .button(t!("library.project_library.export"))
+                    .on_hover_text(t!("library.project_library.export_footprint.tip"))
+                    .clicked()
+                {
+                    let path = self.library.editor.export_footprint_dir.clone();
+                    self.run_library_export("footprint", vec![def.name.clone()], &path);
+                }
                 if ui
                     .button(t!("library.project_library.edit"))
                     .on_hover_text(t!("library.project_library.edit.tip"))
