@@ -3512,6 +3512,7 @@ impl Default for Project {
                 datums: vec![],
                 fiducials: vec![],
                 netties: vec![],
+                enclosure: None,
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
