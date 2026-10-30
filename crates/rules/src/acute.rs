@@ -57,8 +57,8 @@ fn internal_angle_deg(ax: f64, ay: f64, bx: f64, by: f64) -> Option<f64> {
     if cross.abs() <= 1e-12 && ax * bx + ay * by < 0.0 {
         return None;
     }
-    let dot = (ax * bx + ay * by).clamp(-1.0, 1.0);
-    Some(dot.acos().to_degrees())
+    let between = (ax * bx + ay * by).clamp(-1.0, 1.0).acos().to_degrees();
+    Some(between.min(180.0 - between))
 }
 
 /// `acute_angle` findings for every track joint sharper than ninety degrees.
