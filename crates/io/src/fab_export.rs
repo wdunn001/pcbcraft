@@ -26,6 +26,7 @@ const MAX_OPS: usize = 100_000;
 const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
 const MAX_TOOLS: usize = 64;
+const MAX_XNC_TOOLS: usize = 99;
 const DEFAULT_MASK_MARGIN_MM: f64 = 0.05;
 
 /// Whether a via gets a solder-mask opening on top and bottom plots.
@@ -494,30 +495,32 @@ fn outline_ring(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
 
 fn write_excellon(
     hits: &[DrillHit],
-    plating_line: &str,
+    file_function: &str,
     scale: f64,
     origin: Point,
     inch: bool,
 ) -> Result<String, String> {
-    let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
     // Via hits get their own tools per covering so each tool can carry the
     // via drill attribute and name its covering.
     let mut by_tool: BTreeMap<(u64, u64, Option<ViaCovering>), Vec<&DrillHit>> = BTreeMap::new();
-    for hit in round {
+    for hit in hits {
         by_tool
             .entry((hit.d_um, hit.span_um, hit.via))
             .or_default()
             .push(hit);
     }
-    if by_tool.len() > MAX_TOOLS {
-        return Err("drill export needs 64 or fewer distinct tools".into());
+    if by_tool.len() > MAX_XNC_TOOLS {
+        return Err("drill export needs 99 or fewer distinct tools".into());
     }
-    let (unit_line, prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-    let mut out = format!("M48\n{plating_line}\nFMAT,2\n{unit_line}\n");
+    let (unit_line, prec) = if inch { ("INCH", 4) } else { ("METRIC", 3) };
+    let mut out = format!(
+        "; #@! TF.GenerationSoftware,Tangency Labs,PCBCraft\n\
+         ; #@! TF.FileFunction,{file_function}\n\
+         ; #@! TF.FilePolarity,Positive\n\
+         ; #@! TF.SameCoordinates,Original,1\n\
+         M48\n\
+         {unit_line}\n"
+    );
     for (n, key) in by_tool.keys().enumerate() {
         let d = key.0;
         if let Some(covering) = key.2 {
@@ -527,7 +530,7 @@ fn write_excellon(
             ));
         }
         out.push_str(&format!(
-            "T{}C{:.prec$}\n",
+            "T{:02}C{:.prec$}\n",
             n + 1,
             d as f64 / 1000.0 * scale,
             prec = prec
@@ -538,59 +541,24 @@ fn write_excellon(
     }
     out.push_str("%\nG90\nG05\n");
     for (n, (_key, group)) in by_tool.iter().enumerate() {
-        out.push_str(&format!("T{}\n", n + 1));
+        out.push_str(&format!("T{:02}\n", n + 1));
         for hit in group {
             let x = (hit.x - origin.x) * scale;
             let y = (hit.y - origin.y) * scale;
-            out.push_str(&format!("X{x:.prec$}Y{y:.prec$}\n", prec = prec));
-        }
-    }
-    out.push_str("M30\n");
-    Ok(out)
-}
-
-fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Result<String, String> {
-    let slots: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um > 0).collect();
-    if slots.is_empty() {
-        return Ok(String::new());
-    }
-    let mut by_tool: BTreeMap<u64, Vec<&DrillHit>> = BTreeMap::new();
-    for hit in slots {
-        by_tool.entry(hit.d_um).or_default().push(hit);
-    }
-    if by_tool.len() > MAX_TOOLS {
-        return Err("rout export needs 64 or fewer distinct tools".into());
-    }
-    let (unit_line, prec) = if inch {
-        ("INCH,TZ", 4)
-    } else {
-        ("METRIC,TZ", 3)
-    };
-    let mut out = format!("M48\nRout\nFMAT,2\n{unit_line}\n");
-    for (n, (d, _)) in by_tool.iter().enumerate() {
-        out.push_str(&format!(
-            "T{}C{:.prec$}\n",
-            n + 1,
-            *d as f64 / 1000.0 * scale,
-            prec = prec
-        ));
-    }
-    out.push_str("%\nG90\nG05\n");
-    for (n, (_d, group)) in by_tool.iter().enumerate() {
-        out.push_str(&format!("T{}\n", n + 1));
-        for hit in group {
-            let x = (hit.x - origin.x) * scale;
-            let y = (hit.y - origin.y) * scale;
-            let ux = hit.ux * scale;
-            let uy = hit.uy * scale;
-            out.push_str(&format!(
-                "X{a:.prec$}Y{b:.prec$}G85X{c:.prec$}Y{d:.prec$}\n",
-                a = x - ux,
-                b = y - uy,
-                c = x + ux,
-                d = y + uy,
-                prec = prec
-            ));
+            if hit.span_um == 0 {
+                out.push_str(&format!("X{x:.prec$}Y{y:.prec$}\n", prec = prec));
+            } else {
+                let ux = hit.ux * scale;
+                let uy = hit.uy * scale;
+                out.push_str(&format!(
+                    "G00X{a:.prec$}Y{b:.prec$}\nM15\nG01X{c:.prec$}Y{d:.prec$}\nM16\n",
+                    a = x - ux,
+                    b = y - uy,
+                    c = x + ux,
+                    d = y + uy,
+                    prec = prec
+                ));
+            }
         }
     }
     out.push_str("M30\n");
@@ -1054,11 +1022,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             )?,
         );
     }
-    let rout = write_rout(&hits, scale, origin, inch)?;
-    if !rout.is_empty() {
-        files.insert("pcb-Rout.drl".into(), rout);
-    }
-
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
