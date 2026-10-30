@@ -51,12 +51,12 @@ fn decimal(value: f64) -> String {
     }
 }
 
-enum Aperture {
+pub(crate) enum Aperture {
     Standard(String),
     Outline(Vec<Point>),
 }
 impl Aperture {
-    fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         match self {
             Self::Standard(body) => body.clone(),
             Self::Outline(points) => points
@@ -66,6 +66,170 @@ impl Aperture {
                 .join(","),
         }
     }
+    /// One standard `%ADD` line or a macro plus its `%ADD` invocation.
+    pub(crate) fn definition(&self, code: u32) -> String {
+        match self {
+            Self::Standard(body) => format!("%ADD{code}{body}*%\n"),
+            Self::Outline(points) => {
+                let mut ring = points.clone();
+                if let Some(first) = points.first().copied() {
+                    ring.push(first);
+                }
+                format!(
+                    "%AMPAD{code}*\n4,1,{},{},0*%\n%ADD{code}PAD{code}*%\n",
+                    ring.len().saturating_sub(1),
+                    ring.iter()
+                        .map(|v| format!("{},{}", decimal(v.x), decimal(v.y)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+        }
+    }
+}
+
+/// The aperture that flashes one pad at `center` in board space.
+pub(crate) fn pad_aperture(
+    pad: &Pad,
+    center: Point,
+    footprint: &Footprint,
+    to_file: impl Fn(Point) -> Point,
+) -> Result<Aperture, String> {
+    let rotation =
+        footprint.rotation + pad.geometry.as_ref().map(|g| g.rotation).unwrap_or(0.0);
+    let quarter = rotation.rem_euclid(90.0);
+    let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
+    let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
+    let Some(geometry) = pad.geometry.as_ref() else {
+        return Ok(Aperture::Standard(format!("C,{}", decimal(pad.diameter))));
+    };
+    Ok(match geometry.shape_kind() {
+        PadShape::Circle => Aperture::Standard(format!("C,{}", decimal(geometry.size.x))),
+        PadShape::Rect | PadShape::Oval if axis_aligned => {
+            let (w, h) = if swapped {
+                (geometry.size.y, geometry.size.x)
+            } else {
+                (geometry.size.x, geometry.size.y)
+            };
+            let letter = if geometry.shape_kind() == PadShape::Rect {
+                "R"
+            } else {
+                "O"
+            };
+            Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
+        }
+        PadShape::Unsupported => {
+            return Err(format!(
+                "pad {} has a shape the Gerber writer does not support",
+                pad.number
+            ));
+        }
+        _ => {
+            let mut outline = pad.outline_points();
+            outline.pop();
+            let origin = to_file(center);
+            Aperture::Outline(
+                outline
+                    .into_iter()
+                    .map(|v| {
+                        let board = footprint.position.offset(v.rotate(-footprint.rotation));
+                        let file = to_file(board);
+                        Point::new(file.x - origin.x, file.y - origin.y)
+                    })
+                    .collect(),
+            )
+        }
+    })
+}
+
+/// Shared X2 attributes for fabrication files.
+pub(crate) fn x2_header(
+    creation: &str,
+    file_function: &str,
+    polarity: Option<&str>,
+    same_coordinates: bool,
+    md5: Option<&str>,
+) -> String {
+    let mut out = String::from("%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n");
+    out.push_str(&format!("%TF.CreationDate,{creation}*%\n"));
+    out.push_str(&format!("%TF.FileFunction,{file_function}*%\n"));
+    if let Some(polarity) = polarity {
+        out.push_str(&format!("%TF.FilePolarity,{polarity}*%\n"));
+    }
+    if same_coordinates {
+        out.push_str("%TF.SameCoordinates,PCBCraft*%\n");
+    }
+    if let Some(md5) = md5 {
+        out.push_str(&format!("%TF.MD5,{md5}*%\n"));
+    }
+    out
+}
+
+/// RFC 1321 MD5 for the `%TF.MD5` attribute without adding a dependency.
+pub(crate) fn md5_hex(message: &[u8]) -> String {
+    const SHIFTS: [u32; 64] = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20, 5,
+        9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 6, 10,
+        15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+    ];
+    #[rustfmt::skip]
+    const SINE_TABLE: [u32; 64] = [
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+        0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+        0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+        0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+        0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+        0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+        0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+    ];
+    let mut state: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
+    let mut padded = message.to_vec();
+    let bits = (message.len() as u64).wrapping_mul(8);
+    padded.push(0x80);
+    let zeros = (120 - padded.len() % 64) % 64;
+    padded.extend(vec![0; zeros]);
+    padded.extend_from_slice(&bits.to_le_bytes());
+    for block in padded.chunks(64) {
+        let mut words = [0u32; 16];
+        for (round, word) in words.iter_mut().enumerate() {
+            *word = u32::from_le_bytes([
+                block[round * 4],
+                block[round * 4 + 1],
+                block[round * 4 + 2],
+                block[round * 4 + 3],
+            ]);
+        }
+        let (mut a, mut b, mut c, mut d) = (state[0], state[1], state[2], state[3]);
+        for step in 0..64 {
+            let (mixed, index) = match step / 16 {
+                0 => ((b & c) | (!b & d), step),
+                1 => ((d & b) | (!d & c), (5 * step + 1) % 16),
+                2 => (b ^ c ^ d, (3 * step + 5) % 16),
+                _ => (c ^ (b | !d), (7 * step) % 16),
+            };
+            let rotated = a
+                .wrapping_add(mixed)
+                .wrapping_add(SINE_TABLE[step])
+                .wrapping_add(words[index])
+                .rotate_left(SHIFTS[step]);
+            a = d;
+            d = c;
+            c = b;
+            b = b.wrapping_add(rotated);
+        }
+        state[0] = state[0].wrapping_add(a);
+        state[1] = state[1].wrapping_add(b);
+        state[2] = state[2].wrapping_add(c);
+        state[3] = state[3].wrapping_add(d);
+    }
+    let mut hex = String::with_capacity(32);
+    for word in state {
+        for byte in word.to_le_bytes() {
+            hex.push_str(&format!("{byte:02x}"));
+        }
+    }
+    hex
 }
 
 /// Gerber copper image of one layer. Board coordinates are y-down from the
@@ -82,25 +246,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             return *code;
         }
         let code = 10 + codes.len();
-        match aperture {
-            Aperture::Standard(body) => definitions.push_str(&format!("%ADD{code}{body}*%\n")),
-            Aperture::Outline(points) => {
-                // Outline primitive: exposure, vertex count after the start
-                // point, the closed vertex list, then rotation.
-                let mut ring = points.clone();
-                if let Some(first) = points.first().copied() {
-                    ring.push(first);
-                }
-                definitions.push_str(&format!(
-                    "%AMPAD{code}*\n4,1,{},{},0*%\n%ADD{code}PAD{code}*%\n",
-                    ring.len().saturating_sub(1),
-                    ring.iter()
-                        .map(|v| format!("{},{}", decimal(v.x), decimal(v.y)))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                ));
-            }
-        }
+        definitions.push_str(&aperture.definition(code as u32));
         codes.insert(key, code);
         code
     };
@@ -136,45 +282,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             let Some(center) = f.pad_position(&pad.number) else {
                 continue;
             };
-            let rotation = f.rotation + pad.geometry.as_ref().map(|g| g.rotation).unwrap_or(0.0);
-            let quarter = rotation.rem_euclid(90.0);
-            let axis_aligned = quarter < 1e-9 || 90.0 - quarter < 1e-9;
-            let swapped = (rotation.rem_euclid(180.0) - 90.0).abs() < 1e-9;
-            let aperture = match pad.geometry.as_ref().map(|g| (g.shape_kind(), g.size)) {
-                None => Aperture::Standard(format!("C,{}", decimal(pad.diameter))),
-                Some((PadShape::Circle, size)) => {
-                    Aperture::Standard(format!("C,{}", decimal(size.x)))
-                }
-                Some((kind @ (PadShape::Rect | PadShape::Oval), size)) if axis_aligned => {
-                    let (w, h) = if swapped {
-                        (size.y, size.x)
-                    } else {
-                        (size.x, size.y)
-                    };
-                    let letter = if kind == PadShape::Rect { "R" } else { "O" };
-                    Aperture::Standard(format!("{letter},{}X{}", decimal(w), decimal(h)))
-                }
-                Some((PadShape::Unsupported, _)) => {
-                    return Err(format!(
-                        "pad {} has a shape the Gerber writer does not support",
-                        pad.number
-                    ));
-                }
-                Some(_) => {
-                    let mut outline = pad.outline_points();
-                    outline.pop();
-                    let origin = to_gerber(center);
-                    Aperture::Outline(
-                        outline
-                            .into_iter()
-                            .map(|v| {
-                                let board = to_gerber(f.position.offset(v.rotate(-f.rotation)));
-                                Point::new(board.x - origin.x, board.y - origin.y)
-                            })
-                            .collect(),
-                    )
-                }
-            };
+            let aperture = pad_aperture(pad, center, f, to_gerber)?;
             let code = define(aperture);
             select(&mut body, code);
             let at = to_gerber(center);
@@ -188,9 +296,35 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
         1 => "Bot",
         _ => "Inr",
     };
-    Ok(format!(
-        "%TF.GenerationSoftware,Tangency Labs,PCBCraft*%\n%TF.FileFunction,Copper,L{index},{side}*%\n%TF.FilePolarity,Positive*%\n%FSLAX46Y46*%\n%MOMM*%\n%LPD*%\nG01*\n{definitions}{body}M02*\n"
-    ))
+    let mut head = String::from("G04 copper layer generated by PCBCraft *\n");
+    let mut rest = format!(
+        "%FSLAX46Y46*%\n%MOMM*%\n{definitions}%LPD*%\nG01*\n{body}M02*\n"
+    );
+    let digest = md5_hex(format!("{head}{rest}").as_bytes());
+    head.push_str(&x2_header(
+        crate::PACKAGE_CREATION_DATE,
+        &format!("Copper,L{index},{side}"),
+        Some("Positive"),
+        true,
+        Some(&digest),
+    ));
+    head.push_str(&rest);
+    Ok(head)
+}
+
+#[cfg(test)]
+mod md5_tests {
+    use super::md5_hex;
+
+    #[test]
+    fn md5_matches_the_published_reference_vectors() {
+        assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            md5_hex(b"message digest"),
+            "f96b697d7cb7938d525a2f31aaf161d0"
+        );
+    }
 }
 
 /// Aperture shape for a mask or paste opening, in micrometres. Integer values
