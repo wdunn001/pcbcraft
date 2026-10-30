@@ -11,11 +11,11 @@
   <description>
     <p>
       PCBCraft is an open-source PCB design application written in Rust. Capture schematics,
-      place and route a board, run design checks, and export KiCad-compatible output.
+      place and route a board, run design checks, and export fabrication files.
     </p>
     <ul>
       <li>Unified schematic and PCB editing in one window</li>
-      <li>Symbol and footprint libraries with KiCad import</li>
+      <li>Symbol and footprint libraries, with import from common file formats</li>
       <li>Routing, design rules, and headless checks via pcbcraft-cli</li>
       <li>MCP server for agent-driven workflows</li>
     </ul>
