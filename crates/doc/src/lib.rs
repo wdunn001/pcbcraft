@@ -1531,9 +1531,7 @@ impl ViaGerberDrill {
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
-        self.covering.unwrap_or(board.via_covering_default),
-            covering: None,
-            covering_scope: None,
+        self.covering.unwrap_or(board.via_covering_default)
     }
     /// Which outer faces use the covering on this via.
     pub fn effective_covering_scope(&self) -> ViaCoveringScope {
