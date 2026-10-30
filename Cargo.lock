@@ -3051,6 +3051,7 @@ dependencies = [
  "pcbcraft-geom",
  "pcbcraft-library",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
