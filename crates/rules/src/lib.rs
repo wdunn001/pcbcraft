@@ -3979,7 +3979,12 @@ mod pour_tests {
         });
     }
 
-    fn class_with_limit(p: &mut Project, class_id: Id, net: Id, max_vias: u32) -> Result<(), String> {
+    fn class_with_limit(
+        p: &mut Project,
+        class_id: Id,
+        net: Id,
+        max_vias: u32,
+    ) -> Result<(), String> {
         p.net_classes.push(NetClass {
             id: class_id,
             name: "USB".into(),
@@ -4067,11 +4072,7 @@ mod pour_tests {
         assert_eq!(findings.len(), 1);
         via_on(&mut p, 104, 3, 18.0, 20.0);
         p.validate()?;
-        assert!(
-            drc(&p)
-                .iter()
-                .all(|f| f.code != "diffpair_via_count")
-        );
+        assert!(drc(&p).iter().all(|f| f.code != "diffpair_via_count"));
         Ok(())
     }
 

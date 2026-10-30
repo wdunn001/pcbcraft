@@ -24959,9 +24959,10 @@ mod tests {
                 .any(|d| d.name == "USB" && d.equal_vias)
         );
         let old = pcbcraft_doc::Project::default();
-        let round: pcbcraft_doc::Project =
-            serde_json::from_value(serde_json::to_value(&old).map_err(|e| Error::Invalid(e.to_string()))?)
-                .map_err(|e| Error::Invalid(e.to_string()))?;
+        let round: pcbcraft_doc::Project = serde_json::from_value(
+            serde_json::to_value(&old).map_err(|e| Error::Invalid(e.to_string()))?,
+        )
+        .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(round.net_classes.iter().all(|c| c.max_vias.is_none()));
         assert!(round.board.diff_pairs.iter().all(|d| !d.equal_vias));
         assert!(round.validate().is_ok());
@@ -25030,14 +25031,12 @@ mod tests {
             .as_u64()
             .ok_or_else(missing)?;
         fn via_codes(s: &Session) -> Vec<String> {
-            s.checks()["drc"]
-                .as_array()
-                .map_or_else(Vec::new, |a| {
-                    a.iter()
-                        .filter(|f| f["code"] == "via_count")
-                        .map(|f| f["message"].as_str().unwrap_or("").to_string())
-                        .collect()
-                })
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "via_count")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
         }
         assert_eq!(via_codes(&s).len(), 1);
         s.execute("object.delete", json!({"id":via}), None)?;
