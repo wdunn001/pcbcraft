@@ -27353,6 +27353,7 @@ mod tests {
         let back: Project =
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         assert_eq!(back, s.project);
+        assert_eq!(back.root_sheet_name.as_deref(), Some("Main"));
         assert_eq!(back.sheets.len(), 1);
         assert_eq!(back.component(2).ok_or_else(missing)?.sheet, sheet);
         s.undo()?;
