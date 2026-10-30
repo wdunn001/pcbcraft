@@ -210,8 +210,10 @@ fn commit_field(
     let (low, high) = kind.range();
     let unit = kind.unit();
     let unset = current.is_none();
+    let field_w = ui.available_width().clamp(40.0, 160.0);
     let response = ui
-        .add(
+        .add_sized(
+            egui::vec2(field_w, ui.spacing().interact_size.y),
             egui::DragValue::new(&mut v)
                 .speed(0.01)
                 .range(0.0..=high)
