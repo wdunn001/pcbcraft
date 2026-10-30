@@ -134,6 +134,8 @@ pub(crate) enum Action {
     HighlightNet(Option<Id>),
     /// Make this row the drawing target (the toolbar's Layer field follows).
     SetTarget(Target),
+    /// A click on a layer row: pin or unpin its see-through view.
+    PinView(Target),
     /// Add two inner copper layers below the named copper layer.
     StackAddPair(String),
     /// Rename a stackup layer.
@@ -215,6 +217,10 @@ pub(crate) struct TreeView {
     pub cursor: Option<String>,
     /// A row selected that is not one object: the board outline, a layer, a net.
     pub selected_key: Option<String>,
+    /// The layer or sublayer under the pointer this frame, for the see-through preview.
+    pub hover_target: Option<Target>,
+    /// Key of the row under the pointer this frame.
+    hovered_row: Option<String>,
     /// A rename in progress from a row menu: what it renames and the text so far.
     pub rename: Option<(RenameFor, String)>,
     last_selected: Option<Id>,
@@ -258,6 +264,8 @@ impl Default for TreeView {
             locked: BTreeSet::new(),
             cursor: None,
             selected_key: None,
+            hover_target: None,
+            hovered_row: None,
             rename: None,
             last_selected: None,
             scroll_to: None,
@@ -1873,6 +1881,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     }
     let all = rows(env, view);
+    view.hovered_row = None;
     header(ui, env, view, &all, &colours, &mut actions);
     let n = all.len();
     keyboard(ui, env, view, &all, &mut actions);
@@ -1896,6 +1905,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     });
     ui.spacing_mut().item_spacing.y = spacing;
+    view.hover_target = hovered_stack_target(env, &all, view.hovered_row.as_deref());
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
@@ -2112,6 +2122,31 @@ fn layer_visibility_name(all: &[Row], key: &str) -> Option<&'static str> {
     }
 }
 
+/// The layer or sublayer a hovered row belongs to: its own target, or the
+/// nearest ancestor's, so a net, zone or part previews the sublayer it sits on.
+///
+/// # Rules
+/// - Edge cuts and user layers have no place in the stack, so they preview nothing.
+/// - A whole-layer row (`side:` or `inner:`) previews that layer's copper.
+fn hovered_stack_target(env: &Env, all: &[Row], key: Option<&str>) -> Option<Target> {
+    let mut path = key?;
+    loop {
+        if let Some(Target::Copper(_) | Target::Silk(_) | Target::Mask(_) | Target::Paste(_)) =
+            all.iter().find(|r| r.key == path).and_then(|r| r.target)
+        {
+            return all.iter().find(|r| r.key == path).and_then(|r| r.target);
+        }
+        match path.rsplit_once('/') {
+            Some((parent, _)) => path = parent,
+            // A whole-layer row previews that layer's copper.
+            None if path.starts_with("side:") || path.starts_with("inner:") => {
+                return Some(Target::Copper(path_layer(env, path)));
+            }
+            None => return None,
+        }
+    }
+}
+
 /// Paint one row; returns true when it holds keyboard focus.
 fn paint_row(
     ui: &mut Ui,
@@ -2128,6 +2163,9 @@ fn paint_row(
     if view.focus_pending.as_deref() == Some(r.key.as_str()) {
         resp.request_focus();
         view.focus_pending = None;
+    }
+    if resp.hovered() {
+        view.hovered_row = Some(r.key.clone());
     }
     let focused = resp.has_focus();
     let selected = (r.marks && r.select.is_some() && r.select == env.selected)
@@ -2452,9 +2490,14 @@ fn paint_row(
         _ => t!("tree.row.tip"),
     };
     let resp = resp.on_hover_text(tip);
-    resp.context_menu(|ui| {
-        row_menu(ui, env, view, r, (hidden, locked, focus_on), actions);
-    });
+    let flags = (hidden, locked, focus_on);
+    if let Some(act) =
+        crate::ui_kit::menu::context(&resp, menu_tag(r.kind, r.controls.is_some()), || {
+            row_menu_entries(env, view, r, flags)
+        })
+    {
+        run_row_act(act, env, view, r, flags, actions);
+    }
     if chevron_clicked || (resp.double_clicked() && r.expandable) {
         toggle(view, &r.key);
     } else if resp.clicked() {
@@ -2464,35 +2507,161 @@ fn paint_row(
     focused
 }
 
-/// The right-click menu of a row. Every item runs the same action as its
-/// shortcut or control elsewhere, and names that shortcut.
+/// What picking a row of a tree row's right-click menu does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RowAct {
+    Active,
+    ToggleVisibility,
+    ToggleLock,
+    ToggleFocus,
+    RemoveArt,
+    Select,
+    Delete,
+    ZoomTo,
+    Flip,
+    Rename,
+    NetClass(Option<Id>),
+    Properties,
+    Highlight,
+    ToggleExpand,
+    AddPair,
+    StackRename,
+    MoveUp,
+    MoveDown,
+    RemoveLayer,
+}
+
+/// The kind name capture mode uses to open the first menu of this kind.
+fn menu_tag(kind: RowKind, has_controls: bool) -> &'static str {
+    if has_controls {
+        return "tree-layer";
+    }
+    match kind {
+        RowKind::Layer => "tree-heading",
+        RowKind::Part => "tree-part",
+        RowKind::Net => "tree-net",
+        _ => "tree-row",
+    }
+}
+
+/// One row of the menu from a catalog string pair, splitting a shortcut written after two spaces.
+fn row_item(
+    act: RowAct,
+    label: String,
+    tip: String,
+    icon: crate::ui_kit::icons::Icon,
+) -> crate::ui_kit::menu::Item<RowAct> {
+    let (label, shortcut) = crate::ui_kit::menu::split_shortcut(&label);
+    crate::ui_kit::menu::Item::new(act, label, tip)
+        .icon(icon)
+        .shortcut(shortcut)
+}
+
+/// The rows of a tree row's right-click menu, in four groups: object actions,
+/// edit, view, then the destructive ones. Each runs the same action as its
+/// shortcut or control elsewhere and shows that shortcut at the right.
 ///
 /// # Rules
 /// - Layer rows: Make active, Hide or Show, Lock or Unlock, Focus; machine
 ///   layers also Remove. Objects: Select, Delete. Nets: Highlight.
-fn row_menu(
-    ui: &mut Ui,
+/// - Reads the tree state only; `run_row_act` changes it.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/ui_kit/menu.rs (`Menu`, `Item`).
+/// - crates/text/strings/en.txt (`tree.menu.*`).
+///
+/// # Do not
+/// - Call an action from here; return the row and let `run_row_act` do it.
+fn row_menu_entries(
     env: &Env,
-    view: &mut TreeView,
+    view: &TreeView,
     r: &Row,
     (hidden, locked, focus_on): (bool, bool, bool),
-    actions: &mut Vec<Action>,
-) {
-    let item = |ui: &mut Ui, label: String, tip: String| -> bool {
-        let clicked = ui.button(label).on_hover_text(tip).clicked();
-        if clicked {
-            ui.close();
-        }
-        clicked
-    };
-    if let Some(target) = r.target
-        && item(ui, t!("tree.menu.active"), t!("tree.menu.active.tip"))
-    {
-        actions.push(Action::SetTarget(target));
-        view.selected_key = Some(r.key.clone());
-        actions.push(Action::SelectKey(r.key.clone()));
+) -> Vec<crate::ui_kit::menu::Entry<RowAct>> {
+    use crate::ui_kit::icons as kit;
+    use crate::ui_kit::menu::{Entry, Item, Menu};
+    use crate::ui_kit::menu_icons as glyph;
+    let mut object: Vec<Entry<RowAct>> = Vec::new();
+    let mut edit: Vec<Entry<RowAct>> = Vec::new();
+    let mut shown: Vec<Entry<RowAct>> = Vec::new();
+    let mut destructive: Vec<Item<RowAct>> = Vec::new();
+    if r.target.is_some() {
+        object.push(
+            row_item(
+                RowAct::Active,
+                t!("tree.menu.active"),
+                t!("tree.menu.active.tip"),
+                kit::OK,
+            )
+            .into(),
+        );
     }
-    stack_menu(ui, env, view, r, actions);
+    if let Some(name) = &r.stack {
+        let copper = !r.key.starts_with("diel:");
+        let inner = r.key.starts_with("inner:");
+        let bottom_row = r.key.starts_with("side:bottom");
+        if copper && !bottom_row {
+            object.push(
+                row_item(
+                    RowAct::AddPair,
+                    t!("tree.menu.add_pair"),
+                    t!("tree.menu.add_pair.tip"),
+                    kit::PLUS,
+                )
+                .into(),
+            );
+        }
+        edit.push(
+            row_item(
+                RowAct::StackRename,
+                t!("tree.menu.rename"),
+                t!("tree.menu.rename.tip"),
+                glyph::RENAME,
+            )
+            .into(),
+        );
+        if inner {
+            let layers = &env.project.board.layer_records;
+            let first = layers
+                .iter()
+                .filter(|x| x.kind == "copper")
+                .nth(1)
+                .is_some_and(|x| &x.name == name);
+            let last = layers
+                .iter()
+                .filter(|x| x.kind == "copper")
+                .nth(copper_count(env).saturating_sub(2))
+                .is_some_and(|x| &x.name == name);
+            if !first {
+                edit.push(
+                    row_item(
+                        RowAct::MoveUp,
+                        t!("tree.menu.move_up"),
+                        t!("tree.menu.move_up.tip"),
+                        glyph::MOVE_UP,
+                    )
+                    .into(),
+                );
+            }
+            if !last {
+                edit.push(
+                    row_item(
+                        RowAct::MoveDown,
+                        t!("tree.menu.move_down"),
+                        t!("tree.menu.move_down.tip"),
+                        glyph::MOVE_DOWN,
+                    )
+                    .into(),
+                );
+            }
+            destructive.push(row_item(
+                RowAct::RemoveLayer,
+                t!("tree.menu.remove_layer"),
+                t!("tree.menu.remove_layer.tip"),
+                glyph::TRASH,
+            ));
+        }
+    }
     if let Some(ctl) = &r.controls {
         if ctl.visibility != Visibility::None {
             let label = if hidden {
@@ -2500,7 +2669,207 @@ fn row_menu(
             } else {
                 t!("tree.menu.hide")
             };
-            if item(ui, label, t!("tree.menu.hide.tip")) {
+            shown.push(
+                row_item(
+                    RowAct::ToggleVisibility,
+                    label,
+                    t!("tree.menu.hide.tip"),
+                    if hidden { kit::EYE } else { kit::EYE_OFF },
+                )
+                .into(),
+            );
+        }
+        if !ctl.key.is_empty() {
+            let label = if locked {
+                t!("tree.menu.unlock")
+            } else {
+                t!("tree.menu.lock")
+            };
+            shown.push(
+                row_item(
+                    RowAct::ToggleLock,
+                    label,
+                    t!("tree.menu.lock.tip"),
+                    if locked { kit::LOCK_OPEN } else { kit::LOCK },
+                )
+                .into(),
+            );
+        }
+        if ctl.focusable {
+            let label = if focus_on {
+                t!("tree.menu.unfocus")
+            } else {
+                t!("tree.menu.focus")
+            };
+            shown.push(
+                row_item(
+                    RowAct::ToggleFocus,
+                    label,
+                    t!("tree.menu.focus.tip"),
+                    glyph::FOCUS,
+                )
+                .into(),
+            );
+        }
+        if matches!(ctl.visibility, Visibility::Art(_)) {
+            destructive.push(row_item(
+                RowAct::RemoveArt,
+                t!("tree.menu.remove"),
+                t!("tree.menu.remove.tip"),
+                glyph::TRASH,
+            ));
+        }
+    }
+    if let Some(id) = r.select {
+        object.push(
+            row_item(
+                RowAct::Select,
+                t!("tree.menu.select"),
+                t!("tree.menu.select.tip"),
+                glyph::SELECT,
+            )
+            .into(),
+        );
+        if r.marks && env.selected == Some(id) {
+            destructive.push(row_item(
+                RowAct::Delete,
+                t!("tree.menu.delete"),
+                t!("tree.menu.delete.tip"),
+                glyph::TRASH,
+            ));
+        }
+        if r.kind == RowKind::Part && env.project.footprint(id).is_some() {
+            shown.insert(
+                0,
+                row_item(
+                    RowAct::ZoomTo,
+                    t!("tree.menu.zoom_to"),
+                    t!("tree.menu.zoom_to.tip"),
+                    kit::ZOOM_IN,
+                )
+                .into(),
+            );
+            edit.push(
+                row_item(
+                    RowAct::Flip,
+                    t!("tree.menu.flip"),
+                    t!("tree.menu.flip.tip"),
+                    glyph::FLIP,
+                )
+                .into(),
+            );
+        }
+    }
+    if r.kind == RowKind::Net
+        && let Some(net) = r.net
+    {
+        edit.push(
+            row_item(
+                RowAct::Rename,
+                t!("tree.menu.rename"),
+                t!("tree.menu.rename.tip"),
+                glyph::RENAME,
+            )
+            .into(),
+        );
+        let current = env.project.net_class_id(net);
+        let mut classes: Vec<Entry<RowAct>> = env
+            .project
+            .net_classes
+            .iter()
+            .map(|class| {
+                Item::new(
+                    RowAct::NetClass(Some(class.id)),
+                    class.name.clone(),
+                    t!("tree.menu.net_class.tip"),
+                )
+                .checked(current == Some(class.id))
+                .into()
+            })
+            .collect();
+        classes.push(
+            Item::new(
+                RowAct::NetClass(None),
+                t!("tree.menu.net_class.none"),
+                t!("tree.menu.net_class.tip"),
+            )
+            .checked(current.is_none())
+            .into(),
+        );
+        object.push(Entry::submenu(
+            t!("tree.menu.net_class"),
+            t!("tree.menu.net_class.tip"),
+            Some(glyph::LAYERS),
+            classes,
+        ));
+        object.push(
+            row_item(
+                RowAct::Highlight,
+                t!("tree.menu.highlight"),
+                t!("tree.menu.highlight.tip"),
+                glyph::HIGHLIGHT,
+            )
+            .into(),
+        );
+    }
+    object.push(
+        row_item(
+            RowAct::Properties,
+            t!("tree.menu.properties"),
+            t!("tree.menu.properties.tip"),
+            glyph::PROPERTIES,
+        )
+        .into(),
+    );
+    if r.kind == RowKind::Layer && r.controls.is_none() && r.key != "root" {
+        let open = view.expanded.contains(&r.key);
+        shown.push(
+            row_item(
+                RowAct::ToggleExpand,
+                if open {
+                    t!("tree.menu.collapse")
+                } else {
+                    t!("tree.menu.expand")
+                },
+                t!("tree.chevron.tip"),
+                if open {
+                    kit::CHEVRON_DOWN
+                } else {
+                    kit::CHEVRON_RIGHT
+                },
+            )
+            .into(),
+        );
+    }
+    let mut menu = Menu::new().group(object).group(edit).group(shown);
+    for item in destructive {
+        menu = menu.destructive(item);
+    }
+    menu.entries()
+}
+
+/// Run the row picked in a tree row's menu.
+///
+/// # Rules
+/// - Changes only `view` and the `actions` list; the caller applies the actions.
+fn run_row_act(
+    act: RowAct,
+    env: &Env,
+    view: &mut TreeView,
+    r: &Row,
+    (hidden, _locked, focus_on): (bool, bool, bool),
+    actions: &mut Vec<Action>,
+) {
+    match act {
+        RowAct::Active => {
+            if let Some(target) = r.target {
+                actions.push(Action::SetTarget(target));
+                view.selected_key = Some(r.key.clone());
+                actions.push(Action::SelectKey(r.key.clone()));
+            }
+        }
+        RowAct::ToggleVisibility => {
+            if let Some(ctl) = &r.controls {
                 match &ctl.visibility {
                     Visibility::Canvas(name) => actions.push(Action::SetShown { name, on: hidden }),
                     Visibility::Art(layer) => actions.push(Action::SetArtShown {
@@ -2511,23 +2880,15 @@ fn row_menu(
                 }
             }
         }
-        if !ctl.key.is_empty() {
-            let label = if locked {
-                t!("tree.menu.unlock")
-            } else {
-                t!("tree.menu.lock")
-            };
-            if item(ui, label, t!("tree.menu.lock.tip")) && !view.locked.remove(&ctl.key) {
+        RowAct::ToggleLock => {
+            if let Some(ctl) = &r.controls
+                && !view.locked.remove(&ctl.key)
+            {
                 view.locked.insert(ctl.key.clone());
             }
         }
-        if ctl.focusable {
-            let label = if focus_on {
-                t!("tree.menu.unfocus")
-            } else {
-                t!("tree.menu.focus")
-            };
-            if item(ui, label, t!("tree.menu.focus.tip")) {
+        RowAct::ToggleFocus => {
+            if let Some(ctl) = &r.controls {
                 actions.push(Action::Focus(if focus_on {
                     None
                 } else {
@@ -2535,167 +2896,83 @@ fn row_menu(
                 }));
             }
         }
-        if let Visibility::Art(id) = ctl.visibility
-            && item(ui, t!("tree.menu.remove"), t!("tree.menu.remove.tip"))
-        {
-            actions.push(Action::RemoveArtLayer(id));
-        }
-    }
-    if let Some(id) = r.select {
-        if item(ui, t!("tree.menu.select"), t!("tree.menu.select.tip")) {
-            actions.push(Action::Select(id));
-        }
-        if r.marks
-            && env.selected == Some(id)
-            && item(ui, t!("tree.menu.delete"), t!("tree.menu.delete.tip"))
-        {
-            actions.push(Action::Delete(id));
-        }
-    }
-    if r.kind == RowKind::Part
-        && let Some(id) = r.select
-        && env.project.footprint(id).is_some()
-    {
-        if item(ui, t!("tree.menu.zoom_to"), t!("tree.menu.zoom_to.tip")) {
-            actions.push(Action::ZoomTo(id));
-        }
-        if item(ui, t!("tree.menu.flip"), t!("tree.menu.flip.tip")) {
-            actions.push(Action::FlipSide(id));
-        }
-    }
-    if r.kind == RowKind::Net
-        && let Some(net) = r.net
-    {
-        if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
-            view.rename = Some((RenameFor::Net(net), env.project.net_name(net).to_owned()));
-        }
-        let current = env.project.net_class_id(net);
-        ui.menu_button(t!("tree.menu.net_class"), |ui| {
-            for class in &env.project.net_classes {
-                if ui
-                    .selectable_label(current == Some(class.id), &class.name)
-                    .on_hover_text(t!("tree.menu.net_class.tip"))
-                    .clicked()
-                {
-                    actions.push(Action::NetClass {
-                        net,
-                        class: Some(class.id),
-                    });
-                    ui.close();
-                }
-            }
-            if ui
-                .selectable_label(current.is_none(), t!("tree.menu.net_class.none"))
-                .on_hover_text(t!("tree.menu.net_class.tip"))
-                .clicked()
+        RowAct::RemoveArt => {
+            if let Some(ctl) = &r.controls
+                && let Visibility::Art(id) = ctl.visibility
             {
-                actions.push(Action::NetClass { net, class: None });
-                ui.close();
+                actions.push(Action::RemoveArtLayer(id));
             }
-        })
-        .response
-        .on_hover_text(t!("tree.menu.net_class.tip"));
-    }
-    if r.stack.is_none()
-        && item(
-            ui,
-            t!("tree.menu.properties"),
-            t!("tree.menu.properties.tip"),
-        )
-    {
-        match r.select {
-            Some(id) => actions.push(Action::Select(id)),
-            None => {
+        }
+        RowAct::Select => {
+            if let Some(id) = r.select {
+                actions.push(Action::Select(id));
+            }
+        }
+        RowAct::Delete => {
+            if let Some(id) = r.select {
+                actions.push(Action::Delete(id));
+            }
+        }
+        RowAct::ZoomTo => {
+            if let Some(id) = r.select {
+                actions.push(Action::ZoomTo(id));
+            }
+        }
+        RowAct::Flip => {
+            if let Some(id) = r.select {
+                actions.push(Action::FlipSide(id));
+            }
+        }
+        RowAct::Rename => {
+            if let Some(net) = r.net {
+                view.rename = Some((RenameFor::Net(net), env.project.net_name(net).to_owned()));
+            }
+        }
+        RowAct::NetClass(class) => {
+            if let Some(net) = r.net {
+                actions.push(Action::NetClass { net, class });
+            }
+        }
+        RowAct::Properties => match (r.select, &r.stack) {
+            (_, Some(_)) => {
                 view.selected_key = Some(r.key.clone());
                 actions.push(Action::SelectKey(r.key.clone()));
             }
+            (Some(id), None) => actions.push(Action::Select(id)),
+            (None, None) => {
+                view.selected_key = Some(r.key.clone());
+                actions.push(Action::SelectKey(r.key.clone()));
+            }
+        },
+        RowAct::Highlight => {
+            if let Some(net) = r.net {
+                actions.push(Action::HighlightNet(Some(net)));
+            }
         }
-    }
-    if let Some(net) = r.net
-        && r.kind == RowKind::Net
-        && item(ui, t!("tree.menu.highlight"), t!("tree.menu.highlight.tip"))
-    {
-        actions.push(Action::HighlightNet(Some(net)));
-    }
-    if r.kind == RowKind::Layer && r.controls.is_none() && r.key != "root" {
-        let label = if view.expanded.contains(&r.key) {
-            t!("tree.menu.collapse")
-        } else {
-            t!("tree.menu.expand")
-        };
-        if item(ui, label, t!("tree.chevron.tip")) {
-            toggle(view, &r.key);
+        RowAct::ToggleExpand => toggle(view, &r.key),
+        RowAct::AddPair => {
+            if let Some(name) = &r.stack {
+                actions.push(Action::StackAddPair(name.clone()));
+            }
         }
-    }
-}
-
-/// Stackup items of a layer or dielectric row's menu: add a pair, rename,
-/// remove and move.
-fn stack_menu(ui: &mut Ui, env: &Env, view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
-    let Some(name) = &r.stack else {
-        return;
-    };
-    let item = |ui: &mut Ui, label: String, tip: String| -> bool {
-        let clicked = ui.button(label).on_hover_text(tip).clicked();
-        if clicked {
-            ui.close();
+        RowAct::StackRename => {
+            if let Some(name) = &r.stack {
+                view.rename = Some((RenameFor::Layer(name.clone()), name.clone()));
+            }
         }
-        clicked
-    };
-    let copper = !r.key.starts_with("diel:");
-    let inner = r.key.starts_with("inner:");
-    let bottom_row = r.key.starts_with("side:bottom");
-    if copper && !bottom_row && item(ui, t!("tree.menu.add_pair"), t!("tree.menu.add_pair.tip")) {
-        actions.push(Action::StackAddPair(name.clone()));
-    }
-    if item(ui, t!("tree.menu.rename"), t!("tree.menu.rename.tip")) {
-        view.rename = Some((RenameFor::Layer(name.clone()), name.clone()));
-    }
-    if inner {
-        let first = env
-            .project
-            .board
-            .layer_records
-            .iter()
-            .filter(|x| x.kind == "copper")
-            .nth(1)
-            .is_some_and(|x| &x.name == name);
-        let count = copper_count(env);
-        let last = env
-            .project
-            .board
-            .layer_records
-            .iter()
-            .filter(|x| x.kind == "copper")
-            .nth(count.saturating_sub(2))
-            .is_some_and(|x| &x.name == name);
-        if !first && item(ui, t!("tree.menu.move_up"), t!("tree.menu.move_up.tip")) {
-            actions.push(Action::StackMove {
-                name: name.clone(),
-                up: true,
-            });
+        RowAct::MoveUp | RowAct::MoveDown => {
+            if let Some(name) = &r.stack {
+                actions.push(Action::StackMove {
+                    name: name.clone(),
+                    up: act == RowAct::MoveUp,
+                });
+            }
         }
-        if !last && item(ui, t!("tree.menu.move_down"), t!("tree.menu.move_down.tip")) {
-            actions.push(Action::StackMove {
-                name: name.clone(),
-                up: false,
-            });
+        RowAct::RemoveLayer => {
+            if let Some(name) = &r.stack {
+                actions.push(Action::StackRemove(name.clone()));
+            }
         }
-        if item(
-            ui,
-            t!("tree.menu.remove_layer"),
-            t!("tree.menu.remove_layer.tip"),
-        ) {
-            actions.push(Action::StackRemove(name.clone()));
-        }
-    }
-    if item(
-        ui,
-        t!("tree.menu.properties"),
-        t!("tree.menu.properties.tip"),
-    ) {
-        view.selected_key = Some(r.key.clone());
-        actions.push(Action::SelectKey(r.key.clone()));
     }
 }
 
@@ -2719,6 +2996,9 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
     view.selected_key = Some(r.key.clone());
     if let Some(target) = r.target {
         actions.push(Action::SetTarget(target));
+        if !matches!(target, Target::Edge | Target::User(_)) {
+            actions.push(Action::PinView(target));
+        }
     }
     actions.push(Action::SelectKey(r.key.clone()));
     actions.push(Action::HighlightNet(r.net));
@@ -2899,6 +3179,7 @@ impl crate::App {
                     self.run("board.layer_delete", serde_json::json!({"layer": id}));
                 }
                 Action::SetTarget(target) => self.set_target(target),
+                Action::PinView(target) => self.pin_view(target),
                 Action::StackAddPair(name) => {
                     self.run("board.stackup_add_pair", serde_json::json!({"after": name}));
                 }
