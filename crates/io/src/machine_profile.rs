@@ -140,6 +140,25 @@ mod tests {
     }
 
     #[test]
+    fn each_shipped_preset_toml_on_disk_matches_its_builtin() -> Result<(), String> {
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../machine-profiles");
+        for id in builtin_machine_profile_ids() {
+            let path = root.join(format!("{id}.toml"));
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("read preset file {id}: {e}"))?;
+            let from_disk = machine_profile_from_toml(&text)?;
+            let from_builtin = builtin_machine_profile(id)?;
+            if from_disk != from_builtin {
+                return Err(format!(
+                    "machine-profiles/{id}.toml does not match the compiled built-in preset"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn machine_profile_toml_import_export_round_trip() -> Result<(), String> {
         let profile = builtin_machine_profile("commarker-b6-mopa")?;
         let text = machine_profile_to_toml(&profile)?;
