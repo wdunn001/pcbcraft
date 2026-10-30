@@ -349,7 +349,9 @@ fn built_in_roots() -> Vec<PathBuf> {
     roots
 }
 pub fn catalog() -> Result<Value, String> {
-    catalog_paths(paths(), 4096)
+    let mut out = catalog_paths(paths(), 4096)?;
+    out["configurable_connectors"] = pcbcraft_library::connector_catalog::ConnectorCatalog::summary_json()?;
+    Ok(out)
 }
 fn catalog_paths(roots: Vec<PathBuf>, scan_limit: usize) -> Result<Value, String> {
     let mut symbol_files = vec![];
@@ -558,7 +560,7 @@ const DEFAULT_LIST_LIMIT: usize = 30;
 
 fn source_rank(source: ListingSource) -> u8 {
     match source {
-        ListingSource::Fixture => 0,
+        ListingSource::Fixture | ListingSource::Generated => 0,
         ListingSource::Project => 1,
         ListingSource::Installed => 2,
         ListingSource::Distributor => 3,
@@ -786,6 +788,7 @@ pub fn list_over(
     roots: Vec<PathBuf>,
 ) -> Result<Value, String> {
     let (filter, limit, cursor, mut listings) = list_args(args)?;
+    listings.extend(pcbcraft_library::connector_catalog::ConnectorCatalog::listings()?);
     listings.extend(project.map(project_listings).unwrap_or_default());
     let room = MAX_LISTINGS.saturating_sub(listings.len());
     let (installed, found) = installed_listings(roots, room);
@@ -1161,6 +1164,36 @@ mod tests {
         let next = list_listings(input, &PartFilter::default(), 3, &cursor)?;
         assert_eq!(mpns(&next), ["D2", "D1"]);
         assert!(next["next_cursor"].is_null());
+        Ok(())
+    }
+
+    #[test]
+    fn library_list_includes_embedded_samtec_connector_series() -> Result<(), String> {
+        let out = list_over(
+            &json!({"filter": {"text": "TSW"}, "limit": 10}),
+            None,
+            vec![],
+        )?;
+        let mpns: Vec<String> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item["mpn"].as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(mpns.iter().any(|mpn| mpn == "TSW"));
+        let sources: Vec<&str> = out["items"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item["source"].as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(sources.contains(&"generated"));
         Ok(())
     }
 
