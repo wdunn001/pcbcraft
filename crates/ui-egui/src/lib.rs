@@ -17,6 +17,7 @@ mod editing;
 mod file_dialogs;
 pub mod fonts;
 mod footprint_wizard;
+mod setup_wizard;
 mod hover_affordance;
 mod icons;
 mod impedance_panel;
@@ -719,6 +720,9 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// After the design setup wizard is finished or skipped, do not open it on every new design.
+    #[serde(default)]
+    setup_wizard_seen: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -772,6 +776,7 @@ impl Default for Preferences {
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            setup_wizard_seen: false,
         }
     }
 }
@@ -1115,6 +1120,7 @@ pub struct App {
     sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
+    setup_wizard: setup_wizard::State,
     /// Left edge of the central page, so tests can check text keeps its margin.
     page_left: f32,
     schematic: Camera,
@@ -1683,6 +1689,7 @@ impl App {
             pinned_view: None,
             sync_behind: None,
             renumber_open: false,
+            setup_wizard: setup_wizard::State::default(),
             active_page: 0,
             power_pick: std::collections::BTreeMap::new(),
             page_left: 0.0,
@@ -1905,6 +1912,9 @@ impl App {
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
             self.assistant_design_opened(name);
             self.needs_fit = true;
+        }
+        if success && name == "new_design" && !self.preferences.setup_wizard_seen {
+            self.open_setup_wizard();
         }
         success
     }
@@ -2977,6 +2987,22 @@ impl App {
                             {
                                 self.tool_call("new_design", json!({}));
                                 self.select(None);
+                                self.home_open = false;
+                            }
+                            ui.add_space(6.0);
+                            if ui
+                                .add_sized(
+                                    [300.0, 48.0],
+                                    egui::Button::new(
+                                        egui::RichText::new("Design setup wizard").size(14.0),
+                                    ),
+                                )
+                                .on_hover_text(
+                                    "Reopen the guided board setup for size, layers, and rules.",
+                                )
+                                .clicked()
+                            {
+                                self.open_setup_wizard();
                                 self.home_open = false;
                             }
                             ui.add_space(6.0);
@@ -4323,6 +4349,15 @@ impl App {
         ui.add_space(10.0);
         ui.heading(t!("settings.settings_tab.settings"));
         self.stackup_section(ui);
+        if ui
+            .button("Open design setup wizard")
+            .on_hover_text(
+                "Walk through board size, layers, fabrication preset, and starter net classes.",
+            )
+            .clicked()
+        {
+            self.open_setup_wizard();
+        }
         ui.separator();
         ui.label(t!("settings.settings_tab.how_the_app_looks_and"));
         ui.add_space(10.0);
@@ -5061,6 +5096,30 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        if let Some(rules) = self.project.board.rules.as_ref() {
+            ui.label(
+                egui::RichText::new("Fabrication minimums")
+                    .size(10.0)
+                    .color(self.muted()),
+            );
+            if let Some(name) = rules.preset.as_deref() {
+                ui.label(format!("Preset: {name}"))
+                    .on_hover_text("Named fabrication preset applied to this board.");
+            }
+            if let Some(v) = rules.min_track {
+                ui.label(format!("Min track {v:.3} mm"))
+                    .on_hover_text("Smallest routed width the fab accepts.");
+            }
+            if let Some(v) = rules.min_space {
+                ui.label(format!("Min space {v:.3} mm"))
+                    .on_hover_text("Smallest copper gap the fab accepts.");
+            }
+            if let Some(v) = rules.min_drill {
+                ui.label(format!("Min drill {v:.3} mm"))
+                    .on_hover_text("Smallest drilled hole the fab accepts.");
+            }
+            ui.add_space(8.0);
+        }
         if let Some(pick) = &self.class_pick
             && !self.project.nets.iter().any(|n| n.name == *pick)
         {
@@ -7174,6 +7233,7 @@ impl App {
         self.header(ui);
         self.footer(ui);
         self.renumber_window(&ctx);
+        self.setup_wizard_window(&ctx);
         if self.home_open {
             self.start_home(ui);
         } else {
