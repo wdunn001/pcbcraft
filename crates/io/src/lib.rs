@@ -36,6 +36,7 @@ pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
+mod assembly_drawing;
 mod cam;
 mod cam_drill;
 mod cam_shapes;
@@ -455,7 +456,7 @@ struct PdfPage {
 }
 /// Any surface that can receive the shared view drawing: path outlines,
 /// circles and text, in millimetre design coordinates.
-trait DrawPage {
+pub(crate) trait DrawPage {
     fn path(&mut self, points: &[Point], rgb: [f64; 3], w: f64, fill: bool) -> Result<(), String>;
     fn circle(
         &mut self,
@@ -703,6 +704,9 @@ fn pdf_project_graphic(page: &mut impl DrawPage, g: &pcbcraft_doc::Graphic) -> R
 
 /// Render one view of the design onto the page.
 fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), String> {
+    if assembly_drawing::view_is_assembly(view) {
+        return assembly_drawing::draw(page, p, view);
+    }
     let front = [0.85, 0.25, 0.15];
     let back = [0.2, 0.45, 0.8];
     let copper_edge = [0.0, 0.0, 0.0];
@@ -938,10 +942,14 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
 /// Export the design as a one-page vector PDF document, in bytes.
 pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
+    if view != "pcb" && view != "schematic" && !assembly_drawing::view_is_assembly(view) {
+        return Err("view must be pcb, schematic, assembly-top, or assembly-bottom".into());
     }
-    let (min, max) = preview_bounds(p, view);
+    let (min, max) = if assembly_drawing::view_is_assembly(view) {
+        assembly_drawing::page_bounds(p, view)
+    } else {
+        preview_bounds(p, view)
+    };
     let mut page = PdfPage::new();
     page.fit(min, max);
     page.color([1.0, 1.0, 1.0], false)?;
