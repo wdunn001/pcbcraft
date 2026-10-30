@@ -181,6 +181,26 @@ fn import_online_with_a_bad_definition_changes_nothing() -> Result<(), Error> {
 }
 
 #[test]
+fn place_online_keeps_the_cached_model_on_the_placed_footprint() -> Result<(), Error> {
+    let mut s = Session::default();
+    let mut params = place_params("layout", 10.0, 10.0)?;
+    params["model"] = json!({"path": "/data/cache/part.step"});
+    s.execute("library.place_online", params, None)?;
+    let c = s
+        .project
+        .components
+        .last()
+        .ok_or_else(missing)?;
+    let path = c
+        .library_footprint
+        .as_ref()
+        .and_then(|lf| lf.definition.model.as_ref())
+        .map(|m| m.path.as_str());
+    assert_eq!(path, Some("/data/cache/part.step"));
+    Ok(())
+}
+
+#[test]
 fn place_online_on_the_schematic_places_one_component() -> Result<(), Error> {
     let mut s = Session::default();
     let components = s.project.components.len();

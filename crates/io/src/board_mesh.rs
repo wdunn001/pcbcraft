@@ -2333,4 +2333,54 @@ mod tests {
         assert_eq!(full["bounds"]["min"][0], 0.0);
         Ok(())
     }
+
+    #[test]
+    fn a_cached_step_model_replaces_the_parametric_body() -> Check {
+        use crate::load_model;
+        use std::sync::Arc;
+        let mut p = resistor_project();
+        let step = include_bytes!("../tests/fixtures/box.step");
+        let loaded = load_model("box.step", step).map_err(|e| e.0)?;
+        let box_tris = {
+            let mesh = board_mesh(&p, MeshLayers {
+                board: false,
+                copper: false,
+                mask: false,
+                silk: false,
+                bodies: true,
+            })?;
+            part(&mesh, PartKind::Body)?.indices.len() / 3
+        };
+        if let Some(c) = p.components.first_mut()
+            && let Some(lf) = c.library_footprint.as_mut()
+        {
+            lf.definition.model = Some(Model3D {
+                path: "box.step".into(),
+                offset: [0.0; 3],
+                scale: [1.0; 3],
+                rotate: [0.0; 3],
+                raw_source: String::new(),
+            });
+        }
+        let mut mesh = board_mesh(
+            &p,
+            MeshLayers {
+                board: false,
+                copper: false,
+                mask: false,
+                silk: false,
+                bodies: true,
+            },
+        )?;
+        let notes = with_models(&mut mesh, |_| {
+            ModelLookup::Ready(Arc::new(loaded.clone()))
+        });
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].1, ModelStatus::Loaded);
+        let body = part(&mesh, PartKind::Body)?;
+        assert_eq!(body.family.as_deref(), Some("model"));
+        assert!(body.model.as_ref().is_some_and(|m| m.loaded));
+        assert_ne!(body.indices.len() / 3, box_tris);
+        Ok(())
+    }
 }
