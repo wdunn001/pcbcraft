@@ -246,16 +246,12 @@ impl Provenance {
             .strip_prefix(" from ")
             .ok_or_else(|| invalid_notice("the notice must say from after the file kind"))?;
         let (source_name, source_id, rest) = parse_notice_source(rest)?;
-        let rest = rest
-            .strip_prefix(": ")
-            .ok_or_else(|| invalid_notice("the notice must name the upstream path after the source"))?;
+        let rest = rest.strip_prefix(": ").ok_or_else(|| {
+            invalid_notice("the notice must name the upstream path after the source")
+        })?;
         let (upstream_path, rest) = split_notice_field(
             rest,
-            &[
-                ", file revision ",
-                ", repository revision ",
-                ". Licence ",
-            ],
+            &[", file revision ", ", repository revision ", ". Licence "],
         )?;
         if upstream_path.is_empty() {
             return Err(invalid_notice("the upstream path must not be empty"));
@@ -293,7 +289,9 @@ fn parse_notice_kind(text: &str) -> Result<(CadKind, &str), SourceError> {
             return Ok((kind, rest));
         }
     }
-    Err(invalid_notice("the notice must name symbol, footprint or 3D model"))
+    Err(invalid_notice(
+        "the notice must name symbol, footprint or 3D model",
+    ))
 }
 
 fn parse_notice_source(text: &str) -> Result<(String, String, &str), SourceError> {
@@ -318,10 +316,7 @@ fn parse_notice_source(text: &str) -> Result<(String, String, &str), SourceError
     Ok((source_name, String::new(), &text[colon + 2..]))
 }
 
-fn split_notice_field<'a>(
-    text: &'a str,
-    stops: &[&str],
-) -> Result<(String, &'a str), SourceError> {
+fn split_notice_field<'a>(text: &'a str, stops: &[&str]) -> Result<(String, &'a str), SourceError> {
     let mut end = text.len();
     for stop in stops {
         if let Some(at) = text.find(stop) {
@@ -339,11 +334,7 @@ fn parse_notice_optional_prefix<'a>(
     if let Some(rest) = text.strip_prefix(prefix) {
         let (value, rest) = split_notice_field(
             rest,
-            &[
-                ", file revision ",
-                ", repository revision ",
-                ". Licence ",
-            ],
+            &[", file revision ", ", repository revision ", ". Licence "],
         )?;
         return Ok((value, rest));
     }
