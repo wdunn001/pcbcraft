@@ -3916,7 +3916,16 @@ mod pour_tests {
             layer: Layer::Front,
             arc: None,
         });
-        test_via(&mut p);
+        p.board.vias.push(Via {
+            id: 20,
+            net: 1,
+            position: Point::new(20.0, 20.0),
+            diameter: 0.8,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
         p.board.rule_areas.push(RuleArea {
             id: 40,
             name: None,
