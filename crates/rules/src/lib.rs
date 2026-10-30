@@ -78,7 +78,10 @@ fn zone_pieces(
         .collect())
 }
 fn bottom_copper_layer(project: &Project) -> Layer {
-    Layer::from_index(project.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+    match Layer::from_index(project.copper_layer_count().saturating_sub(1)) {
+        Ok(layer) => layer,
+        Err(_) => Layer::Back,
+    }
 }
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
@@ -2671,6 +2674,10 @@ mod tests {
         assert!(
             airwires(&p).is_empty(),
             "bottom copper must join plated through-hole pads on the last layer index"
+        );
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "unrouted"),
+            "DRC must not report unrouted copper when bottom tracks join through-hole pads"
         );
         Ok(())
     }
