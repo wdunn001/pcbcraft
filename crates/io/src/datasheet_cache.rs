@@ -10,14 +10,24 @@ pub struct DatasheetCacheResult {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn fetch_datasheet_cache(url: &str) -> Result<DatasheetCacheResult, String> {
+pub fn fetch_datasheet_cache(
+    url: &str,
+    extra_headers: &[(String, String)],
+) -> Result<DatasheetCacheResult, String> {
     if url.is_empty() || url.len() > 4096 {
         return Err("datasheet URL invalid".into());
     }
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("datasheet URL must be http or https".into());
     }
-    let body = ureq::get(url)
+    let mut call = ureq::get(url);
+    for (name, value) in extra_headers {
+        if name.is_empty() || name.len() > 128 || value.len() > 4096 {
+            return Err("fetch header invalid".into());
+        }
+        call = call.set(name, value);
+    }
+    let body = call
         .call()
         .map_err(|e| format!("download failed: {e}"))?
         .into_body()
@@ -46,7 +56,10 @@ pub fn fetch_datasheet_cache(url: &str) -> Result<DatasheetCacheResult, String> 
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn fetch_datasheet_cache(_url: &str) -> Result<DatasheetCacheResult, String> {
+pub fn fetch_datasheet_cache(
+    _url: &str,
+    _extra_headers: &[(String, String)],
+) -> Result<DatasheetCacheResult, String> {
     Err("datasheet download is not available on wasm builds".into())
 }
 

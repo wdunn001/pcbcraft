@@ -9,6 +9,8 @@ use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
 mod datasheet_cache;
+mod distributor_credentials;
+mod param_body_step;
 mod diff;
 mod drawn;
 mod fab_export;
@@ -115,6 +117,10 @@ pub use package::{
 /// - crates/io/src/panel_export.rs
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
 pub use datasheet_cache::{DatasheetCacheResult, fetch_datasheet_cache};
+pub use distributor_credentials::{
+    auth_headers_for_distributor, clear_distributor_credential, set_distributor_credential,
+};
+pub use param_body_step::step_param_body;
 pub use part_model::gltf_bounds;
 pub use pcbcraft_doc::Layer;
 /// Plot file reading types and functions for parsing Gerber and Excellon files.

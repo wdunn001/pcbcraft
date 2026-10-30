@@ -77,7 +77,11 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             "part.fetch_datasheet",
             "Download a datasheet to the user cache and record its hash on the part (native builds only)",
             schema(
-                json!({"id":id_schema(),"url":{"type":"string","maxLength":4096}}),
+                json!({
+                    "id":id_schema(),
+                    "url":{"type":"string","maxLength":4096},
+                    "distributor":{"type":"string","maxLength":48}
+                }),
                 &["id", "url"],
             ),
         ),
@@ -149,6 +153,8 @@ struct UserImportParams {
 struct FetchDatasheetParams {
     id: Id,
     url: String,
+    #[serde(default)]
+    distributor: String,
 }
 
 pub(super) fn run(
@@ -402,8 +408,11 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url)
-            .map_err(|e| Error::Invalid(e))?;
+        bounded("distributor", &a.distributor, 48)?;
+        let headers = pcbcraft_io::auth_headers_for_distributor(&a.distributor)
+            .map_err(Error::Invalid)?;
+        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url, &headers)
+            .map_err(Error::Invalid)?;
         let part = p
             .library
             .parts
