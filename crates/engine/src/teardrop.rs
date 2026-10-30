@@ -102,8 +102,7 @@ fn add(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error> {
                 .or_else(|| {
                     p.board.footprints.iter().find_map(|footprint| {
                         footprint.pads.iter().find_map(|pad| {
-                            let anchor =
-                                footprint.pad_position(&pad.number).unwrap_or(pad.offset);
+                            let anchor = footprint.pad_position(&pad.number).unwrap_or(pad.offset);
                             (end.distance(anchor) <= pad.bounding_radius() + 0.25)
                                 .then(|| pad.bounding_radius())
                         })
