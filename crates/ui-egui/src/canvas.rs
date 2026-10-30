@@ -1647,7 +1647,13 @@ impl App {
         let shown = |name: &str| self.layer_shown(name);
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-        let mut sheet_frame = sheet::sheet_for(p, page);
+let mut sheet_frame = sheet::sheet_for(p, page);
+        // The title block names the page being drawn, not always the first.
+        sheet_frame.page = 1 + p
+            .sheets
+            .iter()
+            .position(|s| s.id == page)
+            .map_or(0, |i| i + 1);
         sheet_frame.title_shown &= row_shown("title");
         sheet::paint_sheet(
             painter,
@@ -1702,8 +1708,8 @@ impl App {
                 sc.wire,
             );
         }
-        if row_shown("power") {
-            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+if row_shown("power") {
+            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
         }
         for w in p
             .drawn_wires
@@ -1917,9 +1923,23 @@ impl App {
                     } else {
                         pin.position
                     };
+                    // The name reads inside the body: right-aligned and left of the
+                    // stem end for a pin on the right, hung below it for a pin on top.
+                    let stem = at(pin.stem_end()) - at(pin.position);
+                    let (anchor, shift) = if stem.x.abs() >= stem.y.abs() {
+                        if stem.x < 0.0 {
+                            (Align2::RIGHT_BOTTOM, Vec2::new(-3.0, -3.0))
+                        } else {
+                            (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                        }
+                    } else if stem.y > 0.0 {
+                        (Align2::LEFT_TOP, Vec2::new(3.0, 3.0))
+                    } else {
+                        (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                    };
                     painter.text(
-                        at(label_at) + Vec2::new(3.0, -3.0),
-                        Align2::LEFT_BOTTOM,
+                        at(label_at) + shift,
+                        anchor,
                         &pin.name,
                         FontId::monospace(10.0),
                         sc.muted,
