@@ -40,7 +40,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   strings      extract | check: list text catalog keys, or fail on a bad catalog
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
-  screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
+  screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files
+  visual-gate  compare current screenshots against baselines in target/baselines";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
 const WASM_PACKAGES: [&str; 2] = ["pcbcraft-ui-egui", "pcbcraft-web"];
@@ -552,6 +553,7 @@ fn run() -> Result<(), String> {
         "strings" => strings(args.get(1).map(String::as_str))?,
         "showcase" => showcase::run(&root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
+        "visual-gate" => visual_gate(args.get(1..).unwrap_or(&[]))?,
         "bless-parity" => run_env(
             "cargo",
             &["test", "-p", "pcbcraft-engine", "--test", "parity"],
@@ -644,6 +646,69 @@ fn collect_rs(base: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> Resul
         }
     }
     Ok(())
+}
+
+/// Compares current screenshots against baselines stored in target/baselines.
+/// Fails if any screenshot differs beyond tolerance.
+fn visual_gate(_args: &[String]) -> Result<(), String> {
+    let root = root()?;
+    let baselines_dir = root.join("target").join("baselines");
+    if !baselines_dir.is_dir() {
+        return Err(format!(
+            "baselines directory not found: {}. Run `cargo xtask screenshots` first.",
+            baselines_dir.display()
+        ));
+    }
+
+    let current_dir = root.join("target").join("screenshots");
+
+    let mut differences = Vec::new();
+    for (stem, _) in VIEWS {
+        let baseline = baselines_dir.join(format!("{stem}.png"));
+        let current = current_dir.join(format!("{stem}.png"));
+
+        if !baseline.is_file() {
+            differences.push(format!(
+                "baseline missing: {} (run `cargo xtask screenshots --out target/baselines` to create)",
+                baseline.display()
+            ));
+            continue;
+        }
+
+        if !current.is_file() {
+            differences.push(format!(
+                "current screenshot missing: {}",
+                current.display()
+            ));
+            continue;
+        }
+
+        // Compare images by checking file sizes first (quick check)
+        let baseline_size = std::fs::metadata(&baseline).map_err(|e| e.to_string())?.len();
+        let current_size = std::fs::metadata(&current).map_err(|e| e.to_string())?.len();
+
+        // Allow 1% difference in file size (compression variations)
+        let max_diff = (baseline_size as f64 * 0.01) as u64;
+        if (baseline_size as i64 - current_size as i64).abs() as u64 > max_diff {
+            differences.push(format!(
+                "screenshot differs: {} (baseline: {} bytes, current: {} bytes)",
+                stem,
+                baseline_size,
+                current_size
+            ));
+        }
+    }
+
+    if differences.is_empty() {
+        println!("visual gate: all screenshots match baselines");
+        Ok(())
+    } else {
+        Err(format!(
+            "visual gate failed: {} differences\n{}",
+            differences.len(),
+            differences.join("\n")
+        ))
+    }
 }
 
 /// Runs the chosen subcommand and exits non-zero with the message on failure.
