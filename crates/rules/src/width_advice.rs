@@ -44,19 +44,10 @@ fn record_is_plane(rec: &LayerRecord) -> bool {
 fn plane_beside_layer(project: &Project, layer: Layer) -> bool {
     let copper: Vec<_> = project.copper_layer_records().collect();
     let idx = layer.index() as usize;
-    if idx > 0 {
-        if let Some(rec) = copper.get(idx - 1) {
-            if record_is_plane(rec) {
-                return true;
-            }
-        }
-    }
-    if let Some(rec) = copper.get(idx + 1) {
-        if record_is_plane(rec) {
-            return true;
-        }
-    }
-    false
+    copper
+        .get(idx.wrapping_sub(1))
+        .is_some_and(record_is_plane)
+        || copper.get(idx + 1).is_some_and(record_is_plane)
 }
 
 /// Minimum width for a net on one copper layer from its current, rise and the
