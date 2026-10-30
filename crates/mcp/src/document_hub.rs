@@ -124,6 +124,9 @@ impl DocumentHub {
                     &slot.path,
                     project_has_content(&locked.project),
                 ),
+                "workbench_tab": slot.shell.workbench_tab.as_str(),
+                "selected": slot.shell.selected.map(|id| id.0),
+                "selected_unit": slot.shell.selected_unit,
             }));
         }
         Ok(text_result(json!({"documents": documents})))

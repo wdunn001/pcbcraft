@@ -59,6 +59,23 @@ pub enum WorkbenchTab {
     PlotFiles,
 }
 
+impl WorkbenchTab {
+    /// Stable snake-case name for agents and the control bridge.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Files => "files",
+            Self::Schematic => "schematic",
+            Self::Pcb => "pcb",
+            Self::Board3d => "board3d",
+            Self::Rules => "rules",
+            Self::Checks => "checks",
+            Self::Settings => "settings",
+            Self::Libraries => "libraries",
+            Self::PlotFiles => "plot_files",
+        }
+    }
+}
+
 /// Selection and workbench view that must not leak when switching design tabs.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct DocumentShellState {
