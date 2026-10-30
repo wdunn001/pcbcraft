@@ -815,4 +815,45 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn raster_svg_of_the_sample_board_is_well_formed_and_sized() -> Result<(), String> {
+        let p = pad_project(5.0)?;
+        let mut opts = base_opts(FabLayer::CopperTop);
+        opts.margin_mm = 1.0;
+        let svg = raster_svg(&p, &opts)?;
+        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
+        let w = p.board.width + 2.0 * opts.margin_mm;
+        let h = p.board.height + 2.0 * opts.margin_mm;
+        assert!(
+            svg.contains(&format!("viewBox=\"0 0 {w} {h}\"")),
+            "viewBox matches board size plus margin"
+        );
+        assert!(
+            svg.contains("<circle") || svg.contains("<path"),
+            "top copper shows pad geometry"
+        );
+        let profile = raster_svg(&p, &base_opts(FabLayer::Profile))?;
+        assert!(
+            !profile.contains("<circle"),
+            "profile layer omits pad disks"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn raster_job_pngs_start_with_the_png_signature() -> Result<(), String> {
+        let p = pad_project(4.0)?;
+        let files = raster_job_pngs(&p)?;
+        assert_eq!(files.len(), 6);
+        const SIG: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
+        for (name, bytes) in &files {
+            assert!(name.ends_with(".png"), "{name}");
+            assert!(
+                bytes.starts_with(&SIG),
+                "{name} should be a PNG"
+            );
+        }
+        Ok(())
+    }
 }
