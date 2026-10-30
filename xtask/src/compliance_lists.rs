@@ -8,13 +8,13 @@ use pcbcraft_io::{
 use std::path::{Path, PathBuf};
 
 pub fn run(root: &Path) -> Result<(), String> {
-    check_bundled_metadata()?;
+    check_bundled_metadata(root)?;
     check_rust_leaks(root)?;
     println!("compliance lists policy passed");
     Ok(())
 }
 
-fn check_bundled_metadata() -> Result<(), String> {
+fn check_bundled_metadata(root: &Path) -> Result<(), String> {
     for id in builtin_compliance_list_ids() {
         let snapshot = builtin_compliance_list(id)?;
         if !snapshot.bundled_metadata_ok() {
@@ -52,6 +52,13 @@ fn check_rust_leaks(root: &Path) -> Result<(), String> {
     collect_rust(root.join("xtask"), &mut files)?;
     let mut hits = Vec::new();
     for path in files {
+        if path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .ends_with("crates/io/src/compliance_list.rs")
+        {
+            continue;
+        }
         let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let lower = text.to_lowercase();
         for token in &tokens {

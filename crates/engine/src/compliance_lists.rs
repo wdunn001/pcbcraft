@@ -112,12 +112,6 @@ struct ListsUpdateParams {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ListIdParams {
-    id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct EntityMatchParams {
     list_id: String,
     name: String,
