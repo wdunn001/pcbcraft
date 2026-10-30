@@ -491,12 +491,15 @@ pub(super) fn render(
         }
     }
 
-    let mut shaded: Vec<Option<Tri>> = vec![None; table.len()];
+    // Lit triangles are made on first use: most of the table is never visible.
+    let mut slot = vec![0u32; table.len()];
+    let mut lit: Vec<Tri> = Vec::new();
     let shadow = contact_shadow(mesh, basis, w, h);
     // Shade: one pass over the samples, averaged into pixels in linear light.
     let tan = FOV_TAN as f32;
     let (right, up, fwd) = (v3(basis.right), v3(basis.up), v3(basis.fwd));
     let mut out = Vec::with_capacity(w * h);
+    let mut flat: Option<(u32, u8, egui::Color32)> = None;
     let inv = 1.0 / (ss * ss) as f32;
     let (fw, fh) = (w as f32, h as f32);
     for y in 0..h {
@@ -508,9 +511,21 @@ pub(super) fn render(
                 && (0..ss).all(|dy| {
                     (0..ss).all(|dx| {
                         let at = (y * ss + dy) * sw + x * ss + dx;
-                        ids[at] == ids[first] && flags[at] == flags[first] && ids[first] != 0
+                        ids[at] == ids[first] && flags[at] == flags[first]
                     })
                 });
+            // A flat, shadow-free run of one triangle repeats its last pixel.
+            let id0 = ids[first];
+            if (uniform || ss == 1)
+                && id0 != 0
+                && let Some((pid, pfl, px)) = flat
+                && pid == id0
+                && pfl == flags[first]
+                && shadow[y * w + x] == 0
+            {
+                out.push(px);
+                continue;
+            }
             let (rows, cols, weight) = if uniform {
                 (1, 1, (ss * ss) as f32)
             } else {
@@ -526,11 +541,12 @@ pub(super) fn render(
                     let c = if id == 0 {
                         backdrop(x as f32 / fw, y as f32 / fh)
                     } else {
-                        let t = shaded[id - 1].get_or_insert_with(|| {
+                        if slot[id - 1] == 0 {
                             let (pi, nf) = table[id - 1];
-                            make_tri(mesh, pi as usize, nf, look, &mats, &rig)
-                        });
-                        let t = &*t;
+                            lit.push(make_tri(mesh, pi as usize, nf, look, &mats, &rig));
+                            slot[id - 1] = lit.len() as u32;
+                        }
+                        let t = &lit[slot[id - 1] as usize - 1];
                         let mut c = if flags[at] & F_COVERED != 0 {
                             t.covered
                         } else {
@@ -578,11 +594,19 @@ pub(super) fn render(
                 display(sum[1] * inv) + dither,
                 display(sum[2] * inv) + dither,
             ];
-            out.push(egui::Color32::from_rgb(
+            let colour = egui::Color32::from_rgb(
                 (px[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
                 (px[1].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
                 (px[2].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
-            ));
+            );
+            flat = None;
+            if (uniform || ss == 1) && id0 != 0 && shadow[y * w + x] == 0 {
+                let at = slot[id0 as usize - 1] as usize;
+                if at > 0 && !lit[at - 1].shiny {
+                    flat = Some((id0, flags[first], colour));
+                }
+            }
+            out.push(colour);
         }
     }
     egui::ColorImage::new([w, h], out)
