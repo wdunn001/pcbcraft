@@ -1,5 +1,5 @@
 //! Canonical project data. No UI or protocol dependencies.
-mod component_kind;
+mod compliance_list;
 mod machine_profile;
 mod package_def;
 pub use package_def::{
@@ -7,6 +7,7 @@ pub use package_def::{
     PackageDef, PackageRun, check_template, validate_packages,
 };
 mod outline;
+pub use compliance_list::*;
 pub use machine_profile::*;
 pub use outline::{
     MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_chord_worst_error, arc_polyline, arc_sagitta,
