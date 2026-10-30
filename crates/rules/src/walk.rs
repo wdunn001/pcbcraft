@@ -36,9 +36,7 @@ impl Query<'_> {
 }
 
 fn pin_net(project: &Project, start: &PinRef) -> Option<Id> {
-    if project.component(start.component).is_none() {
-        return None;
-    }
+    project.component(start.component)?;
     project.pin(start).and_then(|p| p.net)
 }
 
