@@ -20,8 +20,8 @@ use pcbcraft_io::{GeneratedOutput, generate, output_hash, write_generated};
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// True for the artifact commands that only read, so the session runs them
-/// without a commit.
+/// True for the commands that only read (the artifact queries and `design.summary`), so the
+/// session runs them without a commit.
 ///
 /// # Rules
 /// - Keep in step with `commands()` in `./lib.rs`.
@@ -34,7 +34,7 @@ use std::path::Path;
 pub fn command_is_read_only(id: &str) -> bool {
     matches!(
         id,
-        "artifact.generate" | "artifact.stale" | "library.online_status"
+"artifact.generate" | "artifact.stale" | "library.online_status" | "design.summary"
     )
 }
 
