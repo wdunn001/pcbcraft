@@ -1226,7 +1226,7 @@ mod tests {
     #[test]
     fn library_drop_in_check_routes_through_the_read_tool() -> Result<(), String> {
         let part = json!({
-            "footprint": "Resistor_SMD:R_0603",
+            "footprint": "lib/resistor-0603",
             "package_key": "chip-0603",
             "pads": ["1", "2"],
             "pins": [

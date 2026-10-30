@@ -12,7 +12,17 @@ fn default_category() -> Category {
     Category::Other
 }
 
-/// One pin as used for pinout comparison.
+/// One schematic pin in a drop-in comparison snapshot.
+///
+/// # Rules
+/// - `number` is required and must match between incumbent and candidate.
+/// - `name` and `electrical_type` must match when both sides supply them.
+///
+/// # Dependencies
+/// - crates/library/src/drop_in_check.rs `DropInPart`
+///
+/// # Do not
+/// - Treat an empty pin number as a wildcard.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DropInPin {
@@ -23,7 +33,18 @@ pub struct DropInPin {
     pub electrical_type: String,
 }
 
-/// Part snapshot for drop-in comparison. Missing optional fields are unknown.
+/// Part snapshot for drop-in comparison.
+///
+/// # Rules
+/// - Optional numeric and tolerance fields that are missing are treated as unknown.
+/// - Passives require every electrical rating to be known on both parts.
+/// - `lifecycle` must be present in JSON input.
+///
+/// # Dependencies
+/// - crates/library/src/listing.rs `Category`, `Lifecycle`, `Unit`
+///
+/// # Do not
+/// - Infer footprint match from empty `footprint` and `package_key`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DropInPart {
@@ -50,7 +71,17 @@ pub struct DropInPart {
     pub height_mm: Option<f64>,
 }
 
-/// One pass or fail line in the report.
+/// One pass or fail line in a drop-in report.
+///
+/// # Rules
+/// - `code` is a stable machine-readable key such as `footprint` or `rated_voltage_v`.
+/// - `pass` is false when the candidate fails that check.
+///
+/// # Dependencies
+/// - crates/library/src/drop_in_check.rs `DropInReport`
+///
+/// # Do not
+/// - Change `code` values without updating callers and tests.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DropInFinding {
@@ -60,6 +91,16 @@ pub struct DropInFinding {
 }
 
 /// Overall answer for whether the candidate may replace the incumbent on the board.
+///
+/// # Rules
+/// - `drop_in` is true only when every finding passes.
+/// - Findings are ordered footprint, pinout, ratings, lifecycle, then height.
+///
+/// # Dependencies
+/// - crates/library/src/drop_in_check.rs `DropInFinding`
+///
+/// # Do not
+/// - Treat `drop_in` as true when any finding failed.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DropInReport {
@@ -610,7 +651,7 @@ mod tests {
 
     fn resistor_10k() -> DropInPart {
         DropInPart {
-            footprint: "Resistor_SMD:R_0603".into(),
+            footprint: "lib/resistor-0603".into(),
             package_key: "chip-0603".into(),
             pads: vec!["1".into(), "2".into()],
             pins: vec![
