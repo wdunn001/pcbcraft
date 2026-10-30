@@ -31,11 +31,14 @@ struct Page {
 fn page() -> Result<Page, Boxed> {
     let starts = Arc::new(Mutex::new(Vec::new()));
     let offline = Arc::new(AtomicBool::new(false));
-    let transport = Arc::new(WebTransport::new(
-        Box::new(Starts(starts.clone())),
-        &["gitlab.com"],
-        offline.clone(),
-    ));
+    let transport = Arc::new(
+        WebTransport::new(
+            Box::new(Starts(starts.clone())),
+            &["gitlab.com"],
+            offline.clone(),
+        )
+        .with_min_gap(std::time::Duration::ZERO),
+    );
     Ok(Page {
         transport,
         starts,
@@ -153,5 +156,74 @@ fn addresses_off_the_list_are_refused_before_the_browser_hears() -> Result<(), B
         );
     }
     assert!(p.starts.lock().is_ok_and(|v| v.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn one_search_fetches_each_address_once() -> Result<(), Boxed> {
+    let p = page()?;
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let source = OpenLibrarySource::new(Box::new(p.transport.clone()), CadCache::in_memory())
+        .with_clock(Box::new(|| 1_000));
+    for _ in 0..400 {
+        let _ = source.search_cards(CardScope::Footprints, "0603");
+        let started: Vec<String> = p
+            .starts
+            .lock()
+            .map(|mut v| std::mem::take(&mut *v))
+            .unwrap_or_default();
+        if let Ok(mut s) = seen.lock() {
+            s.extend(started.iter().cloned());
+        }
+        if p.transport.waiting() == 0 && started.is_empty() {
+            break;
+        }
+        for url in started {
+            p.transport.answer(&url, p.rec.get(&url));
+        }
+    }
+    let all = seen.lock().map(|s| s.clone()).unwrap_or_default();
+    let mut uniq = all.clone();
+    uniq.sort();
+    uniq.dedup();
+    assert!(!all.is_empty());
+    assert_eq!(
+        all.len(),
+        uniq.len(),
+        "an address was fetched twice: {all:?}"
+    );
+    // A second search, with the saved answers, asks the browser for nothing new.
+    let _ = source.search_cards(CardScope::Footprints, "0603");
+    assert!(p.starts.lock().is_ok_and(|v| v.is_empty()));
+    Ok(())
+}
+
+#[test]
+fn requests_to_the_host_are_spaced_by_the_gap() -> Result<(), Boxed> {
+    let starts = Arc::new(Mutex::new(Vec::new()));
+    let t = WebTransport::new(
+        Box::new(Starts(starts.clone())),
+        &["gitlab.com"],
+        Arc::new(AtomicBool::new(false)),
+    );
+    let (a, b) = ("https://gitlab.com/a", "https://gitlab.com/b");
+    assert_eq!(t.get(a), Err(FetchError::Pending));
+    assert_eq!(t.get(b), Err(FetchError::Pending));
+    assert_eq!(
+        starts.lock().map(|v| v.len()).unwrap_or(0),
+        1,
+        "the second waits for the gap"
+    );
+    assert_eq!(t.get(a), Err(FetchError::Pending));
+    assert_eq!(
+        starts.lock().map(|v| v.len()).unwrap_or(0),
+        1,
+        "asking again never fetches again"
+    );
+    std::thread::sleep(
+        pcbcraft_library::web_transport::MIN_GAP + std::time::Duration::from_millis(20),
+    );
+    assert_eq!(t.get(b), Err(FetchError::Pending));
+    assert_eq!(starts.lock().map(|v| v.len()).unwrap_or(0), 2);
     Ok(())
 }

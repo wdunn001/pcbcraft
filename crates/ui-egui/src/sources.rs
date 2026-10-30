@@ -115,7 +115,7 @@ impl App {
     /// - Ages are whole hours below two days and whole days above, never a date.
     /// - The text comes from the catalog; this only picks the key and the numbers.
     pub(super) fn cache_line(&self, stats: &CacheStats, now: u64) -> String {
-        let size = short_size(stats.bytes);
+        let size = short_size(stats.bytes + stats.listing_bytes);
         let cap = short_size(stats.cap);
         let age = match stats.oldest_age_secs(now) {
             None => t!("library.dock.cache_age.none"),
