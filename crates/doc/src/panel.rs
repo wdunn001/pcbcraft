@@ -1,6 +1,6 @@
 //! Panel grid settings and layout math shared by preview and fabrication export.
 
-use crate::{outline_extent, Board, Project};
+use crate::{Board, Project, outline_extent};
 use serde::{Deserialize, Serialize};
 
 /// How neighbouring copies are separated on the manufacturing panel.
