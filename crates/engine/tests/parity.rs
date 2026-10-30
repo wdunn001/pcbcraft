@@ -260,13 +260,16 @@ fn parity_led_indicator_unrouted_reports_airwires() -> Result<(), String> {
     Ok(())
 }
 
+mod support;
+
 #[test]
 fn parity_dual_amplifier_matches_goldens() -> Result<(), String> {
     check_case(
         "dual-amplifier",
         &load_example("dual-amplifier.pcbcraft")?,
         vec![],
-    )
+    )?;
+    support::m6_artifact_goldens::run_reference_board_m6_artifact_goldens()
 }
 
 #[test]
