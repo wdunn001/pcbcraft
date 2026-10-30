@@ -5,6 +5,17 @@ use pcbcraft_geom::{Point, point_in_polygon, polygon_edges, segments_cross};
 const OUTLINE_ARC_STEPS: usize = 16;
 
 /// Closed vertex ring of the pad copper outline in footprint-local space.
+///
+/// # Rules
+/// - Returns an open ring with the first vertex repeated to close it
+/// - All pad shapes are supported: circle, oval, roundrect, chamfered, custom
+///
+/// # Dependencies
+/// - crates/library/src/footprint_pad_outline.rs [`FootprintPad`] for pad geometry
+/// - crates/library/src/footprint_pad_outline.rs [`pcbcraft_geom::Point`] for coordinate math
+///
+/// # Do not
+/// - Assume the returned ring is convex; custom polygons may be concave
 pub fn pad_outline_closed(pad: &FootprintPad) -> Vec<Point> {
     let open = pad_outline_open(pad);
     if open.is_empty() {
@@ -112,6 +123,17 @@ fn chamfered_rect(size: Point, chamfer: PadChamfer) -> Vec<Point> {
 }
 
 /// True when two pad outlines share interior area.
+///
+/// # Rules
+/// - Uses polygon intersection tests from pcbcraft-geom
+/// - Handles all pad shapes via pad_outline_closed
+///
+/// # Dependencies
+/// - crates/library/src/footprint_pad_outline.rs [`pad_outline_closed`] for outline extraction
+/// - crates/library/src/footprint_pad_outline.rs [`pcbcraft_geom::point_in_polygon`] for containment tests
+///
+/// # Do not
+/// - Use this for clearance checks; it detects overlap, not proximity
 pub fn pad_outlines_overlap(a: &FootprintPad, b: &FootprintPad) -> bool {
     let a = pad_outline_closed(a);
     let b = pad_outline_closed(b);

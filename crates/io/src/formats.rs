@@ -270,7 +270,6 @@ const GERBER_OPTIONS: &[OptionSpec] = &[
         kind: OptionKind::Bool { default: true },
     },
 ];
-
 const USE_OUTLINE: &[OptionSpec] = &[OptionSpec {
     param: Some("use_outline"),
     label: "Use as board outline",
@@ -405,7 +404,7 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Assembly,
         Run::Kind("ipc2581"),
     ),
-    common(FormatSpec {
+common(FormatSpec {
         options: GERBER_OPTIONS,
         ..output(
             "gerbers",
@@ -413,7 +412,7 @@ pub static FORMATS: &[FormatSpec] = &[
             "Gerber copper layers, the board outline and drill files that a board maker needs.",
             &["gbr", "drl"],
             Group::Fabrication,
-            Run::Engine("gerber.files"),
+            Run::Kind("gerbers"),
         )
     }),
     output(
@@ -613,7 +612,7 @@ pub struct BomFlavour {
     /// `csv`, `tsv` or `json`.
     pub file_type: &'static str,
     /// (column token, header text), in file order. Tokens: reference, value, footprint,
-    /// mpn, manufacturer, quantity.
+/// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
     pub columns: &'static [(&'static str, &'static str)],
     /// True gives one row per kind of part.
     pub group: bool,
@@ -634,6 +633,14 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
         ("mpn", "MPN"),
         ("manufacturer", "Manufacturer"),
         ("quantity", "Quantity"),
+("reference", "Reference"),
+        ("value", "Value"),
+        ("footprint", "Footprint"),
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("quantity", "Quantity"),
+        ("description", "Description"),
+        ("suppliers", "Supplier part numbers"),
     ],
     group: true,
     reference_separator: ", ",

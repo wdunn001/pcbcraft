@@ -10,19 +10,19 @@
 use egui::{ColorImage, Context, Id, TextureHandle, TextureOptions, Vec2};
 
 const ICON_16: &[u8] = include_bytes!(
-    "../../../assets/brand/generated/linux/hicolor/16x16/apps/io.github.tangency-labs.pcbcraft.png"
+    "../../../assets/brand/generated/linux/hicolor/16x16/apps/io.github.tangency_labs.pcbcraft.png"
 );
 const ICON_32: &[u8] = include_bytes!(
-    "../../../assets/brand/generated/linux/hicolor/32x32/apps/io.github.tangency-labs.pcbcraft.png"
+    "../../../assets/brand/generated/linux/hicolor/32x32/apps/io.github.tangency_labs.pcbcraft.png"
 );
 const ICON_128: &[u8] = include_bytes!(
-    "../../../assets/brand/generated/linux/hicolor/128x128/apps/io.github.tangency-labs.pcbcraft.png"
+    "../../../assets/brand/generated/linux/hicolor/128x128/apps/io.github.tangency_labs.pcbcraft.png"
 );
 const ICON_256: &[u8] = include_bytes!(
-    "../../../assets/brand/generated/linux/hicolor/256x256/apps/io.github.tangency-labs.pcbcraft.png"
+    "../../../assets/brand/generated/linux/hicolor/256x256/apps/io.github.tangency_labs.pcbcraft.png"
 );
 const ICON_512: &[u8] = include_bytes!(
-    "../../../assets/brand/generated/linux/hicolor/512x512/apps/io.github.tangency-labs.pcbcraft.png"
+    "../../../assets/brand/generated/linux/hicolor/512x512/apps/io.github.tangency_labs.pcbcraft.png"
 );
 
 /// The embedded size to use for a mark drawn `pixels` device pixels wide.
@@ -266,14 +266,14 @@ mod tests {
         let generated = root().join("generated");
         for size in [16, 24, 32, 48, 64, 128, 256, 512] {
             let p = generated.join(format!(
-                "linux/hicolor/{size}x{size}/apps/io.github.tangency-labs.pcbcraft.png"
+                "linux/hicolor/{size}x{size}/apps/io.github.tangency_labs.pcbcraft.png"
             ));
             let img = image::open(&p).map(|i| (i.width(), i.height()));
             assert_eq!(img.ok(), Some((size, size)), "{}", p.display());
         }
         assert!(
             generated
-                .join("linux/hicolor/scalable/apps/io.github.tangency-labs.pcbcraft.svg")
+                .join("linux/hicolor/scalable/apps/io.github.tangency_labs.pcbcraft.svg")
                 .exists()
         );
         let ico = std::fs::read(generated.join("windows/pcbcraft.ico")).unwrap_or_default();

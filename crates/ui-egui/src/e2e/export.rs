@@ -348,6 +348,18 @@ fn a_newcomer_sees_no_format_in_the_file_menu() -> Result<(), String> {
     }
     Ok(())
 }
+for word in ["Open…", "Import", "Save", "Save as…", "Export"] {
+        assert!(paints_text(&ctx, &mut app, word)?, "File has {word}");
+    }
+    for f in formats::FORMATS {
+        assert!(
+            !paints_text(&ctx, &mut app, f.label)?,
+            "the File menu names no format, but shows {}",
+            f.label
+        );
+    }
+    Ok(())
+}
 
 #[test]
 fn a_newcomer_picks_a_naming_style_and_sees_the_file_names() -> Result<(), String> {

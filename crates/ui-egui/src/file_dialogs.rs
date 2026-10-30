@@ -530,10 +530,22 @@ impl App {
             return false;
         }
         match f.export {
-            Some(Run::Engine("gerber.files")) => {
+Some(Run::Engine("gerber.files")) => {
                 let mut params = gerber_params(f, d);
                 params["directory"] = json!(&directory);
                 let ok = self.tool_call("gerber.files", params);
+                if ok {
+                    self.message = format!("{} saved in {directory}.", f.label);
+                }
+                ok
+            }
+            Some(Run::Kind(kind)) => {
+                let job = format!("export-{kind}");
+                let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": [kind]}));
+                let ok = self.tool_call(
+                    "output_job.run",
+                    json!({"name": &job, "directory": &directory}),
+                );
                 if ok {
                     self.message = format!("{} saved in {directory}.", f.label);
                 }
@@ -875,6 +887,16 @@ fn detail(
             }
         }
     }
+if f.id == "bom" && d.mode == Mode::Export {
+        ui.add_space(8.0);
+        let o = bom_export::Options::from_values(project, &d.values, &d.only);
+        match bom_export::table(project, &o) {
+            Ok(table) => preview_grid_limited(ui, &table),
+            Err(e) => {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+        }
+    }
     if f.id == "gerbers" && d.mode == Mode::Export {
         ui.add_space(8.0);
         gerber_preview(ui, d, f, project);
@@ -1113,6 +1135,18 @@ impl App {
         let target = match script.step {
             0 => "File",
             1 if script.wait >= 6 => "Export",
+            _ => return,
+        };
+        if let Some(pos) = script.rects.get(target).copied() {
+            raw.events.push(egui::Event::PointerMoved(pos));
+            raw.events.push(button(pos, true));
+            script.release = Some(pos);
+            script.step += 1;
+            script.wait = 0;
+        }
+    }
+}
+1 if script.wait >= 6 => "Export",
             _ => return,
         };
         if let Some(pos) = script.rects.get(target).copied() {
