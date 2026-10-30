@@ -118,7 +118,7 @@ fn gerber_reader_accepts_md5_and_aperture_functions() -> Result<(), String> {
     });
     project.validate()?;
     let files = pcbcraft_io::gerber_files(&project)?;
-    let front = &files["pcb-F-Cu.gbr"];
+    let front = &files["pcb-F.Cu.gbr"];
     pcbcraft_io::assert_gerber_md5_valid(front)?;
     assert!(front.contains("AntiPad"));
     Ok(())

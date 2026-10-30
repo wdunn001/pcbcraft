@@ -57,9 +57,7 @@ pub(crate) fn pad_mask_defined(fp: &Footprint, pad: &Pad) -> bool {
         return false;
     }
     let layers = fp.pad_geometry_layers(pad);
-    let mask = layers
-        .iter()
-        .any(|l| l.ends_with(".Mask") || l == "*.Mask");
+    let mask = layers.iter().any(|l| l.ends_with(".Mask") || l == "*.Mask");
     let copper = layers
         .iter()
         .any(|l| l.ends_with(".Cu") || l == "*.Cu" || l == "F&B.Cu");
@@ -98,7 +96,7 @@ pub(crate) fn copper_file_function(p: &Project, layer: Layer) -> String {
 
 pub(crate) fn copper_gerber_basename(p: &Project, layer: Layer) -> String {
     let name = p.layer_name(layer);
-    format!("pcb-{}.gbr", name.replace('.', "-"))
+    format!("pcb-{name}.gbr")
 }
 
 pub(crate) fn pad_copper_aperture_function(
@@ -120,7 +118,11 @@ pub(crate) fn pad_copper_aperture_function(
         }
         return Some("ComponentPad");
     }
-    if pad.geometry.as_ref().is_some_and(|g| g.pad_type == "smd" || g.drill.is_none()) {
+    if pad
+        .geometry
+        .as_ref()
+        .is_some_and(|g| g.pad_type == "smd" || g.drill.is_none())
+    {
         return Some(smd_aperture_function(fp, pad));
     }
     None
@@ -160,8 +162,9 @@ pub(crate) fn plane_pour_aperture_flashes(
             }
             continue;
         }
-        let clearance =
-            p.required_clearance_at(zone.net, v.net, v.position, v.position, zone.layer, zone.layer);
+        let clearance = p.required_clearance_at(
+            zone.net, v.net, v.position, v.position, zone.layer, zone.layer,
+        );
         let d = (v.diameter + 2.0 * clearance).max(0.001);
         out.push((v.position, d, "AntiPad"));
     }
@@ -187,8 +190,7 @@ pub(crate) fn plane_pour_aperture_flashes(
                 }
                 continue;
             }
-            let clearance =
-                p.required_clearance_at(zone.net, net, at, at, zone.layer, zone.layer);
+            let clearance = p.required_clearance_at(zone.net, net, at, at, zone.layer, zone.layer);
             let outline = pad.outline_points();
             let mut max_r = 0.0f64;
             for pt in &outline {
@@ -316,9 +318,6 @@ mod md5_tests {
 
     #[test]
     fn md5_empty_string_matches_rfc_vector() {
-        assert_eq!(
-            gerber_md5_hex(""),
-            "d41d8cd98f00b204e9800998ecf8427e"
-        );
+        assert_eq!(gerber_md5_hex(""), "d41d8cd98f00b204e9800998ecf8427e");
     }
 }

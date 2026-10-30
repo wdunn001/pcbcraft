@@ -49,12 +49,8 @@ fn a_mask_defined_pad_uses_smdef_for_copper_and_mask() -> Result<(), String> {
     });
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;
-    let cu = files
-        .get("pcb-F-Cu.gbr")
-        .ok_or("missing front copper")?;
-    let mask = files
-        .get("pcb-F.Mask.gbr")
-        .ok_or("missing front mask")?;
+    let cu = files.get("pcb-F.Cu.gbr").ok_or("missing front copper")?;
+    let mask = files.get("pcb-F.Mask.gbr").ok_or("missing front mask")?;
     assert!(
         cu.contains("%TA.AperFunction,SMDPad,SMDef*%"),
         "copper names mask-defined pad"
@@ -137,6 +133,16 @@ fn six_layer_plane_board() -> Result<Project, String> {
         to_layer: None,
         covering: None,
     });
+    p.board.vias.push(Via {
+        id: 3,
+        net: 1,
+        position: Point::new(12.0, 12.0),
+        diameter: 0.5,
+        drill: 0.25,
+        from_layer: None,
+        to_layer: None,
+        covering: None,
+    });
     p.validate()?;
     Ok(p)
 }
@@ -161,7 +167,7 @@ fn plane_layers_write_antipad_and_thermal_relief_pad() -> Result<(), String> {
 fn inner_through_hole_pads_are_component_pads() -> Result<(), String> {
     let mut p = six_layer_plane_board()?;
     p.board.footprints.push(Footprint {
-        id: 3,
+        id: 4,
         component: 0,
         position: Point::new(5.0, 5.0),
         rotation: 0.0,
@@ -242,9 +248,7 @@ fn each_mask_variant_gets_its_file_function_and_outward_index() -> Result<(), St
     ];
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;
-    let top_soldermask = files
-        .get("pcb-F-Mask.gbr")
-        .ok_or("top soldermask row")?;
+    let top_soldermask = files.get("pcb-F-Mask.gbr").ok_or("top soldermask row")?;
     assert!(
         top_soldermask.contains("%TF.FileFunction,Soldermask,Top,1*%"),
         "first top mask from the board outward"
@@ -310,7 +314,9 @@ fn filled_via_writes_a_viafill_file() -> Result<(), String> {
     });
     p.validate()?;
     let files = pcbcraft_io::gerber_files(&p)?;
-    let fill = files.get("pcb-Viafill.gbr").ok_or("missing viafill layer")?;
+    let fill = files
+        .get("pcb-Viafill.gbr")
+        .ok_or("missing viafill layer")?;
     assert!(fill.contains("%TF.FileFunction,Viafill*%"));
     pcbcraft_io::assert_gerber_md5_valid(fill)?;
     Ok(())
