@@ -553,7 +553,7 @@ pub struct BomFlavour {
     /// `csv`, `tsv` or `json`.
     pub file_type: &'static str,
     /// (column token, header text), in file order. Tokens: reference, value, footprint,
-    /// mpn, manufacturer, quantity.
+    /// mpn, manufacturer, quantity, description, suppliers (every supplier as `Name: number`).
     pub columns: &'static [(&'static str, &'static str)],
     /// True gives one row per kind of part.
     pub group: bool,
@@ -574,6 +574,8 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
         ("mpn", "MPN"),
         ("manufacturer", "Manufacturer"),
         ("quantity", "Quantity"),
+        ("description", "Description"),
+        ("suppliers", "Supplier part numbers"),
     ],
     group: true,
     reference_separator: ", ",
