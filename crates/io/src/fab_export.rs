@@ -17,6 +17,7 @@
 //! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
+use crate::layers::{fabrication_point, fabrication_xy};
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
@@ -493,10 +494,10 @@ fn outline_ring(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
 }
 
 fn write_excellon(
+    p: &Project,
     hits: &[DrillHit],
     plating_line: &str,
     scale: f64,
-    origin: Point,
     inch: bool,
 ) -> Result<String, String> {
     let round: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um == 0).collect();
@@ -540,16 +541,20 @@ fn write_excellon(
     for (n, (_key, group)) in by_tool.iter().enumerate() {
         out.push_str(&format!("T{}\n", n + 1));
         for hit in group {
-            let x = (hit.x - origin.x) * scale;
-            let y = (hit.y - origin.y) * scale;
-            out.push_str(&format!("X{x:.prec$}Y{y:.prec$}\n", prec = prec));
+            let (x, y) = fabrication_xy(p, hit.x, hit.y);
+            out.push_str(&format!(
+                "X{x:.prec$}Y{y:.prec$}\n",
+                x = x * scale,
+                y = y * scale,
+                prec = prec
+            ));
         }
     }
     out.push_str("M30\n");
     Ok(out)
 }
 
-fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Result<String, String> {
+fn write_rout(p: &Project, hits: &[DrillHit], scale: f64, inch: bool) -> Result<String, String> {
     let slots: Vec<&DrillHit> = hits.iter().filter(|h| h.span_um > 0).collect();
     if slots.is_empty() {
         return Ok(String::new());
@@ -579,16 +584,14 @@ fn write_rout(hits: &[DrillHit], scale: f64, origin: Point, inch: bool) -> Resul
     for (n, (_d, group)) in by_tool.iter().enumerate() {
         out.push_str(&format!("T{}\n", n + 1));
         for hit in group {
-            let x = (hit.x - origin.x) * scale;
-            let y = (hit.y - origin.y) * scale;
-            let ux = hit.ux * scale;
-            let uy = hit.uy * scale;
+            let (ax, ay) = fabrication_xy(p, hit.x - hit.ux, hit.y - hit.uy);
+            let (bx, by) = fabrication_xy(p, hit.x + hit.ux, hit.y + hit.uy);
             out.push_str(&format!(
                 "X{a:.prec$}Y{b:.prec$}G85X{c:.prec$}Y{d:.prec$}\n",
-                a = x - ux,
-                b = y - uy,
-                c = x + ux,
-                d = y + uy,
+                a = ax * scale,
+                b = ay * scale,
+                c = bx * scale,
+                d = by * scale,
                 prec = prec
             ));
         }
@@ -602,7 +605,6 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
     p.validate()?;
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-    let origin = p.board.drill_origin;
     let hits = collect_drill_hits(p)?;
     let counts = drill_tool_counts(p)?;
     let mut layer = GerberLayer::new(scale);
@@ -622,15 +624,13 @@ pub fn drill_map_plot(p: &Project) -> Result<String, String> {
             .iter()
             .filter(|h| h.d_um == *d_um && h.span_um == *span_um && h.plated == *plated)
         {
-            let (x, y) = (hit.x - origin.x, hit.y - origin.y);
+            let center = fabrication_point(p, Point::new(hit.x, hit.y));
             if hit.span_um == 0 {
-                layer.flash(code, x, y)?;
+                layer.flash(code, center.x, center.y)?;
             } else {
-                layer.stroke(
-                    code,
-                    &[(x - hit.ux, y - hit.uy), (x + hit.ux, y + hit.uy)],
-                    false,
-                )?;
+                let a = fabrication_point(p, Point::new(hit.x - hit.ux, hit.y - hit.uy));
+                let b = fabrication_point(p, Point::new(hit.x + hit.ux, hit.y + hit.uy));
+                layer.stroke(code, &[(a.x, a.y), (b.x, b.y)], false)?;
             }
         }
     }
@@ -745,7 +745,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
     let inch = p.unit == "inch";
     let scale = if inch { 1.0 / 25.4 } else { 1.0 };
-    let mirror = |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x, y) } else { (x, y) } };
+    let fab = |x: f64, y: f64| fabrication_xy(p, x, y);
 
     let mut front = GerberLayer::new(scale);
     let mut back = GerberLayer::new(scale);
@@ -764,7 +764,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let outline: Vec<(f64, f64)> = z
             .outline
             .iter()
-            .map(|q| mirror(q.x, q.y, is_back))
+            .map(|q| fab(q.x, q.y))
             .collect();
         file.push_attrs(net_name(p, z.net), None);
         file.fill(code, &outline)?;
@@ -772,7 +772,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             if cutout.len() < 3 {
                 continue;
             }
-            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
+            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| fab(q.x, q.y)).collect();
             file.clear_fill(code, &ring)?;
         }
     }
@@ -784,22 +784,15 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let code = file.code(Ap::Circle(w.max(1)))?;
         file.push_attrs(net_name(p, t.net), None);
         if let Some(arc) = t.curve() {
-            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
-            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
-            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
-            let clockwise = if is_back {
-                arc.sweep > 0.0
-            } else {
-                arc.sweep < 0.0
-            };
+            let (sx, sy) = fab(t.start.x, t.start.y);
+            let (ex, ey) = fab(t.end.x, t.end.y);
+            let (cx, cy) = fab(arc.center.x, arc.center.y);
+            let clockwise = arc.sweep < 0.0;
             file.arc_segment(code, sx, sy, ex, ey, cx, cy, clockwise)?;
         } else {
             file.stroke(
                 code,
-                &[
-                    mirror(t.start.x, t.start.y, is_back),
-                    mirror(t.end.x, t.end.y, is_back),
-                ],
+                &[fab(t.start.x, t.start.y), fab(t.end.x, t.end.y)],
                 false,
             )?;
         }
@@ -827,14 +820,14 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             } else {
                 (front.code(ap.clone())?, 0)
             };
+            let (wx, wy) = fab(world.x, world.y);
             if front_code != 0 {
                 front.push_attrs(net, part);
-                front.flash(front_code, world.x, world.y)?;
+                front.flash(front_code, wx, wy)?;
             }
             if back_code != 0 {
-                let (x, y) = mirror(world.x, world.y, true);
                 back.push_attrs(net, part);
-                back.flash(back_code, x, y)?;
+                back.flash(back_code, wx, wy)?;
             }
 
             let local_outline: Vec<(f64, f64)> = pad
@@ -856,26 +849,25 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             let mask_on_back = through || is_back;
             if mask_on_front && !mask_ring.is_empty() {
                 let code = mask_front.code(Ap::Circle(1))?;
-                mask_front.fill(code, &outline_ring(&mask_ring))?;
+                let fab_ring: Vec<(f64, f64)> =
+                    mask_ring.iter().map(|(x, y)| fab(*x, *y)).collect();
+                mask_front.fill(code, &outline_ring(&fab_ring))?;
             }
             if mask_on_back && !mask_ring.is_empty() {
                 let code = mask_back.code(Ap::Circle(1))?;
-                let mirrored: Vec<(f64, f64)> = mask_ring
-                    .iter()
-                    .map(|(x, y)| mirror(*x, *y, true))
-                    .collect();
-                mask_back.fill(code, &outline_ring(&mirrored))?;
+                let fab_ring: Vec<(f64, f64)> =
+                    mask_ring.iter().map(|(x, y)| fab(*x, *y)).collect();
+                mask_back.fill(code, &outline_ring(&fab_ring))?;
             }
 
             if pad_is_smd(pad) {
                 if !is_back && !paste_ring.is_empty() {
                     let code = paste_front.code(pad_ap(pad))?;
-                    paste_front.flash(code, world.x, world.y)?;
+                    paste_front.flash(code, wx, wy)?;
                 }
                 if is_back && !paste_ring.is_empty() {
-                    let (x, y) = mirror(world.x, world.y, true);
                     let code = paste_back.code(pad_ap(pad))?;
-                    paste_back.flash(code, x, y)?;
+                    paste_back.flash(code, wx, wy)?;
                 }
             }
         }
@@ -887,14 +879,14 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         let front_code = front.code(ap.clone())?;
         let back_code = back.code(ap)?;
         let (reaches_top, reaches_bottom) = via_reaches_outer(p, v);
+        let (vx, vy) = fab(v.position.x, v.position.y);
         if reaches_top {
             front.push_attrs(net_name(p, v.net), None);
-            front.flash(front_code, v.position.x, v.position.y)?;
+            front.flash(front_code, vx, vy)?;
         }
         if reaches_bottom {
-            let (x, y) = mirror(v.position.x, v.position.y, true);
             back.push_attrs(net_name(p, v.net), None);
-            back.flash(back_code, x, y)?;
+            back.flash(back_code, vx, vy)?;
         }
 
         if via_mask_opening(v, &p.board) && (reaches_top || reaches_bottom) {
@@ -908,20 +900,24 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
             }
             if reaches_top {
                 let code_f = mask_front.code(Ap::Circle(1))?;
-                mask_front.fill(code_f, &outline_ring(&ring))?;
+                let fab_ring: Vec<(f64, f64)> = ring.iter().map(|(x, y)| fab(*x, *y)).collect();
+                mask_front.fill(code_f, &outline_ring(&fab_ring))?;
             }
             if reaches_bottom {
-                let mirrored: Vec<(f64, f64)> =
-                    ring.iter().map(|(x, y)| mirror(*x, *y, true)).collect();
+                let fab_ring: Vec<(f64, f64)> = ring.iter().map(|(x, y)| fab(*x, *y)).collect();
                 let code_b = mask_back.code(Ap::Circle(1))?;
-                mask_back.fill(code_b, &outline_ring(&mirrored))?;
+                mask_back.fill(code_b, &outline_ring(&fab_ring))?;
             }
         }
     }
 
     let mut outline = GerberLayer::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
+    let edge_points: Vec<(f64, f64)> = board_edge_points(p)
+        .into_iter()
+        .map(|(x, y)| fab(x, y))
+        .collect();
+    outline.stroke(edge_code, &edge_points, true)?;
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {
@@ -929,17 +925,17 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         }
         outline.select(edge_code);
         outline.body.push_str("G75*\n");
+        let (cx, cy) = fab(c.center.x, c.center.y);
         outline.body.push_str(&format!(
             "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
+            (cx - c.radius) * scale,
+            cy * scale,
             c.radius * scale,
             0.0
         ));
     }
 
     let hits = collect_drill_hits(p)?;
-    let origin = p.board.drill_origin;
     let plated: Vec<DrillHit> = hits
         .iter()
         .copied()
@@ -1020,13 +1016,13 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     if !plated.is_empty() {
         files.insert(
             "pcb-Plated.drl".into(),
-            write_excellon(&plated, "Plated,1,2,PTH", scale, origin, inch)?,
+            write_excellon(p, &plated, "Plated,1,2,PTH", scale, inch)?,
         );
     }
     if !unplated.is_empty() {
         files.insert(
             "pcb-NPTH.drl".into(),
-            write_excellon(&unplated, "NonPlated,1,2,NPTH", scale, origin, inch)?,
+            write_excellon(p, &unplated, "NonPlated,1,2,NPTH", scale, inch)?,
         );
     }
     // Blind and buried vias drill in their own passes: one file per span.
@@ -1046,15 +1042,15 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         files.insert(
             format!("pcb-Drill-L{}-L{}.drl", a + 1, b + 1),
             write_excellon(
+                p,
                 &span_hits,
                 &format!("Plated,{},{},{kind}", a + 1, b + 1),
                 scale,
-                origin,
                 inch,
             )?,
         );
     }
-    let rout = write_rout(&hits, scale, origin, inch)?;
+    let rout = write_rout(p, &hits, scale, inch)?;
     if !rout.is_empty() {
         files.insert("pcb-Rout.drl".into(), rout);
     }

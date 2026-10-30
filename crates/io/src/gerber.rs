@@ -10,11 +10,10 @@
 //! flash point. Chamfered and custom outlines are exact; roundrect corners are
 //! chord approximated within `Pad::outline_error`.
 //!
-//! The copper writer states coordinates in millimetres y-up about the board
-//! height. The mask, paste and silkscreen writers match the fabrication package
-//! from `gerber_files`: y stays down from the top-left corner, and a bottom
-//! side file mirrors x about the board origin.
+//! All writers emit millimetre coordinates in one y-up fabrication frame with
+//! drill origin subtracted, matching `gerber_files` and Excellon output.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
+use crate::layers::fabrication_point;
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -66,12 +65,10 @@ impl Aperture {
     }
 }
 
-/// Gerber copper image of one layer. Board coordinates are y-down from the
-/// top-left board corner; Gerber is y-up, so y is mirrored about the board height.
+/// Gerber copper image of one layer in the shared fabrication frame.
 pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     p.validate()?;
-    let height = p.board.height;
-    let to_gerber = |point: Point| Point::new(point.x, height - point.y);
+    let to_fab = |point: Point| fabrication_point(p, point);
     let mut codes: BTreeMap<String, usize> = BTreeMap::new();
     let mut definitions = String::new();
     let mut define = |aperture: Aperture| -> usize {
@@ -113,7 +110,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     for t in p.board.tracks.iter().filter(|t| t.layer == layer) {
         let code = define(Aperture::Standard(format!("C,{}", decimal(t.width))));
         select(&mut body, code);
-        let (a, b) = (to_gerber(t.start), to_gerber(t.end));
+        let (a, b) = (to_fab(t.start), to_fab(t.end));
         body.push_str(&format!(
             "X{}Y{}D02*\nX{}Y{}D01*\n",
             coordinate(a.x),
@@ -161,12 +158,12 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
                 Some(_) => {
                     let mut outline = pad.outline_points();
                     outline.pop();
-                    let origin = to_gerber(center);
+                    let origin = to_fab(center);
                     Aperture::Outline(
                         outline
                             .into_iter()
                             .map(|v| {
-                                let board = to_gerber(f.position.offset(v.rotate(-f.rotation)));
+                                let board = to_fab(f.position.offset(v.rotate(-f.rotation)));
                                 Point::new(board.x - origin.x, board.y - origin.y)
                             })
                             .collect(),
@@ -175,7 +172,7 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             };
             let code = define(aperture);
             select(&mut body, code);
-            let at = to_gerber(center);
+            let at = to_fab(center);
             body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
         }
     }
@@ -359,16 +356,6 @@ fn file_scale(p: &Project) -> f64 {
     if p.unit == "inch" { 1.0 / 25.4 } else { 1.0 }
 }
 
-/// A bottom side file mirrors x about the board origin.
-fn mirror(at: Point, layer: Layer) -> Point {
-    match layer {
-        Layer::Back => Point::new(-at.x, at.y),
-        // Only the outer sides carry mask, paste and silk; an inner layer
-        // never reaches here, and the top side is the harmless default.
-        _ => at,
-    }
-}
-
 /// Millimetres to whole micrometres, the unit the aperture keys use.
 fn microns(millimetres: f64) -> i64 {
     (millimetres * 1_000.0).round() as i64
@@ -424,7 +411,7 @@ fn pad_is_smd(pad: &Pad) -> bool {
 /// exact. Other outlines grow their bounding box by the margin, which matches
 /// the rule within the margin at every edge for a plain rectangle and never
 /// leaves an opening smaller than the pad itself.
-fn pad_opening(f: &Footprint, pad: &Pad, margin: f64, mirror_x: bool) -> Result<Opening, String> {
+fn pad_opening(f: &Footprint, pad: &Pad, margin: f64) -> Result<Opening, String> {
     let Some(g) = &pad.geometry else {
         let diameter = (pad.diameter + 2.0 * margin).max(0.001);
         return Ok(Opening::Circle(microns(diameter)));
@@ -472,8 +459,7 @@ fn pad_opening(f: &Footprint, pad: &Pad, margin: f64, mirror_x: bool) -> Result<
                     let v = v
                         .offset(Point::new(-pad.offset.x, -pad.offset.y))
                         .rotate(-f.rotation);
-                    let x = if mirror_x { -v.x } else { v.x };
-                    (microns(x), microns(v.y))
+                    (microns(v.x), microns(v.y))
                 })
                 .collect();
             Ok(Opening::Outline(points))
@@ -487,7 +473,6 @@ fn pad_opening(f: &Footprint, pad: &Pad, margin: f64, mirror_x: bool) -> Result<
 /// vias, use the default because no footprint rule reaches them.
 pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, true).unwrap_or(DEFAULT_MASK_MARGIN);
@@ -498,15 +483,15 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
             let Some(at) = f.pad_position(&pad.number) else {
                 continue;
             };
-            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let opening = pad_opening(f, pad, margin)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            sheet.flash(code, mirror(at, layer))?;
+            sheet.flash(code, fabrication_point(p, at))?;
         }
     }
     for v in &p.board.vias {
         let diameter = (v.diameter + 2.0 * DEFAULT_MASK_MARGIN).max(0.001);
         let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
-        sheet.flash(code, mirror(v.position, layer))?;
+        sheet.flash(code, fabrication_point(p, v.position))?;
     }
     let (function, comment) = match layer {
         Layer::Back => ("Soldermask,Bot", "bottom solder mask"),
@@ -523,7 +508,6 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
 /// the library rule documents. Through-hole pads get no paste.
 pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
@@ -534,9 +518,9 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
             let Some(at) = f.pad_position(&pad.number) else {
                 continue;
             };
-            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let opening = pad_opening(f, pad, margin)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            sheet.flash(code, mirror(at, layer))?;
+            sheet.flash(code, fabrication_point(p, at))?;
         }
     }
     let (function, comment) = match layer {
@@ -762,7 +746,10 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
         let code = sheet.define(Opening::Circle(microns(stroke.width.max(0.05))), "Legend")?;
         sheet.stroke(
             code,
-            &[mirror(stroke.start, layer), mirror(stroke.end, layer)],
+            &[
+                fabrication_point(p, stroke.start),
+                fabrication_point(p, stroke.end),
+            ],
             false,
         )?;
     }
@@ -1135,8 +1122,8 @@ mod tests {
         let back = gerber_parser(&gerber_mask(&project, Layer::Back)?)?;
         assert_eq!(back.flashes.len(), 2, "the through pad and the via");
         assert!(
-            back.flashes.iter().any(|(_, at)| at.x == -30.0),
-            "the back file mirrors x: {:?}",
+            back.flashes.iter().any(|(_, at)| at.x == 30.0 && at.y == 30.0),
+            "the back file uses the same fabrication coordinates as the front: {:?}",
             back.flashes
         );
         Ok(())
@@ -1174,13 +1161,13 @@ mod tests {
         let project = fixture()?;
         let front = gerber_parser(&gerber_silk(&project, Layer::Front)?)?;
         assert!(
-            front.draws.contains(&Point::new(8.0, 11.0)),
-            "the front silk line starts here: {:?}",
+            front.draws.contains(&Point::new(8.0, 29.0)),
+            "the front silk line starts here in fabrication space: {:?}",
             front.draws
         );
         assert!(
-            front.draws.contains(&Point::new(5.0, 5.0)),
-            "the board graphic line is silk: {:?}",
+            front.draws.contains(&Point::new(5.0, 35.0)),
+            "the board graphic line is silk in fabrication space: {:?}",
             front.draws
         );
         assert!(
@@ -1189,17 +1176,17 @@ mod tests {
             front.draws
         );
         assert!(
-            !front.draws.contains(&Point::new(-8.0, 9.0)),
+            !front.draws.contains(&Point::new(8.0, 31.0)),
             "the back line stays off the front file"
         );
         let back = gerber_parser(&gerber_silk(&project, Layer::Back)?)?;
         assert!(
-            back.draws.contains(&Point::new(-8.0, 9.0)),
-            "the back silk line is mirrored: {:?}",
+            back.draws.contains(&Point::new(8.0, 31.0)),
+            "the back silk line uses the same frame as the front: {:?}",
             back.draws
         );
         assert!(
-            !back.draws.contains(&Point::new(8.0, 11.0)),
+            !back.draws.contains(&Point::new(8.0, 29.0)),
             "the front line stays off the back file"
         );
         let text = gerber_silk(&project, Layer::Front)?;
@@ -1254,7 +1241,7 @@ mod tests {
         };
         assert!(!pad_on_side(&footprint, &placed, Layer::Front));
         assert!(pad_on_side(&footprint, &placed, Layer::Back));
-        let opening = pad_opening(&footprint, &placed, MASK_RULE, true)?;
+        let opening = pad_opening(&footprint, &placed, MASK_RULE)?;
         assert_eq!(opening, Opening::Rect(1_400, 1_000));
         Ok(())
     }

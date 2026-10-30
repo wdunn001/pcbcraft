@@ -19182,10 +19182,10 @@ mod tests {
             .ok_or_else(missing)?
             .pad_position("1")
             .ok_or_else(missing)?;
-        let mirrored_x = -centre.x;
+        let fab = pcbcraft_io::fabrication_point(&s.project, centre);
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
-            "bottom copper carries the mirrored pad flash"
+            gerber["pcb-B.Cu.gbr"].contains(&format!("{:.6}", fab.x)),
+            "bottom copper carries the same x as the front in fabrication space"
         );
         assert!(
             !gerber["pcb-F.Cu.gbr"]
@@ -20872,8 +20872,8 @@ mod tests {
         assert_eq!(set["drill_origin"]["y"], 10.0);
         let drill = pcbcraft_io::gerber_files(&s.project)?["pcb-Plated.drl"].clone();
         assert!(
-            drill.contains("X10.000Y10.000\n"),
-            "the recorded origin moves drill coordinates"
+            drill.contains("X10.000Y30.000\n"),
+            "the recorded origin moves drill coordinates in fabrication space"
         );
         assert!(
             !drill.contains("X30.000Y20.000"),
