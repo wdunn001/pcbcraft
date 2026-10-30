@@ -10,8 +10,8 @@ mod outline;
 pub mod profiles;
 pub mod recents;
 pub use collab::{
-    apply_room_command, command_lock_scope, shareable_room_command, CollabSnapshot,
-    OrderedRoomApply, RoomOp,
+    CollabSnapshot, OrderedRoomApply, RoomOp, apply_room_command, command_lock_scope,
+    shareable_room_command,
 };
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;

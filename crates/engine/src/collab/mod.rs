@@ -93,7 +93,10 @@ mod tests {
                 apply_room_command(&mut b, &ready.command, ready.params.clone())?;
             }
         }
-        assert_eq!(CollabSnapshot::from_session(&a)?, CollabSnapshot::from_session(&b)?);
+        assert_eq!(
+            CollabSnapshot::from_session(&a)?,
+            CollabSnapshot::from_session(&b)?
+        );
         assert!(CollabSnapshot::from_session(&a)?.revision > start_a.revision);
         Ok(())
     }
@@ -140,13 +143,16 @@ mod tests {
     #[test]
     fn ordered_apply_holds_out_of_order_ops_until_the_gap_fills() -> Result<(), Error> {
         let mut order = OrderedRoomApply::new(0);
-        assert!(order.ingest(RoomOp {
-            seq: 2,
-            local: None,
-            command: "net.create".into(),
-            params: json!({"name":"LATE"}),
-        })
-        .is_empty());
+        assert!(
+            order
+                .ingest(RoomOp {
+                    seq: 2,
+                    local: None,
+                    command: "net.create".into(),
+                    params: json!({"name":"LATE"}),
+                })
+                .is_empty()
+        );
         let ready = order.ingest(RoomOp {
             seq: 1,
             local: None,
@@ -182,8 +188,11 @@ mod tests {
         let s = Session::sample()?;
         let fp = s.project.board.footprints[0].id;
         let component = s.project.board.footprints[0].component;
-        let scope =
-            command_lock_scope(&s.project, "footprint.move", &json!({"id":fp,"position":{"x":1,"y":2}}));
+        let scope = command_lock_scope(
+            &s.project,
+            "footprint.move",
+            &json!({"id":fp,"position":{"x":1,"y":2}}),
+        );
         assert_eq!(scope, format!("component:{component}"));
         Ok(())
     }

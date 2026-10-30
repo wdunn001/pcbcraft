@@ -1,7 +1,9 @@
 //! Collab command scopes and ordered room apply (issue #369).
 
-use pcbcraft_engine::{apply_room_command, command_lock_scope, CollabSnapshot, OrderedRoomApply, RoomOp, Session};
 use pcbcraft_doc::Project;
+use pcbcraft_engine::{
+    CollabSnapshot, OrderedRoomApply, RoomOp, Session, apply_room_command, command_lock_scope,
+};
 use serde_json::json;
 
 #[test]

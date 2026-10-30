@@ -111,7 +111,6 @@ impl ScopeKind {
             ScopeKind::Board => "board".into(),
         }
     }
-
 }
 
 struct EncodedScope {
