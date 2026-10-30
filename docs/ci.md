@@ -25,7 +25,7 @@ pull request (a draft is fine) to get results. This avoids the duplicate run
 that a branch push plus a pull request used to start.
 
 - **Draft pull request:** only the cheap jobs run: Changes, Format and policy, Clippy and docs, Documentation standard. **CI result** reports that set.
-- **Ready pull request:** marking it ready for review (the `ready_for_review` event) starts the full gate, including Tests, Coverage, E2E, UI strings, WebAssembly, Licenses and advisories, UI screenshots and the Windows build. **CI result** goes green only when all of them succeed.
+- **Ready pull request:** marking it ready for review (the `ready_for_review` event) starts the full gate, including Tests, Coverage, E2E, UI strings, Accessibility, Localization, WebAssembly, Licenses and advisories, UI screenshots and the Windows build. **CI result** goes green only when all of them succeed.
 - **Main and merge queue:** everything, and macOS and the minimum Rust version too.
 
 Documentation-only commits skip the heavy build jobs on any of these but still
@@ -38,6 +38,8 @@ run policy, docs standard and the result job.
 | Documentation standard | `cargo xtask docs check` | Contract and dependency paths exist, trait implementation lists match the code, AGENTS.md is 60 lines or fewer, missing-docs warnings do not rise above xtask/doc-ratchet.toml |
 | Tests | `cargo xtask test` | Workspace tests with cargo-nextest (profile `ci`, JUnit report uploaded) plus doctests. Includes the headless `a_newcomer_*` end-to-end tests in crates/ui-egui |
 | Text catalog | `cargo xtask strings check` (and `strings extract`) | `crates/text/strings/en.txt` is well formed with no duplicate keys, translation files have no unknown keys and keep the English `{placeholders}`, every `t!("key")` in crates/ui-egui exists, and no string literal sits in a text call inside a function listed in `crates/text/strings/converted-fns.txt` |
+| Accessibility | `cargo xtask a11y` | Headless, no GPU. Every tab, dialog and menu through the AccessKit tree: names, duplicate names, 24 by 24 targets, keyboard reach, contrast, reduce motion. Table per screen in the job summary. See [accessibility.md](accessibility.md) |
+| Localization | `cargo xtask i18n` | Locale key and placeholder parity, unused keys, hard-coded text, joined fragments, the `en-XA` pseudo-locale at 1280 and 320 points, font coverage. See [localization.md](localization.md) |
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Tooltip text | `cargo xtask tooltips` | Lists tooltips that repeat their label, are too short or long, omit a limit, or leave a disabled control unexplained (docs/tooltips.md). Non-fatal until `--strict` is switched on (#631); exemptions with reasons live in `crates/ui-egui/tooltip-exemptions.txt` |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
@@ -143,8 +145,16 @@ Locally: `cargo xtask screenshots --out target/screenshots`.
 ## Nightly (`nightly.yml`)
 
 At 05:17 UTC, if main changed in the last day (or on manual dispatch), builds
-the packages below as workflow artifacts kept 14 days, and runs an advisory scan
-so new RustSec advisories surface without a code change.
+the same platform packages as a tagged release (via `build-dist.yml`) as
+workflow artifacts kept 14 days, and runs an advisory scan so new RustSec
+advisories surface without a code change.
+
+On the scheduled run only (not manual dispatch), when main changed, the
+workflow also publishes a GitHub pre-release. The tag is
+`v<workspace-version>-nightly.<YYYYMMDD ET>.<run>.<attempt>` (Eastern date,
+matching other Craft suite nightlies). Assets include every nightly archive plus
+`SHA256SUMS.txt`. Pre-releases are published with `--latest=false`; they never
+replace the latest stable download links from tagged releases.
 
 ## Releases (`release.yml`, `build-dist.yml`)
 
@@ -169,7 +179,7 @@ proves the release packaging works. Packaging logic is in
 ## Security posture
 
 - Every action is pinned to a commit SHA with the version in a comment. Dependabot opens weekly updates for actions and Cargo (egui, eframe and craft-ui are excluded and bumped by hand).
-- The workflow default is `permissions: {}`; each job asks for `contents: read`. Only the release draft job has `contents: write`.
+- The workflow default is `permissions: {}`; each job asks for `contents: read`. The release draft job and the nightly pre-release publish job have `contents: write`.
 - Checkouts do not persist credentials. Untrusted values (tag names, inputs) reach shell steps through `env`, never inline.
 - No secrets are used.
 

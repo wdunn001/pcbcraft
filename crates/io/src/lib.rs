@@ -3414,7 +3414,7 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
          Substrate permittivity: {:.2}\n\
          Surface finish: {}\n\
          Drill origin: {:.3}, {:.3} mm\n\n\
-         Layer notes:\nNAME,KIND,THICKNESS_MM\n",
+         Layer notes:\nNAME,KIND,THICKNESS_MM,ON_COPPER\n",
         p.board.width,
         p.board.height,
         p.board.thickness,
@@ -3428,7 +3428,18 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     }
     let mut total = 0.0;
     for l in &p.board.layer_records {
-        out.push_str(&format!("{},{},{:.3}\n", l.name, l.kind, l.thickness));
+        let on_copper = if pcbcraft_doc::layer_kind_names_copper(&l.kind) {
+            match p.linked_copper(&l.name) {
+                Some(name) => name,
+                None => String::new(),
+            }
+        } else {
+            String::new()
+        };
+        out.push_str(&format!(
+            "{},{},{:.3},{on_copper}\n",
+            l.name, l.kind, l.thickness
+        ));
         total += l.thickness;
     }
     out.push_str(&format!("Total recorded thickness: {:.3} mm\n", total));
@@ -7357,7 +7368,7 @@ mod tests {
             "the sheet names the design"
         );
         assert!(
-            text.contains("L1,copper,0.035") && text.contains("core,core,1.200"),
+            text.contains("L1,copper,0.035,") && text.contains("core,core,1.200,"),
             "every recorded layer note is listed with its role and thickness"
         );
         assert!(
