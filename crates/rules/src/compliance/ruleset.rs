@@ -36,6 +36,8 @@ pub struct ComplianceRuleSpec {
     #[serde(default)]
     pub field: String,
     #[serde(default)]
+    pub template: String,
+    #[serde(default)]
     pub attribute: String,
     #[serde(default)]
     pub limit: f64,

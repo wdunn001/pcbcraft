@@ -27,6 +27,7 @@ mod fab;
 pub use compliance::{
     Compliance, ComplianceDeclaration, ComplianceProjectSettings, ComplianceSource,
     ComplianceSourceKind, ComplianceStatus, CountryOfOrigin, DeclaredSubstance, ManufacturerRecord,
+    MineralsReportOnFile, normalize_manufacturer_name,
     date_le, valid_compliance_link, valid_compliance_text, valid_date, MAX_COMPLIANCE_LINK,
     MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_SUBSTANCES,
 };

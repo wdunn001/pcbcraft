@@ -1,9 +1,11 @@
 //! Regulatory compliance rule sets driven by bundled TOML data.
 mod eu_market;
 mod lists;
+mod responsible_sourcing;
 mod ruleset;
 
 pub use eu_market::EU_MARKET_RULE_SET;
+pub use responsible_sourcing::RESPONSIBLE_SOURCING_RULE_SET;
 pub use lists::{load_list_snapshot, ListSnapshot};
 pub use ruleset::{ComplianceRuleSet, ComplianceRuleSpec, load_rule_set};
 
@@ -31,6 +33,9 @@ pub fn check(project: &Project) -> Vec<ComplianceFinding> {
     for id in &project.compliance_settings.rule_sets {
         if id == "eu_market" {
             out.extend(eu_market::evaluate(project));
+        }
+        if id == "responsible_sourcing" {
+            out.extend(responsible_sourcing::evaluate(project));
         }
     }
     out

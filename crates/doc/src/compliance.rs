@@ -1,5 +1,5 @@
 //! Dated compliance claims on parts and project-level compliance settings.
-use crate::Id;
+use crate::{Id, Project};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_DECLARATIONS: usize = 64;
@@ -90,6 +90,17 @@ pub struct ComplianceProjectSettings {
     pub board_rohs_exemption: Option<String>,
 }
 
+/// A conflict-minerals reporting template kept on file for one manufacturer.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MineralsReportOnFile {
+    /// Template id, such as `cmrt` or `emrt`.
+    pub template: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub as_of: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ManufacturerRecord {
     pub id: Id,
@@ -100,6 +111,16 @@ pub struct ManufacturerRecord {
     pub country: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minerals_report: Option<MineralsReportOnFile>,
+}
+
+/// Lowercase letters and digits only, for manufacturer alias lookup.
+pub fn normalize_manufacturer_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 pub fn valid_compliance_text(text: &str) -> bool {
@@ -141,6 +162,46 @@ impl DeclaredSubstance {
     }
 }
 
+impl MineralsReportOnFile {
+    pub fn valid(&self) -> bool {
+        let template = self.template.trim();
+        (template == "cmrt" || template == "emrt")
+            && !self.version.trim().is_empty()
+            && self.version.len() <= MAX_COMPLIANCE_TEXT
+            && (self.as_of.is_empty() || valid_date(&self.as_of))
+    }
+}
+
+impl ManufacturerRecord {
+    pub fn valid(&self) -> bool {
+        !self.name.trim().is_empty()
+            && self.name.len() <= MAX_COMPLIANCE_TEXT
+            && self
+                .minerals_report
+                .as_ref()
+                .is_none_or(MineralsReportOnFile::valid)
+    }
+
+    pub fn matches_name(&self, name: &str) -> bool {
+        let key = normalize_manufacturer_name(name);
+        if key.is_empty() {
+            return false;
+        }
+        if normalize_manufacturer_name(&self.name) == key {
+            return true;
+        }
+        self.aliases
+            .iter()
+            .any(|a| normalize_manufacturer_name(a) == key)
+    }
+
+    pub fn minerals_report_on_file(&self) -> bool {
+        self.minerals_report
+            .as_ref()
+            .is_some_and(MineralsReportOnFile::valid)
+    }
+}
+
 impl Compliance {
     pub fn valid(&self) -> bool {
         self.declarations.len() <= MAX_DECLARATIONS
@@ -157,6 +218,15 @@ impl Compliance {
         self.declarations
             .iter()
             .find(|d| d.regime == regime)
+    }
+}
+
+impl Project {
+    /// Resolve a maker name through the manufacturer table, including aliases.
+    pub fn resolve_manufacturer(&self, name: &str) -> Option<&ManufacturerRecord> {
+        self.manufacturers
+            .iter()
+            .find(|record| record.matches_name(name))
     }
 }
 
