@@ -18,6 +18,7 @@ pcbcraft-rules.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
 pcbcraft-assistant.workspace = true
+pcbcraft-datasheet.workspace = true
 egui.workspace = true
 egui_extras.workspace = true
 eframe.workspace = true
@@ -26,7 +27,32 @@ serde_json.workspace = true
 image.workspace = true
 serde.workspace = true
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "HtmlInputElement",
+    "File",
+    "FileList",
+    "FileReader",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "IdbDatabase",
+    "IdbObjectStore",
+    "IdbTransaction",
+    "IdbRequest",
+    "IdbOpenDbRequest",
+    "IdbTransactionMode",
+    "IdbFactory",
+] }
+
 [dev-dependencies]
+pcbcraft-datasheet = { workspace = true, features = ["fixtures"] }
 pcbcraft-text = { workspace = true, features = ["fixture"] }
 base64.workspace = true
 tempfile.workspace = true

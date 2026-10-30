@@ -1667,7 +1667,7 @@ impl App {
                 }
             }
             CardAction::Datasheet(url) => {
-                ctx.open_url(egui::OpenUrl::new_tab(url));
+                self.open_datasheet(ctx, url);
             }
             CardAction::Source => {
                 let (source, licence) = match card {

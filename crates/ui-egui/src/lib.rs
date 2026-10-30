@@ -8,6 +8,8 @@ mod board_side;
 mod bottom_sheet;
 pub mod brand;
 mod browser;
+mod datasheet_browser_cache;
+mod datasheet_reader;
 mod canvas;
 mod contrast;
 mod datums;
@@ -1124,6 +1126,8 @@ pub struct App {
     message: String,
     /// True in the browser build, where disk actions are refused (see browser.rs).
     browser: bool,
+    /// In-browser datasheet reader (issue #720).
+    datasheet: datasheet_reader::State,
     value: String,
     x: f64,
     y: f64,
@@ -1701,6 +1705,11 @@ impl App {
                 t!("status.ready")
             },
             browser: cfg!(target_arch = "wasm32"),
+            datasheet: if cfg!(target_arch = "wasm32") {
+                datasheet_reader::State::new_browser()
+            } else {
+                datasheet_reader::State::default()
+            },
             value: String::new(),
             x: 0.0,
             y: 0.0,
@@ -3381,12 +3390,16 @@ impl App {
     }
     /// The datasheet address when the field holds a plain web link.
     fn datasheet_url(field: Option<&str>) -> Option<String> {
-        let url = field?.trim();
-        let lower = url.to_ascii_lowercase();
-        ((lower.starts_with("http://") || lower.starts_with("https://"))
-            && url.len() <= 2048
-            && !url.chars().any(char::is_whitespace))
-        .then(|| url.to_owned())
+        pcbcraft_datasheet::gate::http_url(field)
+    }
+
+    /// Open a datasheet link in the browser reader or the system browser.
+    fn open_datasheet(&mut self, ctx: &egui::Context, url: String) {
+        if self.browser {
+            self.datasheet.open_for_url(ctx, url);
+        } else {
+            ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
     }
     /// How many check findings are errors, warnings and notes.
     fn finding_counts(checks: &Value) -> (usize, usize, usize) {
@@ -7108,6 +7121,10 @@ impl App {
         self.shortcuts(&ctx);
         if self.compare_open {
             self.compare_window(&ctx);
+        }
+        if self.browser {
+            self.datasheet.poll(&ctx, true);
+            self.datasheet.window(&ctx);
         }
         self.edit_events(&ctx);
         self.header(ui);
