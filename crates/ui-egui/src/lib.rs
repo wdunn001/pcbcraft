@@ -54,7 +54,7 @@ mod via_span;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
-use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
+use pcbcraft_doc::{Id, PanelSeparation, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
 use pcbcraft_text::t;
@@ -1082,10 +1082,13 @@ pub struct App {
     custom_measure: usize,
     custom_limit: f64,
     custom_loud: bool,
+    panel_enabled: bool,
     panel_columns: usize,
     panel_rows: usize,
     panel_gap: f64,
     panel_rail: f64,
+    panel_separation: String,
+    panel_tab_channel: f64,
     panel_plan: Value,
     renumber_plan: Option<RenumberPlan>,
     stack_name: String,
@@ -1653,10 +1656,13 @@ impl App {
             custom_measure: 0,
             custom_limit: 0.2,
             custom_loud: false,
+            panel_enabled: false,
             panel_columns: 2,
             panel_rows: 2,
             panel_gap: 2.0,
             panel_rail: 3.0,
+            panel_separation: "tab".into(),
+            panel_tab_channel: 1.8,
             panel_plan: Value::Null,
             renumber_plan: None,
             stack_name: String::new(),
@@ -1774,6 +1780,58 @@ impl App {
             self.width = self.project.board.width;
             self.height = self.project.board.height;
             self.load_properties();
+            self.load_panel_fields_from_project();
+        }
+    }
+    fn load_panel_fields_from_project(&mut self) {
+        if !self.project.panel.enabled {
+            return;
+        }
+        self.panel_enabled = true;
+        self.panel_columns = self.project.panel.columns;
+        self.panel_rows = self.project.panel.rows;
+        if self.project.panel.pitch_x.is_finite() && self.project.panel.pitch_x > 0.0 {
+            self.panel_gap = self.project.panel.pitch_x;
+        }
+        self.panel_rail = self.project.panel.rail;
+        self.panel_tab_channel = self.project.panel.tab_channel;
+        self.panel_separation = match self.project.panel.separation {
+            PanelSeparation::Tab => "tab".into(),
+            PanelSeparation::VScore => "v_score".into(),
+        };
+    }
+    fn panel_set_params(&self) -> Value {
+        json!({
+            "enabled": self.panel_enabled,
+            "columns": self.panel_columns,
+            "rows": self.panel_rows,
+            "pitch_x": self.panel_gap,
+            "pitch_y": self.panel_gap,
+            "rail": self.panel_rail,
+            "tab_channel": self.panel_tab_channel,
+            "separation": self.panel_separation,
+        })
+    }
+    fn export_panel_files(&mut self) {
+        let directory = self.make_directory();
+        if std::fs::create_dir_all(std::path::Path::new(&directory)).is_err() {
+            self.message = t!("status.write_job_file.that_folder_could_not_be");
+            return;
+        }
+        self.run("panel.set", self.panel_set_params());
+        let out = self.run_and_keep("panel.export", json!({"directory": &directory}));
+        if let Some(files) = out.get("files").and_then(Value::as_array) {
+            let names = files
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.message = t!(
+                "status.panel_export_saved",
+                directory = directory,
+                files = names
+            );
+            self.refresh();
         }
     }
     fn execute_palette_params(&mut self) {
@@ -4965,6 +5023,49 @@ impl App {
                 .small()
                 .color(self.muted()),
         );
+        ui.checkbox(
+            &mut self.panel_enabled,
+            t!("settings.settings_tab.panel_enabled"),
+        )
+        .on_hover_text(t!("settings.settings_tab.panel_enabled.tip"))
+        .named("Panel enabled for manufacturing");
+        ui.horizontal(|ui| {
+            ui.label(t!("settings.settings_tab.panel_separation"));
+            let separation_label = if self.panel_separation == "v_score" {
+                t!("settings.settings_tab.panel_separation_vscore")
+            } else {
+                t!("settings.settings_tab.panel_separation_tab")
+            };
+            egui::ComboBox::from_id_salt("panel-separation")
+                .selected_text(separation_label)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "tab",
+                            t!("settings.settings_tab.panel_separation_tab"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_tab.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "tab".into();
+                        ui.close();
+                    }
+                    if ui
+                        .selectable_label(
+                            self.panel_separation == "v_score",
+                            t!("settings.settings_tab.panel_separation_vscore"),
+                        )
+                        .on_hover_text(t!("settings.settings_tab.panel_separation_vscore.tip"))
+                        .clicked()
+                    {
+                        self.panel_separation = "v_score".into();
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t!("settings.settings_tab.panel_separation.tip"))
+                .named("Panel separation method");
+        });
         ui.horizontal(|ui| {
             ui.add(
                 egui::DragValue::new(&mut self.panel_columns)
@@ -5003,22 +5104,54 @@ impl App {
             .on_hover_text(t!("settings.settings_tab.mm_rail.tip"))
             .named("Rail width");
         });
+        if self.panel_separation == "tab" {
+            ui.horizontal(|ui| {
+                ui.add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut self.panel_tab_channel)
+                        .range(1.6..=2.0)
+                        .speed(0.05)
+                        .suffix(format!(
+                            " {}",
+                            t!("settings.settings_tab.panel_tab_channel_suffix")
+                        )),
+                    3,
+                ))
+                .on_hover_text(t!("settings.settings_tab.panel_tab_channel.tip"))
+                .named("Tab channel width");
+            });
+        }
         if ui
-            .button(t!("settings.settings_tab.preview_panel"))
-            .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+            .button(t!("settings.settings_tab.apply_panel_settings"))
+            .on_hover_text(t!("settings.settings_tab.apply_panel_settings.tip"))
             .clicked()
         {
-            self.panel_plan = self.run_and_keep(
-                "board.panel",
-                json!({
-                    "columns": self.panel_columns,
-                    "rows": self.panel_rows,
-                    "pitch_x": self.panel_gap,
-                    "pitch_y": self.panel_gap,
-                    "rail": self.panel_rail,
-                }),
-            );
+            self.run("panel.set", self.panel_set_params());
         }
+        ui.horizontal(|ui| {
+            if ui
+                .button(t!("settings.settings_tab.preview_panel"))
+                .on_hover_text(t!("settings.settings_tab.preview_panel.tip"))
+                .clicked()
+            {
+                self.panel_plan = self.run_and_keep(
+                    "board.panel",
+                    json!({
+                        "columns": self.panel_columns,
+                        "rows": self.panel_rows,
+                        "pitch_x": self.panel_gap,
+                        "pitch_y": self.panel_gap,
+                        "rail": self.panel_rail,
+                    }),
+                );
+            }
+            if ui
+                .button(t!("settings.settings_tab.export_panel_files"))
+                .on_hover_text(t!("settings.settings_tab.export_panel_files.tip"))
+                .clicked()
+            {
+                self.export_panel_files();
+            }
+        });
         if let Some(plan) = self.panel_plan.get("panel") {
             let copies = self
                 .panel_plan
