@@ -41,7 +41,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files
-  visual-gate  compare current screenshots against baselines in target/baselines";
+  visual-gate  compare current screenshots against baselines in target/baselines (run screenshots first)";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
 const WASM_PACKAGES: [&str; 2] = ["pcbcraft-ui-egui", "pcbcraft-web"];
