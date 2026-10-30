@@ -1063,7 +1063,7 @@ fn tact_switch_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
     body
 }
 fn test_point_body(pad: &PadBox) -> Body {
-    let r = (pad.width().max(p.height()) * 0.55).max(0.45);
+    let r = (pad.width().max(pad.height()) * 0.55).max(0.45);
     Body::plain("testpoint", circle_ring(pad.centre, r), 0.15)
 }
 fn electrolytic_can_body(pads: &[PadBox], lo: Point, hi: Point, height: f64) -> Body {
