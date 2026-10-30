@@ -1718,7 +1718,11 @@ fn library_silk_width(graphic: &Graphic) -> Option<f64> {
         | Graphic::Rectangle { width, layer, .. }
         | Graphic::Circle { width, layer, .. }
         | Graphic::Arc { width, layer, .. }
-        | Graphic::Polyline { width, layer, .. } if layer_ok(layer) => Some(*width),
+        | Graphic::Polyline { width, layer, .. }
+            if layer_ok(layer) =>
+        {
+            Some(*width)
+        }
         _ => None,
     }
 }
@@ -1741,10 +1745,9 @@ fn library_silk_segments(graphic: &Graphic) -> Vec<(Point, Point)> {
                 (Point::new(min.x, max.y), Point::new(min.x, min.y)),
             ]
         }
-        Graphic::Polyline { points, layer, .. } if layer_ok(layer) && points.len() >= 2 => points
-            .windows(2)
-            .map(|w| (w[0], w[1]))
-            .collect(),
+        Graphic::Polyline { points, layer, .. } if layer_ok(layer) && points.len() >= 2 => {
+            points.windows(2).map(|w| (w[0], w[1])).collect()
+        }
         Graphic::Arc {
             start,
             mid,
@@ -1784,10 +1787,8 @@ fn user_silk_segments(shape: &ArtShape) -> Vec<(Point, Point)> {
             .into_iter()
             .map(|c| center.offset(Point::new(c.x - center.x, c.y - center.y).rotate(*rotate)))
             .collect::<Vec<_>>();
-            let mut segments: Vec<(Point, Point)> = corners
-                .windows(2)
-                .map(|w| (w[0], w[1]))
-                .collect();
+            let mut segments: Vec<(Point, Point)> =
+                corners.windows(2).map(|w| (w[0], w[1])).collect();
             if corners.len() >= 2 {
                 segments.push((corners[corners.len() - 1], corners[0]));
             }
@@ -1800,10 +1801,7 @@ fn user_silk_segments(shape: &ArtShape) -> Vec<(Point, Point)> {
                     Point::new(center.x + radius * t.cos(), center.y + radius * t.sin())
                 })
                 .collect();
-            let mut segments: Vec<(Point, Point)> = pts
-                .windows(2)
-                .map(|w| (w[0], w[1]))
-                .collect();
+            let mut segments: Vec<(Point, Point)> = pts.windows(2).map(|w| (w[0], w[1])).collect();
             if let Some(first) = pts.first() {
                 if let Some(last) = pts.last() {
                     if first != last {
@@ -1813,10 +1811,9 @@ fn user_silk_segments(shape: &ArtShape) -> Vec<(Point, Point)> {
             }
             segments
         }
-        ArtShape::Poly { points } if points.len() >= 2 => points
-            .windows(2)
-            .map(|w| (w[0], w[1]))
-            .collect(),
+        ArtShape::Poly { points } if points.len() >= 2 => {
+            points.windows(2).map(|w| (w[0], w[1])).collect()
+        }
         _ => vec![],
     }
 }
@@ -2216,11 +2213,7 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
             };
             for graphic in &lib.definition.graphics {
                 for (a, b) in library_silk_segments(graphic) {
-                    segments.push((
-                        footprint_world(fp, a),
-                        footprint_world(fp, b),
-                        fp.id,
-                    ));
+                    segments.push((footprint_world(fp, a), footprint_world(fp, b), fp.id));
                 }
             }
         }
@@ -2298,8 +2291,7 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
                     severity: project.rule_severity("mask_dam", "error"),
                     message: format!(
                         "Mask dam {:.3} mm between openings is below the {:.3} mm minimum",
-                        bridge,
-                        min
+                        bridge, min
                     ),
                     objects: vec![a.0, b.0],
                 });
