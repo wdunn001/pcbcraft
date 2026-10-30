@@ -35,8 +35,10 @@ const MAX_FILE_OPS: usize = 50_000;
 /// Upper bound on distinct apertures in one written file.
 const MAX_FILE_APERTURES: usize = 64;
 
-/// Millimetres to 4.6 fixed-point coordinate integers.
-fn coordinate(value: f64) -> i64 {
+/// Millimetres (or inches, once the caller has scaled) to a 4.6 fixed-point
+/// coordinate integer: the value times 10^6, rounded to nearest, sign kept.
+/// Every Gerber writer formats X, Y, I and J through this one function.
+pub(crate) fn coordinate(value: f64) -> i64 {
     (value * 1_000_000.0).round() as i64
 }
 fn decimal(value: f64) -> String {
@@ -784,6 +786,17 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn coordinate_scales_rounds_and_keeps_sign() {
+        assert_eq!(coordinate(10.0), 10_000_000);
+        assert_eq!(coordinate(-5.25), -5_250_000);
+        assert_eq!(coordinate(0.000_000_4), 0);
+        assert_eq!(coordinate(0.000_000_6), 1);
+        assert_eq!(coordinate(-0.000_000_6), -1);
+        assert_eq!(coordinate(-0.0), 0);
+        assert_eq!(coordinate(1_234.567_891_4), 1_234_567_891);
+    }
+
     use super::*;
     use pcbcraft_doc::{Component, LibraryFootprint, Net, Pin, Via};
     use pcbcraft_library::{

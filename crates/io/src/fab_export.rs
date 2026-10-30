@@ -17,6 +17,7 @@
 //! - crates/io/src/gerber.rs GerberWriter, Aperture, Operation
 //! - crates/io/src/lib.rs ExcellonWriter, Tool, Hit
 //! - crates/io/src/lib.rs PickPlaceWriter
+use crate::gerber::coordinate;
 use pcbcraft_doc::{Board, Layer, Project, Via, ViaCovering};
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
@@ -257,9 +258,9 @@ impl GerberLayer {
         }
         self.select(code);
         self.body.push_str(&format!(
-            "X{:.6}Y{:.6}D03*\n",
-            x * self.scale,
-            y * self.scale
+            "X{}Y{}D03*\n",
+            coordinate(x * self.scale),
+            coordinate(y * self.scale)
         ));
         Ok(())
     }
@@ -272,17 +273,17 @@ impl GerberLayer {
         self.select(code);
         for (i, (x, y)) in points.iter().enumerate() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D0{}*\n",
-                x * self.scale,
-                y * self.scale,
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
                 if i == 0 { 2 } else { 1 }
             ));
         }
         if closed && let Some((x, y)) = points.first() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D01*\n",
-                x * self.scale,
-                y * self.scale
+                "X{}Y{}D01*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
             ));
         }
         Ok(())
@@ -297,9 +298,9 @@ impl GerberLayer {
         self.body.push_str("G36*\nD02*\n");
         for (i, (x, y)) in points.iter().enumerate() {
             self.body.push_str(&format!(
-                "X{:.6}Y{:.6}D0{}*\n",
-                x * self.scale,
-                y * self.scale,
+                "X{}Y{}D0{}*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale),
                 if i == 0 { 2 } else { 1 }
             ));
         }
@@ -326,13 +327,13 @@ impl GerberLayer {
         self.select(code);
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-            sx * self.scale,
-            sy * self.scale,
-            ex * self.scale,
-            ey * self.scale,
-            (cx - sx) * self.scale,
-            (cy - sy) * self.scale,
+            "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+            coordinate(sx * self.scale),
+            coordinate(sy * self.scale),
+            coordinate(ex * self.scale),
+            coordinate(ey * self.scale),
+            coordinate((cx - sx) * self.scale),
+            coordinate((cy - sy) * self.scale),
             if clockwise { 2 } else { 3 }
         ));
         Ok(())
@@ -903,11 +904,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         outline.select(edge_code);
         outline.body.push_str("G75*\n");
         outline.body.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
-            c.radius * scale,
-            0.0
+            "X{}Y{}D02*\nI{}J{}G02*\n",
+            coordinate((c.center.x - c.radius) * scale),
+            coordinate(c.center.y * scale),
+            coordinate(c.radius * scale),
+            0
         ));
     }
 

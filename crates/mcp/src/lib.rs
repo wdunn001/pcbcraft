@@ -1666,7 +1666,7 @@ mod tests {
             "front copper carries its file function attribute"
         );
         assert!(
-            front.contains("X10.000000Y10.000000D02*\n"),
+            front.contains("X10000000Y10000000D02*\n"),
             "the exported copper should contain the drawn track"
         );
         assert_eq!(

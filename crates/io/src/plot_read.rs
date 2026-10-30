@@ -163,8 +163,16 @@ struct Words {
     j: Option<f64>,
 }
 
-/// Parse a coordinate word. Decimal text is taken as written; whole numbers
-/// are scaled by the file's decimal count.
+/// Parse a coordinate word the way the Gerber Layer Format Specification
+/// reads it: an integer scaled by the `%FS` decimal count, so `X10000000` in a
+/// 4.6 file is ten millimetres.
+///
+/// # Rules
+/// - Text with a decimal point is taken as written. Files written before
+///   issue #684 carry that form under a 4.6 declaration, and they still load.
+///
+/// # Do not
+/// - Write decimal coordinates; the writers emit integers only.
 fn coordinate(text: &str, decimals: i32) -> Option<f64> {
     if text.contains('.') {
         text.parse().ok()

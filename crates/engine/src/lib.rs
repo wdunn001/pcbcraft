@@ -31372,7 +31372,7 @@ mod tests {
         let front = std::fs::read_to_string(directory.join("pcb-F.Cu.gbr"))
             .map_err(|e| Error::Invalid(e.to_string()))?;
         assert!(
-            front.contains("X20.000000Y30.000000"),
+            front.contains("X20000000Y30000000"),
             "the new track is exported"
         );
         s.execute(

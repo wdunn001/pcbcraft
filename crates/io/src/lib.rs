@@ -67,6 +67,7 @@ pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
+use gerber::coordinate;
 /// Gerber file generation for copper and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
@@ -2420,9 +2421,9 @@ pub fn gerber_files_with_budget(
                 return Err(self.over_limit());
             }
             self.body.push_str(&format!(
-                "D{code}X{:.6}Y{:.6}D03*\n",
-                x * self.scale,
-                y * self.scale
+                "D{code}X{}Y{}D03*\n",
+                coordinate(x * self.scale),
+                coordinate(y * self.scale)
             ));
             Ok(())
         }
@@ -2434,17 +2435,17 @@ pub fn gerber_files_with_budget(
             self.body.push_str(&format!("D{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D0{}*\n",
-                    x * self.scale,
-                    y * self.scale,
+                    "X{}Y{}D0{}*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
             if closed && let Some((x, y)) = points.first() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D01*\n",
-                    x * self.scale,
-                    y * self.scale
+                    "X{}Y{}D01*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale)
                 ));
             }
             Ok(())
@@ -2457,9 +2458,9 @@ pub fn gerber_files_with_budget(
             self.body.push_str(&format!("G36*\nD{code}D02*\n"));
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D0{}*\n",
-                    x * self.scale,
-                    y * self.scale,
+                    "X{}Y{}D0{}*\n",
+                    coordinate(x * self.scale),
+                    coordinate(y * self.scale),
                     if i == 0 { 2 } else { 1 }
                 ));
             }
@@ -2468,9 +2469,9 @@ pub fn gerber_files_with_budget(
                 && (fx != lx || fy != ly)
             {
                 self.body.push_str(&format!(
-                    "X{:.6}Y{:.6}D01*\n",
-                    fx * self.scale,
-                    fy * self.scale
+                    "X{}Y{}D01*\n",
+                    coordinate(fx * self.scale),
+                    coordinate(fy * self.scale)
                 ));
             }
             self.body.push_str("G37*\n");
@@ -2651,13 +2652,13 @@ pub fn gerber_files_with_budget(
                 arc.sweep < 0.0
             };
             file.body.push_str(&format!(
-                "D{code}D02*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-                sx,
-                sy,
-                ex,
-                ey,
-                cx - sx,
-                cy - sy,
+                "D{code}D02*\nX{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+                coordinate(sx * scale),
+                coordinate(sy * scale),
+                coordinate(ex * scale),
+                coordinate(ey * scale),
+                coordinate((cx - sx) * scale),
+                coordinate((cy - sy) * scale),
                 if clockwise { 2 } else { 3 }
             ));
         } else {
@@ -2745,11 +2746,11 @@ pub fn gerber_files_with_budget(
             return Err(outline.over_limit());
         }
         outline.arcs.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
-            c.radius * scale,
-            0.0
+            "X{}Y{}D02*\nI{}J{}G02*\n",
+            coordinate((c.center.x - c.radius) * scale),
+            coordinate(c.center.y * scale),
+            coordinate(c.radius * scale),
+            0
         ));
     }
     let hits = project_drill_hits(p)?;
@@ -7475,7 +7476,7 @@ mod tests {
         assert!(drill.ends_with("M30\n"));
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
-            map.contains("X10.000000Y10.000000D02*\nX14.000000Y10.000000D01*\n"),
+            map.contains("X10000000Y10000000D02*\nX14000000Y10000000D01*\n"),
             "the drill map draws the slot as a stroke from end to end: {map}"
         );
         Ok(())
@@ -8601,7 +8602,7 @@ mod tests {
             "the format statement declares inches"
         );
         assert!(
-            back.contains("X-1.000000Y1.000000D02*"),
+            back.contains("X-1000000Y1000000D02*"),
             "25.4 mm becomes exactly one inch, mirrored on the back: {back}"
         );
         assert!(
@@ -8842,11 +8843,11 @@ mod tests {
             "the drill map legend lists the first tool"
         );
         assert!(
-            map.contains("X30.000000Y10.000000D03*\n"),
+            map.contains("X30000000Y10000000D03*\n"),
             "the via hole is flashed on the map"
         );
         assert!(
-            map.contains("X2.000000Y0.000000D03*\n"),
+            map.contains("X2000000Y0D03*\n"),
             "the plated pad hole is flashed on the map"
         );
         assert!(map.ends_with("M02*\n"), "the map ends cleanly");
@@ -8870,11 +8871,11 @@ mod tests {
             "the poured zone must appear as a filled region"
         );
         assert!(
-            front.contains("X30.000000Y10.000000D03*\n"),
+            front.contains("X30000000Y10000000D03*\n"),
             "the via must flash on the front layer"
         );
         assert!(
-            front.contains("X2.000000Y0.000000D03*\n"),
+            front.contains("X2000000Y0D03*\n"),
             "the plated pad must flash on the front layer"
         );
         assert!(front.ends_with("M02*\n"));
@@ -8884,20 +8885,20 @@ mod tests {
             "back copper carries its file function"
         );
         assert!(
-            back.contains("X-30.000000Y10.000000D01*\n"),
+            back.contains("X-30000000Y10000000D01*\n"),
             "the back track end carries the mirrored coordinate"
         );
         assert!(
-            back.contains("X-30.000000Y10.000000D03*\n"),
+            back.contains("X-30000000Y10000000D03*\n"),
             "the via must flash on the back layer too"
         );
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X0.000000Y0.000000D02*\nX60.000000Y0.000000D01*\n"),
+            outline.contains("X0Y0D02*\nX60000000Y0D01*\n"),
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44.000000Y20.000000D02*\nI2.000000J0.000000G02*\n"),
+            outline.contains("X44000000Y20000000D02*\nI2000000J0G02*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Plated.drl"];
@@ -10079,7 +10080,7 @@ mod tests {
         );
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("X30.000000Y20.000000") || copper.contains("X30.000Y20.000"),
+            copper.contains("X30000000Y20000000"),
             "copper layers keep absolute coordinates"
         );
         project.board.drill_origin = Point::new(-5.0, 0.0);
@@ -10110,8 +10111,8 @@ mod tests {
         let files = gerber_files(&project)?;
         let outline = &files["pcb-Edge.gbr"];
         assert!(
-            outline.contains("X30.000000Y40.000000D01*")
-                && outline.contains("X30.000000Y20.000000D01*"),
+            outline.contains("X30000000Y40000000D01*")
+                && outline.contains("X30000000Y20000000D01*"),
             "the gerber edge layer traces every vertex"
         );
         let drawing = svg(&project, "pcb")?;
@@ -10152,7 +10153,7 @@ mod tests {
         let files = gerber_files(&project)?;
         let copper = &files["pcb-F.Cu.gbr"];
         assert!(
-            copper.contains("G02*") && copper.contains("J-5.250000"),
+            copper.contains("G02*") && copper.contains("J-5250000"),
             "the gerber draws a clockwise arc to the computed centre"
         );
         let drawing = svg(&project, "pcb")?;
@@ -12384,7 +12385,7 @@ mod tests {
         );
         let front = &files["pcb-F.Cu.gbr"];
         assert!(
-            !front.contains("X5.000000Y15.000000D03"),
+            !front.contains("X5000000Y15000000D03"),
             "unplated pegs must not flash copper"
         );
         Ok(())
