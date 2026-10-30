@@ -10,6 +10,7 @@
 //! - docs/ci.md
 //! - xtask/src/coverage.rs
 //! - xtask/src/doc_check.rs
+//! - xtask/src/test_standards.rs
 //! - xtask/src/tooltips.rs
 //!
 //! # Do not
@@ -18,6 +19,7 @@ mod coverage;
 mod doc_check;
 mod e2e;
 mod showcase;
+mod test_standards;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -32,6 +34,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
+  test-standards [--bless] mechanical checks of docs/testing-standard.md
   wasm         WebAssembly check of the shared UI and browser entry point
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
@@ -529,6 +532,7 @@ fn run() -> Result<(), String> {
             layers()?;
             lint_policy()?;
             fmt()?;
+            test_standards::run(&root()?, &[])?;
             clippy()?;
             test()?;
             wasm()?;
@@ -543,6 +547,7 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "test-standards" => test_standards::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "coverage" => coverage::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "e2e" => e2e()?,
         "wasm" => wasm()?,

@@ -128,7 +128,7 @@ fn isolation_gcode_golden_two_pads_one_track_point_two_tool_two_passes() -> Resu
     let out = isolation_gcode(&p, &opts, &CncProfile::default())?;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/isolation_two_pads_one_track.gcode");
-    if std::env::var("BLESS_GOLDEN").is_ok() {
+    if pcbcraft_testkit::blessing() {
         std::fs::write(&path, &out.files[0].1).map_err(|e| e.to_string())?;
     }
     let golden = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;

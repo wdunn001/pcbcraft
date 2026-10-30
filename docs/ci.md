@@ -24,7 +24,7 @@ manual dispatch. A push to a feature branch starts nothing by itself; open a
 pull request (a draft is fine) to get results. This avoids the duplicate run
 that a branch push plus a pull request used to start.
 
-- **Draft pull request:** only the cheap jobs run: Changes, Format and policy, Clippy and docs, Documentation standard. **CI result** reports that set.
+- **Draft pull request:** only the cheap jobs run: Changes, Format and policy, Clippy and docs, Documentation standard, Test standards. **CI result** reports that set.
 - **Ready pull request:** marking it ready for review (the `ready_for_review` event) starts the full gate, including Tests, Coverage, E2E, UI strings, WebAssembly, Licenses and advisories, UI screenshots and the Windows build. **CI result** goes green only when all of them succeed.
 - **Main and merge queue:** everything, and macOS and the minimum Rust version too.
 
@@ -42,6 +42,7 @@ run policy, docs standard and the result job.
 | Tooltip text | `cargo xtask tooltips` | Lists tooltips that repeat their label, are too short or long, omit a limit, or leave a disabled control unexplained (docs/tooltips.md). Non-fatal until `--strict` is switched on (#631); exemptions with reasons live in `crates/ui-egui/tooltip-exemptions.txt` |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
+| Test standards | `cargo xtask test-standards` | The mechanical rules of testing-standard.md: every `#[test]` asserts, `#[ignore]` carries a reason and an issue number, no clocks, sleeps, network or real user folders in test code, one golden-file variable (`PCBCRAFT_BLESS`). Existing breaches are ratcheted by `ci/test-standards-baseline.txt`. Runs on drafts too |
 | Coverage | `cargo xtask coverage` | Runs the workspace tests under cargo-llvm-cov 0.9.1 (source-based LLVM coverage on stable with the `llvm-tools` component). Fails when workspace line coverage is under 70% or when any crate falls more than 0.5 points below `ci/coverage-baseline.json`. Uploads `coverage` (lcov and HTML) and writes the per-crate table to the job summary. Ready pull requests and main only |
 | E2E and control coverage | `cargo xtask e2e` | Runs every `a_newcomer_*` story, walks every page of the UI, and fails with one line per control that has no tooltip, no story or no id (message names the id). Uploads `e2e-coverage` (report and logs). Exemptions: `e2e-exemptions.txt` |
 | UI screenshots | `cargo xtask screenshots` | Launches the real app under Xvfb with Mesa software Vulkan and captures eight views |
@@ -75,7 +76,7 @@ in the number. The exclusions are listed with their reasons in
 - `xtask/*`: repository automation, including the generator of the showcase example data (the examples in `examples/` are not Rust and are not measured).
 - `apps/*/src/main.rs`: binary entry glue. The logic it calls lives in library crates, which are measured.
 - `apps/pcbcraft-web/*`: the browser entry point, built for wasm32 only and checked by the WebAssembly job.
-- `*/tests/*`, `*/tests.rs` and `crates/ui-egui/src/e2e/*`: test-only code, which is not product code.
+- `crates/testkit/*`, `*/tests/*`, `*/tests.rs` and `crates/ui-egui/src/e2e/*`: test-only code, which is not product code.
 - `#[cfg(test)] mod` blocks inside source files: removed by reading the source, because stable Rust cannot mark them for the tool.
 
 A file is never excluded because it is poorly covered. The Coverage job does not
@@ -164,6 +165,7 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 ## See also
 
+- [testing-standard.md](testing-standard.md) for how tests are written and reviewed
 - [getting-started.md](getting-started.md) for branch and proof workflow
 - [CONTRIBUTING.md](../CONTRIBUTING.md) for the full delivery pipeline
 

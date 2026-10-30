@@ -20,6 +20,7 @@ pcbcraft-ui-egui = { path = "crates/ui-egui" }
 pcbcraft-library = { path = "crates/library" }
 pcbcraft-text = { path = "crates/text" }
 pcbcraft-sim = { path = "crates/sim" }
+pcbcraft-testkit = { path = "crates/testkit" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

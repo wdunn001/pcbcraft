@@ -91,6 +91,25 @@ jobs:
       - run: cargo xtask policy
       - run: cargo xtask fmt
 
+  test-standards:
+    name: Test standards
+    needs: changes
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: xtask
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo xtask test-standards
+
   lint:
     name: Clippy and docs
     needs: changes
@@ -529,7 +548,7 @@ jobs:
     # The single check to mark as required in branch protection. A draft pull
     # request reports the cheap set only; a ready pull request, main and the
     # merge queue report everything.
-    needs: [changes, policy, lint, docs-check, strings, test, coverage, e2e, wasm, msrv, deny, screenshots, build]
+    needs: [changes, policy, lint, docs-check, test-standards, strings, test, coverage, e2e, wasm, msrv, deny, screenshots, build]
     if: always()
     runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions: {}
@@ -538,7 +557,7 @@ jobs:
           RESULTS: ${{ toJSON(needs.*.result) }}
           DRAFT: ${{ github.event.pull_request.draft }}
           RUST: ${{ needs.changes.outputs.rust }}
-          CHEAP: ${{ format('{0} {1} {2} {3}', needs.changes.result, needs.policy.result, needs.lint.result, needs.docs-check.result) }}
+          CHEAP: ${{ format('{0} {1} {2} {3} {4}', needs.changes.result, needs.policy.result, needs.lint.result, needs.docs-check.result, needs.test-standards.result) }}
           HEAVY: ${{ format('{0} {1} {2} {3} {4} {5} {6}', needs.strings.result, needs.test.result, needs.coverage.result, needs.e2e.result, needs.wasm.result, needs.screenshots.result, needs.build.result) }}
         run: |
           echo "$RESULTS"

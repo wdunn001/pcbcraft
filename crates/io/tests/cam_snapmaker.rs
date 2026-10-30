@@ -116,10 +116,10 @@ fn arc_word(line: &str) -> bool {
     )
 }
 
-/// Compares text with a stored fixture; `UPDATE_GOLDEN=1` rewrites the fixture.
+/// Compares text with a stored fixture; `PCBCRAFT_BLESS=1` rewrites the fixture.
 fn golden(name: &str, text: &str) -> Result<(), String> {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
-    if std::env::var("UPDATE_GOLDEN").is_ok() {
+    if pcbcraft_testkit::blessing() {
         std::fs::write(&path, text).map_err(|e| e.to_string())?;
     }
     let want = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
