@@ -43,9 +43,9 @@ mod snapmaker;
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
 pub use board_mesh::{
-    BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
-    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
-    with_models,
+    BodyPrototype, BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers,
+    MeshPart, ModelLookup, ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix,
+    bench_project_600_parts, board_mesh, footprint_body_matrix, model_matrix, with_models,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,

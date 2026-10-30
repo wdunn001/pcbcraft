@@ -3,7 +3,7 @@ mod a11y;
 mod arrange;
 mod assistant;
 mod authoring;
-mod board3d;
+pub mod board3d;
 mod board_side;
 mod bottom_sheet;
 pub mod brand;
