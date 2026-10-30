@@ -31620,7 +31620,8 @@ mod tests {
             json!({"name":"ipc","kinds":["ipc2581"]}),
             None,
         )?;
-        let path = std::env::temp_dir().join(format!("pcbcraft-ipc-pkg-{}.zip", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("pcbcraft-ipc-pkg-{}.zip", std::process::id()));
         assert!(
             s.execute(
                 "output_job.package",

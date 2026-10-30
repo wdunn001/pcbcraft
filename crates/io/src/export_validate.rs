@@ -101,11 +101,10 @@ pub fn validate_odb_package(bytes: &[u8]) -> Result<(), String> {
         .next()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "ODB++ package has no job folder".to_string())?;
-    if names.iter().any(|name| {
-        name.split('/')
-            .next()
-            .is_some_and(|prefix| prefix != job)
-    }) {
+    if names
+        .iter()
+        .any(|name| name.split('/').next().is_some_and(|prefix| prefix != job))
+    {
         return Err("ODB++ package mixes more than one job folder".into());
     }
     let prefix = format!("{job}/");
@@ -120,8 +119,8 @@ pub fn validate_odb_package(bytes: &[u8]) -> Result<(), String> {
         }
     }
     let matrix = stored_zip_entry(bytes, &format!("{prefix}{ODB_MATRIX}"))?;
-    let matrix_text = std::str::from_utf8(&matrix)
-        .map_err(|_| "ODB++ matrix file is not UTF-8".to_string())?;
+    let matrix_text =
+        std::str::from_utf8(&matrix).map_err(|_| "ODB++ matrix file is not UTF-8".to_string())?;
     if !matrix_text.contains(".Matrix") || !matrix_text.contains(".EndMatrix") {
         return Err("ODB++ matrix file is not a layer matrix".into());
     }
@@ -129,15 +128,15 @@ pub fn validate_odb_package(bytes: &[u8]) -> Result<(), String> {
         return Err("ODB++ matrix lists no layers".into());
     }
     let symbols = stored_zip_entry(bytes, &format!("{prefix}{ODB_SYMBOLS}"))?;
-    let symbols_text = std::str::from_utf8(&symbols)
-        .map_err(|_| "ODB++ symbols file is not UTF-8".to_string())?;
+    let symbols_text =
+        std::str::from_utf8(&symbols).map_err(|_| "ODB++ symbols file is not UTF-8".to_string())?;
     if !symbols_text.starts_with("UnitsType=MM") {
         return Err("ODB++ symbols file does not declare millimetre units".into());
     }
     for suffix in ODB_FEATURES {
         let body = stored_zip_entry(bytes, &format!("{prefix}{suffix}"))?;
-        let text = std::str::from_utf8(&body)
-            .map_err(|_| format!("ODB++ {suffix} is not UTF-8"))?;
+        let text =
+            std::str::from_utf8(&body).map_err(|_| format!("ODB++ {suffix} is not UTF-8"))?;
         if !text.starts_with("UnitsType=MM") {
             return Err(format!("ODB++ {suffix} does not declare millimetre units"));
         }
@@ -157,7 +156,9 @@ pub fn validate_ipc2581_document(text: &str) -> Result<(), String> {
         );
     }
     if !text.contains(&format!("<IPC-2581 revision=\"C\" xmlns=\"{NS}\">")) {
-        return Err("IPC-2581 export is not a revision C document in the standard namespace".into());
+        return Err(
+            "IPC-2581 export is not a revision C document in the standard namespace".into(),
+        );
     }
     ipc2581::validate(text).map_err(|e| e.to_string())
 }
