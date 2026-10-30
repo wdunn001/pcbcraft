@@ -58,9 +58,23 @@ pub(crate) fn flavour_of(values: &BTreeMap<String, String>) -> &'static BomFlavo
 /// The option values a fresh bill starts with: the flavour's file type, every column of
 /// the flavour and of the project, grouping as the flavour says.
 pub(crate) fn default_values(project: &Project, flavour: &BomFlavour) -> BTreeMap<String, String> {
+    // Description and supplier columns only start ticked when some part has the data,
+    // so a bill with none keeps its familiar columns.
+    let has = |token: &str| match token {
+        "description" => project
+            .components
+            .iter()
+            .any(|c| !c.description().is_empty()),
+        "suppliers" => project
+            .components
+            .iter()
+            .any(|c| !c.sourcing.suppliers.is_empty()),
+        _ => true,
+    };
     let mut columns: Vec<String> = flavour
         .columns
         .iter()
+        .filter(|(t, _)| has(t))
         .map(|(t, _)| (*t).to_owned())
         .collect();
     columns.extend(
@@ -125,7 +139,12 @@ impl Options {
 pub(crate) fn table(project: &Project, o: &Options) -> Result<Table, String> {
     let wants = |token: &str| o.columns.iter().any(|c| c == token);
     let mut keys: Vec<String> = vec![];
-    for (token, key) in [("mpn", "MPN"), ("manufacturer", "Manufacturer")] {
+    for (token, key) in [
+        ("mpn", "MPN"),
+        ("manufacturer", "Manufacturer"),
+        ("description", "Description"),
+        ("suppliers", "Suppliers"),
+    ] {
         if wants(token) && o.flavour.columns.iter().any(|(t, _)| *t == token) {
             keys.push(key.to_owned());
         }
@@ -171,6 +190,8 @@ pub(crate) fn table(project: &Project, o: &Options) -> Result<Table, String> {
                 "footprint" => text(&item["footprint"]),
                 "mpn" => field("MPN"),
                 "manufacturer" => field("Manufacturer"),
+                "description" => field("Description"),
+                "suppliers" => field("Suppliers"),
                 _ => String::new(),
             })
             .collect();
