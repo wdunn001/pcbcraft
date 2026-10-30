@@ -26,18 +26,6 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
-use pcbcraft_library::PadShape;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
-
-pub type Id = u64;
-pub const MAX_ITEMS: usize = 2048;
-
-mod material;
-pub use material::{MATERIALS, Material, material};
-mod net_members;
 mod via_protection;
 mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
