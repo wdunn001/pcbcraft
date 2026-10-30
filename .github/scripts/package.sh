@@ -53,7 +53,7 @@ case "$platform" in
 <dict>
   <key>CFBundleName</key><string>PCBCraft</string>
   <key>CFBundleDisplayName</key><string>PCBCraft</string>
-  <key>CFBundleIdentifier</key><string>${MACOS_BUNDLE_ID:-io.github.tangency-labs.pcbcraft}</string>
+  <key>CFBundleIdentifier</key><string>${MACOS_BUNDLE_ID:-io.github.tangency_labs.pcbcraft}</string>
   <key>CFBundleExecutable</key><string>pcbcraft</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version#v}</string>
