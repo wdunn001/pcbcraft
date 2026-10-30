@@ -1,5 +1,7 @@
 //! Typed compliance fields on parts and project settings for regulatory checks.
+use crate::Id;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Part role for drone and radio rule targeting.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -189,6 +191,9 @@ pub struct ComplianceSettings {
     pub board_assembler_country: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manufacturers: Vec<ManufacturerRecord>,
+    /// Per-component compliance keyed by schematic object id (issue #689 moves this onto `Component`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parts: BTreeMap<Id, ComponentCompliance>,
 }
 
 impl ComplianceSettings {
@@ -198,6 +203,11 @@ impl ComplianceSettings {
             && self.origin_interpretation == OriginInterpretation::Module
             && self.board_assembler_country.is_empty()
             && self.manufacturers.is_empty()
+            && self.parts.is_empty()
+    }
+
+    pub fn part(&self, id: Id) -> Option<&ComponentCompliance> {
+        self.parts.get(&id)
     }
 }
 
@@ -260,6 +270,12 @@ pub fn validate_compliance_settings(s: &ComplianceSettings) -> Result<(), String
     if s.manufacturers.len() > MAX_MANUFACTURERS {
         return Err(format!(
             "a project carries at most {MAX_MANUFACTURERS} manufacturer records"
+        ));
+    }
+    if s.parts.len() > crate::MAX_ITEMS {
+        return Err(format!(
+            "a project carries at most {} part compliance records",
+            crate::MAX_ITEMS
         ));
     }
     Ok(())

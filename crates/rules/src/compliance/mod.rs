@@ -1,4 +1,12 @@
-//! Regulatory compliance rule evaluation (bundled rule sets and list snapshots).
+//! Regulatory compliance rule evaluation from bundled rule sets and list snapshots.
+//!
+//! # Rules
+//! - Entity and country names live only in `data/compliance/` TOML, never in Rust source.
+//! - Missing part data is reported as unverified, never as a pass.
+//!
+//! # Dependencies
+//! - crates/doc/src/compliance.rs
+//! - crates/rules/data/compliance/
 mod lists;
 mod ruleset;
 
@@ -151,7 +159,7 @@ fn evaluate_blue_uas(
         origin_unit(&project.compliance)
     };
     for component in project.components.iter().filter(|c| c.in_bom()) {
-        let Some(compliance) = &component.compliance else {
+        let Some(compliance) = project.compliance.part(component.id) else {
             continue;
         };
         let role = component_role(compliance);
@@ -443,7 +451,7 @@ mod tests {
         CountryOfOrigin, DeclarationSource, DeclarationStatus, Project,
     };
 
-    fn part(id: u64, reference: &str, compliance: ComponentCompliance) -> Component {
+    fn part(id: u64, reference: &str) -> Component {
         Component {
             id,
             reference: reference.into(),
@@ -457,8 +465,11 @@ mod tests {
             library_footprint: None,
             fields: vec![],
             sheet: 0,
-            compliance: Some(compliance),
         }
+    }
+
+    fn attach(project: &mut Project, id: u64, compliance: ComponentCompliance) {
+        project.compliance.parts.insert(id, compliance);
     }
 
     #[test]
@@ -469,9 +480,10 @@ mod tests {
             target_markets: vec!["EU".into()],
             ..Default::default()
         };
-        project.components.push(part(
+        project.components.push(part(1, "U1"));
+        attach(
+            &mut project,
             1,
-            "U1",
             ComponentCompliance {
                 role: ComplianceRole::FlightController,
                 country_of_origin: Some(CountryOfOrigin {
@@ -482,10 +494,11 @@ mod tests {
                 maker_country: Some("US".into()),
                 ..Default::default()
             },
-        ));
-        project.components.push(part(
+        );
+        project.components.push(part(2, "U2"));
+        attach(
+            &mut project,
             2,
-            "U2",
             ComponentCompliance {
                 role: ComplianceRole::RadioLink,
                 radio_bands_mhz: vec![915.0],
@@ -501,18 +514,20 @@ mod tests {
                 }],
                 ..Default::default()
             },
-        ));
-        project.components.push(part(
+        );
+        project.components.push(part(3, "U3"));
+        attach(
+            &mut project,
             3,
-            "U3",
             ComponentCompliance {
                 role: ComplianceRole::Camera,
                 ..Default::default()
             },
-        ));
-        project.components.push(part(
+        );
+        project.components.push(part(4, "U4"));
+        attach(
+            &mut project,
             4,
-            "U4",
             ComponentCompliance {
                 role: ComplianceRole::Other,
                 country_of_origin: Some(CountryOfOrigin {
@@ -522,7 +537,7 @@ mod tests {
                 }),
                 ..Default::default()
             },
-        ));
+        );
         project.validate()?;
         let findings = compliance_findings(&project)?;
         let fc = findings

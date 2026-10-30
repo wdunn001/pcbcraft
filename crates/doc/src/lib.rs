@@ -346,8 +346,6 @@ pub struct Component {
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compliance: Option<ComponentCompliance>,
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -5228,10 +5226,8 @@ impl Project {
         self.library.validate()?;
         self.validate_parameters()?;
         validate_compliance_settings(&self.compliance)?;
-        for component in &self.components {
-            if let Some(compliance) = &component.compliance {
-                validate_component_compliance(compliance)?;
-            }
+        for compliance in self.compliance.parts.values() {
+            validate_component_compliance(compliance)?;
         }
         if self
             .components

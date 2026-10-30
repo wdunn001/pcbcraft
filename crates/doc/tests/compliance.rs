@@ -21,7 +21,10 @@ fn compliance_fields_round_trip_in_project_json() -> Result<(), String> {
         library_footprint: None,
         fields: vec![],
         sheet: 0,
-        compliance: Some(ComponentCompliance {
+    });
+    project.compliance.parts.insert(
+        1,
+        ComponentCompliance {
             role: ComplianceRole::FlightController,
             country_of_origin: Some(CountryOfOrigin {
                 code: "US".into(),
@@ -35,8 +38,8 @@ fn compliance_fields_round_trip_in_project_json() -> Result<(), String> {
                 ..Default::default()
             }],
             ..Default::default()
-        }),
-    });
+        },
+    );
     project.validate()?;
     let json = serde_json::to_string(&project).map_err(|e| e.to_string())?;
     let back: Project = serde_json::from_str(&json).map_err(|e| e.to_string())?;
