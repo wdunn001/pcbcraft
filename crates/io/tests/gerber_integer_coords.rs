@@ -195,3 +195,82 @@ fn old_decimal_coordinates_read_the_same_as_integers() -> Result<(), String> {
     assert!((a.flashes[0].y_mm - 1e-6).abs() < 1e-12);
     Ok(())
 }
+
+/// The independent `gerber_parser` crate (MIT OR Apache-2.0, dev-dependency
+/// only) reads every generated file without error and finds the same flash
+/// positions as the writer's own integer tokens.
+#[test]
+fn reference_parser_agrees_with_the_written_flashes() -> Result<(), String> {
+    use gerber_parser::gerber_types::{Command, DCode, FunctionCode, Operation};
+    let mut checked = 0usize;
+    for example in EXAMPLES {
+        for (file, text) in gerbers(example)? {
+            let doc = gerber_parser::parse(std::io::BufReader::new(text.as_bytes()))
+                .map_err(|(_, e)| format!("{file}: {e}"))?;
+            // The reference parser has no support for the X2 aperture
+            // function attribute `.AperFunction`; that is its gap, not a
+            // coordinate problem, so only other errors count.
+            let errors: Vec<_> = doc
+                .errors()
+                .into_iter()
+                .filter(|e| {
+                    !matches!(
+                        e.error,
+                        gerber_parser::ContentError::UnsupportedApertureAttribute { .. }
+                    )
+                })
+                .collect();
+            assert!(errors.is_empty(), "{file}: {:?}", errors.first());
+            let (mut x, mut y) = (0.0f64, 0.0f64);
+            let mut flashes: Vec<(f64, f64)> = Vec::new();
+            for command in doc.commands() {
+                let Command::FunctionCode(FunctionCode::DCode(DCode::Operation(op))) = command
+                else {
+                    continue;
+                };
+                let coordinates = match op {
+                    Operation::Interpolate(c, _) | Operation::Move(c) | Operation::Flash(c) => c,
+                };
+                if let Some(c) = coordinates {
+                    if let Some(v) = c.x {
+                        x = f64::from(v);
+                    }
+                    if let Some(v) = c.y {
+                        y = f64::from(v);
+                    }
+                }
+                if matches!(op, Operation::Flash(_)) {
+                    flashes.push((x, y));
+                }
+            }
+            let (written, _) = token_points(&text);
+            assert_eq!(flashes.len(), written.len(), "{file}: flash count");
+            // Order of flashes is the file order for both readers.
+            let mut read_nm: Vec<Nm> = flashes
+                .iter()
+                .map(|f| ((f.0 * 1e6).round() as i64, (f.1 * 1e6).round() as i64))
+                .collect();
+            let mut written_nm = written.clone();
+            read_nm.sort_unstable();
+            written_nm.sort_unstable();
+            if read_nm != written_nm {
+                let r: HashSet<Nm> = read_nm.iter().copied().collect();
+                let w: HashSet<Nm> = written_nm.iter().copied().collect();
+                let only_read: Vec<_> = r.difference(&w).take(5).collect();
+                let only_written: Vec<_> = w.difference(&r).take(5).collect();
+                return Err(format!(
+                    "{file}: only reference {only_read:?}, only writer {only_written:?}"
+                ));
+            }
+            for (read, nm) in read_nm.iter().zip(&written_nm) {
+                assert!(
+                    (read.0 - nm.0).abs() <= 1 && (read.1 - nm.1).abs() <= 1,
+                    "{file}: {read:?} vs {nm:?}"
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 10);
+    Ok(())
+}

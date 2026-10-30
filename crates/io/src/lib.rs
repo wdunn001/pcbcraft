@@ -2381,6 +2381,8 @@ pub fn gerber_files_with_budget(
         name: String,
         /// Warnings written as G04 comments after the header.
         notes: Vec<String>,
+        /// Aperture selected last, so a select statement is written only on change.
+        current: Option<u32>,
     }
     impl LayerFile {
         fn new(scale: f64, limit: usize) -> Self {
@@ -2396,6 +2398,15 @@ pub fn gerber_files_with_budget(
                 limit,
                 name: name.to_owned(),
                 notes: Vec::new(),
+                current: None,
+            }
+        }
+        /// Select an aperture with its own `D<code>*` statement; the combined
+        /// select-and-operate form is deprecated and strict readers drop it.
+        fn select(&mut self, code: u32) {
+            if self.current != Some(code) {
+                self.body.push_str(&format!("D{code}*\n"));
+                self.current = Some(code);
             }
         }
         fn over_limit(&self) -> String {
@@ -2420,8 +2431,9 @@ pub fn gerber_files_with_budget(
             if self.ops > self.limit {
                 return Err(self.over_limit());
             }
+            self.select(code);
             self.body.push_str(&format!(
-                "D{code}X{}Y{}D03*\n",
+                "X{}Y{}D03*\n",
                 coordinate(x * self.scale),
                 coordinate(y * self.scale)
             ));
@@ -2432,7 +2444,7 @@ pub fn gerber_files_with_budget(
             if self.ops > self.limit {
                 return Err(self.over_limit());
             }
-            self.body.push_str(&format!("D{code}D02*\n"));
+            self.select(code);
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
                     "X{}Y{}D0{}*\n",
@@ -2455,7 +2467,8 @@ pub fn gerber_files_with_budget(
             if self.ops > self.limit {
                 return Err(self.over_limit());
             }
-            self.body.push_str(&format!("G36*\nD{code}D02*\n"));
+            self.select(code);
+            self.body.push_str("G36*\n");
             for (i, (x, y)) in points.iter().enumerate() {
                 self.body.push_str(&format!(
                     "X{}Y{}D0{}*\n",
@@ -2651,15 +2664,16 @@ pub fn gerber_files_with_budget(
             } else {
                 arc.sweep < 0.0
             };
+            file.select(code);
             file.body.push_str(&format!(
-                "D{code}D02*\nX{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+                "X{}Y{}D02*\nG75*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
                 coordinate(sx * scale),
                 coordinate(sy * scale),
+                if clockwise { 2 } else { 3 },
                 coordinate(ex * scale),
                 coordinate(ey * scale),
                 coordinate((cx - sx) * scale),
-                coordinate((cy - sy) * scale),
-                if clockwise { 2 } else { 3 }
+                coordinate((cy - sy) * scale)
             ));
         } else {
             file.stroke(
@@ -2746,11 +2760,11 @@ pub fn gerber_files_with_budget(
             return Err(outline.over_limit());
         }
         outline.arcs.push_str(&format!(
-            "X{}Y{}D02*\nI{}J{}G02*\n",
-            coordinate((c.center.x - c.radius) * scale),
-            coordinate(c.center.y * scale),
+            "X{x}Y{y}D02*\nG75*\nG02*\nX{x}Y{y}I{}J{}D01*\nG01*\n",
             coordinate(c.radius * scale),
-            0
+            0,
+            x = coordinate((c.center.x - c.radius) * scale),
+            y = coordinate(c.center.y * scale)
         ));
     }
     let hits = project_drill_hits(p)?;
@@ -8643,7 +8657,7 @@ mod tests {
                     .lines()
                     .filter(|l| {
                         let l = l.trim_end();
-                        l.ends_with("D01*") || l.ends_with("G02*") || l.ends_with("G03*")
+                        l.ends_with("D01*")
                     })
                     .count();
                 assert_eq!(layer.draw_count, raw_draws, "raw draw count for {name}");
@@ -8898,7 +8912,8 @@ mod tests {
             "the board edge must be traced"
         );
         assert!(
-            outline.contains("X44000000Y20000000D02*\nI2000000J0G02*\n"),
+            outline
+                .contains("X44000000Y20000000D02*\nG75*\nG02*\nX44000000Y20000000I2000000J0D01*\n"),
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Plated.drl"];

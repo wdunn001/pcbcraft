@@ -19184,13 +19184,12 @@ mod tests {
             .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("{mirrored_x:.6}")),
+            gerber["pcb-B.Cu.gbr"].contains(&format!("X{}", (mirrored_x * 1e6).round() as i64)),
             "bottom copper carries the mirrored pad flash"
         );
         assert!(
-            !gerber["pcb-F.Cu.gbr"]
-                .lines()
-                .any(|l| l.ends_with("D03*") && l.contains(&format!("X{:.6}Y", centre.x))),
+            !gerber["pcb-F.Cu.gbr"].lines().any(|l| l.ends_with("D03*")
+                && l.contains(&format!("X{}Y", (centre.x * 1e6).round() as i64))),
             "the front copper file no longer flashes that pad"
         );
         // The last step was the bottom route; the second undo is the flip.

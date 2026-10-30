@@ -327,14 +327,14 @@ impl GerberLayer {
         self.select(code);
         self.body.push_str("G75*\n");
         self.body.push_str(&format!(
-            "X{}Y{}D02*\nX{}Y{}I{}J{}G0{}*\n",
+            "X{}Y{}D02*\nG0{}*\nX{}Y{}I{}J{}D01*\nG01*\n",
             coordinate(sx * self.scale),
             coordinate(sy * self.scale),
+            if clockwise { 2 } else { 3 },
             coordinate(ex * self.scale),
             coordinate(ey * self.scale),
             coordinate((cx - sx) * self.scale),
-            coordinate((cy - sy) * self.scale),
-            if clockwise { 2 } else { 3 }
+            coordinate((cy - sy) * self.scale)
         ));
         Ok(())
     }
@@ -904,11 +904,11 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
         outline.select(edge_code);
         outline.body.push_str("G75*\n");
         outline.body.push_str(&format!(
-            "X{}Y{}D02*\nI{}J{}G02*\n",
-            coordinate((c.center.x - c.radius) * scale),
-            coordinate(c.center.y * scale),
+            "X{x}Y{y}D02*\nG02*\nX{x}Y{y}I{}J{}D01*\nG01*\n",
             coordinate(c.radius * scale),
-            0
+            0,
+            x = coordinate((c.center.x - c.radius) * scale),
+            y = coordinate(c.center.y * scale)
         ));
     }
 
