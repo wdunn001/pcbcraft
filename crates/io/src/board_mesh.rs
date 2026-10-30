@@ -15,6 +15,7 @@
 //! and [`with_models`] swaps the box for the loaded model's triangles.
 //!
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
+#[path = "board_mesh_bench.rs"]
 mod board_mesh_bench;
 pub use board_mesh_bench::bench_project_600_parts;
 use crate::model_load::LoadedModel;
