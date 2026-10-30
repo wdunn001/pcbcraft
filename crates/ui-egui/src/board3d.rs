@@ -469,8 +469,9 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
     if let Some(e) = &view.error {
         ui.label(t!("board.board3d.the_3d_view_could_not", e = e));
     }
-    // A few notes read inline; many collapse to one line with a bounded,
-    // scrollable list on demand, so they never push the board out of view.
+    // A few notes read inline; many collapse into the footer line, with the
+    // full list in a scrollable window on demand, so they never push the
+    // board out of view.
     if kept.len() <= 3 {
         for note in &kept {
             ui.add(
@@ -481,41 +482,6 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
                 )
                 .wrap(),
             );
-        }
-    } else {
-        ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            ui.label(
-                egui::RichText::new(t!("board.board3d.models_missing", n = kept.len()))
-                    .font(crate::fonts::Role::Caption.font())
-                    .color(env.muted),
-            );
-            let label = if view.notes_open {
-                t!("board.board3d.models_hide")
-            } else {
-                t!("board.board3d.models_show")
-            };
-            if ui
-                .small_button(label)
-                .on_hover_text(t!("board.board3d.models_show.tip"))
-                .clicked()
-            {
-                view.notes_open = !view.notes_open;
-            }
-        });
-        if view.notes_open {
-            egui::ScrollArea::vertical()
-                .id_salt("board3d_missing_models")
-                .max_height(120.0)
-                .show(ui, |ui| {
-                    for note in &kept {
-                        ui.label(
-                            egui::RichText::new(note)
-                                .font(crate::fonts::Role::Caption.font())
-                                .color(env.muted),
-                        );
-                    }
-                });
         }
     }
     let size = ui.available_size_before_wrap();
@@ -565,15 +531,63 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
             Color32::WHITE,
         );
     }
-    ui.label(
-        egui::RichText::new(if loading {
-            t!("board.board3d.loading_models_note")
-        } else {
-            t!("board.board3d.part_bodies_are_default_boxes")
-        })
-        .font(crate::fonts::Role::Caption.font())
-        .color(env.muted),
-    );
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(if loading {
+                t!("board.board3d.loading_models_note")
+            } else {
+                t!("board.board3d.part_bodies_are_default_boxes")
+            })
+            .font(crate::fonts::Role::Caption.font())
+            .color(env.muted),
+        );
+        if kept.len() > 3 {
+            ui.label(
+                egui::RichText::new(format!(
+                    "· {}",
+                    t!("board.board3d.models_missing", n = kept.len())
+                ))
+                .font(crate::fonts::Role::Caption.font())
+                .color(env.muted),
+            );
+            let label = if view.notes_open {
+                t!("board.board3d.models_hide")
+            } else {
+                t!("board.board3d.models_show")
+            };
+            if ui
+                .small_button(label)
+                .on_hover_text(t!("board.board3d.models_show.tip"))
+                .clicked()
+            {
+                view.notes_open = !view.notes_open;
+            }
+        }
+    });
+    if kept.len() > 3 && view.notes_open {
+        let mut open = true;
+        egui::Window::new(t!("board.board3d.models_missing", n = kept.len()))
+            .id(egui::Id::new("board3d_missing_models"))
+            .open(&mut open)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-12.0, -40.0])
+            .default_width(360.0)
+            .show(ui.ctx(), |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(200.0)
+                    .show(ui, |ui| {
+                        for note in &kept {
+                            ui.label(
+                                egui::RichText::new(note)
+                                    .font(crate::fonts::Role::Caption.font())
+                                    .color(env.muted),
+                            );
+                        }
+                    });
+            });
+        if !open {
+            view.notes_open = false;
+        }
+    }
     picked
 }
 
