@@ -321,7 +321,7 @@ Vocabulary, one line each. "One" means exactly one value.
 | conflict (one) | `conflict:ui-egui-lib` edits crates/ui-egui/src/lib.rs; `conflict:parallel-safe` stays out of that file |
 | size (one) | `size:s` one PR, one crate, under a day; `size:m` one PR, several crates; `size:l` several PRs or an epic |
 | machine (zero or more) | `machine:neoden-yy1` `machine:eufymake-e1` `machine:snapmaker-cnc` `machine:commarker-b6` |
-| status (one) | `status:open` `status:claimed` `status:in-progress` `status:pr-open` `status:needs-owner-test` `status:blocked` |
+| status (one) | `status:open` `status:claimed` `status:in-progress` `status:pr-open` `status:needs-owner-test` `status:blocked` `status:review` |
 | stage (one) | `stage:research` `stage:enrich` `ready` (bare; an issue never carries both `ready` and a `stage:` tag) |
 | research | `research:needed` `research:done` `research:n/a` |
 | enrich | `enrich:done` (an `### Enrichment` comment exists) |
