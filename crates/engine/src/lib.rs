@@ -2067,7 +2067,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64},"previous":{"type":"string","minLength":1,"maxLength":4096}}),
                 &["path"],
             ),
         ),
@@ -3968,6 +3968,8 @@ struct OutputJobPackageParams {
     kinds: Vec<String>,
     #[serde(default)]
     variant: Option<String>,
+    #[serde(default)]
+    previous: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15692,6 +15694,37 @@ fn run_command(
                     });
                 }
             }
+            let previous_bom = match a.previous.as_deref().map(str::trim) {
+                None | Some("") => None,
+                Some(previous_path) => {
+                    if previous_path.len() > 4096 {
+                        return Err(Error::Invalid(
+                            "the previous package path is out of range".into(),
+                        ));
+                    }
+                    let previous = std::path::Path::new(previous_path);
+                    if previous.is_dir() {
+                        return Err(Error::Invalid(
+                            "the previous package path names a file, not a folder".into(),
+                        ));
+                    }
+                    let zip = std::fs::read(previous).map_err(|e| {
+                        Error::Invalid(format!("could not read the previous package: {e}"))
+                    })?;
+                    Some(
+                        pcbcraft_io::previous_bom_from_package(&zip).map_err(Error::Invalid)?,
+                    )
+                }
+            };
+            let previous_bom_csv = previous_bom.map(|csv| csv.as_deref());
+            pcbcraft_io::attach_revision_notes_entry(
+                p,
+                &job,
+                variant.as_deref(),
+                &mut entries,
+                previous_bom_csv,
+            )
+            .map_err(Error::Invalid)?;
             let bytes = pcbcraft_io::package_zip(p, &job, variant.as_deref(), &entries)?;
             pcbcraft_io::atomic_write(std::path::Path::new(path), &bytes)
                 .map_err(Error::Invalid)?;
@@ -31443,6 +31476,7 @@ mod tests {
             .collect();
         let expected = [
             "README-fabrication.txt",
+            "REVISION-NOTES.txt",
             "bom.csv",
             "pcb-B.Cu.gbr",
             "pcb-B.Mask.gbr",
@@ -31508,6 +31542,44 @@ mod tests {
     }
 
     #[test]
+    fn package_revision_notes_list_part_changes_from_a_previous_export() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let first =
+            std::env::temp_dir().join(format!("pcbcraft-prev-{}.zip", std::process::id()));
+        let second =
+            std::env::temp_dir().join(format!("pcbcraft-next-{}.zip", std::process::id()));
+        s.execute(
+            "output_job.package",
+            json!({"path": first.to_string_lossy()}),
+            None,
+        )?;
+        s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R99","position":{"x":5.0,"y":5.0}}),
+            None,
+        )?;
+        s.execute(
+            "output_job.package",
+            json!({"path": second.to_string_lossy(), "previous": first.to_string_lossy()}),
+            None,
+        )?;
+        let entries =
+            package_entries(&std::fs::read(&second).map_err(|e| Error::Invalid(e.to_string()))?)?;
+        let notes = entries
+            .iter()
+            .find(|(name, _)| name == "REVISION-NOTES.txt")
+            .ok_or_else(|| Error::Invalid("revision notes are packaged".into()))?;
+        let text = String::from_utf8_lossy(&notes.1);
+        assert!(
+            text.contains("Added parts: R99"),
+            "the notes list new bill references"
+        );
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
+        Ok(())
+    }
+
+    #[test]
     fn package_twice_is_byte_identical_and_leaves_the_design_alone() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let first = std::env::temp_dir().join(format!("pcbcraft-again-{}.zip", std::process::id()));
@@ -31560,7 +31632,15 @@ mod tests {
         let entries =
             package_entries(&std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?)?;
         let names: Vec<&str> = entries.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(names, ["manifest.json", "bom.csv", "placement.txt"]);
+        assert_eq!(
+            names,
+            [
+                "manifest.json",
+                "REVISION-NOTES.txt",
+                "bom.csv",
+                "placement.txt"
+            ]
+        );
         assert!(
             s.execute(
                 "output_job.package",
