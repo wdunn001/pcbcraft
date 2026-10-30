@@ -41,7 +41,7 @@ pub fn all() -> &'static [StarterModel] {
 
 /// Lookup by stable id.
 pub fn by_id(id: &str) -> Option<&'static StarterModel> {
-    all().iter().copied().find(|m| m.id == id)
+    all().iter().find(|m| m.id == id)
 }
 
 fn name_matches(list: &[&str], name: &str) -> bool {
@@ -52,7 +52,6 @@ fn name_matches(list: &[&str], name: &str) -> bool {
 pub fn for_footprint(name: &str) -> Option<&'static StarterModel> {
     all()
         .iter()
-        .copied()
         .find(|m| name_matches(m.footprint_names, name))
 }
 
@@ -63,7 +62,7 @@ pub fn for_model_path(path: &str) -> Option<&'static StarterModel> {
         .next()
         .unwrap_or(path)
         .to_ascii_lowercase();
-    all().iter().copied().find(|m| {
+    all().iter().find(|m| {
         m.model_basenames
             .iter()
             .any(|b| base == b.to_ascii_lowercase())
