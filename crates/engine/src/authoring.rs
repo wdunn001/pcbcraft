@@ -597,7 +597,7 @@ pub(super) fn run(
         }
         "library.footprint.model_auto_align" => {
             let a: ModelAutoAlignParams = parse(params)?;
-            if a.positions.len() % 3 != 0 || a.positions.is_empty() {
+            if !a.positions.len().is_multiple_of(3) || a.positions.is_empty() {
                 return Err(Error::Invalid(
                     "positions must be a non-empty list of x,y,z triples".into(),
                 ));
@@ -605,7 +605,7 @@ pub(super) fn run(
             if a.positions.len() / 3 > pcbcraft_io::MAX_MODEL_VERTICES {
                 return Err(Error::Invalid("the model has too many vertices".into()));
             }
-            if !a.indices.is_empty() && a.indices.len() % 3 != 0 {
+            if !a.indices.is_empty() && !a.indices.len().is_multiple_of(3) {
                 return Err(Error::Invalid(
                     "indices must come in groups of three".into(),
                 ));
