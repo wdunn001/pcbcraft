@@ -6,6 +6,7 @@
 | [capabilities.md](capabilities.md) | What the app does today |
 | [workbench-patterns.md](workbench-patterns.md) | Shell, library, checks, and anatomy plans |
 | [architecture.md](architecture.md) | Crate layers and mutation rules |
+| [plugins.md](plugins.md) | Data-only plugin manifests, registry, and export templates |
 | [mcp.md](mcp.md) | MCP client config |
 | [assistant-backends.md](assistant-backends.md) | Assistant wire formats checked against each API, with gaps |
 | [mcp-conformance.md](mcp-conformance.md) | MCP spec conformance table and test list |

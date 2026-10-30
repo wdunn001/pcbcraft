@@ -7,6 +7,7 @@ pub mod library;
 mod online;
 mod outline;
 pub mod profiles;
+mod plugins;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
@@ -1947,6 +1948,27 @@ pub fn commands() -> Vec<CommandSpec> {
                     "dry_run":{"type":"boolean","default":false}
                 }),
                 &[],
+            ),
+        ),
+        (
+            "plugins.list",
+            "List data-only plugins under a local root folder (manifest scan, no network)",
+            schema(
+                json!({"root":{"type":"string","minLength":1,"maxLength":4096,"description":"directory containing one folder per plugin"}}),
+                &["root"],
+            ),
+        ),
+        (
+            "plugins.export",
+            "Render a plugin pin-map export template from the current design; optional directory writes the file without editing the project",
+            schema(
+                json!({
+                    "root":{"type":"string","minLength":1,"maxLength":4096},
+                    "plugin_id":{"type":"string","minLength":1,"maxLength":64},
+                    "template_id":{"type":"string","minLength":1,"maxLength":64},
+                    "directory":{"type":"string","minLength":1,"maxLength":4096,"description":"when set, write the export file here"}
+                }),
+                &["root", "plugin_id", "template_id"],
             ),
         ),
         (
@@ -14765,6 +14787,8 @@ fn run_command(
         }
         "rules.profile_list" => Ok(profiles::profile_list()),
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
+        "plugins.list" => plugins::plugins_list(params).map_err(Error::Invalid),
+        "plugins.export" => plugins::plugins_export(p, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
             if a.name.trim().is_empty() || a.name.len() > 64 {
