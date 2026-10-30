@@ -15685,6 +15685,8 @@ fn run_command(
                     variant.as_deref(),
                     &mut skipped,
                 )? {
+                    pcbcraft_io::validate_fabrication_package_file(kind, &name, &bytes)
+                        .map_err(Error::Invalid)?;
                     entries.push(pcbcraft_io::PackageEntry {
                         name,
                         kind: kind.clone(),
@@ -31607,6 +31609,27 @@ mod tests {
             "a folder is refused as a package path"
         );
         let _ = std::fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn package_refuses_ipc2581_until_the_export_is_schema_valid() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"ipc","kinds":["ipc2581"]}),
+            None,
+        )?;
+        let path = std::env::temp_dir().join(format!("pcbcraft-ipc-pkg-{}.zip", std::process::id()));
+        assert!(
+            s.execute(
+                "output_job.package",
+                json!({"path": path.to_string_lossy(), "job":"ipc"}),
+                None,
+            )
+            .is_err(),
+            "legacy IPC-2581 output cannot ship in a package yet"
+        );
         Ok(())
     }
 
