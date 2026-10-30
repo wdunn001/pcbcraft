@@ -1,13 +1,10 @@
 //! Changeset gate and changelog compiler behind `cargo xtask changeset` and
 //! `cargo xtask changelog`.
 //!
-//! Context: every pull request carries exactly one small file under
-//! `.changes/`, named after the branch slug, so documentation and a release
-//! note come from every agent. The file format and rules are in
-//! `.changes/README.md`. `check` reads the changed files from
-//! `git diff origin/main...HEAD` (no network); `changelog` turns unreleased
-//! files into CHANGELOG.md and moves them to `.changes/released/<version>/`;
-//! `list` prints them as JSON for other generators such as `status-data`.
+//! Context: each pull request carries one `.changes/<branch-slug>.md` file
+//! (format: `.changes/README.md`). `check` reads changed files from
+//! `git diff origin/main...HEAD`; `changelog` compiles and archives the files;
+//! `list` prints them as JSON for generators such as `status-data`.
 //!
 //! # Rules
 //! - The frontmatter is one `key: value` per line between `---` lines, split at
@@ -26,9 +23,7 @@ use std::path::Path;
 use std::process::Command;
 
 /// Allowed `type` values, in the order the changelog lists them.
-pub const TYPES: [&str; 7] = [
-    "feature", "fix", "refactor", "docs", "test", "ci", "chore",
-];
+pub const TYPES: [&str; 7] = ["feature", "fix", "refactor", "docs", "test", "ci", "chore"];
 /// Longest `summary` accepted, in characters.
 const MAX_SUMMARY: usize = 200;
 /// Shortest reason accepted after `docs: n/a:`.
@@ -239,7 +234,10 @@ pub fn check(
             format!(
                 "this pull request changes {} changesets ({}); it must have exactly one",
                 sets.len(),
-                sets.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                sets.iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         });
     }
@@ -252,7 +250,9 @@ pub fn check(
     let set = parse(&slug, &text).map_err(|e| format!("{path}: {e}"))?;
     let changed_docs: Vec<&String> = files
         .iter()
-        .filter(|f| is_doc_path(f) || (doc_comments.contains(f) && !f.starts_with("crates/ui-egui/")))
+        .filter(|f| {
+            is_doc_path(f) || (doc_comments.contains(f) && !f.starts_with("crates/ui-egui/"))
+        })
         .collect();
     let surface = files.iter().find(|f| is_user_surface(f));
     let needs_docs = set.user_visible || surface.is_some();
@@ -319,7 +319,7 @@ fn doc_comment_files(base: &str) -> Result<Vec<String>, String> {
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         if let Some(p) = line.strip_prefix("+++ b/") {
             current = p.to_string();
-        } else if  line.strip_prefix('+').is_some_and(|l| {
+        } else if line.strip_prefix('+').is_some_and(|l| {
             let l = l.trim_start();
             l.starts_with("//!") || l.starts_with("///")
         }) && !current.is_empty()
@@ -340,7 +340,11 @@ pub fn load_dir(root: &Path) -> Result<Vec<Changeset>, String> {
     };
     for entry in entries {
         let path = entry.map_err(|e| e.to_string())?.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
+        let Some(name) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(str::to_string)
+        else {
             continue;
         };
         if !path.is_file() || !is_changeset_path(&format!(".changes/{name}")) {
@@ -479,7 +483,11 @@ pub fn run_changelog(root: &Path, args: &[String]) -> Result<(), String> {
         std::fs::rename(root.join(".changes").join(&name), target.join(&name))
             .map_err(|e| format!("{name}: {e}"))?;
     }
-    println!("CHANGELOG.md updated; {} files moved to {}", sets.len(), target.display());
+    println!(
+        "CHANGELOG.md updated; {} files moved to {}",
+        sets.len(),
+        target.display()
+    );
     Ok(())
 }
 
@@ -523,7 +531,10 @@ mod tests {
 
     #[test]
     fn accepts_na_with_reason() {
-        let t = GOOD.replace("docs: [docs/ci.md]", "docs: n/a: internal refactor with no behaviour change");
+        let t = GOOD.replace(
+            "docs: [docs/ci.md]",
+            "docs: n/a: internal refactor with no behaviour change",
+        );
         let c = parse("x", &t).expect("parses");
         assert!(c.docs.is_empty() && c.docs_reason.is_some());
     }
@@ -545,22 +556,58 @@ mod tests {
     fn docs_required_when_visible_or_on_a_surface() {
         let r = reader(GOOD);
         assert!(check(&files(&[".changes/a.md", "crates/geom/src/x.rs"]), &[], &r).is_err());
-        let hidden = reader("---\ntype: chore\narea: ci\nissues: []\nuser_visible: false\ndocs: [docs/ci.md]\nsummary: Tidy the workflow file layout.\n---\n");
-        assert!(check(&files(&[".changes/a.md", "crates/geom/src/x.rs", "docs/ci.md"]), &[], &hidden).is_ok());
-        let na = reader("---\ntype: chore\narea: ci\nissues: []\nuser_visible: false\ndocs: n/a: workflow tidy with no user effect\nsummary: Tidy the workflow file layout.\n---\n");
-        for surface in ["crates/ui-egui/src/lib.rs", "crates/engine/src/lib.rs", "crates/io/src/gerber.rs", "site/src/x.astro"] {
-            assert!(check(&files(&[".changes/a.md", surface]), &[], &na).is_ok(), "{surface}");
+        let hidden = reader(
+            "---\ntype: chore\narea: ci\nissues: []\nuser_visible: false\ndocs: [docs/ci.md]\nsummary: Tidy the workflow file layout.\n---\n",
+        );
+        assert!(
+            check(
+                &files(&[".changes/a.md", "crates/geom/src/x.rs", "docs/ci.md"]),
+                &[],
+                &hidden
+            )
+            .is_ok()
+        );
+        let na = reader(
+            "---\ntype: chore\narea: ci\nissues: []\nuser_visible: false\ndocs: n/a: workflow tidy with no user effect\nsummary: Tidy the workflow file layout.\n---\n",
+        );
+        for surface in [
+            "crates/ui-egui/src/lib.rs",
+            "crates/engine/src/lib.rs",
+            "crates/io/src/gerber.rs",
+            "site/src/x.astro",
+        ] {
+            assert!(
+                check(&files(&[".changes/a.md", surface]), &[], &na).is_ok(),
+                "{surface}"
+            );
         }
         let no_n_a = reader(
             "---\ntype: chore\narea: ci\nissues: []\nuser_visible: false\ndocs: [docs/ci.md]\nsummary: Tidy the workflow file layout.\n---\n",
         );
-        assert!(check(&files(&[".changes/a.md", "crates/ui-egui/src/lib.rs"]), &[], &no_n_a).is_err());
-        assert!(check(&files(&[".changes/a.md", "crates/io/src/plot_read.rs"]), &[], &no_n_a).is_ok());
+        assert!(
+            check(
+                &files(&[".changes/a.md", "crates/ui-egui/src/lib.rs"]),
+                &[],
+                &no_n_a
+            )
+            .is_err()
+        );
+        assert!(
+            check(
+                &files(&[".changes/a.md", "crates/io/src/plot_read.rs"]),
+                &[],
+                &na
+            )
+            .is_ok()
+        );
     }
 
     #[test]
     fn doc_comments_count_outside_the_ui() {
-        let r = reader(GOOD.replace("docs: [docs/ci.md]", "docs: [crates/io/src/gerber.rs]").leak());
+        let r = reader(
+            GOOD.replace("docs: [docs/ci.md]", "docs: [crates/io/src/gerber.rs]")
+                .leak(),
+        );
         let f = files(&[".changes/a.md", "crates/io/src/gerber.rs"]);
         assert!(check(&f, &[], &r).is_err());
         assert!(check(&f, &files(&["crates/io/src/gerber.rs"]), &r).is_ok());
