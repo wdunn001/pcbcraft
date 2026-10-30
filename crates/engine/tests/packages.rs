@@ -239,7 +239,8 @@ fn the_ipc2581_package_writes_one_xml_file() -> Result<(), String> {
         .filter_map(|v| v.as_str().map(String::from))
         .collect();
     assert_eq!(written, ["LED_indicator-A.xml"]);
-    let xml = std::fs::read_to_string(dir.join("LED_indicator-A.xml")).map_err(|e| e.to_string())?;
+    let xml =
+        std::fs::read_to_string(dir.join("LED_indicator-A.xml")).map_err(|e| e.to_string())?;
     assert!(
         xml.contains("IPC-2581") || xml.contains("ipc2581"),
         "looks like IPC-2581"
