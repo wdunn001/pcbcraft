@@ -113,6 +113,7 @@ pub fn generate_footprint(
         "dip" => dip(density, params)?,
         "header_single" => header_single(density, params)?,
         "header_double" => header_double(density, params)?,
+        "smt_dual_row" => smt_dual_row(density, params)?,
         "radial" => radial(density, params)?,
         "axial" => axial(density, params)?,
         _ => return Err(format!("unknown land pattern family {family}")),
@@ -492,7 +493,11 @@ fn header_single(
     let pitch = require_finite_positive(params.pitch, "pitch")?;
     let count = require_pin_count(params.pin_count, 1, 40, "pin count")?;
     let span = (count as f64 - 1.0) * pitch;
-    let pad = 1.7;
+    let pad = if params.lead_width > 0.0 {
+        require_finite_positive(params.lead_width, "lead width")?
+    } else {
+        1.7
+    };
     let drill = if params.lead_diameter > 0.0 {
         require_finite_positive(params.lead_diameter, "lead diameter")?
     } else {
@@ -537,7 +542,11 @@ fn header_double(
         2.54
     };
     let span = (per_row as f64 - 1.0) * pitch;
-    let pad = 1.7;
+    let pad = if params.lead_width > 0.0 {
+        require_finite_positive(params.lead_width, "lead width")?
+    } else {
+        1.7
+    };
     let drill = if params.lead_diameter > 0.0 {
         require_finite_positive(params.lead_diameter, "lead diameter")?
     } else {
@@ -577,6 +586,70 @@ fn header_double(
         format!(
             "HDR2X{count}{density}",
             count = count,
+            density = density.suffix()
+        ),
+    ))
+}
+
+fn smt_dual_row(
+    density: LandPatternDensity,
+    params: &LandPatternParams,
+) -> Result<FootprintDefinition, String> {
+    let pitch = require_finite_positive(params.pitch, "pitch")?;
+    let count = require_pin_count(params.pin_count, 2, 600, "pin count")?;
+    if !count.is_multiple_of(2) {
+        return Err("dual-row SMT pin count must be even".into());
+    }
+    let per_row = count / 2;
+    let row_spacing = require_finite_positive(params.row_spacing, "row spacing")?;
+    let pad_w = if params.lead_width > 0.0 {
+        require_finite_positive(params.lead_width, "lead width")?
+    } else {
+        pitch * 0.6
+    };
+    let pad_l = if params.body_length > 0.0 {
+        require_finite_positive(params.body_length, "pad length")?
+    } else {
+        pitch * 1.3
+    };
+    let span = (per_row as f64 - 1.0) * pitch;
+    let mut pads = Vec::new();
+    for i in 0..per_row {
+        let x = -span / 2.0 + i as f64 * pitch;
+        pads.push(smd_roundrect(
+            &(i + 1).to_string(),
+            x,
+            -row_spacing / 2.0,
+            pad_l,
+            pad_w,
+            0.25,
+        ));
+    }
+    for i in 0..per_row {
+        let x = -span / 2.0 + i as f64 * pitch;
+        pads.push(smd_roundrect(
+            &(per_row + i + 1).to_string(),
+            x,
+            row_spacing / 2.0,
+            pad_l,
+            pad_w,
+            0.25,
+        ));
+    }
+    let body_l = span + pitch;
+    let body_w = row_spacing + pad_w;
+    let (half_x, half_y) = bounds_from_pads(&pads, density.courtyard_excess());
+    Ok(base_footprint(
+        density,
+        pads,
+        body_l,
+        body_w,
+        half_x,
+        half_y,
+        format!(
+            "SMT2X{count}P{pitch}{density}",
+            count = count,
+            pitch = pitch_mils(pitch),
             density = density.suffix()
         ),
     ))
