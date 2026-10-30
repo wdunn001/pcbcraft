@@ -15,6 +15,7 @@ pub mod formats;
 mod generate;
 mod gerber;
 mod gerber_job;
+pub mod gerber_preset;
 mod laser;
 mod layers;
 mod library_render;
