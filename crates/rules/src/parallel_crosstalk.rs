@@ -90,26 +90,12 @@ fn parallel_overlap(a: Point, b: Point, c: Point, d: Point) -> Option<f64> {
     let seg2 = (t_c.min(t_d), t_c.max(t_d));
     let lo = seg1.0.max(seg2.0);
     let hi = seg1.1.min(seg2.1);
-    if hi - lo > 1e-6 {
-        Some(hi - lo)
-    } else {
-        None
-    }
+    if hi - lo > 1e-6 { Some(hi - lo) } else { None }
 }
 
-fn coupling_estimate(
-    project: &Project,
-    gap: f64,
-    width: f64,
-    layer: Layer,
-) -> Option<(f64, f64)> {
+fn coupling_estimate(project: &Project, gap: f64, width: f64, layer: Layer) -> Option<(f64, f64)> {
     let (height, _) = dielectric_for(project, layer);
-    let out = impedance::crosstalk(Crosstalk {
-        gap,
-        height,
-        width,
-    })
-    .ok()?;
+    let out = impedance::crosstalk(Crosstalk { gap, height, width }).ok()?;
     Some((out.coupling * 100.0, out.coupling_db))
 }
 
@@ -174,11 +160,7 @@ pub(crate) fn parallel_crosstalk_findings(project: &Project) -> Vec<Finding> {
                     continue;
                 }
                 let coupling = coupling_estimate(project, gap.max(0.01), ref_width, layer);
-                let names = format!(
-                    "{} / {}",
-                    project.net_name(a.net),
-                    project.net_name(b.net)
-                );
+                let names = format!("{} / {}", project.net_name(a.net), project.net_name(b.net));
                 let message = match coupling {
                     Some((pct, db)) => format!(
                         "{names}: parallel run estimate {:.3} mm side by side at {:.3} mm gap, coupling estimate {:.2} % ({:.1} dB)",
@@ -334,9 +316,7 @@ mod tests {
         p.board.tracks[1].end = Point::new(80.0, p.board.tracks[1].width + 2.0);
         p.validate().expect("valid");
         assert!(!long_findings(&p).is_empty());
-        assert!(long_findings(&p)[0]
-            .message
-            .contains("electrically long"));
+        assert!(long_findings(&p)[0].message.contains("electrically long"));
     }
 
     #[test]

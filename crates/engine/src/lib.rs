@@ -8829,13 +8829,14 @@ fn run_command(
             class.rise_time = match &a.rise_time {
                 Value::Null => None,
                 Value::Number(n) => {
-                    let s = n.as_f64().filter(|v| {
-                        v.is_finite() && (1.0e-12..=1.0e-3).contains(v)
-                    }).ok_or_else(|| {
-                        Error::Invalid(
-                            "rise time must be between 1 picosecond and 1 millisecond".into(),
-                        )
-                    })?;
+                    let s = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && (1.0e-12..=1.0e-3).contains(v))
+                        .ok_or_else(|| {
+                            Error::Invalid(
+                                "rise time must be between 1 picosecond and 1 millisecond".into(),
+                            )
+                        })?;
                     Some(s)
                 }
                 _ => {
