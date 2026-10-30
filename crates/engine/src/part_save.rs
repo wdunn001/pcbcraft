@@ -8,7 +8,6 @@ use pcbcraft_library::{
 use pcbcraft_doc::ComponentField;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::path::Path;
 
 pub(super) fn commands() -> Vec<CommandSpec> {
     [(
