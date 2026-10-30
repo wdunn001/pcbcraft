@@ -2352,7 +2352,7 @@ mod tests {
                 from_layer: None,
                 to_layer: None,
                 covering: None,
-            covering_scope: None,
+                covering_scope: None,
             });
         }
         p.validate()?;
