@@ -2227,8 +2227,7 @@ mod tests {
         pin_on_net(&mut p, 11, "U2", "1", "passive", 1)?;
         p.validate()?;
         assert!(erc(&p).iter().any(|f| f.code == "power_not_driven"));
-        p.rule_exclusions
-            .insert("power_not_driven".into(), vec![1]);
+        p.rule_exclusions.insert("power_not_driven".into(), vec![1]);
         assert!(
             !erc(&p).iter().any(|f| f.code == "power_not_driven"),
             "one exclusion on the net silences the only finding"
