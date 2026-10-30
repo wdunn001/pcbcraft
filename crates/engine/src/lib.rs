@@ -1,4 +1,5 @@
 //! The single mutation boundary used by UI, CLI and MCP.
+pub use pcbcraft_publication as publication;
 mod artifacts;
 mod authoring;
 mod dry_run;

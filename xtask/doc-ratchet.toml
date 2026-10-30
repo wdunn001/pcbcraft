@@ -11,6 +11,7 @@ pcbcraft-engine = 49
 pcbcraft-mcp = 11
 pcbcraft-ui-egui = 3
 pcbcraft-assistant = 107
+pcbcraft-publication = 0
 
 # Traits and registries that do not have a contract block yet.
 # The doc pass for each one deletes its line.
