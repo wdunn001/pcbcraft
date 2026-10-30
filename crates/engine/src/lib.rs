@@ -9342,24 +9342,15 @@ fn run_command(
                 pcbcraft_geom::Point::new(c.x + r * rad.cos(), c.y + r * rad.sin())
             };
             let mut outline_index: Option<usize> = None;
+            let mut skip_edge_segments = false;
             let mut offset = pcbcraft_geom::Point::new(0.0, 0.0);
             if a.use_outline {
-                let candidate = |e: &pcbcraft_io::DxfEntity| {
-                    matches!(&e.shape, pcbcraft_io::DxfShape::Polyline { points, closed: true }
-                        if points.len() >= 3 && points.len() <= 64)
-                };
-                let index = entities
-                    .iter()
-                    .position(|e| candidate(e) && e.layer.eq_ignore_ascii_case("edge"))
-                    .or_else(|| entities.iter().position(candidate))
-                    .ok_or_else(|| {
-                        Error::Invalid(
-                            "no closed polyline of 3 to 64 vertices to trace as an outline".into(),
-                        )
-                    })?;
-                let pcbcraft_io::DxfShape::Polyline { points, .. } = &entities[index].shape else {
-                    return Err(Error::Invalid("outline candidate changed".into()));
-                };
+                let imported = pcbcraft_io::dxf_import_outline(&entities).map_err(Error::Invalid)?;
+                let (source, points, arcs) = imported.ok_or_else(|| {
+                    Error::Invalid(
+                        "no closed polyline of 3 to 64 vertices to trace as an outline".into(),
+                    )
+                })?;
                 let distinct: std::collections::BTreeSet<(u64, u64)> = points
                     .iter()
                     .map(|q| (q.x.to_bits(), q.y.to_bits()))
@@ -9378,18 +9369,51 @@ fn run_command(
                 if pcbcraft_doc::outline_area(&shifted) < 0.01 {
                     return Err(Error::Invalid("the imported outline has no area".into()));
                 }
+                let shifted_arcs: Vec<Option<pcbcraft_geom::Point>> = if arcs.is_empty() {
+                    Vec::new()
+                } else {
+                    arcs.iter()
+                        .map(|mid| {
+                            mid.map(|q| {
+                                pcbcraft_geom::Point::new(q.x - min_x, q.y - min_y)
+                            })
+                        })
+                        .collect()
+                };
+                if !shifted_arcs.is_empty() {
+                    pcbcraft_doc::validate_outline_arcs(&shifted, &shifted_arcs)
+                        .map_err(Error::Invalid)?;
+                }
                 offset = pcbcraft_geom::Point::new(min_x, min_y);
                 p.board.outline = Some(shifted);
-                p.board.outline_arcs.clear();
+                p.board.outline_arcs = if shifted_arcs.iter().all(Option::is_none) {
+                    Vec::new()
+                } else {
+                    shifted_arcs
+                };
                 p.board.width = max_x - min_x;
                 p.board.height = max_y - min_y;
-                outline_index = Some(index);
+                match source {
+                    pcbcraft_io::DxfOutlineSource::Polyline(index) => outline_index = Some(index),
+                    pcbcraft_io::DxfOutlineSource::Chained => skip_edge_segments = true,
+                }
             }
             let stroke = 0.15;
             let planned: usize = entities
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| Some(*i) != outline_index)
+                .filter(|(i, e)| {
+                    if Some(*i) == outline_index {
+                        return false;
+                    }
+                    !(skip_edge_segments
+                        && e.layer.eq_ignore_ascii_case("edge")
+                        && matches!(
+                            e.shape,
+                            pcbcraft_io::DxfShape::Line { .. }
+                                | pcbcraft_io::DxfShape::Arc { .. }
+                        ))
+                })
                 .map(|(_, e)| match &e.shape {
                     pcbcraft_io::DxfShape::Polyline { points, closed } => {
                         if *closed {
@@ -9424,6 +9448,15 @@ fn run_command(
             let mut added = 0;
             for (index, e) in entities.iter().enumerate() {
                 if Some(index) == outline_index {
+                    continue;
+                }
+                if skip_edge_segments
+                    && e.layer.eq_ignore_ascii_case("edge")
+                    && matches!(
+                        e.shape,
+                        pcbcraft_io::DxfShape::Line { .. } | pcbcraft_io::DxfShape::Arc { .. }
+                    )
+                {
                     continue;
                 }
                 let mut push = |g: pcbcraft_doc::Graphic, p: &mut pcbcraft_doc::Project| {

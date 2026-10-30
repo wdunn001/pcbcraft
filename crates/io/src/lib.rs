@@ -7,6 +7,7 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
+mod board_edge;
 mod board_mesh;
 mod diff;
 mod drawn;
@@ -36,6 +37,7 @@ pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
+pub use board_edge::{dxf_import_outline, DxfOutlineSource};
 mod cam;
 mod cam_drill;
 mod cam_shapes;
@@ -710,18 +712,12 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     let ink = [0.05, 0.05, 0.05];
     let wire_green = [0.0, 0.45, 0.35];
     if view == "pcb" {
-        match &p.board.outline {
-            Some(o) => page.path(o, copper_edge, 0.2, true)?,
-            None => {
-                let rect = [
-                    Point::new(0.0, 0.0),
-                    Point::new(p.board.width, 0.0),
-                    Point::new(p.board.width, p.board.height),
-                    Point::new(0.0, p.board.height),
-                ];
-                page.path(&rect, copper_edge, 0.2, true)?;
-            }
-        }
+        page.path(
+            &board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR),
+            copper_edge,
+            0.2,
+            true,
+        )?;
         for c in &p.board.cutouts {
             page.circle(c.center, c.radius, [1.0, 1.0, 1.0], 0.1, true)?;
         }
@@ -1641,15 +1637,8 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
 pub fn step_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let depth = p.board.thickness;
-    let outline: Vec<Point> = match &p.board.outline {
-        Some(o) if o.len() >= 3 => o.clone(),
-        _ => vec![
-            Point::new(0.0, 0.0),
-            Point::new(p.board.width, 0.0),
-            Point::new(p.board.width, p.board.height),
-            Point::new(0.0, p.board.height),
-        ],
-    };
+    let outline: Vec<Point> =
+        board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
     let mut doc = StepDoc::new();
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
@@ -1729,15 +1718,8 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
     const MAX_PRISMS: usize = 20_000;
     const MAX_FACES: usize = 200_000;
     let depth = p.board.thickness;
-    let outline: Vec<Point> = match &p.board.outline {
-        Some(o) if o.len() >= 3 => o.clone(),
-        _ => vec![
-            Point::new(0.0, 0.0),
-            Point::new(p.board.width, 0.0),
-            Point::new(p.board.width, p.board.height),
-            Point::new(0.0, p.board.height),
-        ],
-    };
+    let outline: Vec<Point> =
+        board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
     let mut rings = vec![(outline, 0.0, depth)];
     for footprint in &p.board.footprints {
         for pad in &footprint.pads {
@@ -2118,15 +2100,7 @@ fn preview_bounds(p: &Project, view: &str) -> (Point, Point) {
 /// Edge.Cuts corner or vertex list for fabrication output: the traced
 /// outline when the board has one, the plain rectangle otherwise.
 fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
-        None => vec![
-            (0.0, 0.0),
-            (p.board.width, 0.0),
-            (p.board.width, p.board.height),
-            (0.0, p.board.height),
-        ],
-    }
+    board_edge::flat_tuples(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
 }
 
 #[derive(Clone, Copy)]
@@ -2603,7 +2577,13 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     let mut outline = LayerFile::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
+    outline.body.push_str(&format!("D{edge_code}D02*\n"));
+    let (edge_body, edge_ops) = board_edge::gerber_body(scale, p)?;
+    outline.ops += edge_ops;
+    if outline.ops > MAX_OPS {
+        return Err("gerber export exceeds the object limit".into());
+    }
+    outline.body.push_str(&edge_body);
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {
@@ -4370,8 +4350,7 @@ pub fn dxf_board(p: &Project) -> Result<String, String> {
         (q.x, q.y)
     }
     let mut w = DxfWriter::new();
-    let corners = board_edge_points(p);
-    w.polyline("Edge", &corners, true)?;
+    board_edge::write_dxf_edge(&mut w, p)?;
     for c in &p.board.cutouts {
         w.circle("Edge", c.center.x, c.center.y, c.radius)?;
     }
@@ -4809,16 +4788,10 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
         min.y - 8.0
     );
     if view == "pcb" {
-        match &p.board.outline {
-            Some(o) => {
-                s.push_str("<polygon points=\"");
-                for pt in o {
-                    s.push_str(&format!("{},{} ", pt.x, pt.y));
-                }
-                s.push_str("\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>");
-            }
-            None => s.push_str(&format!("<rect width=\"{}\" height=\"{}\" rx=\"0.4\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>",p.board.width,p.board.height)),
-        }
+        let edge_d = board_edge::svg_path_d(p);
+        s.push_str(&format!(
+            "<path d=\"{edge_d}\" fill=\"#193a36\" stroke=\"#5ae0bc\" stroke-width=\"0.15\"/>"
+        ));
         for c in &p.board.cutouts {
             s.push_str(&format!("<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#131c29\" stroke=\"#5ae0bc\" stroke-width=\"0.1\"/>",c.center.x,c.center.y,c.radius));
         }
@@ -9968,7 +9941,7 @@ mod tests {
         );
         let drawing = svg(&project, "pcb")?;
         assert!(
-            drawing.contains("<polygon") && !drawing.contains("<rect width=\"60\""),
+            drawing.contains("<path") && !drawing.contains("<rect width=\"60\""),
             "the preview draws the traced shape"
         );
         let dxf = dxf_board(&project)?;
@@ -10016,6 +9989,51 @@ mod tests {
         assert!(
             dxf.contains("0\nARC") && dxf.contains("40\n7.250"),
             "the DXF drawing carries an ARC entity"
+        );
+        Ok(())
+    }
+    #[test]
+    fn gerber_edge_layer_draws_true_arcs() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 2.0),
+            Point::new(20.0, 2.0),
+            Point::new(20.0, 22.0),
+            Point::new(0.0, 22.0),
+        ]);
+        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
+        project.board.width = 20.0;
+        project.board.height = 22.0;
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let edge = &files["pcb-Edge.gbr"];
+        assert!(
+            edge.contains("G75*") && (edge.contains("G02") || edge.contains("G03")),
+            "the edge layer draws the bulged segment as a circular arc"
+        );
+        assert!(
+            edge.contains("G01*"),
+            "linear interpolation is restored before the next edge segment"
+        );
+        Ok(())
+    }
+    #[test]
+    fn dxf_board_writes_arc_entities_for_arced_edges() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.outline = Some(vec![
+            Point::new(0.0, 2.0),
+            Point::new(20.0, 2.0),
+            Point::new(20.0, 22.0),
+            Point::new(0.0, 22.0),
+        ]);
+        project.board.outline_arcs = vec![Some(Point::new(10.0, 0.0)), None, None, None];
+        project.board.width = 20.0;
+        project.board.height = 22.0;
+        project.validate()?;
+        let dxf = dxf_board(&project)?;
+        assert!(
+            dxf.contains("0\nARC\n8\nEdge\n"),
+            "arced outline segments become DXF arc entities on the Edge layer"
         );
         Ok(())
     }

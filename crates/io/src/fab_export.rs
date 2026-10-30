@@ -729,15 +729,7 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
 }
 
 fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    match &p.board.outline {
-        Some(o) => o.iter().map(|pt| (pt.x, pt.y)).collect(),
-        None => vec![
-            (0.0, 0.0),
-            (p.board.width, 0.0),
-            (p.board.width, p.board.height),
-            (0.0, p.board.height),
-        ],
-    }
+    crate::board_edge::flat_tuples(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
 }
 
 /// RS-274X fabrication bundle with X2 attributes, split drills, mask and paste.
@@ -921,7 +913,13 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 
     let mut outline = GerberLayer::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
+    outline.select(edge_code);
+    let (edge_body, edge_ops) = crate::board_edge::gerber_body(scale, p)?;
+    outline.ops += edge_ops;
+    if outline.ops > MAX_OPS {
+        return Err("gerber export exceeds the object limit".into());
+    }
+    outline.body.push_str(&edge_body);
     for c in &p.board.cutouts {
         outline.ops += 1;
         if outline.ops > MAX_OPS {
