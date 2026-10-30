@@ -220,8 +220,9 @@ mod tests {
         let mut def = empty_footprint();
         def.pads = vec![pad("1", 0.0, 0.0)];
         let targets = footprint_snap_targets(&def);
-        let (p, kind) = snap_point(Point::new(0.1, 0.05), &targets, 0.35).expect("snap");
-        assert_eq!(kind, SnapTargetKind::PadCentre);
-        assert!((p.x - 0.0).abs() < 1e-9 && (p.y - 0.0).abs() < 1e-9);
+        assert_eq!(
+            snap_point(Point::new(0.1, 0.05), &targets, 0.35).map(|(p, k)| (k, p.x, p.y)),
+            Some((SnapTargetKind::PadCentre, 0.0, 0.0))
+        );
     }
 }

@@ -27,7 +27,6 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
-mod model_align;
 mod modifier_ui;
 mod motion;
 mod number_entry;

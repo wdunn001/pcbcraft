@@ -23038,7 +23038,7 @@ mod tests {
         )?;
         let residual = out["result"]["residual_mm"].as_f64().ok_or_else(missing)?;
         assert!(residual < 0.05, "residual {residual}");
-        assert!(!out["result"]["coarse"].as_bool().unwrap_or(true));
+        assert_eq!(out["result"]["coarse"].as_bool(), Some(false));
         Ok(())
     }
     #[test]
