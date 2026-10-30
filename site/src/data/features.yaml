@@ -156,6 +156,11 @@
   summary: Compare two symbols or two footprints and list the pin or pad differences.
   status: desktop
   evidence: [mcp:library.compare]
+- area: libraries
+  name: Drop-in replacement check
+  summary: Decide whether a candidate part may replace one on the board from footprint, pinout, ratings, lifecycle and height.
+  status: desktop
+  evidence: [mcp:library.drop_in_check]
 
 # ---------- Rules and checks ----------
 - area: rules

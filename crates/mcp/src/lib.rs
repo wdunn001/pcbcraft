@@ -67,6 +67,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
+        json!({"name":"library.drop_in_check","description":"Decide whether a candidate part may replace an incumbent on the board: same footprint and pinout, ratings at least as good, lifecycle and height not worse; unknown electrical values fail","inputSchema":object(json!({"incumbent":{"type":"object","description":"part already on the board"},"candidate":{"type":"object","description":"part offered as a replacement"}}),&["incumbent","candidate"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
@@ -110,7 +111,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 16] = [
         "inspect_design",
         "list_commands",
         "checks",
@@ -122,6 +123,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
+        "library.drop_in_check",
         "library.sources",
         "design.recents",
         "design.list_open",
@@ -291,6 +293,7 @@ pub(crate) fn invoke_session(
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
+        "library.drop_in_check",
         "library.sources",
         "library.add_folder",
         "library.remove_folder",
@@ -2781,6 +2784,41 @@ mod tests {
         let locked = session.lock().map_err(|_| "session unavailable")?;
         assert_eq!(locked.revision, 0);
         assert!(locked.project.components.is_empty());
+        Ok(())
+    }
+    #[test]
+    fn library_drop_in_check_leaves_the_session_unchanged() -> Result<(), String> {
+        let session = shared(Session::default());
+        let part = json!({
+            "package_key": "chip-0603",
+            "pads": ["1", "2"],
+            "pins": [
+                {"number": "1", "electrical_type": "passive"},
+                {"number": "2", "electrical_type": "passive"}
+            ],
+            "category": "resistor",
+            "lifecycle": "active",
+            "value": 10000.0,
+            "value_unit": "ohm",
+            "tolerance_pct": [1.0, 1.0],
+            "rated_voltage_v": 50.0,
+            "temp_min_c": -55.0,
+            "temp_max_c": 155.0,
+            "power_w": 0.1,
+            "height_mm": 0.55
+        });
+        let result = call_tool(
+            &session,
+            "library.drop_in_check",
+            &json!({"incumbent": part.clone(), "candidate": part}),
+        );
+        assert_eq!(result.get("isError"), Some(&json!(false)));
+        assert_eq!(
+            result.pointer("/structuredContent/drop_in"),
+            Some(&json!(true))
+        );
+        let locked = session.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(locked.revision, 0);
         Ok(())
     }
     #[test]
