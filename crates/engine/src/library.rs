@@ -130,7 +130,7 @@ pub struct LibrarySource {
 const MAX_LIBRARY_SOURCES: usize = 64;
 pub static SOURCES_PATH_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
 static SOURCES_TEST_HOLDER: Mutex<Option<ThreadId>> = Mutex::new(None);
-static LIBRARY_READ_TOOL_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+static LIBRARY_READ_TOOL_LOCK: Mutex<()> = Mutex::new(());
 
 /// Held by any test that redirects the sources file, so two never
 /// race over the shared slot.
@@ -856,7 +856,15 @@ pub fn list_over(
 }
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     let library_tool = name.starts_with("library.");
-    let _library_turn = library_tool.then(|| LIBRARY_READ_TOOL_LOCK.lock());
+    let _library_turn = if library_tool {
+        Some(
+            LIBRARY_READ_TOOL_LOCK
+                .lock()
+                .map_err(|_| "library read lock unavailable")?,
+        )
+    } else {
+        None
+    };
     let text = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
