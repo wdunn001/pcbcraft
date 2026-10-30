@@ -581,6 +581,10 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
                     net_n,
                     gap: pair.gap,
                     length_tolerance: tolerance,
+                    target_impedance: None,
+                    skew_limit_mm: None,
+                    skew_limit_ps: None,
+                    max_uncoupled_length: None,
                     profile: Some(profile_id.clone()),
                 });
             }

@@ -1664,7 +1664,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "board.set_diffpair",
             "Declare a named differential pair over two nets with a coupling gap and optional length-match tolerance; the same name updates the pair",
             schema(
-                json!({"name":{"type":"string","maxLength":64},"net_p":id_schema(),"net_n":id_schema(),"gap":{"type":"number","minimum":0.02,"maximum":10,"description":"coupling gap, millimetres"},"length_tolerance":{"type":"number","minimum":0,"maximum":100,"description":"allowed length skew, millimetres; optional"}}),
+                json!({"name":{"type":"string","maxLength":64},"net_p":id_schema(),"net_n":id_schema(),"gap":{"type":"number","minimum":0.02,"maximum":10,"description":"coupling gap, millimetres"},"length_tolerance":{"type":"number","minimum":0,"maximum":100,"description":"allowed length skew, millimetres; optional"},"target_impedance":{"type":"number","minimum":10,"maximum":2000,"description":"differential impedance target, ohms; optional"},"skew_limit_mm":{"type":"number","minimum":0,"maximum":100,"description":"intra-pair length skew limit, millimetres; optional"},"skew_limit_ps":{"type":"number","minimum":0,"maximum":10000000,"description":"intra-pair time skew limit, picoseconds; optional"},"max_uncoupled_length":{"type":"number","minimum":0,"maximum":1000,"description":"longest uncoupled run allowed, millimetres; optional"}}),
                 &["name", "net_p", "net_n", "gap"],
             ),
         ),
@@ -4839,7 +4839,53 @@ struct DiffPairParams {
     #[serde(default)]
     length_tolerance: Option<f64>,
     #[serde(default)]
+    target_impedance: Option<f64>,
+    #[serde(default)]
+    skew_limit_mm: Option<f64>,
+    #[serde(default)]
+    skew_limit_ps: Option<f64>,
+    #[serde(default)]
+    max_uncoupled_length: Option<f64>,
+    #[serde(default)]
     id: Option<Id>,
+}
+fn validate_diff_pair_limits(a: &DiffPairParams) -> Result<(), Error> {
+    let tolerance = a.length_tolerance.unwrap_or(0.0);
+    if !tolerance.is_finite() || !(0.0..=100.0).contains(&tolerance) {
+        return Err(Error::Invalid(
+            "the length tolerance must be 0 to 100 millimetres".into(),
+        ));
+    }
+    if a.target_impedance.is_some_and(|z| !z.is_finite() || !(10.0..=2000.0).contains(&z)) {
+        return Err(Error::Invalid(
+            "the impedance target must be 10 to 2000 ohms".into(),
+        ));
+    }
+    if a.skew_limit_mm.is_some_and(|t| !t.is_finite() || !(0.0..=100.0).contains(&t)) {
+        return Err(Error::Invalid(
+            "the length skew limit must be 0 to 100 millimetres".into(),
+        ));
+    }
+    if a.skew_limit_ps.is_some_and(|t| !t.is_finite() || !(0.0..=10_000_000.0).contains(&t)) {
+        return Err(Error::Invalid(
+            "the time skew limit must be 0 to 10000000 picoseconds".into(),
+        ));
+    }
+    if a.max_uncoupled_length
+        .is_some_and(|t| !t.is_finite() || !(0.0..=1000.0).contains(&t))
+    {
+        return Err(Error::Invalid(
+            "the uncoupled length limit must be 0 to 1000 millimetres".into(),
+        ));
+    }
+    Ok(())
+}
+fn apply_diff_pair_limits(pair: &mut pcbcraft_doc::DiffPair, a: &DiffPairParams) {
+    pair.length_tolerance = a.length_tolerance;
+    pair.target_impedance = a.target_impedance;
+    pair.skew_limit_mm = a.skew_limit_mm;
+    pair.skew_limit_ps = a.skew_limit_ps;
+    pair.max_uncoupled_length = a.max_uncoupled_length;
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15097,12 +15143,7 @@ fn run_command(
                     "the coupling gap must be 0.02 to 10 millimetres".into(),
                 ));
             }
-            let tolerance = a.length_tolerance.unwrap_or(0.0);
-            if !tolerance.is_finite() || !(0.0..=100.0).contains(&tolerance) {
-                return Err(Error::Invalid(
-                    "the length tolerance must be 0 to 100 millimetres".into(),
-                ));
-            }
+            validate_diff_pair_limits(&a)?;
             let pairs = &mut p.board.diff_pairs;
             if let Some(existing) = pairs.iter_mut().find(|d| d.name == name) {
                 if a.id.is_none() && (existing.net_p, existing.net_n) != (a.net_p, a.net_n) {
@@ -15113,7 +15154,7 @@ fn run_command(
                 existing.net_p = a.net_p;
                 existing.net_n = a.net_n;
                 existing.gap = a.gap;
-                existing.length_tolerance = a.length_tolerance;
+                apply_diff_pair_limits(existing, &a);
                 return Ok(json!({"id": existing.id, "name": name}));
             }
             if let Some(id) = a.id {
@@ -15130,7 +15171,7 @@ fn run_command(
                 pair.net_p = a.net_p;
                 pair.net_n = a.net_n;
                 pair.gap = a.gap;
-                pair.length_tolerance = a.length_tolerance;
+                apply_diff_pair_limits(pair, &a);
                 return Ok(json!({"id": id, "name": name}));
             }
             if pairs.len() >= 64 {
@@ -15139,15 +15180,21 @@ fn run_command(
                 ));
             }
             let id = allocate(next)?;
-            pairs.push(pcbcraft_doc::DiffPair {
+            let mut pair = pcbcraft_doc::DiffPair {
                 id,
                 name: name.clone(),
                 net_p: a.net_p,
                 net_n: a.net_n,
                 gap: a.gap,
-                length_tolerance: a.length_tolerance,
+                length_tolerance: None,
+                target_impedance: None,
+                skew_limit_mm: None,
+                skew_limit_ps: None,
+                max_uncoupled_length: None,
                 profile: None,
-            });
+            };
+            apply_diff_pair_limits(&mut pair, &a);
+            pairs.push(pair);
             Ok(json!({"id": id, "name": name}))
         }
         "board.rename_diffpair" => {

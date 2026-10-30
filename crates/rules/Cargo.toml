@@ -13,3 +13,6 @@ pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
 pcbcraft-library.workspace = true
 serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

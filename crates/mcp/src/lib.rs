@@ -602,6 +602,8 @@ pub(crate) fn invoke_session(
                     "unrouted",
                     "diffpair_gap",
                     "diffpair_skew",
+                    "pair_skew_exceeded",
+                    "pair_uncoupled_too_long",
                 ];
                 let keep = |key: &str| {
                     report[key]

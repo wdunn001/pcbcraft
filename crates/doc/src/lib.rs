@@ -461,6 +461,20 @@ pub struct DiffPair {
     /// means length matching is not checked for this pair.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length_tolerance: Option<f64>,
+    /// Target differential impedance in ohms; stored for rules and profiles
+    /// that read it, without implying a check here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_impedance: Option<f64>,
+    /// Largest allowed length skew between the two sides, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skew_limit_mm: Option<f64>,
+    /// Largest allowed propagation-time skew between the two sides, in
+    /// picoseconds, from each segment's layer permittivity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skew_limit_ps: Option<f64>,
+    /// Longest uncoupled run allowed along either side, in millimetres.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uncoupled_length: Option<f64>,
     /// Rule profile that last applied this differential pair, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
@@ -477,6 +491,18 @@ impl DiffPair {
             && self
                 .length_tolerance
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+            && self.target_impedance.is_none_or(|z| {
+                z.is_finite() && (10.0..=2000.0).contains(&z)
+            })
+            && self
+                .skew_limit_mm
+                .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
+            && self
+                .skew_limit_ps
+                .is_none_or(|t| t.is_finite() && (0.0..=10_000_000.0).contains(&t))
+            && self.max_uncoupled_length.is_none_or(|t| {
+                t.is_finite() && (0.0..=1000.0).contains(&t)
+            })
     }
 }
 /// Which kinds of copper a keepout keeps out. Every kind is forbidden unless
