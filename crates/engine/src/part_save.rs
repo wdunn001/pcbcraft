@@ -80,7 +80,7 @@ fn part_save(p: &mut Project, params: &Value) -> Result<Value, Error> {
     } else {
         resolve_from_library(p, a.symbol.as_deref().unwrap_or(""))?
     };
-    let mut alternates = a.alternates.unwrap_or_default();
+    let alternates = a.alternates.clone().unwrap_or_default();
     for alt in &alternates {
         if alt.manufacturer.trim().is_empty() || alt.mpn.trim().is_empty() {
             return Err(Error::Invalid(
@@ -115,7 +115,9 @@ fn part_save(p: &mut Project, params: &Value) -> Result<Value, Error> {
     match a.target.as_str() {
         "project" => save_to_project(p, &resolved, sidecar),
         "personal" | "shared" => save_to_folder(p, &resolved, sidecar, &a.target),
-        _ => unreachable!(),
+        _ => Err(Error::Invalid(
+            "target must be project, personal or shared".into(),
+        )),
     }
 }
 
@@ -252,7 +254,7 @@ fn save_to_project(
         .iter_mut()
         .find(|part| part.symbol == sidecar.symbol)
     {
-        *existing = sidecar;
+        *existing = sidecar.clone();
     } else {
         p.library.parts.push(sidecar.clone());
     }
