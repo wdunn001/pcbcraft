@@ -15,13 +15,21 @@
 //! Dependencies: `crates/doc/src/lib.rs` (`Pad::drill_capsule`, `Hole`, `Via`),
 //! `crates/geom/src/lib.rs` (`segment_distance`).
 use super::Finding;
-use pcbcraft_doc::{Id, Project};
+use pcbcraft_doc::{FabRules, Id, Project};
 use pcbcraft_geom::{Point, segment_distance};
 
 /// A gap below this many millimetres counts as touching or overlapping.
 const OVERLAP_MM: f64 = -1e-6;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DrillKind {
+    Via,
+    Pad,
+    MountingHole,
+}
+
 struct Drill {
+    kind: DrillKind,
     owner: Id,
     label: String,
     start: Point,
@@ -33,6 +41,7 @@ fn drills(project: &Project) -> Vec<Drill> {
     let mut all = vec![];
     for v in project.board.vias.iter().filter(|v| v.drill > 0.0) {
         all.push(Drill {
+            kind: DrillKind::Via,
             owner: v.id,
             label: format!("via {}", v.id),
             start: v.position,
@@ -42,6 +51,7 @@ fn drills(project: &Project) -> Vec<Drill> {
     }
     for h in &project.board.holes {
         all.push(Drill {
+            kind: DrillKind::MountingHole,
             owner: h.id,
             label: format!("hole {}", h.id),
             start: h.start(),
@@ -59,6 +69,7 @@ fn drills(project: &Project) -> Vec<Drill> {
             };
             let world = |p: Point| f.position.offset(p.rotate(-f.rotation));
             all.push(Drill {
+                kind: DrillKind::Pad,
                 owner: f.id,
                 label: format!("pad {} of {reference}", pad.number),
                 start: world(d.start),
@@ -101,6 +112,73 @@ pub(crate) fn drill_findings(project: &Project) -> Vec<Finding> {
                 message: format!(
                     "{} and {} overlap by {:.3} mm; the holes cut into each other",
                     a.label, b.label, -gap
+                ),
+                objects,
+            });
+        }
+    }
+    result
+}
+
+fn hole_to_hole_limit(rules: &FabRules, a: DrillKind, b: DrillKind) -> Option<(f64, &'static str)> {
+    let via = rules
+        .hole_to_hole_via
+        .map(|min| (min, "hole_to_hole_via"));
+    let pad = rules
+        .hole_to_hole_pad
+        .map(|min| (min, "hole_to_hole_pad"));
+    let strictest = |options: [Option<(f64, &'static str)>; 2]| {
+        options
+            .into_iter()
+            .flatten()
+            .min_by(|left, right| left.0.partial_cmp(&right.0).unwrap_or(std::cmp::Ordering::Equal))
+    };
+    match (a, b) {
+        (DrillKind::Via, DrillKind::Via) => via,
+        (DrillKind::Pad, _) | (_, DrillKind::Pad) => pad,
+        (DrillKind::Via, DrillKind::MountingHole) | (DrillKind::MountingHole, DrillKind::Via) => {
+            strictest([via, pad])
+        }
+        (DrillKind::MountingHole, DrillKind::MountingHole) => pad,
+    }
+}
+
+/// Wall-to-wall spacing against `FabRules.hole_to_hole_via` and
+/// `hole_to_hole_pad` when `Board.rules` is set.
+///
+/// Overlapping drills are left to `drill_findings`; pairs that already touch
+/// or cut in are skipped here.
+pub(crate) fn drill_spacing_findings(project: &Project) -> Vec<Finding> {
+    let Some(rules) = project.board.rules.as_ref() else {
+        return vec![];
+    };
+    if rules.hole_to_hole_via.is_none() && rules.hole_to_hole_pad.is_none() {
+        return vec![];
+    }
+    let all = drills(project);
+    let mut result = vec![];
+    for (i, a) in all.iter().enumerate() {
+        for b in all.iter().skip(i + 1) {
+            let Some((min, code)) = hole_to_hole_limit(rules, a.kind, b.kind) else {
+                continue;
+            };
+            let gap = segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius;
+            if gap + 1e-6 < OVERLAP_MM {
+                continue;
+            }
+            if gap + 1e-6 >= min {
+                continue;
+            }
+            let mut objects = vec![a.owner];
+            if b.owner != a.owner {
+                objects.push(b.owner);
+            }
+            result.push(Finding {
+                code,
+                severity: project.rule_severity(code, "error"),
+                message: format!(
+                    "{} and {} are {:.3} mm apart wall to wall; fabrication needs at least {:.3} mm",
+                    a.label, b.label, gap.max(0.0), min
                 ),
                 objects,
             });
@@ -174,6 +252,70 @@ mod tests {
             .into_iter()
             .filter(|f| f.code == "drill_overlap")
             .collect()
+    }
+
+    fn spacing(p: &Project, code: &str) -> Vec<Finding> {
+        drc(p)
+            .into_iter()
+            .filter(|f| f.code == code)
+            .collect()
+    }
+
+    #[test]
+    fn via_pair_below_hole_to_hole_via_is_reported() {
+        let mut p = Project::default();
+        p.board.vias.push(via(5, 1.0, 1.0, 0.4));
+        p.board.vias.push(via(6, 1.5, 1.0, 0.4));
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.3),
+            ..FabRules::default()
+        });
+        let f = spacing(&p, "hole_to_hole_via");
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].objects, vec![5, 6]);
+        assert!(
+            f[0].message.contains("0.100 mm") && f[0].message.contains("0.300 mm"),
+            "{}",
+            f[0].message
+        );
+        p.board.vias[1].position = Point::new(1.9, 1.0);
+        assert!(spacing(&p, "hole_to_hole_via").is_empty());
+    }
+
+    #[test]
+    fn pad_drills_use_hole_to_hole_pad_not_via_limit() {
+        let mut p = board_with(vec![
+            pad(
+                "1",
+                Point::default(),
+                Point::new(1.6, 1.6),
+                Point::new(0.8, 0.8),
+                Point::default(),
+            ),
+            pad(
+                "2",
+                Point::new(1.0, 0.0),
+                Point::new(1.6, 1.6),
+                Point::new(0.8, 0.8),
+                Point::default(),
+            ),
+        ]);
+        p.board.rules = Some(FabRules {
+            hole_to_hole_via: Some(0.05),
+            hole_to_hole_pad: Some(0.3),
+            ..FabRules::default()
+        });
+        let f = spacing(&p, "hole_to_hole_pad");
+        assert_eq!(f.len(), 1, "0.2 mm wall gap is under 0.3 mm pad limit");
+        assert!(spacing(&p, "hole_to_hole_via").is_empty());
+    }
+
+    #[test]
+    fn hole_to_hole_limits_are_skipped_without_board_rules() {
+        let mut p = Project::default();
+        p.board.vias.push(via(5, 1.0, 1.0, 0.4));
+        p.board.vias.push(via(6, 1.5, 1.0, 0.4));
+        assert!(spacing(&p, "hole_to_hole_via").is_empty());
     }
 
     #[test]
