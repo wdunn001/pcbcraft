@@ -106,7 +106,9 @@ menu.settings.language.system.tip = Follow the language of this computer.
 menu.settings.language.pick.tip = Show the app in this language.
 
 menu.help = Help
-menu.help.tip = Shortcuts, the command search and bug reports.
+menu.help.tip = Shortcuts, tours, the command search and bug reports.
+menu.help.tours = Tours
+menu.help.tours.tip = Walkthroughs that point at real controls; restart any of them here.
 menu.help.shortcuts = Shortcuts
 menu.help.shortcuts.tip = Show every keyboard shortcut and mouse gesture in one list.
 menu.help.commands = Commands
