@@ -172,6 +172,7 @@ fn a_newcomer_turns_a_pad_into_an_unplated_locating_peg() -> Result<(), String> 
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     pcbcraft_doc::validate_footprint_support(&definition)?;
 
@@ -218,6 +219,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     let mut p = pcbcraft_doc::Project::default();
     p.nets.push(Net {

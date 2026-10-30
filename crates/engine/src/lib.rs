@@ -2436,8 +2436,12 @@ impl Session {
             results.push(sync_board_from_schematic(&mut candidate, &mut next)?);
             candidate.validate()?;
         }
-        self.commit(candidate);
-        self.next_id = next;
+        if candidate != self.project {
+            self.commit(candidate);
+        }
+        if next != self.next_id {
+            self.next_id = next;
+        }
         Ok(json!({"revision":self.revision,"results":results}))
     }
     /// Run one command on a scratch copy and return its result without
@@ -23429,6 +23433,7 @@ mod tests {
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         let out = s.execute(
             "library.footprint.check",
@@ -35174,6 +35179,74 @@ mod tests {
             "both folder imports undo back to the empty project library"
         );
         std::fs::remove_dir_all(&folder).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn library_export_command_writes_symbol_file_without_revision_change() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-libexport-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.import_symbol_file",
+            json!({"path": library_fixture("device.kicad_sym")}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let out = directory.join(format!("parts-{}.kicad_sym", std::process::id()));
+        let result = s.execute(
+            "library.export",
+            json!({"kind":"symbol","path": out.to_string_lossy(),"names":["R","C"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert!(out.exists());
+        assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
+        let text = std::fs::read_to_string(&out).map_err(|e| Error::Invalid(e.to_string()))?;
+        let symbols = pcbcraft_library::read_symbols(&text)
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(symbols.len(), 2);
+        assert!(
+            s.execute(
+                "library.export",
+                json!({"kind":"symbol","path": out.to_string_lossy(),"names":[]}),
+                None,
+            )
+            .is_err()
+        );
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn library_export_command_writes_footprint_directory() -> Result<(), Error> {
+        let mut s = Session::default();
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-fpexport-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "library.import_footprint_file",
+            json!({"path": library_fixture("R_0805_2012Metric.kicad_mod")}),
+            None,
+        )?;
+        let revision = s.revision;
+        let before = s.project.clone();
+        let out_dir = directory.join("footprints");
+        let result = s.execute(
+            "library.export",
+            json!({"kind":"footprint","path": out_dir.to_string_lossy(),"names":["R_0805_2012Metric"]}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(s.revision, revision);
+        assert_eq!(s.project, before);
+        assert!(out_dir.join("R_0805_2012Metric.kicad_mod").exists());
+        assert_eq!(result["files"].as_array().ok_or_else(missing)?.len(), 1);
+        std::fs::remove_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
         Ok(())
     }
 

@@ -148,6 +148,7 @@ fn new_symbol() -> SymbolDefinition {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
         pins: vec![
             new_pin("1", 1, Point::new(-5.0, 0.0), 0.0),
             new_pin("2", 1, Point::new(5.0, 0.0), 180.0),
@@ -203,6 +204,7 @@ fn new_footprint() -> FootprintDefinition {
         rules: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     }
 }
 /// Plain label for a pad shape in the shape list.
