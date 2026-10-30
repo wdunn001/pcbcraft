@@ -43,111 +43,14 @@ mod net_members;
 mod sourcing;
 mod via_protection;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
-pub type Id = u64;
-pub const MAX_ITEMS: usize = 2048;
-/// Most objects of every kind one project may hold; real multilayer boards
-/// carry several thousand tracks and vias.
-pub const MAX_OBJECTS: usize = 16384;
-
-mod material;
-pub use material::{MATERIALS, Material, material};
-mod net_members;
-use pcbcraft_library::PadShape;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
-
-pub type Id = u64;
-pub const MAX_ITEMS: usize = 2048;
-
-mod material;
-pub use material::{MATERIALS, Material, material};
-mod net_members;
-mod sourcing;
-mod compliance;
-mod compliance_list;
-mod via_protection;
-mod sourcing;
-pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
-pub use sourcing::{
-    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
-    SupplierPart, lifecycle_text,
+mod net_properties;
+pub use net_properties::{
+    INSULATION_CLASSES, IMPEDANCE_TARGET_MAX_OHM, IMPEDANCE_TARGET_MIN_OHM,
+    IMPEDANCE_TOLERANCE_MAX_PCT, LINE_STRUCTURES, MAX_REFERENCE_LAYERS, RETURN_PATH_RULES,
+    validate_current, validate_impedance_target, validate_impedance_tolerance_pct,
+    validate_insulation, validate_line_structure, validate_reference_layers,
+    validate_return_path_rule, validate_temperature_rise, validate_working_voltage,
 };
-pub use material::{MATERIALS, Material, material};
-mod net_members;
-mod sourcing;
-mod compliance;
-mod compliance_list;
-mod via_protection;
-pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
-pub use sourcing::{
-    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
-    SupplierPart, lifecycle_text,
-};
-pub use compliance::{
-    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
-    CountryOfOrigin, DeclaredSubstance, Declaration, DeclarationSource, DeclarationSourceKind,
-    DeclarationStatus, ManufacturerRecord, PartRole, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MUTES,
-    MAX_COMPLIANCE_RULE_SETS, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS,
-    MAX_SUBSTANCES, apply_listing_declarations, date_le, normalize_manufacturer_name,
-    part_role_text, valid_date,
-};
-pub use compliance_list::{
-    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
-    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
-};
-pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
-
-/// Verbatim interchange subtrees kept for export when the native model has no
-/// field for them yet. Bounds match epic import research caps.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
-pub struct PreservedSource {
-    /// The kept subtrees, each the exact source text of one node.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub nodes: Vec<String>,
-}
-
-impl PreservedSource {
-    /// Most subtrees one object keeps.
-    pub const MAX_NODES: usize = 256;
-    /// Most bytes of kept text one object holds.
-    pub const MAX_BYTES: usize = 1024 * 1024;
-
-    /// True when nothing is kept.
-    pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
-
-    /// Total bytes of kept text.
-    pub fn byte_len(&self) -> usize {
-        self.nodes.iter().map(String::len).sum()
-    }
-
-    /// Keep the source text in `span`; errors when a per-object limit is hit.
-    pub fn push_span(&mut self, source: &str, span: std::ops::Range<usize>) -> Result<(), String> {
-        if self.nodes.len() >= Self::MAX_NODES {
-            return Err("preserved node limit reached for one object".into());
-        }
-        let slice = source
-            .get(span.clone())
-            .ok_or_else(|| "preserved span out of range".to_string())?;
-        if slice.len() + self.byte_len() > Self::MAX_BYTES {
-            return Err("preserved byte limit reached for one object".into());
-        }
-        self.nodes.push(slice.to_owned());
-        Ok(())
-    }
-
-    /// True when both per-object limits hold.
-    pub fn valid(&self) -> bool {
-        self.nodes.len() <= Self::MAX_NODES && self.byte_len() <= Self::MAX_BYTES
-    }
-}
-
-/// Most bytes of kept source text one project holds in total.
-pub const MAX_PRESERVED_PROJECT_BYTES: usize = 8 * 1024 * 1024;
-
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -555,6 +458,33 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// Target characteristic impedance in ohms; overrides the net class when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_target: Option<f64>,
+    /// Allowed deviation from the impedance target, in percent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_tolerance_pct: Option<f64>,
+    /// Transmission line structure for width advice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_structure: Option<String>,
+    /// Copper layer record names that bound the trace; when absent the class list applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_layers: Option<Vec<String>>,
+    /// Maximum continuous current in ampere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<f64>,
+    /// Allowed temperature rise in kelvin for the current rating.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_rise: Option<f64>,
+    /// Working voltage in volt RMS for clearance rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_voltage: Option<f64>,
+    /// Insulation coordination class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insulation: Option<String>,
+    /// How the return path must behave under this net.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_path_rule: Option<String>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -633,9 +563,33 @@ pub struct NetClass {
     /// Built-in or custom rule profile that last applied these values, when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
-    /// When true, return-path checks apply to member nets (fast signals).
-    #[serde(default)]
-    pub fast: bool,
+    /// Default target characteristic impedance in ohms for member nets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_target: Option<f64>,
+    /// Default impedance tolerance in percent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impedance_tolerance_pct: Option<f64>,
+    /// Default transmission line structure.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_structure: Option<String>,
+    /// Default copper layer record names that bound member traces.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reference_layers: Vec<String>,
+    /// Default maximum continuous current in ampere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<f64>,
+    /// Default allowed temperature rise in kelvin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_rise: Option<f64>,
+    /// Default working voltage in volt RMS.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_voltage: Option<f64>,
+    /// Default insulation coordination class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insulation: Option<String>,
+    /// Default return path rule.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_path_rule: Option<String>,
 }
 /// A clearance requirement between two named nets, stricter than either
 /// class or the board default when it is larger.

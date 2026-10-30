@@ -2145,6 +2145,26 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             hint: None,
         });
     }
+    for net in &project.nets {
+        if project.rule_disabled("impedance_target_incomplete") {
+            continue;
+        }
+        let Some(target) = project.net_effective_impedance_target(net) else {
+            continue;
+        };
+        if !project.net_effective_reference_layers(net).is_empty() {
+            continue;
+        }
+        result.push(Finding {
+            code: "impedance_target_incomplete",
+            severity: project.rule_severity("impedance_target_incomplete", "warning"),
+            message: format!(
+                "{} targets {:.1} ohm but names no reference layer",
+                net.name, target
+            ),
+            objects: vec![net.id],
+        });
+    }
     result.extend(panel_findings(project));
     result.extend(placement_machine_findings(project));
     result.extend(via_findings(project));
@@ -4347,9 +4367,7 @@ covering_scope: None,
         p.nets.push(Net {
             id: 4,
             name: "gnd".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         p.board.clearance = clearance;
         if let Some(pad) = p

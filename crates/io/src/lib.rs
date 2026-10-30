@@ -10388,9 +10388,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -10551,9 +10549,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "P&&R".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -10960,7 +10956,15 @@ mod tests {
             target_impedance: None,
             nets: vec![5],
             profile: None,
-            fast: false,
+            impedance_target: None,
+            impedance_tolerance_pct: None,
+            line_structure: None,
+            reference_layers: vec![],
+            current: None,
+            temperature_rise: None,
+            working_voltage: None,
+            insulation: None,
+            return_path_rule: None,
         });
         let component =
             |id: u64, reference: &str, nets: [Option<u64>; 2]| pcbcraft_doc::Component {
@@ -12654,9 +12658,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 50,
             name: "PWR".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.components.push(component(1, "R5", "R0603", false));
         project.components.push(component(2, "U1", "SOIC-2", true));
@@ -13748,9 +13750,7 @@ mod tests {
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
             name: "probe".into(),
-            target_length: None,
-            length_tolerance: None,
-            instance: None,
+            ..Default::default()
         });
         project.board.tracks.push(pcbcraft_doc::Track {
             id: 8,
