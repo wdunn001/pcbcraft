@@ -691,6 +691,42 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_file_names_after_expansion_are_refused() -> Result<(), String> {
+        use pcbcraft_doc::{PackageContent, PackageDef};
+        use std::collections::BTreeMap;
+        let p = Project::default();
+        let def = PackageDef {
+            id: "dup".into(),
+            name: "Dup".into(),
+            audience: "test".into(),
+            container: "folder".into(),
+            archive: String::new(),
+            experimental: false,
+            files: vec![
+                PackageContent {
+                    kind: "bom".into(),
+                    format: "bom_csv".into(),
+                    options: BTreeMap::new(),
+                    name: "parts.csv".into(),
+                },
+                PackageContent {
+                    kind: "report".into(),
+                    format: "stackup".into(),
+                    options: BTreeMap::new(),
+                    name: "parts.csv".into(),
+                },
+            ],
+        };
+        def.validate()?;
+        let err = build_package(&p, &def, None).unwrap_err();
+        assert!(
+            err.contains("parts.csv"),
+            "the refusal names the duplicate: {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn waiting_writers_make_a_package_unavailable_with_the_issue() -> Result<(), String> {
         let by = |id: &str| bundled_packages().iter().find(|d| d.id == id).cloned();
         let q = availability(&by("fab_quickturn").ok_or("missing")?)?;
