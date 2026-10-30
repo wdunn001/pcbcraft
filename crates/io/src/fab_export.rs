@@ -728,10 +728,6 @@ pub fn fab_readme_text(p: &Project, file_names: &[String]) -> Result<String, Str
     Ok(out)
 }
 
-fn board_edge_points(p: &Project) -> Vec<(f64, f64)> {
-    crate::board_edge::flat_tuples(p, pcbcraft_doc::VALIDATION_CHORD_ERROR)
-}
-
 /// RS-274X fabrication bundle with X2 attributes, split drills, mask and paste.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     p.validate()?;
