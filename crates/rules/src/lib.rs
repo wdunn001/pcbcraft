@@ -8,10 +8,12 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod acute_corner;
 mod courtyard;
 mod drill;
 mod silk;
 mod stub;
+mod track_radius;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -1577,6 +1579,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         }),
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(track_radius::track_radius_findings(project));
+    result.extend(acute_corner::acute_corner_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

@@ -401,6 +401,10 @@ pub struct NetClass {
     /// Absent means no stub check; zero means no stubs at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_stub: Option<f64>,
+    /// Smallest arc radius allowed on member tracks, in millimetres. Set to
+    /// turn tighter curved segments into a design rule finding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_radius: Option<f64>,
     /// Default outer via pad diameter for member nets, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub via_diameter: Option<f64>,
@@ -4625,6 +4629,8 @@ impl Project {
                 || (c.length_tolerance.is_some() && c.target_length.is_none())
                 || c.max_stub
                     .is_some_and(|s| !s.is_finite() || !(0.0..=100.0).contains(&s))
+                || c.min_radius
+                    .is_some_and(|r| !r.is_finite() || !(0.0..=100.0).contains(&r))
                 || !profile_tag_valid(&c.profile)
                 || c.via_diameter
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)

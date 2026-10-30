@@ -484,6 +484,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "netclass.radius_rules",
+            "Set the smallest arc radius a net class allows on member tracks; null clears the limit",
+            schema(
+                json!({"class":id_schema(),"min_radius":{"type":["number","null"],"minimum":0,"maximum":100}}),
+                &["class"],
+            ),
+        ),
+        (
             "netclass.clearance",
             "Change the clearance a net class requires between its copper and everything else",
             schema(
@@ -1755,7 +1763,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_radius, track_length, stub_length, acute_corner, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
             ),
         ),
@@ -4371,6 +4379,12 @@ struct LengthRulesParams {
 struct StubRulesParams {
     class: Id,
     max_stub: Value,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RadiusRulesParams {
+    class: Id,
+    min_radius: Value,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8662,6 +8676,7 @@ fn run_command(
                 target_length: None,
                 length_tolerance: None,
                 max_stub: None,
+                min_radius: None,
                 via_diameter: None,
                 via_drill: None,
                 pair_width: None,
@@ -8802,6 +8817,35 @@ fn run_command(
             Ok(json!({
                 "class": a.class,
                 "max_stub": class.max_stub,
+            }))
+        }
+        "netclass.radius_rules" => {
+            let a: RadiusRulesParams = parse(params)?;
+            let class = p
+                .net_classes
+                .iter_mut()
+                .find(|k| k.id == a.class)
+                .ok_or_else(missing)?;
+            class.min_radius = match &a.min_radius {
+                Value::Null => None,
+                Value::Number(n) => {
+                    let s = n
+                        .as_f64()
+                        .filter(|v| v.is_finite() && *v >= 0.0 && *v <= 100.0)
+                        .ok_or_else(|| {
+                            Error::Invalid("min radius must be between 0 and 100 mm".into())
+                        })?;
+                    Some(s)
+                }
+                _ => {
+                    return Err(Error::Invalid(
+                        "min radius must be a number or null to clear it".into(),
+                    ));
+                }
+            };
+            Ok(json!({
+                "class": a.class,
+                "min_radius": class.min_radius,
             }))
         }
         "netclass.clearance" => {
@@ -24814,6 +24858,72 @@ mod tests {
             json!({"class":class,"max_stub":1.0,"extra":1}),
         ] {
             assert!(s.execute("netclass.stub_rules", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
+    fn netclass_radius_rules_sets_and_clears_min_radius() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"USB","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        fn radius_findings(s: &Session) -> Vec<String> {
+            s.checks()["drc"].as_array().map_or_else(Vec::new, |a| {
+                a.iter()
+                    .filter(|f| f["code"] == "track_radius")
+                    .map(|f| f["message"].as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+        }
+        let track = s.execute(
+            "track.add",
+            json!({"net":sig,"start":{"x":0.0,"y":0.0},"end":{"x":2.0,"y":0.0},"width":0.3}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.set_arc",
+            json!({"id":track,"mid":{"x":1.0,"y":0.5}}),
+            None,
+        )?;
+        assert!(
+            radius_findings(&s).is_empty(),
+            "without a class limit nothing reports"
+        );
+        s.execute(
+            "netclass.radius_rules",
+            json!({"class":class,"min_radius":2.0}),
+            None,
+        )?;
+        assert!(
+            radius_findings(&s)
+                .iter()
+                .any(|m| m.contains("track.round_corners")),
+            "the tight arc is reported once the class limit is set"
+        );
+        s.execute(
+            "netclass.radius_rules",
+            json!({"class":class,"min_radius":null}),
+            None,
+        )?;
+        assert!(radius_findings(&s).is_empty());
+        for params in [
+            json!({"class":class,"min_radius":-0.1}),
+            json!({"class":class,"min_radius":101.0}),
+            json!({"class":999,"min_radius":1.0}),
+            json!({"class":class,"min_radius":"wide"}),
+            json!({"class":class,"min_radius":1.0,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.radius_rules", params, None).is_err());
         }
         assert!(s.project.validate().is_ok());
         Ok(())

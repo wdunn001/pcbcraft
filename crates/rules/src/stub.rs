@@ -342,6 +342,7 @@ mod tests {
             target_length: None,
             length_tolerance: None,
             max_stub,
+            min_radius: None,
             via_diameter: None,
             via_drill: None,
             pair_width: None,
