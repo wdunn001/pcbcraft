@@ -3,10 +3,10 @@
 //! Bless with `PCBCRAFT_BLESS=1 cargo test -p pcbcraft-engine --test m6_artifact_goldens`
 //! or `cargo xtask bless-parity`. Never bless in CI.
 
-use pcbcraft_doc::{Artifact, ARTIFACT_KINDS, Id, Project};
+use pcbcraft_doc::{ARTIFACT_KINDS, Artifact, Id, Project};
 use pcbcraft_engine::{Command, Session};
-use pcbcraft_io::{generate, GeneratedOutput};
-use serde_json::{json, Value};
+use pcbcraft_io::{GeneratedOutput, generate};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -136,8 +136,8 @@ fn compare_golden(
 
 fn kind_owners() -> Result<HashMap<String, String>, String> {
     let path = golden_dir().join("kind-owners.txt");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let mut map = HashMap::new();
     for line in text.lines() {
         let line = line.trim();
@@ -326,9 +326,7 @@ pub fn run_reference_board_m6_artifact_goldens() -> Result<(), String> {
                 compare_golden(&kind, &via_io, &mut failures, &mut skip_notes)?;
             }
             Err(message) if message.contains("not available yet") => {
-                skip_notes.push(format!(
-                    "skip {kind} (owned by issue {issue}): {message}"
-                ));
+                skip_notes.push(format!("skip {kind} (owned by issue {issue}): {message}"));
             }
             Err(message) => {
                 failures.push(format!("{kind} failed unexpectedly: {message}"));

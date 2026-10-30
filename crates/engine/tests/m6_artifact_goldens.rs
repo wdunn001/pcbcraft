@@ -30,7 +30,14 @@ fn golden_harness_fails_on_a_wrong_blessed_file() -> Result<(), String> {
         .map_err(|e| format!("write golden: {e}"))?;
     let mut failures = Vec::new();
     let mut skip_notes = Vec::new();
-    compare_golden_in(dir.path(), false, "bom", "one\nTWO\n", &mut failures, &mut skip_notes)?;
+    compare_golden_in(
+        dir.path(),
+        false,
+        "bom",
+        "one\nTWO\n",
+        &mut failures,
+        &mut skip_notes,
+    )?;
     if failures.len() != 1 {
         return Err(format!("expected one failure, got: {failures:?}"));
     }
@@ -48,7 +55,14 @@ fn golden_harness_skips_when_blessed_file_is_missing() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
     let mut failures = Vec::new();
     let mut skip_notes = Vec::new();
-    compare_golden_in(dir.path(), false, "bom", "csv\n", &mut failures, &mut skip_notes)?;
+    compare_golden_in(
+        dir.path(),
+        false,
+        "bom",
+        "csv\n",
+        &mut failures,
+        &mut skip_notes,
+    )?;
     if !failures.is_empty() {
         return Err(format!("missing golden should not fail: {failures:?}"));
     }
@@ -63,7 +77,14 @@ fn golden_harness_writes_under_bless() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
     let mut failures = Vec::new();
     let mut skip_notes = Vec::new();
-    compare_golden_in(dir.path(), true, "bom", "csv\n", &mut failures, &mut skip_notes)?;
+    compare_golden_in(
+        dir.path(),
+        true,
+        "bom",
+        "csv\n",
+        &mut failures,
+        &mut skip_notes,
+    )?;
     if !failures.is_empty() {
         return Err(format!("bless should not fail: {failures:?}"));
     }
