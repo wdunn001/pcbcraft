@@ -2087,6 +2087,7 @@ mod tests {
             offset,
             scale: [scale; 3],
             rotate,
+            cad_part: None,
             raw_source: String::new(),
         }
     }

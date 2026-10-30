@@ -20,6 +20,8 @@ mod layers;
 mod library_render;
 mod machine_profile;
 mod model_load;
+mod solidcraft_format;
+mod solidcraft_model;
 mod neoden_yy1;
 mod package;
 mod panel_export;
@@ -98,7 +100,18 @@ pub use machine_profile::{
 };
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
-    ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
+    ModelCacheKey, ModelError, SharedModel, load_model, load_model_with_part,
+    model_cache_key, model_cache_key_solidcraft, model_extension_supported,
+};
+pub use solidcraft_format::{
+    CONTAINER_VERSION, MAX_CONTAINER_ENTRIES, MAX_CONTAINER_EXPANDED, SUPPORTED_FORMAT,
+    SolidcraftAppearances, SolidcraftComponent, SolidcraftDesign, SolidcraftOccurrence,
+    read_solidcraft, read_solidcraft_container, read_solidcraft_json, write_solidcraft_container,
+    write_solidcraft_json,
+};
+pub use solidcraft_model::{
+    PCBCraft_METADATA_KEY, load_solidcraft_model, solidcraft_cache_token,
+    solidcraft_is_footprint_export,
 };
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
@@ -7751,6 +7764,7 @@ mod tests {
                 offset: [0.0; 3],
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
+                cad_part: None,
                 raw_source: String::new(),
             });
         }
