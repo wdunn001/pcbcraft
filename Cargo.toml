@@ -41,8 +41,6 @@ truck-stepio = "0.3"
 truck-meshalgo = { version = "0.4", default-features = false, features = ["tessellation"] }
 gltf = { version = "1", default-features = false, features = ["utils"] }
 tempfile = "3"
-sha2 = "0.10"
-gltf = "1"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 
 [workspace.lints.rust]
