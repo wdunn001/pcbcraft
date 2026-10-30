@@ -11,9 +11,11 @@ workspace = true
 [dependencies]
 pcbcraft-ui-egui.workspace = true
 eframe.workspace = true
+pcbcraft-doc.workspace = true
 pcbcraft-engine.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

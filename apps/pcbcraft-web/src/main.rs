@@ -36,12 +36,12 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .get_element_by_id("pcbcraft")
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
-    let session = pcbcraft_mcp::shared(demo_session());
     eframe::WebRunner::new()
         .start(
             canvas,
             eframe::WebOptions::default(),
             Box::new(move |cc| {
+                let session = pcbcraft_mcp::shared(opening_session(cc.storage));
                 Ok(Box::new(pcbcraft_ui_egui::App::new(
                     cc, session, None, None, false,
                 )))
@@ -77,33 +77,107 @@ fn show_start_failure() {
     }
 }
 
-/// The session the demo opens with: the built-in sample board.
+/// Session passed into the UI on first paint: recovery snapshot or the demo board.
 ///
-/// The desktop app's `--sample` flag builds the same project, so checks and
-/// tabs behave identically. If the sample cannot be built the demo starts
-/// empty rather than failing.
+/// The demo always starts from a sample board with parts. `App::new` only
+/// restores browser storage when the session is still empty, so recovery must
+/// happen here before the sample session is installed.
 ///
 /// # Rules
-/// - Never panic; fall back to an empty session.
+/// - Never panic; fall back to the sample board, then to an empty session.
 ///
 /// # Dependencies
 /// - `crates/engine/src/lib.rs` (`Session::sample`)
+/// - `crates/ui-egui` autosave key `recovery` in `eframe::Storage`
 ///
 /// # Do not
-/// - Read files; the browser has none.
+/// - Read files from disk; the browser has none.
+#[cfg(any(target_arch = "wasm32", test))]
+fn opening_session(storage: Option<&dyn eframe::Storage>) -> pcbcraft_engine::Session {
+    if let Some(text) = storage.and_then(|storage| storage.get_string("recovery")) {
+        if text.len() <= pcbcraft_io_limit() {
+            if let Ok(project) = serde_json::from_str::<pcbcraft_doc::Project>(&text) {
+                if project.validate().is_ok() {
+                    let mut session = pcbcraft_engine::Session::default();
+                    if session.replace(project).is_ok() {
+                        return session;
+                    }
+                }
+            }
+        }
+    }
+    demo_session()
+}
+
+/// The session the demo opens with when nothing is stored yet.
 #[cfg(any(target_arch = "wasm32", test))]
 fn demo_session() -> pcbcraft_engine::Session {
     pcbcraft_engine::Session::sample().unwrap_or_default()
 }
 
+fn pcbcraft_io_limit() -> usize {
+    8 * 1024 * 1024
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use pcbcraft_engine::Session;
+    use std::collections::BTreeMap;
+
+    struct MapStorage(BTreeMap<String, String>);
+
+    impl eframe::Storage for MapStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.0.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.0.insert(key.to_owned(), value);
+        }
+    }
+
     /// The demo opens on a board with parts and nets.
     #[test]
     fn the_demo_starts_with_a_sample() {
         let session = super::demo_session();
         assert!(!session.project.components.is_empty(), "no parts");
         assert!(!session.project.nets.is_empty(), "no nets");
+    }
+
+    #[test]
+    fn reload_restores_a_saved_project_over_the_demo_board() {
+        let demo = Session::sample().unwrap_or_default();
+        let shared = pcbcraft_mcp::shared(demo);
+        let Ok(mut session) = shared.lock() else {
+            assert!(false, "lock session");
+            return;
+        };
+        assert!(
+            session
+                .execute(
+                    "component.add",
+                    serde_json::json!({"kind":"resistor","position":{"x":99,"y":88}}),
+                    None,
+                )
+                .is_ok(),
+            "add part"
+        );
+        let saved = session.project.clone();
+        drop(session);
+        let Ok(recovery) = serde_json::to_string(&saved) else {
+            assert!(false, "serialize recovery");
+            return;
+        };
+        let storage = MapStorage(BTreeMap::from([("recovery".into(), recovery)]));
+        let opened = opening_session(Some(&storage));
+        assert!(
+            opened
+                .project
+                .components
+                .iter()
+                .any(|c| (c.position.x - 99.0).abs() < 0.01),
+            "recovery should replace the demo board"
+        );
     }
 
     /// The paragraph in index.html says what the catalog says.
