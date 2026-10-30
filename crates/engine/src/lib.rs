@@ -24844,6 +24844,42 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn netclass_fast_signal_marks_class_members() -> Result<(), Error> {
+        let mut s = Session::default();
+        let sig = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let class = s.execute(
+            "netclass.add",
+            json!({"name":"FastIO","clearance":0.2,"width":0.3,"nets":[sig]}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert!(!s.project.net_is_fast(sig));
+        s.execute(
+            "netclass.fast_signal",
+            json!({"class":class,"fast":true}),
+            None,
+        )?;
+        assert!(s.project.net_is_fast(sig));
+        s.execute(
+            "netclass.fast_signal",
+            json!({"class":class,"fast":false}),
+            None,
+        )?;
+        assert!(!s.project.net_is_fast(sig));
+        for params in [
+            json!({"class":999,"fast":true}),
+            json!({"class":class,"fast":"yes"}),
+            json!({"class":class,"fast":true,"extra":1}),
+        ] {
+            assert!(s.execute("netclass.fast_signal", params, None).is_err());
+        }
+        assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+    #[test]
     fn checks_scope_lists_courtyard_and_silk_checks() {
         let scope = Session::default().checks()["scope"]
             .as_str()

@@ -11,7 +11,7 @@
 //!
 //! Dependencies: `pcbcraft_doc::zone_fill`, `super::inside`, stackup rows on the board.
 use super::{Finding, inside};
-use pcbcraft_doc::{Id, Layer, Project, Track, Via};
+use pcbcraft_doc::{Id, Layer, Project, Track};
 use pcbcraft_geom::Point;
 use std::collections::BTreeSet;
 
@@ -57,10 +57,10 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
 
     let mut pours: BTreeSet<(Layer, Id)> = BTreeSet::new();
     for zone in &project.board.zones {
-        if !zone.filled || !ground.contains(&zone.net) {
-            continue;
-        }
-        if ref_layers.contains(&zone.layer) {
+        if zone.filled
+            && ground.contains(&zone.net)
+            && ref_layers.contains(&zone.layer)
+        {
             pours.insert((zone.layer, zone.id));
         }
     }
@@ -126,22 +126,22 @@ pub(crate) fn return_path_findings(project: &Project) -> Vec<Finding> {
         let bad = sample_track(track)
             .into_iter()
             .find(|p| !point_on_reference(*p, &layer_pieces));
-        if let Some(at) = bad {
-            if reported_gap.insert((track.net, track.id)) {
-                findings.push(Finding {
-                    code: "return_path",
-                    severity: project.rule_severity("return_path", "warning"),
-                    message: format!(
-                        "{}: track {} crosses a gap in the reference plane on {} near ({:.2}, {:.2}) mm",
-                        project.net_name(track.net),
-                        track.id,
-                        project.layer_name(ref_layer),
-                        at.x,
-                        at.y,
-                    ),
-                    objects: vec![track.id],
-                });
-            }
+        if let Some(at) = bad
+            && reported_gap.insert((track.net, track.id))
+        {
+            findings.push(Finding {
+                code: "return_path",
+                severity: project.rule_severity("return_path", "warning"),
+                message: format!(
+                    "{}: track {} crosses a gap in the reference plane on {} near ({:.2}, {:.2}) mm",
+                    project.net_name(track.net),
+                    track.id,
+                    project.layer_name(ref_layer),
+                    at.x,
+                    at.y,
+                ),
+                objects: vec![track.id],
+            });
         }
     }
 
@@ -208,7 +208,7 @@ fn reference_layer_for(project: &Project, signal: Layer) -> Option<Layer> {
             .and_then(|i| Layer::from_index(i as u8).ok())
             .or_else(|| Layer::from_index(1).ok());
     }
-    if idx as u8 + 1 == count {
+    if idx + 1 == count {
         return (0..count as usize - 1)
             .rfind(|&i| plane_index(i))
             .and_then(|i| Layer::from_index(i as u8).ok())
@@ -380,7 +380,9 @@ mod tests {
     #[test]
     fn track_over_reference_slot_is_flagged_and_moving_clears_it() -> Result<(), String> {
         let mut p = two_layer_board_with_ground_pour();
-        p.board.zones[0].cutouts.push(square(15.0, 18.0, 25.0, 22.0));
+        p.board.zones[0]
+            .cutouts
+            .push(square(15.0, 18.0, 25.0, 22.0));
         p.board.tracks.push(Track {
             id: 20,
             net: 2,
@@ -495,7 +497,9 @@ mod tests {
     fn unclassified_slow_net_is_never_checked() -> Result<(), String> {
         let mut p = two_layer_board_with_ground_pour();
         p.net_classes.clear();
-        p.board.zones[0].cutouts.push(square(15.0, 18.0, 25.0, 22.0));
+        p.board.zones[0]
+            .cutouts
+            .push(square(15.0, 18.0, 25.0, 22.0));
         p.board.tracks.push(Track {
             id: 20,
             net: 2,
