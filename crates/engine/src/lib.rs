@@ -5567,7 +5567,7 @@ struct TrackWidthParams {
     id: Id,
     width: f64,
 }
-/// Parameters of remove-by-id commands such as `schematic.remove_port`, `board.fiducial_remove`, `board.nettie_remove`, and `board.datum_remove`.
+/// Parameters of `schematic.remove_port`, `board.fiducial_remove`, `board.nettie_remove`, and `board.datum_remove`: remove one object by id.
 ///
 /// # Rules
 /// - The id must match an existing object of the kind the command removes.
