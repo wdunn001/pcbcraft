@@ -42,7 +42,7 @@ Stages in words:
 4. **Ready.** A worker may claim it. Workers claim only `ready` issues. Workers who share a build machine with others also need `conflict:parallel-safe`.
 5. **Work.** The worker claims, branches off fork `main`, builds, tests, merges the latest fork `main` back in, pushes the branch, waits for the Actions run, and posts a build report ending in "PR pending owner review".
 6. **Review.** A reviewer checks the pushed branch against the acceptance criteria and posts `### Review`.
-7. **Integration.** The integrator merges the branch into fork `main` with a merge commit. When the Actions build on fork `main` is green, the change is done.
+7. **Integration.** The integrator merges the branch into fork `main` with a merge commit. The merge message ends with a line `Issues: #N, #M` listing every issue the branch delivers, with no other text on that line. When the Actions build on fork `main` is green, the change is done.
 8. **Owner test.** The maintainer runs fork `main`. Only then does a pull request to upstream open.
 
 ## 2. Roles, step by step
@@ -192,7 +192,7 @@ A branch that does not merge cleanly into fork `main` at review time goes back t
 
 **Build and test**
 
-CI is GitHub Actions on the fork, and it runs on every pushed branch. The Actions run is the proof of a green build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
+CI is GitHub Actions on the fork, and it runs on pull requests and on `main`, not on plain branch pushes. Open a draft pull request to get the cheap checks (format, policy, clippy, docs); mark it ready for review to run the full gate. The green run is the proof of a build; link it in your report. Running the gate yourself before pushing is optional and saves round trips:
 
 ```sh
 cargo xtask ci
@@ -281,7 +281,8 @@ One agent owns the integration branch, the fork's `main`. It merges every review
    ```sh
    git checkout main && git pull --ff-only origin main
    git merge --no-ff feat-<slug>
-   ```
+```
+End the merge commit message with a line `Issues: #N, #M` listing every issue the branch delivers, with no other text on that line.
 3. Resolve conflicts in the merge commit, keeping both sides' intent; if the resolution is not obvious, ask on both issues before pushing.
 4. Push the merge, then watch the GitHub Actions run on fork `main`. The change is done when that full build is green; if it is red, fix forward on a branch or report on the issue, and never rewrite `main`. Where a local run is cheap, run `cargo xtask ci` on the merged tree before the push:
    ```sh

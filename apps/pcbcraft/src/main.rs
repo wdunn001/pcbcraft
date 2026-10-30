@@ -82,6 +82,7 @@ fn main() -> eframe::Result {
     ));
     let options = eframe::NativeOptions {
         viewport: egui_viewport(option("--size").as_deref()),
+        wgpu_options: wgpu_options(),
         ..Default::default()
     };
     eframe::run_native(
@@ -113,6 +114,35 @@ fn main() -> eframe::Result {
         }),
     )
 }
+/// Graphics setup that asks the adapter only for what it can give.
+///
+/// eframe requests its stock device limits. A weak or old software driver, such as the
+/// Mesa 21 Vulkan driver on an Ubuntu 20.04 runner, reports lower maxima (two colour
+/// attachments instead of eight) and the stock request then fails before any window opens.
+/// The limits are lowered to the adapter's own where it is below the stock value.
+///
+/// # Rules
+/// - Never raises a limit; capable adapters get exactly eframe's stock request.
+///
+/// # Dependencies
+/// - `apps/pcbcraft/src/main.rs` builds the eframe `WgpuConfiguration` (egui-wgpu `setup.rs`).
+///
+/// # Do not
+/// - Hard-code limits here; they must come from the adapter.
+fn wgpu_options() -> eframe::WgpuConfiguration {
+    let mut config = eframe::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut config.wgpu_setup {
+        let stock = setup.device_descriptor.clone();
+        setup.device_descriptor = std::sync::Arc::new(move |adapter| {
+            let mut descriptor = stock(adapter);
+            descriptor.required_limits = descriptor
+                .required_limits
+                .or_worse_values_from(&adapter.limits());
+            descriptor
+        });
+    }
+    config
+}
 fn egui_viewport(size: Option<&str>) -> eframe::egui::ViewportBuilder {
     let size = size
         .and_then(|s| s.split_once('x'))
@@ -122,7 +152,7 @@ fn egui_viewport(size: Option<&str>) -> eframe::egui::ViewportBuilder {
     let builder = eframe::egui::ViewportBuilder::default()
         .with_inner_size(size)
         .with_min_inner_size([1000.0, 680.0])
-        .with_app_id("io.github.tangency-labs.pcbcraft");
+        .with_app_id("io.github.tangency_labs.pcbcraft");
     match pcbcraft_ui_egui::brand::window_icon() {
         Some(icon) => builder.with_icon(std::sync::Arc::new(icon)),
         None => builder,
