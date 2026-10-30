@@ -1,8 +1,8 @@
 //! Panel fabrication export: duplicated board artwork, mechanical holes and placement.
 
 use pcbcraft_doc::{
-    panel_layout, Board, CopperZone, Cutout, Fiducial, Footprint, Hole, Layer, PanelLayout,
-    PanelSeparation, PanelSettings, Project, Track, Via,
+    Board, CopperZone, Cutout, Fiducial, Footprint, Hole, Layer, PanelLayout, PanelSeparation,
+    PanelSettings, Project, Track, Via, panel_layout,
 };
 use pcbcraft_geom::Point;
 use std::collections::BTreeMap;
