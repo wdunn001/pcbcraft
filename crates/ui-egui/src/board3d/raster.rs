@@ -1,24 +1,24 @@
 //! Software renderer for the 3D tab: a depth-buffered triangle rasteriser with
-//! linear-light shading and 2x2 supersampling, returning an image for egui.
+//! three-point lighting and 2x2 supersampling, returning an image for egui.
 //!
 //! Context: `board3d.rs` owns the camera and the mesh and calls [`render`] only
 //! when the picture would change (see `Frame` there). The mesh comes from
 //! `pcbcraft_io::board_mesh`; this file never edits it.
-//! Local rules: flat shading per triangle with a real depth buffer; diffuse
-//! lighting runs in linear sRGB with a hemisphere ambient term and a cheap
-//! environment reflection on metal. The mask sheet is green with openings over
+//! Local rules: flat shading per triangle with a real depth buffer, so coplanar
+//! faces shade the same and nothing depends on triangle order; the lights are
+//! fixed to the camera (key upper left, fill right, rim behind, a soft head light) so the board
+//! reads the same from every angle. The mask sheet is green with openings over
 //! the pads; where it lies directly over copper (tracks, pours) it is drawn a
 //! little lighter, the way copper shows through real mask.
 //!
 //! # Dependencies
 //! - crates/io/src/board_mesh.rs (`BoardMesh`, `PartKind`)
-//! - crates/io/src/mesh_material.rs (`MaterialClass`, colour helpers)
 //! - crates/ui-egui/src/board3d.rs (`Basis`, `flip`)
 //!
 //! # Do not
 //! - Use the GPU or any thread; it runs in headless tests and the browser build.
 use super::{Basis, FOV_TAN, NEAR, V, cross, dot, flip, sub, unit};
-use pcbcraft_io::{BoardMesh, MaterialClass, PartKind, linear_to_srgb_byte, srgb_to_linear};
+use pcbcraft_io::{BoardMesh, PartKind};
 
 /// What to draw and how, besides the camera.
 pub(super) struct Look {
@@ -38,11 +38,6 @@ const SILK: [f32; 3] = [244.0, 244.0, 238.0];
 const PACKAGE: [f32; 3] = [38.0, 40.0, 47.0];
 const GOLD: [f32; 3] = [222.0, 176.0, 62.0];
 const TIN: [f32; 3] = [200.0, 202.0, 206.0];
-const RESISTOR: [f32; 3] = [48.0, 38.0, 32.0];
-const CAN: [f32; 3] = [62.0, 58.0, 54.0];
-const CONNECTOR: [f32; 3] = [28.0, 32.0, 38.0];
-const CERAMIC: [f32; 3] = [210.0, 205.0, 195.0];
-const LENS: [f32; 3] = [180.0, 220.0, 160.0];
 const PICKED: [f32; 3] = [255.0, 190.0, 40.0];
 
 fn norm(v: V) -> V {
@@ -57,133 +52,17 @@ fn comb(a: V, x: f64, b: V, y: f64, c: V, z: f64) -> V {
     ]
 }
 
-fn srgb255(c: [f32; 3]) -> [f32; 3] {
-    [c[0] / 255.0, c[1] / 255.0, c[2] / 255.0]
-}
-
-struct MatLook {
-    base_srgb: [f32; 3],
-    metal: bool,
-    shine: f32,
-}
-
-fn material_look(
-    mat: MaterialClass,
-    part: &pcbcraft_io::MeshPart,
-    authored: [f32; 3],
-    look: &Look,
-) -> MatLook {
-    match mat {
-        MaterialClass::Authored => MatLook {
-            base_srgb: authored,
-            metal: false,
-            shine: 0.22,
-        },
-        MaterialClass::TinLead => MatLook {
-            base_srgb: srgb255(TIN),
-            metal: true,
-            shine: 0.55,
-        },
-        MaterialClass::GoldContact => MatLook {
-            base_srgb: srgb255(if look.gold { GOLD } else { TIN }),
-            metal: true,
-            shine: 0.62,
-        },
-        MaterialClass::Ceramic => MatLook {
-            base_srgb: srgb255(FR4),
-            metal: false,
-            shine: 0.1,
-        },
-        MaterialClass::Resistor => MatLook {
-            base_srgb: srgb255(RESISTOR),
-            metal: false,
-            shine: 0.18,
-        },
-        MaterialClass::CanSleeve => MatLook {
-            base_srgb: srgb255(CAN),
-            metal: false,
-            shine: 0.28,
-        },
-        MaterialClass::ConnectorPlastic => MatLook {
-            base_srgb: srgb255(CONNECTOR),
-            metal: false,
-            shine: 0.2,
-        },
-        MaterialClass::Lens => MatLook {
-            base_srgb: srgb255(LENS),
-            metal: false,
-            shine: 0.35,
-        },
-        MaterialClass::Marking => MatLook {
-            base_srgb: srgb255(SILK),
-            metal: false,
-            shine: 0.0,
-        },
-        MaterialClass::MouldCompound => {
-            let green = matches!(part.kind, PartKind::MaskTop | PartKind::MaskBottom);
-            MatLook {
-                base_srgb: srgb255(if green { MASK } else { PACKAGE }),
-                metal: false,
-                shine: if green { 0.0 } else { 0.22 },
-            }
-        }
-    }
-}
-
-fn env_reflection(n: V, view: V) -> f32 {
-    let up = [0.0, 0.0, 1.0];
-    let hemi = (dot(n, up) * 0.5 + 0.5).clamp(0.0, 1.0) as f32;
-    let sky = 0.55 + 0.35 * hemi;
-    let facing = dot(n, view).max(0.0) as f32;
-    sky * (0.35 + 0.65 * facing.powf(3.0))
-}
-
-fn shade_pixel(
-    mat: MatLook,
-    n: V,
-    toward_eye: V,
-    key: V,
-    fill: V,
-    rim: V,
-    half: V,
-) -> [u8; 3] {
-    let base = srgb_to_linear(mat.base_srgb);
-    let hemi = (dot(n, [0.0, 0.0, 1.0]) * 0.5 + 0.5).max(0.0) as f32;
-    let sky = srgb_to_linear([0.55, 0.62, 0.72]);
-    let ground = srgb_to_linear([0.06, 0.05, 0.05]);
-    let amb = [
-        ground[0] + (sky[0] - ground[0]) * hemi,
-        ground[1] + (sky[1] - ground[1]) * hemi,
-        ground[2] + (sky[2] - ground[2]) * hemi,
-    ];
-    let ndv = dot(n, toward_eye).max(0.0) as f32;
-    let ndk = dot(n, key).max(0.0) as f32;
-    let ndf = dot(n, fill).max(0.0) as f32;
-    let ndr = dot(n, rim).max(0.0) as f32;
-    let diff = 0.18 * ndv + 0.38 * ndk + 0.16 * ndf + 0.1 * ndr;
-    let mut col = [
-        base[0] * (amb[0] * 0.55 + diff),
-        base[1] * (amb[1] * 0.55 + diff),
-        base[2] * (amb[2] * 0.55 + diff),
-    ];
-    if mat.metal {
-        let env = env_reflection(n, toward_eye);
-        col[0] += env * 0.45;
-        col[1] += env * 0.42;
-        col[2] += env * 0.35;
-    }
-    let spec = mat.shine * dot(n, half).max(0.0).powf(24.0) as f32;
-    col[0] += spec;
-    col[1] += spec;
-    col[2] += spec;
-    [
-        linear_to_srgb_byte(col[0]),
-        linear_to_srgb_byte(col[1]),
-        linear_to_srgb_byte(col[2]),
-    ]
-}
-
 /// Draw the mesh at `w` by `h` pixels.
+///
+/// Why: a painter-ordered triangle soup cannot hold coplanar layers apart; a
+/// depth buffer can, and it costs little on a board.
+///
+/// # Rules
+/// - Triangles with a corner behind the near plane are dropped, not clipped.
+/// - Both faces draw, lit from the side that faces the camera.
+///
+/// # Do not
+/// - Call it every frame; `board3d.rs` caches the image.
 pub(super) fn render(
     mesh: &BoardMesh,
     basis: &Basis,
@@ -197,6 +76,7 @@ pub(super) fn render(
     let (cx, cy) = (sw as f64 / 2.0, sh as f64 / 2.0);
     let mut depth = vec![0.0f32; sw * sh];
     let mut color = vec![[0u8; 3]; sw * sh];
+    // Whether the nearest fragment so far is copper, for the mask pass.
     let mut copper = vec![false; sw * sh];
     for y in 0..sh {
         let t = y as f32 / sh.max(1) as f32;
@@ -207,6 +87,7 @@ pub(super) fn render(
         ];
         color[y * sw..(y + 1) * sw].fill(row);
     }
+    // Three-point lighting, fixed to the camera.
     let toward_eye = [-basis.fwd[0], -basis.fwd[1], -basis.fwd[2]];
     let key = norm(comb(basis.up, 0.8, basis.right, -0.55, toward_eye, 0.6));
     let fill = norm(comb(basis.up, 0.15, basis.right, 0.85, toward_eye, 0.5));
@@ -220,6 +101,20 @@ pub(super) fn render(
         let is_mask = matches!(part.kind, PartKind::MaskTop | PartKind::MaskBottom);
         let is_copper = matches!(part.kind, PartKind::CopperTop | PartKind::CopperBottom);
         let picked = part.component.is_some() && part.component == look.selected;
+        let (base_color, shine) = match part.kind {
+            PartKind::Board => (MASK, 0.12),
+            PartKind::CopperTop | PartKind::CopperBottom => {
+                (if look.gold { GOLD } else { TIN }, 0.55)
+            }
+            PartKind::SilkTop | PartKind::SilkBottom => (SILK, 0.0),
+            PartKind::MaskTop | PartKind::MaskBottom => (MASK, 0.0),
+            PartKind::Body => (
+                part.color
+                    .map(|c| [c[0] * 255.0, c[1] * 255.0, c[2] * 255.0])
+                    .unwrap_or(PACKAGE),
+                0.25,
+            ),
+        };
         let cam: Vec<Option<(f64, f64, f64, V)>> = part
             .positions
             .iter()
@@ -234,24 +129,7 @@ pub(super) fn render(
                 })
             })
             .collect();
-        let mut tri_i = 0usize;
         for tri in part.indices.as_chunks::<3>().0.iter() {
-            let mat = part
-                .materials
-                .get(tri_i)
-                .copied()
-                .unwrap_or(MaterialClass::MouldCompound);
-            let authored = part.authored_colors.get(tri_i).copied().unwrap_or([0.0; 3]);
-            tri_i += 1;
-            let mut mat_look = material_look(mat, part, authored, look);
-            if picked {
-                mat_look.base_srgb = srgb255(PICKED);
-                mat_look.metal = false;
-            }
-            if part.kind == PartKind::Board && mat == MaterialClass::Ceramic {
-                // Side walls read as bare FR4, tops as substrate tan.
-                mat_look.base_srgb = srgb255(CERAMIC);
-            }
             let (Some(Some(a)), Some(Some(b)), Some(Some(c))) = (
                 cam.get(tri[0] as usize),
                 cam.get(tri[1] as usize),
@@ -270,12 +148,14 @@ pub(super) fn render(
             if x0 > x1 || y0 > y1 {
                 continue;
             }
+            // While the camera moves, specks under a pixel are not worth the time.
             if ss == 1 && x1 - x0 <= 1 && y1 - y0 <= 1 {
                 continue;
             }
             let mut n = norm(cross(sub(b.3, a.3), sub(c.3, a.3)));
             let facing = dot(n, sub(basis.eye, a.3));
             if part.kind != PartKind::Body {
+                // Closed solids wound outward before the mirror: the far side is never seen.
                 if facing >= 0.0 {
                     continue;
                 }
@@ -283,16 +163,37 @@ pub(super) fn render(
             } else if facing < 0.0 {
                 n = [-n[0], -n[1], -n[2]];
             }
+            let mut base = base_color;
             if part.kind == PartKind::Board && n[2].abs() < 0.7 {
-                mat_look.base_srgb = srgb255(FR4);
+                base = FR4;
             }
-            let shade = shade_pixel(mat_look, n, toward_eye, key, fill, rim, half);
+            if picked {
+                base = PICKED;
+            }
+            let lit = 0.28
+                + 0.42 * dot(n, toward_eye).max(0.0)
+                + 0.36 * dot(n, key).max(0.0)
+                + 0.20 * dot(n, fill).max(0.0)
+                + 0.14 * dot(n, rim).max(0.0);
+            let spec = shine * dot(n, half).max(0.0).powi(24) * 255.0;
+            let shade = [
+                (base[0] * lit as f32 + spec as f32).min(255.0) as u8,
+                (base[1] * lit as f32 + spec as f32).min(255.0) as u8,
+                (base[2] * lit as f32 + spec as f32).min(255.0) as u8,
+            ];
             let over = {
-                let m = material_look(MaterialClass::MouldCompound, part, [0.0; 3], look);
-                let mut over_look = m;
-                over_look.base_srgb = srgb255(MASK_OVER);
-                shade_pixel(over_look, n, toward_eye, key, fill, rim, half)
+                let m = [
+                    MASK_OVER[0] * lit as f32 + spec as f32,
+                    MASK_OVER[1] * lit as f32 + spec as f32,
+                    MASK_OVER[2] * lit as f32 + spec as f32,
+                ];
+                [
+                    m[0].min(255.0) as u8,
+                    m[1].min(255.0) as u8,
+                    m[2].min(255.0) as u8,
+                ]
             };
+            // Depth is linear in screen space once taken as 1/z: a plane.
             let dx = ((b.2 - a.2) * (c.1 - a.1) - (c.2 - a.2) * (b.1 - a.1)) / area;
             let dy = ((c.2 - a.2) * (b.0 - a.0) - (b.2 - a.2) * (c.0 - a.0)) / area;
             let edges = [(a, b), (b, c), (c, a)];
@@ -319,6 +220,7 @@ pub(super) fn render(
                     let iz = (a.2 + dx * (px as f64 + 0.5 - a.0) + dy * (fy - a.1)) as f32;
                     let at = row + px;
                     if iz > depth[at] {
+                        // Copper no deeper than the mask is thick shows through it.
                         let covers = is_mask
                             && copper[at]
                             && depth[at] > 0.0
@@ -331,6 +233,7 @@ pub(super) fn render(
             }
         }
     }
+    // Average each ss by ss block into one pixel.
     let mut out = Vec::with_capacity(w * h);
     let n = (ss * ss) as u32;
     for y in 0..h {

@@ -50,7 +50,8 @@ pub use board_mesh::{
     with_models,
 };
 pub use mesh_material::{
-    MaterialClass, classify_model_color, linear_to_srgb_byte, parametric_body_material,
+    MaterialClass, MaterialDraw, MaterialLights, MaterialSurface, classify_model_color,
+    linear_to_srgb_byte, material_surface, parametric_body_material, shade_material_pixel,
     srgb_channel_to_linear, srgb_to_linear,
 };
 pub use cam::{

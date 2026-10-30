@@ -354,9 +354,9 @@ impl Out {
                 face.push(base as u32 + v as u32);
             }
         }
-        let added = &self.model.indices[idx_before..];
+        let added: Vec<u32> = self.model.indices[idx_before..].to_vec();
         if !added.is_empty() {
-            self.model.push_triangles(added, diffuse)?;
+            self.model.push_triangles(&added, diffuse)?;
         }
         Ok(())
     }
