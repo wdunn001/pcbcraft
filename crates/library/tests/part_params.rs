@@ -4,6 +4,7 @@ use pcbcraft_library::part_params::{
     params_from_attributes, parse_temperature_coefficient,
 };
 use pcbcraft_library::sources::{FixtureSource, PartResult, PartSource, SourceError};
+
 const SAMPLE: &str = include_str!("fixtures/sources/sample.json");
 const ATTRIBUTES: &str = include_str!("fixtures/sources/sample-attributes.json");
 const ALIASES: &str = include_str!("fixtures/sources/sample-param-aliases.json");
@@ -74,10 +75,12 @@ fn resistor_from_two_sources_agrees() -> Result<(), SourceError> {
     assert!(merged.params.iter().all(|p| {
         p.confidence == ParamConfidence::Agreed || p.confidence == ParamConfidence::Single
     }));
-    assert!(merged
-        .params
-        .iter()
-        .any(|p| p.key == ParamKey::Resistance && p.confidence == ParamConfidence::Agreed));
+    assert!(
+        merged
+            .params
+            .iter()
+            .any(|p| p.key == ParamKey::Resistance && p.confidence == ParamConfidence::Agreed)
+    );
     Ok(())
 }
 
@@ -88,10 +91,12 @@ fn capacitor_from_two_sources_agrees() -> Result<(), SourceError> {
     let b = params_for(&src, &alt_result("ALT-C-100N", "capacitor"))?;
     let merged = merge_part_params(a, b);
     assert_eq!(number(&merged, ParamKey::Capacitance), Some(1.0e-7));
-    assert!(merged
-        .params
-        .iter()
-        .any(|p| p.key == ParamKey::Capacitance && p.confidence == ParamConfidence::Agreed));
+    assert!(
+        merged
+            .params
+            .iter()
+            .any(|p| p.key == ParamKey::Capacitance && p.confidence == ParamConfidence::Agreed)
+    );
     Ok(())
 }
 
@@ -112,11 +117,11 @@ fn deliberate_resistance_mismatch_is_conflict() -> Result<(), SourceError> {
     let a = params_for(&src, &src.fetch("SAMPLE-R-10K")?)?;
     let b = params_for(&src, &alt_result("MISMATCH-R-10K", "resistor"))?;
     let merged = merge_part_params(a, b);
-    let resistance = merged
-        .params
-        .iter()
-        .find(|p| p.key == ParamKey::Resistance);
-    assert_eq!(resistance.map(|p| p.confidence), Some(ParamConfidence::Conflict));
+    let resistance = merged.params.iter().find(|p| p.key == ParamKey::Resistance);
+    assert_eq!(
+        resistance.map(|p| p.confidence),
+        Some(ParamConfidence::Conflict)
+    );
     assert_eq!(resistance.map(|p| p.conflicts.len()), Some(1));
     assert_eq!(number(&merged, ParamKey::Resistance), Some(10_000.0));
     Ok(())
@@ -132,10 +137,7 @@ fn unknown_attributes_stay_as_extras() -> Result<(), SourceError> {
 
 #[test]
 fn value_and_tolerance_parsers_by_table() {
-    assert_eq!(
-        parse_value("10 kohms", None),
-        Some((10_000.0, Unit::Ohm))
-    );
+    assert_eq!(parse_value("10 kohms", None), Some((10_000.0, Unit::Ohm)));
     assert_eq!(parse_tolerance("+80%, -20%"), Some((20.0, 80.0)));
     assert_eq!(parse_temperature_coefficient("±30 ppm/°C"), Some(30.0));
 }

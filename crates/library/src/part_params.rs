@@ -10,9 +10,10 @@
 //!
 //! # Do not
 //! - Fetch live catalogue data or write into project files from here.
+
 use crate::listing::{
-    category_from, package_key, parse_temperature_range, parse_tolerance, parse_value,
-    tolerance_from, Category, Unit,
+    Category, Unit, category_from, package_key, parse_temperature_range, parse_tolerance,
+    parse_value, tolerance_from,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -21,26 +22,47 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParamKey {
+    /// Capacitance in farads.
     Capacitance,
+    /// Resistance in ohms.
     Resistance,
+    /// Inductance in henries.
     Inductance,
+    /// Maximum DC working voltage in volts.
     RatedVoltageDc,
+    /// Maximum AC working voltage in volts.
     RatedVoltageAc,
+    /// Maximum current in amperes.
     RatedCurrent,
+    /// Power rating in watts.
     Power,
+    /// Allowed value span as a percentage range.
     ToleranceRange,
+    /// Operating temperature span in degrees Celsius.
     TemperatureRange,
+    /// Capacitor dielectric name.
     Dielectric,
+    /// Equivalent series resistance in ohms.
     Esr,
+    /// Resonant or rated frequency in hertz.
     Frequency,
+    /// Diode forward voltage in volts.
     ForwardVoltage,
+    /// MOSFET drain-source voltage in volts.
     DrainSourceVoltage,
+    /// MOSFET on-state resistance in ohms.
     OnResistance,
+    /// Normalised package key from the source text.
     PackageKey,
+    /// Pin or terminal count.
     PinCount,
+    /// Pad pitch in millimetres.
     Pitch,
+    /// Body height in millimetres.
     Height,
+    /// Mount style text from the source.
     MountType,
+    /// Temperature coefficient in ppm per degree Celsius.
     TemperatureCoefficient,
 }
 
@@ -62,23 +84,44 @@ pub enum ParamConfidence {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum ParamPayload {
-    Number { value: f64 },
-    Range { low: f64, high: f64 },
-    Text { value: String },
+    /// One numeric value in the key's SI unit.
+    Number {
+        /// Parsed magnitude.
+        value: f64,
+    },
+    /// An inclusive numeric span.
+    Range {
+        /// Lower bound.
+        low: f64,
+        /// Upper bound.
+        high: f64,
+    },
+    /// Free text that does not use SI units.
+    Text {
+        /// Source text or normalised token.
+        value: String,
+    },
 }
 
 /// One normalised parameter from one source answer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParamValue {
+    /// Which closed key this row represents.
     pub key: ParamKey,
+    /// Parsed value in SI units or text.
     pub payload: ParamPayload,
     /// SI unit for numeric keys; empty for text keys and temperature (Celsius).
     pub unit: Option<Unit>,
+    /// Exact text the source returned.
     pub raw: String,
+    /// Source id that supplied this row.
     pub source: String,
+    /// When the source answer was recorded, Unix seconds.
     pub retrieved_at: u64,
+    /// Trust label after merge, or single-source default.
     pub confidence: ParamConfidence,
+    /// Other sources' values when [`ParamConfidence::Conflict`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conflicts: Vec<ParamConflictEntry>,
 }
@@ -87,10 +130,15 @@ pub struct ParamValue {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ParamConflictEntry {
+    /// Disagreeing parsed value.
     pub payload: ParamPayload,
+    /// SI unit when the payload is numeric.
     pub unit: Option<Unit>,
+    /// Exact text that source returned.
     pub raw: String,
+    /// Source id for the disagreeing row.
     pub source: String,
+    /// When that source answer was recorded, Unix seconds.
     pub retrieved_at: u64,
 }
 
@@ -98,7 +146,9 @@ pub struct ParamConflictEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtraAttribute {
+    /// Attribute name from the source.
     pub name: String,
+    /// Attribute value text, unchanged.
     pub value: String,
 }
 
@@ -106,17 +156,14 @@ pub struct ExtraAttribute {
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartParams {
+    /// Normalised rows sorted by key.
     pub params: Vec<ParamValue>,
+    /// Unmapped attributes sorted by name.
     pub extras: Vec<ExtraAttribute>,
 }
 
-/// Per-source alias table: category name, then attribute name to param key.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ParamAliasFile {
-    #[serde(flatten)]
-    pub sources: BTreeMap<String, BTreeMap<String, BTreeMap<String, ParamKey>>>,
-}
+/// Per-source alias table: source id, category, attribute name to param key.
+pub type ParamAliasFile = BTreeMap<String, BTreeMap<String, BTreeMap<String, ParamKey>>>;
 
 /// Read alias JSON: top-level keys are source ids; then category snake names.
 ///
@@ -269,8 +316,7 @@ fn parse_payload(
             (u == Unit::Volt).then_some((ParamPayload::Number { value: v }, Some(Unit::Volt)))
         }
         ToleranceRange => {
-            let (lo, hi) = tolerance_from(trimmed, category)
-                .or_else(|| parse_tolerance(trimmed).map(|(a, b)| (a, b)))?;
+            let (lo, hi) = tolerance_from(trimmed, category).or_else(|| parse_tolerance(trimmed))?;
             Some((
                 ParamPayload::Range {
                     low: f64::from(lo),
@@ -389,7 +435,8 @@ fn lookup_key(
 /// - Unmapped attribute names become [`ExtraAttribute`] rows.
 /// - Each parsed row starts with [`ParamConfidence::Single`].
 /// # Dependencies
-/// - [`load_param_aliases`]; [`crate::listing::category_from`].
+/// - crates/library/src/part_params.rs#load_param_aliases
+/// - crates/library/src/listing.rs#category_from
 /// # Do not
 /// - Invent a value when parsing fails; failed rows go to extras.
 pub fn params_from_attributes(
@@ -402,7 +449,6 @@ pub fn params_from_attributes(
 ) -> PartParams {
     let category = category_from(source_category, kind_text);
     let table = aliases
-        .sources
         .get(source_id)
         .and_then(|by_cat| by_cat.get(category_key(category)));
     let mut params = Vec::new();
@@ -438,7 +484,7 @@ pub fn params_from_attributes(
             conflicts: Vec::new(),
         });
     }
-    params.sort_by(|a, b| a.key.cmp(&b.key));
+    params.sort_by_key(|p| p.key);
     extras.sort_by(|a, b| a.name.cmp(&b.name));
     PartParams { params, extras }
 }
@@ -513,7 +559,7 @@ pub fn merge_part_params(a: PartParams, b: PartParams) -> PartParams {
             }
         }
     }
-    params.sort_by(|a, b| a.key.cmp(&b.key));
+    params.sort_by_key(|p| p.key);
     extras.sort_by(|x, y| x.name.cmp(&y.name));
     extras.dedup_by(|x, y| x.name.eq_ignore_ascii_case(&y.name) && x.value == y.value);
     PartParams { params, extras }
@@ -530,7 +576,7 @@ pub fn parse_temperature_coefficient(text: &str) -> Option<f64> {
     if !lower.contains("ppm") {
         return None;
     }
-    let nums = crate::listing::parse_tolerance(text)
+    crate::listing::parse_tolerance(text)
         .map(|(a, _)| f64::from(a))
         .or_else(|| {
             text.trim()
@@ -539,8 +585,7 @@ pub fn parse_temperature_coefficient(text: &str) -> Option<f64> {
                 .next()?
                 .parse()
                 .ok()
-        });
-    nums
+        })
 }
 
 #[cfg(test)]
