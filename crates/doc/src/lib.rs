@@ -134,6 +134,26 @@ pub const DEFAULT_PIN_MATRIX_OVERRIDES: &[(&str, &str, &str)] = &[
     ("tri_state", "no_connect", "error"),
     ("unspecified", "no_connect", "error"),
 ];
+fn default_decoupling_max_mm() -> f64 {
+    2.0
+}
+fn is_default_decoupling_mm(v: &f64) -> bool {
+    v.is_finite() && (*v - 2.0).abs() < 1e-9
+}
+fn design_limits_empty(l: &DesignIntentLimits) -> bool {
+    l.decoupling_distance_mm.is_none() && l.decoupling_ground_via_mm.is_none()
+}
+/// Project-level limits for design-intent checks until interface profiles land.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesignIntentLimits {
+    /// Shortest copper path from an IC power pin to a local decoupling capacitor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoupling_distance_mm: Option<f64>,
+    /// Ground via or copper pour within this distance of a cap ground pad.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decoupling_ground_via_mm: Option<f64>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct LibrarySymbol {
     pub library: String,
@@ -3260,6 +3280,18 @@ pub struct Project {
     /// keyed by lower-case name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub meta: BTreeMap<String, String>,
+    /// Maximum pad-centre distance in millimetres from an IC power pin to a
+    /// decoupling capacitor on the same net when that IC has a board footprint.
+    /// Schematic-only designs ignore distance and only require a capacitor on
+    /// the net.
+    #[serde(
+        default = "default_decoupling_max_mm",
+        skip_serializing_if = "is_default_decoupling_mm"
+    )]
+    pub decoupling_max_mm: f64,
+    /// Editable copper-path and ground-via limits for decoupling checks.
+    #[serde(default, skip_serializing_if = "design_limits_empty")]
+    pub design_limits: DesignIntentLimits,
     /// Named numeric values commands may reference by name instead of
     /// retyping a number, keyed by name and carried with the saved design.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -3422,6 +3454,8 @@ impl Default for Project {
             locked_objects: vec![],
             reference_images: vec![],
             meta: Default::default(),
+            decoupling_max_mm: default_decoupling_max_mm(),
+            design_limits: DesignIntentLimits::default(),
             parameters: Default::default(),
             bindings: vec![],
             rule_severity: Default::default(),
@@ -4495,6 +4529,22 @@ impl Project {
         }
         if self.panel.enabled {
             self.panel.validate_fields()?;
+        }
+        if !self.decoupling_max_mm.is_finite()
+            || self.decoupling_max_mm < 0.5
+            || self.decoupling_max_mm > 50.0
+        {
+            return Err("decoupling distance must be 0.5 to 50 mm".into());
+        }
+        if let Some(v) = self.design_limits.decoupling_distance_mm {
+            if !v.is_finite() || v < 0.1 || v > 50.0 {
+                return Err("decoupling copper path limit must be 0.1 to 50 mm".into());
+            }
+        }
+        if let Some(v) = self.design_limits.decoupling_ground_via_mm {
+            if !v.is_finite() || v < 0.1 || v > 50.0 {
+                return Err("decoupling ground via limit must be 0.1 to 50 mm".into());
+            }
         }
         if self.name.is_empty() || self.name.len() > 256 {
             return Err("project name must be 1–256 bytes".into());
