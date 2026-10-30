@@ -1890,10 +1890,6 @@ fn collect_board_drills(board: &Board) -> Vec<BoardDrill> {
     drills
 }
 
-fn drill_edge_gap(a: &BoardDrill, b: &BoardDrill) -> f64 {
-    segment_distance(a.start, a.end, b.start, b.end) - a.radius - b.radius
-}
-
 fn drill_copper_gap(drill: &BoardDrill, copper: &Copper) -> f64 {
     if drill.kind == DrillKind::Via && copper.id == drill.id {
         return f64::INFINITY;
@@ -2124,39 +2120,6 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
         }
     }
     let drills = collect_board_drills(board);
-    if rules.hole_to_hole_via.is_some() || rules.hole_to_hole_pad.is_some() {
-        for (i, a) in drills.iter().enumerate() {
-            for b in drills.iter().skip(i + 1) {
-                let gap = drill_edge_gap(a, b);
-                let limit = match (a.kind, b.kind) {
-                    (DrillKind::Via, DrillKind::Via) => rules.hole_to_hole_via,
-                    (DrillKind::Pth, DrillKind::Pth) => rules.hole_to_hole_pad,
-                    _ => None,
-                };
-                let Some(min) = limit else {
-                    continue;
-                };
-                if gap + 1e-6 >= min {
-                    continue;
-                }
-                let code = if a.kind == DrillKind::Via {
-                    "hole_to_hole_via"
-                } else {
-                    "hole_to_hole_pad"
-                };
-                result.push(Finding {
-                    code,
-                    severity: project.rule_severity(code, "error"),
-                    message: format!(
-                        "Drill spacing {:.3} mm is below the {:.3} mm fabrication minimum",
-                        gap.max(0.0),
-                        min
-                    ),
-                    objects: vec![a.id, b.id],
-                });
-            }
-        }
-    }
     let copper_items = copper(project);
     for drill in &drills {
         let limit = match drill.kind {
@@ -3528,43 +3491,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn hole_to_hole_via_reports_when_vias_are_too_close() -> Result<(), String> {
-        let mut p = fixture();
-        p.board.rules = Some(FabRules {
-            hole_to_hole_via: Some(0.5),
-            ..FabRules::default()
-        });
-        p.board.vias.push(Via {
-            id: 50,
-            net: 1,
-            position: Point::new(10.0, 12.0),
-            diameter: 0.8,
-            drill: 0.4,
-        });
-        p.board.vias.push(Via {
-            id: 51,
-            net: 1,
-            position: Point::new(10.35, 12.0),
-            diameter: 0.8,
-            drill: 0.4,
-        });
-        let hit = drc(&p)
-            .into_iter()
-            .find(|f| f.code == "hole_to_hole_via")
-            .ok_or("close vias should fail hole_to_hole_via")?;
-        assert!(
-            hit.message.contains("0.500"),
-            "message names the limit: {}",
-            hit.message
-        );
-        p.board.rules = None;
-        assert!(
-            !drc(&p).iter().any(|f| f.code == "hole_to_hole_via"),
-            "absent rules emit no hole_to_hole_via findings"
-        );
-        Ok(())
-    }
     #[test]
     fn silk_line_reports_thin_footprint_silk() -> Result<(), String> {
         let mut p = Project::default();
