@@ -23,7 +23,7 @@ mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
-mod part_bodies;
+pub mod part_bodies;
 mod plot_read;
 mod raster;
 mod step_read;

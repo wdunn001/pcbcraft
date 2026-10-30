@@ -2535,7 +2535,8 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        drc.extend(height_findings(&self.project));
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Rule areas with a height cap report parts whose body stands taller than the limit above the board top. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -2883,6 +2884,95 @@ fn custom_findings(p: &Project) -> Vec<Value> {
     }
     out
 }
+
+/// Rule-area height violations using the same body boxes as mechanical export.
+fn height_findings(p: &Project) -> Vec<Value> {
+    const CODE: &str = "part_too_tall";
+    // A part taller than the cover allows is a hard mechanical failure by default.
+    if p.rule_disabled(CODE) {
+        return vec![];
+    }
+    let thickness = p.board.thickness;
+    let mut out = vec![];
+    for area in &p.board.rule_areas {
+        let Some(limit) = area.max_height else {
+            continue;
+        };
+        let region = &area.region;
+        for body in pcbcraft_io::part_bodies::part_boxes(p) {
+            let stand = body.z1 - thickness;
+            if stand <= limit + 1e-9 {
+                continue;
+            }
+            let n = body.ring.len();
+            if n == 0 {
+                continue;
+            }
+            let cx = body.ring.iter().map(|pt| pt.x).sum::<f64>() / n as f64;
+            let cy = body.ring.iter().map(|pt| pt.y).sum::<f64>() / n as f64;
+            if cx < region.x - 1e-9
+                || cx > region.x + region.width + 1e-9
+                || cy < region.y - 1e-9
+                || cy > region.y + region.height + 1e-9
+            {
+                continue;
+            }
+            let Some(component_id) = p
+                .components
+                .iter()
+                .find(|c| c.reference == body.name)
+                .map(|c| c.id)
+            else {
+                continue;
+            };
+            let objects = vec![component_id, area.id];
+            if p.rule_excluded(CODE, &objects) || p.rule_region_excluded(CODE, &objects) {
+                continue;
+            }
+            let default_height = component_uses_default_body_height(p, component_id);
+            let severity = p.rule_severity(CODE, "error");
+            let stand_mm = (stand * 10.0).round() / 10.0;
+            let limit_mm = (limit * 10.0).round() / 10.0;
+            let message = if default_height {
+                format!(
+                    "{} stands {stand_mm:.1} mm tall (default height) and area {} allows {limit_mm:.1} mm",
+                    body.name, area.id
+                )
+            } else {
+                format!(
+                    "{} stands {stand_mm:.1} mm tall and area {} allows {limit_mm:.1} mm",
+                    body.name, area.id
+                )
+            };
+            out.push(json!({
+                "code": CODE,
+                "severity": severity,
+                "message": message,
+                "objects": objects,
+                "height_mm": stand_mm,
+                "limit_mm": limit_mm,
+                "area": area.id,
+            }));
+        }
+    }
+    out
+}
+
+fn component_uses_default_body_height(p: &Project, component_id: Id) -> bool {
+    let Some(component) = p.component(component_id) else {
+        return true;
+    };
+    let Some(text) = component.field("height") else {
+        return true;
+    };
+    let trimmed = text.trim();
+    let number = trimmed.strip_suffix("mm").unwrap_or(trimmed).trim();
+    !matches!(
+        number.parse::<f64>(),
+        Ok(v) if v.is_finite() && (0.05..=100.0).contains(&v)
+    )
+}
+
 fn import_nets(p: &mut Project, next: &mut Id, a: &NetlistImportParams) -> Result<Value, Error> {
     if a.nets.is_empty() || a.nets.len() > 256 {
         return Err(Error::Invalid("netlist must hold 1 to 256 nets".into()));
@@ -22584,6 +22674,127 @@ mod tests {
             "unknown areas are refused"
         );
         assert!(s.project.validate().is_ok());
+        Ok(())
+    }
+
+    fn session_with_part_height_in_area(
+        height_mm: Option<f64>,
+        max_height: f64,
+        part_x: f64,
+        part_y: f64,
+    ) -> Result<(Session, Id, Id), Error> {
+        let mut s = Session::default();
+        let component_id = s.execute(
+            "component.add",
+            json!({"kind":"resistor","reference":"R1","value":"330","position":{"x":20,"y":20}}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute("board.sync", json!({}), None)?;
+        let footprint_id = s.project.board.footprints[0].id;
+        s.execute(
+            "footprint.move",
+            json!({"id": footprint_id, "position":{"x":part_x,"y":part_y}}),
+            None,
+        )?;
+        if let Some(h) = height_mm {
+            s.execute(
+                "component.field",
+                json!({"id": component_id, "key": "height", "value": format!("{h} mm")}),
+                None,
+            )?;
+        }
+        let area_id = s.execute(
+            "rules.area_add",
+            json!({"clearance":0.3,"x":10.0,"y":10.0,"width":20.0,"height":15.0,"max_height":max_height}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, component_id, area_id))
+    }
+
+    fn part_too_tall_findings(s: &Session) -> Result<Vec<Value>, Error> {
+        Ok(s.checks()["drc"]
+            .as_array()
+            .ok_or_else(missing)?
+            .iter()
+            .filter(|f| f["code"] == "part_too_tall")
+            .cloned()
+            .collect())
+    }
+
+    #[test]
+    fn part_too_tall_reports_part_area_and_both_numbers() -> Result<(), Error> {
+        let (s, component_id, area_id) =
+            session_with_part_height_in_area(Some(4.0), 2.5, 15.0, 15.0)?;
+        let findings = part_too_tall_findings(&s)?;
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        let f = &findings[0];
+        assert_eq!(f["severity"], "error");
+        assert_eq!(f["height_mm"], 4.0);
+        assert_eq!(f["limit_mm"], 2.5);
+        assert_eq!(f["area"], area_id);
+        assert_eq!(f["objects"], json!([component_id, area_id]));
+        assert!(
+            f["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("R1") && m.contains("4.0") && m.contains("2.5")),
+            "{}",
+            f["message"]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn part_inside_the_limit_is_not_reported() -> Result<(), Error> {
+        let (s, _, _) = session_with_part_height_in_area(Some(2.0), 2.5, 15.0, 15.0)?;
+        assert!(part_too_tall_findings(&s)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn part_outside_the_area_is_ignored() -> Result<(), Error> {
+        let (s, _, _) = session_with_part_height_in_area(Some(4.0), 2.5, 50.0, 50.0)?;
+        assert!(part_too_tall_findings(&s)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn part_too_tall_respects_the_severity_setting() -> Result<(), Error> {
+        let (mut s, _, _) = session_with_part_height_in_area(Some(4.0), 2.5, 15.0, 15.0)?;
+        assert_eq!(part_too_tall_findings(&s)?.len(), 1);
+        s.execute(
+            "rules.severity",
+            json!({"code":"part_too_tall","severity":"warning"}),
+            None,
+        )?;
+        assert_eq!(
+            part_too_tall_findings(&s)?[0]["severity"],
+            "warning"
+        );
+        s.execute(
+            "rules.severity",
+            json!({"code":"part_too_tall","severity":"off"}),
+            None,
+        )?;
+        assert!(part_too_tall_findings(&s)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn part_too_tall_uses_default_body_height_in_the_message() -> Result<(), Error> {
+        let (s, _, _) = session_with_part_height_in_area(None, 1.0, 15.0, 15.0)?;
+        let findings = part_too_tall_findings(&s)?;
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("default height")),
+            "{}",
+            findings[0]["message"]
+        );
         Ok(())
     }
 
