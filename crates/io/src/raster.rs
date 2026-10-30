@@ -229,12 +229,7 @@ fn draw_stroke(
     }
 }
 
-fn draw_drill_centre_marks(
-    img: &mut GrayImage,
-    p: &Project,
-    opts: &RasterOptions,
-    size_mm: f64,
-) {
+fn draw_drill_centre_marks(img: &mut GrayImage, p: &Project, opts: &RasterOptions, size_mm: f64) {
     if !(0.05..=10.0).contains(&size_mm) {
         return;
     }

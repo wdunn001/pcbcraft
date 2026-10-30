@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    FabLayer, RegMarkShape, RegistrationMarks, RasterDepth, RasterOptions, bom_csv, cmp_text,
+    FabLayer, RasterDepth, RasterOptions, RegMarkShape, RegistrationMarks, bom_csv, cmp_text,
     drill_chart_csv, dxf_board, fab_layer_from_name, gencad_text, gerber_files, hpgl_plot,
     hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, layer_raster, netlist_text,
     odb_package, pdf_document, placement_text, plot_csv, postscript, raster_bmp, raster_png,
@@ -314,10 +314,7 @@ fn raster_image_is_legacy_preview(artifact: &Artifact) -> bool {
     }
     artifact.path == "board.svg"
         && artifact.layers.is_empty()
-        && artifact
-            .settings
-            .as_object()
-            .is_some_and(|o| o.is_empty())
+        && artifact.settings.as_object().is_some_and(|o| o.is_empty())
 }
 
 fn raster_format_from_artifact(artifact: &Artifact) -> Result<&str, String> {
@@ -372,11 +369,7 @@ fn parse_registration(settings: &serde_json::Value) -> Result<Option<Registratio
         .get("size_mm")
         .and_then(|v| v.as_f64())
         .ok_or_else(|| "registration needs size_mm".to_string())?;
-    let shape = match reg
-        .get("shape")
-        .and_then(|v| v.as_str())
-        .unwrap_or("cross")
-    {
+    let shape = match reg.get("shape").and_then(|v| v.as_str()).unwrap_or("cross") {
         "cross" => RegMarkShape::Cross,
         "ring" => RegMarkShape::Ring,
         other => return Err(format!("registration shape {other} is not supported")),
@@ -413,10 +406,7 @@ fn raster_options_for_artifact(p: &Project, artifact: &Artifact) -> Result<Raste
         if invert_setting.is_none() && profile.output.invert {
             invert = true;
         }
-        if mirror_setting.is_none()
-            && profile.output.mirror_bottom
-            && fab_layer_is_bottom(layer)
-        {
+        if mirror_setting.is_none() && profile.output.mirror_bottom && fab_layer_is_bottom(layer) {
             mirror = true;
         }
         if settings.get("dpi").is_none()
