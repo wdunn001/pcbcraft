@@ -17,3 +17,4 @@ Pipeline and CI: `pcbcraft-pipeline.mdc`, `docs/ci.md`. Test guide: `CONTRIBUTIN
 - **Names.** Unit tests are sentences, not `test_foo`.
 - **Known flaky tests.** A single failure of the language byte-identity check, the library folder test, or the two frame-budget tests is not yours (fixes in flight). Re-run once, say so in the pull request, and never mask or delete a test to pass.
 - **Coverage.** Line coverage is gated in CI (job 'Coverage'): the bar is 70% and crates may not fall below their recorded baseline; tests must assert behaviour, and a test written only to execute code is not acceptable.
+- **Test rules:** docs/testing-standard.md (once it exists), one golden bless variable PCBCRAFT_BLESS, a_newcomer story per user goal, tests assert behaviour, no clocks, network or real config in tests.
