@@ -281,7 +281,11 @@ impl BrowserTransport {
         };
 
         let Some(window) = web_sys::window() else {
-            store_done(&self.inner, &url, Err(FetchError::Failed("no window".into())));
+            store_done(
+                &self.inner,
+                &url,
+                Err(FetchError::Failed("no window".into())),
+            );
             return;
         };
         let Ok(init) = RequestInit::new() else {
@@ -351,9 +355,9 @@ fn map_response(resp: web_sys::Response) -> Result<Vec<u8>, FetchError> {
                     array.copy_to(&mut out);
                     Ok(out)
                 }
-                Poll::Ready(Err(_)) => Err(FetchError::Failed(
-                    "The answer could not be read.".into(),
-                )),
+                Poll::Ready(Err(_)) => {
+                    Err(FetchError::Failed("The answer could not be read.".into()))
+                }
                 Poll::Pending => Err(FetchError::Failed(PENDING_MESSAGE.into())),
             }
         }
@@ -413,16 +417,10 @@ fn start_cross_origin_probe() {
             return;
         };
         let outcome = match JsFuture::from(promise).await {
-            Ok(v) => v
-                .dyn_into::<Response>()
-                .map(|r| r.ok())
-                .unwrap_or(false),
+            Ok(v) => v.dyn_into::<Response>().map(|r| r.ok()).unwrap_or(false),
             Err(_) => false,
         };
-        CROSS_ORIGIN.store(
-            if outcome { ALLOWED } else { REFUSED },
-            Ordering::Release,
-        );
+        CROSS_ORIGIN.store(if outcome { ALLOWED } else { REFUSED }, Ordering::Release);
     });
 }
 
@@ -541,10 +539,8 @@ mod tests {
         set_cross_origin_status_for_test(CrossOriginStatus::Allowed);
         let transport = Arc::new(BrowserTransport::from_fixtures()?);
         let fetcher = PollingFetcher::new(Arc::clone(&transport));
-        let source =
-            OpenLibrarySource::new(Box::new(fetcher), CadCache::in_memory()).with_clock(Box::new(
-                || 1_000,
-            ));
+        let source = OpenLibrarySource::new(Box::new(fetcher), CadCache::in_memory())
+            .with_clock(Box::new(|| 1_000));
         let libs = source
             .list_libraries(CadKind::Symbol)
             .map_err(|e| format!("{e:?}"))?;

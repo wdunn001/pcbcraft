@@ -30,11 +30,11 @@ fn main() {
 
 #[cfg(target_arch = "wasm32")]
 async fn start() -> Result<(), wasm_bindgen::JsValue> {
-    use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
 
     use pcbcraft_web::transport::{
-        cross_origin_status, BrowserTransport, CrossOriginStatus, PollingFetcher,
+        BrowserTransport, CrossOriginStatus, PollingFetcher, cross_origin_status,
     };
     use wasm_bindgen::JsCast;
 
@@ -53,8 +53,7 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
             canvas,
             eframe::WebOptions::default(),
             Box::new(move |cc| {
-                let mut app =
-                    pcbcraft_ui_egui::App::new(cc, session, None, None, false);
+                let mut app = pcbcraft_ui_egui::App::new(cc, session, None, None, false);
                 if cross_origin_status() != CrossOriginStatus::Refused {
                     app = app.with_online_fetcher(
                         Box::new(PollingFetcher::new(Arc::clone(&transport))),
