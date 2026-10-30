@@ -169,8 +169,12 @@ pub fn auto_align_model(
 
     let mut best: Option<(Model3D, f64, bool)> = None;
 
-    let mirrors = if allow_flip { [false, true] } else { [false] };
-    for mirror in mirrors {
+    let mirrors: &[bool] = if allow_flip {
+        &[false, true]
+    } else {
+        &[false]
+    };
+    for &mirror in mirrors {
         for quarter in 0..4u32 {
             let mut trial = current.clone();
             if mirror {
