@@ -112,6 +112,7 @@ pub fn config_for(connection: &Connection, key: Option<String>, system_note: Str
         model: connection.model.clone(),
         key,
         system_note,
+        retrieval: None,
     }
 }
 

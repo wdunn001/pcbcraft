@@ -116,6 +116,12 @@ pub(super) fn item(
             });
             pressed
         }
+        Item::Sources(links) => {
+            for (i, link) in links.iter().enumerate() {
+                ui.label(format!("Source {}: {}", i + 1, link.title));
+            }
+            None
+        }
     }
 }
 

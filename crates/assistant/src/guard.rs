@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn no_request_leaves_the_app_until_a_connection_exists() {
-        let http = CountingHttp::new(Ok((200, b"{}".to_vec())));
+        let http = CountingHttp::new(Ok(crate::backend::HttpResponse::ok(b"{}".to_vec())));
         let sender = http.http();
         for _ in 0..10 {
             // The pane only sends when the guard says so.

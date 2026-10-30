@@ -5,7 +5,7 @@
 //! Local rules: every request has a deadline, the reply body has a size cap, a redirect
 //! is returned as its status and never followed, no panics.
 
-use crate::backend::{HttpFn, HttpRequest};
+use crate::backend::{HttpFn, HttpRequest, HttpResponse};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
@@ -39,7 +39,7 @@ pub fn plain_http() -> HttpFn {
 /// `src/backend.rs`.
 /// # Do not
 /// Echo header values (they may hold a key).
-pub fn plain_request(req: &HttpRequest) -> Result<(u16, Vec<u8>), String> {
+pub fn plain_request(req: &HttpRequest) -> Result<HttpResponse, String> {
     let (host, port, path) = split_url(&req.url)?;
     let deadline = Instant::now() + Duration::from_secs(req.timeout_s.max(1));
     let mut stream = connect(&host, port, deadline)?;
@@ -168,7 +168,7 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-fn parse_reply(raw: &[u8]) -> Result<(u16, Vec<u8>), String> {
+fn parse_reply(raw: &[u8]) -> Result<HttpResponse, String> {
     let end = find(raw, b"\r\n\r\n").ok_or("The reply ended before its headers did.")?;
     if end > MAX_HEAD {
         return Err("The reply headers are larger than the limit.".into());
@@ -182,14 +182,16 @@ fn parse_reply(raw: &[u8]) -> Result<(u16, Vec<u8>), String> {
         .ok_or("The reply was not HTTP.")?;
     let mut length: Option<usize> = None;
     let mut chunked = false;
+    let mut headers: Vec<(String, String)> = Vec::new();
     for l in lines {
         if let Some((k, v)) = l.split_once(':') {
-            let (k, v) = (k.trim().to_ascii_lowercase(), v.trim());
+            let (k, v) = (k.trim().to_ascii_lowercase(), v.trim().to_string());
             if k == "content-length" {
                 length = v.parse().ok();
             } else if k == "transfer-encoding" && v.to_ascii_lowercase().contains("chunked") {
                 chunked = true;
             }
+            headers.push((k, v));
         }
     }
     let body = &raw[end + 4..];
@@ -206,7 +208,11 @@ fn parse_reply(raw: &[u8]) -> Result<(u16, Vec<u8>), String> {
     if body.len() > MAX_BODY {
         return Err("The reply is larger than the limit.".into());
     }
-    Ok((status, body))
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+    })
 }
 
 fn dechunk(mut b: &[u8]) -> Result<Vec<u8>, String> {

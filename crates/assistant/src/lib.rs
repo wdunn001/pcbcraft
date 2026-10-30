@@ -8,6 +8,7 @@ mod gate;
 mod guard;
 mod http;
 mod prompt;
+mod retrieval;
 mod script;
 mod store;
 mod text;
@@ -21,8 +22,13 @@ pub use api::{
     key_safe_for, model_list, openai_tools, test_anthropic_endpoint, test_endpoint,
 };
 pub use backend::{
-    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PermissionOption,
-    PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
+    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, ModelInfo,
+    PermissionOption, PromptPart, Secrets, SourceLink, StartContext, ToolStatus, base64,
+    content_blocks,
+};
+pub use retrieval::{
+    MODEL_TOOL_NAME, RETRIEVAL_KEY_ID, Retrieval, RetrievalConfig, SearchOutcome,
+    append_model_tool, pick_search_tool, register_tool_name, system_note_offered, test_retrieval,
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
 pub use context::{Context, MAX_NOTE, MAX_PICTURE_BYTES, Selection, Sent, note, picture};

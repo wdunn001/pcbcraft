@@ -19,6 +19,7 @@ fn cfg(url: &str, key: Option<&str>) -> ApiConfig {
         model: "m".into(),
         key: key.map(str::to_string),
         system_note: String::new(),
+        retrieval: None,
     }
 }
 
