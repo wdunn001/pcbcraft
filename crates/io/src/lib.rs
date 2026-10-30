@@ -13412,24 +13412,26 @@ mod tests {
     }
 
     #[test]
-    fn schematic_import_malformed_refuses_with_line_number() {
-        let err = read_schematic_interchange("(kicad_sch (version 20250114)\n(broken").unwrap_err();
-        assert!(
-            err.contains("line"),
-            "malformed import should name a line number: {err}"
-        );
+    fn schematic_import_malformed_refuses_with_line_number() -> Result<(), String> {
+        let err = read_schematic_interchange("(kicad_sch (version 20250114)\n(broken")
+            .err()
+            .ok_or("malformed schematic should be refused")?;
+        if !err.contains("line") {
+            return Err(format!("malformed import should name a line number: {err}"));
+        }
+        Ok(())
     }
 
     #[test]
-    fn schematic_import_legacy_cache_library_refused() {
+    fn schematic_import_legacy_cache_library_refused() -> Result<(), String> {
         let text = std::fs::read_to_string(
             schematic_fixture_dir().join("schematic_import_legacy.kicad_sch"),
         )
-        .expect("legacy fixture");
-        let err = read_schematic_interchange(&text).unwrap_err();
-        assert!(
-            err.contains("embedded symbol definitions"),
-            "legacy file should be refused plainly: {err}"
-        );
+        .map_err(|e| format!("legacy fixture missing: {e}"))?;
+        let err = read_schematic_interchange(&text).err().ok_or("legacy schematic should be refused")?;
+        if !err.contains("embedded symbol definitions") {
+            return Err(format!("legacy file should be refused plainly: {err}"));
+        }
+        Ok(())
     }
 }
