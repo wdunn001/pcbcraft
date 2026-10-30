@@ -29102,17 +29102,26 @@ mod tests {
             json!({"name":"USB","net_p":p,"net_n":9_999,"gap":0.2}),
             json!({"name":"USB","net_p":p,"net_n":n,"gap":0.001}),
             json!({"name":"  ","net_p":p,"net_n":n,"gap":0.2}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.2,"target_impedance":5.0}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.2,"skew_limit_mm":101.0}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.2,"skew_limit_ps":-1.0}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.2,"max_uncoupled_length":1001.0}),
         ] {
             assert!(s.execute("board.set_diffpair", bad, None).is_err());
         }
         let id = s.execute(
             "board.set_diffpair",
-            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.3,"length_tolerance":0.5}),
+            json!({"name":"USB","net_p":p,"net_n":n,"gap":0.3,"length_tolerance":0.5,"target_impedance":90.0,"skew_limit_mm":0.2,"skew_limit_ps":50.0,"max_uncoupled_length":5.0}),
             None,
         )?["result"]["id"]
             .as_u64()
             .ok_or_else(missing)?;
         assert_eq!(s.project.board.diff_pairs.len(), 1);
+        let stored = &s.project.board.diff_pairs[0];
+        assert_eq!(stored.target_impedance, Some(90.0));
+        assert_eq!(stored.skew_limit_mm, Some(0.2));
+        assert_eq!(stored.skew_limit_ps, Some(50.0));
+        assert_eq!(stored.max_uncoupled_length, Some(5.0));
         assert!(
             s.execute(
                 "board.set_diffpair",
