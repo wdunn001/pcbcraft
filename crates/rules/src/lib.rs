@@ -2325,7 +2325,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                 objects: vec![zone.id],
                 hint: None,
             });
-} else if fill.islands > 0 {
+        } else {
             let remaining = fill.islands.saturating_sub(fill.removed);
             if remaining > 0 {
                 let dropped = if fill.removed > 0 {
@@ -2343,7 +2343,6 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         remaining,
                     ),
                     objects: vec![zone.id],
-                    hint: None,
                 });
             } else if fill.removed > 0 {
                 result.push(Finding {
@@ -2356,10 +2355,8 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                         fill.removed
                     ),
                     objects: vec![zone.id],
-                    hint: None,
                 });
             }
-        }
         }
     }
     match pcbcraft_doc::keepout_hits(project) {
