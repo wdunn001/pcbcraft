@@ -1955,8 +1955,7 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        DiffPair, FabRules, Footprint, Net, NetClass, NoConnectFlag, Pad, PinRef, Track, Via,
-        component_template,
+        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
@@ -3663,8 +3662,8 @@ mod tests {
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
-        ZonePour, component_template,
+        CopperZone, DiffPair, Footprint, Keepout, Net, NetClass, Pad, RuleArea, RuleRegion, Track,
+        Via, ZoneIslands, ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
 
@@ -4026,7 +4025,8 @@ mod pour_tests {
     fn a_class_with_max_vias_four_allows_four_and_reports_five() -> Result<(), String> {
         let mut p = board();
         class_with_limit(&mut p, 50, 2, 4)?;
-        for (i, x) in (0..4).map(|i| 10.0 + f64::from(i) * 2.0) {
+        for i in 0..4u32 {
+            let x = 10.0 + f64::from(i) * 2.0;
             via_on(&mut p, 100 + i, 2, x, 20.0);
         }
         p.validate()?;
