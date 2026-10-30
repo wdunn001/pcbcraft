@@ -71,7 +71,7 @@ pub fn check_stats() -> (usize, usize) {
 
 /// Count of design-rule findings that are not plain missing connections.
 pub fn bad_count(g: &Gen) -> usize {
-    let started = std::time::Instant::now();
+    let started = pcbcraft_clock::instant_now();
     let n = pcbcraft_rules::drc(&g.s.project)
         .iter()
         .filter(|f| f.code != "unrouted")
@@ -483,7 +483,7 @@ pub fn build(g: &mut Gen) -> Res<()> {
         return Ok(());
     }
     super::finish::fittings(g)?;
-    let started = std::time::Instant::now();
+    let started = pcbcraft_clock::instant_now();
     let refused = super::routes::all(g)?;
     println!(
         "planned routes done {:?} refused {refused} checks {:?}",
