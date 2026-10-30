@@ -6,11 +6,11 @@ use pcbcraft_library::datasheet::{
 fn url_gate_accepts_plain_http_and_https() {
     assert_eq!(
         accept_datasheet_url(" https://example.com/a.pdf ").as_deref(),
-        Some("https://example.com/a.pdf")
+        Ok("https://example.com/a.pdf")
     );
     assert_eq!(
         accept_datasheet_url("HTTP://example.com/a").as_deref(),
-        Some("HTTP://example.com/a")
+        Ok("HTTP://example.com/a")
     );
 }
 
