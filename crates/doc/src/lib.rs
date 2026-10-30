@@ -3337,7 +3337,10 @@ pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
 /// Writes the project with copper layers named by its own stackup.
 ///
 /// # Rules
-/// - The context lasts for this call only; see `layer_names.rs`.
+/// - The context lasts for this call only; see [`layer_names::Scope`].
+///
+/// # Dependencies
+/// - crates/doc/src/layer_names.rs#Scope
 impl Serialize for Project {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let _scope = layer_names::Scope::enter(self.copper_layer_count());
@@ -3351,6 +3354,11 @@ impl Serialize for Project {
 /// # Rules
 /// - Reads the file into a value first, because the stackup may come after
 ///   the first item that names a layer.
+///
+/// # Dependencies
+/// - crates/doc/src/layer_names.rs#Scope
+/// - crates/doc/src/layer_names.rs#copper_count_of
+/// - crates/doc/src/layer_names.rs#file_uses_stackup_names
 impl<'de> Deserialize<'de> for Project {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let file = serde_json::Value::deserialize(deserializer)?;
@@ -3868,7 +3876,10 @@ impl Project {
     /// - Compare a track, zone, text or via end against `Layer::Back`; use
     ///   [`Project::is_bottom`].
     pub fn bottom_layer(&self) -> Layer {
-        Layer::from_index(self.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+        match Layer::from_index(self.copper_layer_count().saturating_sub(1)) {
+            Ok(layer) => layer,
+            Err(_) => Layer::Back,
+        }
     }
     /// Whether `layer` is this board's bottom copper layer.
     ///

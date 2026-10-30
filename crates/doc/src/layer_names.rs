@@ -71,7 +71,15 @@ pub(crate) fn stackup_index(name: &str, count: u8) -> Option<u8> {
     match name {
         "F.Cu" => Some(0),
         "B.Cu" => count.checked_sub(1),
-        _ => None,
+        _ => {
+            let rest = name.strip_prefix("In")?.strip_suffix(".Cu")?;
+            let n = rest.parse::<u8>().ok()?;
+            if n == 0 || n >= count.saturating_sub(1) {
+                None
+            } else {
+                Some(n)
+            }
+        }
     }
 }
 
