@@ -101,6 +101,48 @@ fn bad_substitute_is_refused_and_changes_nothing() -> Result<(), Error> {
 }
 
 #[test]
+fn footprint_rename_updates_alternate_footprint_override() -> Result<(), Error> {
+    let mut s = Session::default();
+    upsert_symbol(&mut s, "Primary")?;
+    upsert_symbol(&mut s, "Alt")?;
+    s.execute(
+        "library.footprint.upsert",
+        json!({
+            "definition": {
+                "name": "FP_A",
+                "description": "",
+                "keywords": "",
+                "pads": [],
+                "graphics": [],
+                "raw_source": "",
+                "unsupported": []
+            }
+        }),
+        None,
+    )?;
+    s.execute(
+        "library.part.set_substitute",
+        json!({"name":"Primary","kind":"alternate","symbol":"Alt","footprint":"FP_A"}),
+        None,
+    )?;
+    s.execute(
+        "library.footprint.rename",
+        json!({"name":"FP_A","new_name":"FP_C"}),
+        None,
+    )?;
+    let alt = substitutes(&s, "Primary")?.alternates[0].footprint.clone();
+    assert_eq!(alt, "FP_C");
+    s.execute(
+        "library.footprint.remove",
+        json!({"name":"FP_C"}),
+        None,
+    )?;
+    assert!(substitutes(&s, "Primary")?.alternates[0].footprint.is_empty());
+    s.project.validate()?;
+    Ok(())
+}
+
+#[test]
 fn remove_second_source_and_alternate() -> Result<(), Error> {
     let mut s = Session::default();
     upsert_symbol(&mut s, "Primary")?;
