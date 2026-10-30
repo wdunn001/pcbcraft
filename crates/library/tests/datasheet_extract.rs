@@ -61,6 +61,19 @@ fn trait_extracts_from_text_document() -> Result<(), String> {
 }
 
 #[test]
+fn rejected_ordering_stays_off_the_part() -> Result<(), String> {
+    let doc = fixture_doc()?;
+    let mut bundle = extract_from_text_document(&doc)?;
+    for row in &mut bundle.pin_table {
+        set_decision(row, ReviewDecision::Accepted)?;
+    }
+    set_decision(&mut bundle.ordering_codes[0], ReviewDecision::Rejected)?;
+    let patch = build_part_patch(&bundle)?;
+    assert!(!patch.properties.contains_key("Ordering code"));
+    Ok(())
+}
+
+#[test]
 fn rejected_values_stay_off_the_part() -> Result<(), String> {
     let doc = fixture_doc()?;
     let mut bundle = extract_from_text_document(&doc)?;
