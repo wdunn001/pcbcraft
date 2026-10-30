@@ -2817,7 +2817,6 @@ mod tests {
         assert!(locked.project.components.is_empty());
         Ok(())
     }
-    #[test]
     fn output_schema_for(name: &str) -> Result<Value, String> {
         tool_list()["tools"]
             .as_array()
