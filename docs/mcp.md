@@ -113,9 +113,10 @@ component ID and physical pin number. `track.route` accepts `layer` (`F.Cu` defa
 or `B.Cu`) and requires copper on that layer at both endpoints. Plated through-hole
 pads connect their own front/back copper; two different pads are never bridged.
 `track.route_pair` takes four pad refs (`from_p`, `from_n`, `to_p`, `to_n`) for a
-declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
-routes both nets with coupled orthogonal L geometry and refuses when the pair gap
-cannot be kept.
+declared differential pair, optional `width`, and `layer` (default `F.Cu`). Optional
+`mode` is `octilinear` (default, 45 degree coupled corners) or `orthogonal` (right
+angles). It routes both nets side by side at the declared pair gap and refuses when
+the gap cannot be kept.
 `track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
 optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
 put and the track is re-laid as 45-degree copper around pads, cutouts and other

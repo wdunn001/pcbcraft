@@ -29379,6 +29379,31 @@ mod tests {
     }
 
     #[test]
+    fn route_pair_undo_restores_prior_board() -> Result<(), Error> {
+        let gap = 0.3;
+        let width = 0.2;
+        let mut s = Session::default();
+        disable_auto_sync(&mut s);
+        let (fp_j1, fp_j2, _, _) = setup_parallel_pair_connectors(&mut s, gap, width)?;
+        let tracks_before = s.project.board.tracks.clone();
+        s.execute(
+            "track.route_pair",
+            json!({
+                "from_p":{"footprint":fp_j1,"pad":"1"},
+                "from_n":{"footprint":fp_j1,"pad":"2"},
+                "to_p":{"footprint":fp_j2,"pad":"1"},
+                "to_n":{"footprint":fp_j2,"pad":"2"},
+                "width":width,
+            }),
+            None,
+        )?;
+        assert_ne!(s.project.board.tracks, tracks_before);
+        s.undo()?;
+        assert_eq!(s.project.board.tracks, tracks_before);
+        Ok(())
+    }
+
+    #[test]
     fn unplated_holes_drill_move_resize_and_keep_copper_away() -> Result<(), Error> {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"GND"}), None)?["result"]["id"]
