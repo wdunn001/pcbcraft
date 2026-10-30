@@ -58,6 +58,8 @@ fn validate_closed_outline_accepts_a_square_and_rejects_degenerate() -> T {
         Point::new(0.0, 0.0),
     ];
     assert!(validate_closed_outline(&bowtie).is_err());
+    let two = vec![Point::new(0.0, 0.0), Point::new(1.0, 0.0)];
+    assert!(validate_closed_outline(&two).is_err());
     Ok(())
 }
 
