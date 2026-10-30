@@ -2440,8 +2440,7 @@ pub fn gerber_files_with_budget(
                 return Err("gerber export needs more than 64 distinct apertures".into());
             }
             let code = 10 + self.aperture_slots() as u32;
-            self.shaped
-                .insert(key, (code, aperture.definition(code)));
+            self.shaped.insert(key, (code, aperture.definition(code)));
             Ok(code)
         }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
