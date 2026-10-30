@@ -19,7 +19,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("part.place","Import a part if it is not in the project library yet and place it as one undoable step. On the schematic the symbol goes at the position; on the board the footprint goes at the position and the part joins the schematic parked below the drawing, not yet wired",schema(json!({"target":{"type":"string","enum":["schematic","board"]},"position":point_schema(),"name":{"type":"string","description":"a symbol already in the project library"},"kind":{"type":"string","description":"a built-in part kind such as resistor"},"symbol":{"type":"object"},"footprint":{"type":"object"},"notice":{"type":"string"},"reference":{"type":"string"},"value":{"type":"string"}}),&["target","position"])),
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
-        ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
+        ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees, and an optional SolidCraft part name when the file holds more than one component; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"cad_part":{"type":"string","maxLength":128}}),&["name","path"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
@@ -407,6 +407,8 @@ pub(super) struct ModelParams {
     pub(super) scale: Option<[f64; 3]>,
     #[serde(default)]
     pub(super) rotate: Option<[f64; 3]>,
+    #[serde(default)]
+    pub(super) cad_part: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -468,24 +470,53 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
     let offset = a.offset.unwrap_or([0.0; 3]);
     let scale = a.scale.unwrap_or([1.0; 3]);
     let rotate = a.rotate.unwrap_or([0.0; 3]);
-    let raw_source = format!(
-        "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))",
-        a.path,
-        offset[0],
-        offset[1],
-        offset[2],
-        scale[0],
-        scale[1],
-        scale[2],
-        rotate[0],
-        rotate[1],
-        rotate[2]
-    );
+    let cad_part = a
+        .cad_part
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    if cad_part.as_ref().is_some_and(|s| s.len() > 128) {
+        return Err(Error::Invalid(
+            "SolidCraft part name must be at most 128 bytes".into(),
+        ));
+    }
+    let raw_source = if let Some(part) = &cad_part {
+        format!(
+            "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})) (cad_part \"{}\"))",
+            a.path,
+            offset[0],
+            offset[1],
+            offset[2],
+            scale[0],
+            scale[1],
+            scale[2],
+            rotate[0],
+            rotate[1],
+            rotate[2],
+            part
+        )
+    } else {
+        format!(
+            "(model \"{}\" (offset (xyz {} {} {})) (scale (xyz {} {} {})) (rotate (xyz {} {} {})))",
+            a.path,
+            offset[0],
+            offset[1],
+            offset[2],
+            scale[0],
+            scale[1],
+            scale[2],
+            rotate[0],
+            rotate[1],
+            rotate[2]
+        )
+    };
     Ok(pcbcraft_library::Model3D {
         path: a.path.clone(),
         offset,
         scale,
         rotate,
+        cad_part,
         raw_source,
     })
 }

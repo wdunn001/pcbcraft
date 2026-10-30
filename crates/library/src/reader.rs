@@ -538,11 +538,16 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 };
                 let scale = triple(child.child("scale"), [1.0; 3])?;
                 let rotate = triple(child.child("rotate"), [0.0; 3])?;
+                let cad_part = child
+                    .child("cad_part")
+                    .map(|n| n.value(1).to_owned())
+                    .filter(|s| !s.is_empty());
                 s.model = Some(Model3D {
                     path: child.value(1).to_owned(),
                     offset,
                     scale,
                     rotate,
+                    cad_part,
                     raw_source: source[child.span.clone()].to_owned(),
                 });
             }

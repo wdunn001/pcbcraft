@@ -5,7 +5,8 @@
 //! that the 3D View shows beside the part, so a bad file never panics.
 //!
 //! Formats: glTF and GLB, a bounded VRML subset
-//! (`vrml_read.rs`) and STEP solids (`step_read.rs`, millimetres).
+//! (`vrml_read.rs`), STEP solids (`step_read.rs`, millimetres) and SolidCraft
+//! projects (`solidcraft_model.rs`, millimetres, Z up).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
 use std::path::Path;
@@ -13,7 +14,7 @@ use std::sync::Arc;
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
-pub const LOADER_VERSION: u32 = 1;
+pub const LOADER_VERSION: u32 = 2;
 /// Largest model file read, in bytes.
 pub const MAX_MODEL_BYTES: usize = 32 * 1024 * 1024;
 /// Most vertices one model may produce.
@@ -32,6 +33,8 @@ pub struct LoadedModel {
     pub indices: Vec<u32>,
     /// Diffuse colour 0..1 of the first material, when the file has one.
     pub color: Option<[f32; 3]>,
+    /// When several bodies were merged, one diffuse colour per body in merge order.
+    pub body_colors: Option<Vec<[f32; 3]>>,
 }
 impl LoadedModel {
     /// Axis-aligned bounds, or `None` for an empty model.
@@ -95,7 +98,7 @@ pub fn model_cache_key(
 pub fn model_extension_supported(path: &str) -> bool {
     matches!(
         extension(path).as_str(),
-        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp"
+        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp" | "solidcraft"
     )
 }
 fn extension(path: &str) -> String {
@@ -117,6 +120,15 @@ fn extension(path: &str) -> String {
 /// # Do not
 /// Do not place the model on the board here; that is `board_mesh::with_models`.
 pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
+    load_model_with_part(path, bytes, None)
+}
+
+/// Read a model file, optionally selecting one component inside a SolidCraft project.
+pub fn load_model_with_part(
+    path: &str,
+    bytes: &[u8],
+    cad_part: Option<&str>,
+) -> Result<LoadedModel, ModelError> {
     if bytes.len() > MAX_MODEL_BYTES {
         return err(format!(
             "The model file is {} MB, over the {} MB limit.",
@@ -128,8 +140,20 @@ pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         "gltf" | "glb" => load_gltf(path, bytes),
         "wrl" | "vrml" => crate::vrml_read::read_vrml(bytes),
         "step" | "stp" => crate::step_read::read_step(bytes),
+        "solidcraft" => crate::solidcraft_model::load_solidcraft_model(bytes, cad_part),
         "" => err("The model file has no extension, so its format is unknown."),
         other => err(format!("The model format .{other} is not supported.")),
+    }
+}
+
+/// Cache key for SolidCraft models from file content, not modification time.
+pub fn model_cache_key_solidcraft(path: &str, bytes: &[u8], cad_part: Option<&str>) -> ModelCacheKey {
+    let token = crate::solidcraft_model::solidcraft_cache_token(bytes, cad_part);
+    ModelCacheKey {
+        path: format!("{path}#{token}"),
+        len: bytes.len() as u64,
+        mtime_nanos: None,
+        loader_version: LOADER_VERSION,
     }
 }
 
@@ -292,6 +316,7 @@ fn load_gltf(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
             positions: vec![],
             indices: vec![],
             color: None,
+            body_colors: None,
         },
         visited: 0,
     };
@@ -371,6 +396,7 @@ mod tests {
             offset: [10.0, 0.0, 0.0],
             scale: [2.0, 1.0, 1.0],
             rotate: [0.0, 0.0, 90.0],
+            cad_part: None,
             raw_source: String::new(),
         };
         let mat = model_matrix(&model, pcbcraft_geom::Point::new(0.0, 0.0), 0.0, false, 0.0);
@@ -429,6 +455,16 @@ mod tests {
             .unwrap_or_default();
         assert!(broken.contains("STEP"), "{broken}");
         Ok(())
+    }
+
+    #[test]
+    fn solidcraft_cache_key_follows_content_hash() {
+        let a = b"{\"format\":\"solidcraft/22\"}";
+        let b = b"{\"format\":\"solidcraft/22\",\"x\":1}";
+        let ka = model_cache_key_solidcraft("p.solidcraft", a, None);
+        let kb = model_cache_key_solidcraft("p.solidcraft", b, None);
+        assert_ne!(ka, kb);
+        assert_eq!(ka, model_cache_key_solidcraft("p.solidcraft", a, None));
     }
 
     #[test]
