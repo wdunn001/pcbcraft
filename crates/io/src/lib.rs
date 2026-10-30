@@ -3549,7 +3549,7 @@ fn component_is_test_point(c: &pcbcraft_doc::Component) -> bool {
     }
     if let Some(fp) = &c.library_footprint {
         let name = fp.definition.name.as_str();
-        if name.starts_with("Test_") || name.contains("TestPoint") {
+        if name.starts_with("Test_") {
             return true;
         }
     }
