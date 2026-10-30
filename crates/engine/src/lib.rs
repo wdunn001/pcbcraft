@@ -8908,7 +8908,8 @@ fn run_command(
                 && a.via_drill.is_none_or(|v| class.via_drill == Some(v))
                 && a.pair_width.is_none_or(|v| class.pair_width == Some(v))
                 && a.pair_gap.is_none_or(|v| class.pair_gap == Some(v))
-                && a.target_impedance.is_none_or(|v| class.target_impedance == Some(v))
+                && a.target_impedance
+                    .is_none_or(|v| class.target_impedance == Some(v))
             {
                 return Err(Error::Invalid(
                     "that class already carries those values".into(),

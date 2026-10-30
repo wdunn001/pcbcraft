@@ -115,11 +115,7 @@ fn pair_without_target_stays_silent() -> Result<(), Error> {
         json!({"net":p,"layer":"F.Cu","width":2.0,"start":{"x":0,"y":0},"end":{"x":5,"y":0}}),
         None,
     )?;
-    assert!(
-        !drc_codes(&mut s)?
-            .iter()
-            .any(|c| c == "diffpair_impedance")
-    );
+    assert!(!drc_codes(&mut s)?.iter().any(|c| c == "diffpair_impedance"));
     Ok(())
 }
 
@@ -133,9 +129,6 @@ fn impedance_fields_round_trip_through_save() -> Result<(), Error> {
     let path = dir.path().join("imp.pcbcraft");
     pcbcraft_io::save(&s.project, &path).map_err(Error::Invalid)?;
     let loaded = pcbcraft_io::load(&path).map_err(Error::Invalid)?;
-    assert_eq!(
-        loaded.board.diff_pairs[0].target_impedance,
-        Some(90.0)
-    );
+    assert_eq!(loaded.board.diff_pairs[0].target_impedance, Some(90.0));
     Ok(())
 }

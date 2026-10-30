@@ -489,10 +489,11 @@ impl DiffPair {
                 .length_tolerance
                 .is_none_or(|t| t.is_finite() && (0.0..=100.0).contains(&t))
             && self.target_impedance.is_none_or(|z| {
-                z.is_finite() && (1.0..=2000.0).contains(&z)
-                    && self.impedance_tolerance.is_none_or(|t| {
-                        t.is_finite() && (0.0..=1.0).contains(&t)
-                    })
+                z.is_finite()
+                    && (1.0..=2000.0).contains(&z)
+                    && self
+                        .impedance_tolerance
+                        .is_none_or(|t| t.is_finite() && (0.0..=1.0).contains(&t))
             })
             && self.impedance_tolerance.is_none_or(|t| {
                 self.target_impedance.is_some() && t.is_finite() && (0.0..=1.0).contains(&t)
