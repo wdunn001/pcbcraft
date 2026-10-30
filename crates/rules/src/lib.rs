@@ -1270,39 +1270,6 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![pair.net_p, pair.net_n],
         });
     }
-    for group in &board.length_groups {
-        let routed: Vec<(Id, f64)> = group
-            .nets
-            .iter()
-            .filter_map(|n| lengths.get(n).map(|l| (*n, *l)))
-            .collect();
-        if routed.len() < 2 {
-            continue;
-        }
-        let longest = routed
-            .iter()
-            .fold(routed[0], |a, b| if b.1 > a.1 { *b } else { a });
-        let shortest = routed
-            .iter()
-            .fold(routed[0], |a, b| if b.1 < a.1 { *b } else { a });
-        let spread = longest.1 - shortest.1;
-        if spread <= group.tolerance + 1e-9 {
-            continue;
-        }
-        result.push(Finding {
-            code: "length_group_skew",
-            severity: project.rule_severity("length_group_skew", "error"),
-            message: format!(
-                "{}: {} is {:.3} mm longer than {}, at most {:.3} mm allowed",
-                group.name,
-                project.net_name(longest.0),
-                spread,
-                project.net_name(shortest.0),
-                group.tolerance
-            ),
-            objects: vec![longest.0, shortest.0],
-        });
-    }
     let classified: BTreeSet<Id> = project
         .net_classes
         .iter()
@@ -1362,6 +1329,157 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             message: format!(
                 "{} routed to {:.3} mm, {} targets {:.3} mm within {:.3} mm",
                 net.name, length, net.name, target, tolerance
+            ),
+            objects: vec![net.id],
+        });
+    }
+    let via_note = |net: Id| -> String {
+        if board.vias.iter().any(|v| v.net == net) {
+            " (via barrels are not counted in routed length)".into()
+        } else {
+            String::new()
+        }
+    };
+    for group in &project.length_groups {
+        if group.same_layer {
+            for net in &group.nets {
+                let front = board
+                    .tracks
+                    .iter()
+                    .any(|t| t.net == *net && t.layer == Layer::Front);
+                let back = board
+                    .tracks
+                    .iter()
+                    .any(|t| t.net == *net && t.layer == Layer::Back);
+                if !(front && back) {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "layer_change",
+                    severity: project.rule_severity("layer_change", "error"),
+                    message: format!(
+                        "{} must stay on one copper layer in length group {}{}",
+                        project.net_name(*net),
+                        group.name.trim(),
+                        via_note(*net)
+                    ),
+                    objects: vec![*net],
+                });
+            }
+        }
+        if let Some(reference) = group.reference {
+            let reference_length = lengths.get(&reference).copied().unwrap_or(0.0);
+            for net in &group.nets {
+                if *net == reference {
+                    continue;
+                }
+                let length = lengths.get(net).copied().unwrap_or(0.0);
+                let skew = (length - reference_length).abs();
+                if skew <= group.tolerance + 1e-9 {
+                    continue;
+                }
+                result.push(Finding {
+                    code: "length_group_skew",
+                    severity: project.rule_severity("length_group_skew", "error"),
+                    message: format!(
+                        "{}: {} is {:.3} mm from reference {} at {:.3} mm, at most {:.3} mm allowed{}",
+                        group.name.trim(),
+                        project.net_name(*net),
+                        skew,
+                        project.net_name(reference),
+                        reference_length,
+                        group.tolerance,
+                        via_note(*net)
+                    ),
+                    objects: vec![*net],
+                });
+            }
+        } else {
+            let mut member_lengths: Vec<(Id, f64)> = group
+                .nets
+                .iter()
+                .map(|net| (*net, lengths.get(net).copied().unwrap_or(0.0)))
+                .collect();
+            if member_lengths.is_empty() {
+                continue;
+            }
+            member_lengths.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+            let (short_net, short_len) = member_lengths[0];
+            let (long_net, long_len) = member_lengths[member_lengths.len() - 1];
+            let spread = long_len - short_len;
+            if spread <= group.tolerance + 1e-9 {
+                continue;
+            }
+            let note = if board.vias.iter().any(|v| group.nets.contains(&v.net)) {
+                " (via barrels are not counted in routed length)".into()
+            } else {
+                String::new()
+            };
+            result.push(Finding {
+                code: "length_group_skew",
+                severity: project.rule_severity("length_group_skew", "error"),
+                message: format!(
+                    "{}: {} at {:.3} mm and {} at {:.3} mm differ by {:.3} mm, at most {:.3} mm allowed{}",
+                    group.name.trim(),
+                    project.net_name(long_net),
+                    long_len,
+                    project.net_name(short_net),
+                    short_len,
+                    spread,
+                    group.tolerance,
+                    note
+                ),
+                objects: vec![long_net, short_net],
+            });
+        }
+    }
+    for class in &project.net_classes {
+        let Some(max) = class.max_length else {
+            continue;
+        };
+        for net in &class.nets {
+            let own_ceiling = project
+                .nets
+                .iter()
+                .any(|n| n.id == *net && n.max_length.is_some());
+            if own_ceiling {
+                continue;
+            }
+            let length = lengths.get(net).copied().unwrap_or(0.0);
+            if length <= max + 1e-9 {
+                continue;
+            }
+            result.push(Finding {
+                code: "track_length",
+                severity: project.rule_severity("track_length", "error"),
+                message: format!(
+                    "{} routed to {:.3} mm, at most {:.3} mm allowed{}",
+                    project.net_name(*net),
+                    length,
+                    max,
+                    via_note(*net)
+                ),
+                objects: vec![*net],
+            });
+        }
+    }
+    for net in &project.nets {
+        let Some(max) = net.max_length else {
+            continue;
+        };
+        let length = lengths.get(&net.id).copied().unwrap_or(0.0);
+        if length <= max + 1e-9 {
+            continue;
+        }
+        result.push(Finding {
+            code: "track_length",
+            severity: project.rule_severity("track_length", "error"),
+            message: format!(
+                "{} routed to {:.3} mm, at most {:.3} mm allowed{}",
+                net.name,
+                length,
+                max,
+                via_note(net.id)
             ),
             objects: vec![net.id],
         });
@@ -3894,6 +4012,219 @@ mod pour_tests {
         let f = fill(&p)?;
         assert!(!f.contains(Point::new(20.0, 20.0)));
         assert!(f.contains(Point::new(20.0, 28.0)));
+        Ok(())
+    }
+
+    fn net_track(p: &mut Project, id: Id, name: &str, x0: f64, x1: f64) {
+        p.nets.push(Net {
+            id,
+            name: name.into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: id + 100,
+            net: id,
+            start: Point::new(x0, 10.0),
+            end: Point::new(x1, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+    }
+
+    #[test]
+    fn length_group_spread_skew_names_the_long_and_short_nets() -> Result<(), String> {
+        let mut p = Project::default();
+        net_track(&mut p, 1, "A", 0.0, 10.0);
+        net_track(&mut p, 2, "B", 0.0, 10.0);
+        net_track(&mut p, 3, "C", 0.0, 13.0);
+        p.length_groups.push(pcbcraft_doc::LengthGroup {
+            id: 50,
+            name: "DDR0".into(),
+            nets: vec![1, 2, 3],
+            reference: None,
+            tolerance: 1.0,
+            same_layer: false,
+            profile: None,
+        });
+        p.validate()?;
+        let skew: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "length_group_skew")
+            .collect();
+        assert_eq!(skew.len(), 1);
+        assert!(skew[0].message.contains("C"));
+        assert!(skew[0].message.contains("13.000 mm"));
+        assert!(skew[0].objects.contains(&3));
+        if let Some(t) = p.board.tracks.iter_mut().find(|t| t.net == 3) {
+            t.end = Point::new(10.0, 10.0);
+        }
+        assert!(drc(&p).iter().all(|f| f.code != "length_group_skew"));
+        Ok(())
+    }
+
+    #[test]
+    fn length_group_reference_skew_ignores_pairs_that_match_the_reference() -> Result<(), String> {
+        let mut p = Project::default();
+        net_track(&mut p, 1, "CLK", 0.0, 10.0);
+        net_track(&mut p, 2, "D0", 0.0, 10.1);
+        net_track(&mut p, 3, "D1", 0.0, 10.15);
+        p.length_groups.push(pcbcraft_doc::LengthGroup {
+            id: 50,
+            name: "MIPI".into(),
+            nets: vec![1, 2, 3],
+            reference: Some(1),
+            tolerance: 0.2,
+            same_layer: false,
+            profile: None,
+        });
+        p.validate()?;
+        assert!(
+            drc(&p).iter().all(|f| f.code != "length_group_skew"),
+            "members within tolerance of the reference stay quiet"
+        );
+        if let Some(t) = p.board.tracks.iter_mut().find(|t| t.net == 3) {
+            t.end = Point::new(13.0, 10.0);
+        }
+        let skew: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "length_group_skew")
+            .collect();
+        assert_eq!(skew.len(), 1);
+        assert!(skew[0].message.contains("D1"));
+        assert!(!skew[0].message.contains("D0"));
+        Ok(())
+    }
+
+    #[test]
+    fn length_group_same_layer_flags_a_net_routed_on_both_sides() -> Result<(), String> {
+        let mut p = Project::default();
+        net_track(&mut p, 1, "A", 0.0, 10.0);
+        p.nets.push(Net {
+            id: 2,
+            name: "B".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 102,
+            net: 2,
+            start: Point::new(0.0, 20.0),
+            end: Point::new(5.0, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.tracks.push(Track {
+            id: 103,
+            net: 2,
+            start: Point::new(5.0, 20.0),
+            end: Point::new(10.0, 20.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+        });
+        p.length_groups.push(pcbcraft_doc::LengthGroup {
+            id: 50,
+            name: "RGMII".into(),
+            nets: vec![1, 2],
+            reference: None,
+            tolerance: 5.0,
+            same_layer: true,
+            profile: None,
+        });
+        p.validate()?;
+        assert!(drc(&p).iter().any(|f| f.code == "layer_change" && f.objects == vec![2]));
+        p.board.tracks.retain(|t| t.net != 2 || t.layer == Layer::Front);
+        assert!(!drc(&p).iter().any(|f| f.code == "layer_change"));
+        Ok(())
+    }
+
+    #[test]
+    fn max_length_ceiling_uses_class_then_net_precedence() -> Result<(), String> {
+        let mut p = Project::default();
+        net_track(&mut p, 1, "USB", 0.0, 120.0);
+        p.net_classes.push(pcbcraft_doc::NetClass {
+            id: 10,
+            name: "USB".into(),
+            clearance: 0.2,
+            width: 0.3,
+            min_width: None,
+            max_width: None,
+            target_length: None,
+            length_tolerance: None,
+            max_length: Some(100.0),
+            max_stub: None,
+            via_diameter: None,
+            via_drill: None,
+            pair_width: None,
+            pair_gap: None,
+            nets: vec![1],
+            profile: None,
+        });
+        p.validate()?;
+        let ceiling: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "track_length" && f.message.contains("at most"))
+            .collect();
+        assert_eq!(ceiling.len(), 1);
+        assert!(ceiling[0].message.contains("120.000 mm"));
+        if let Some(n) = p.nets.iter_mut().find(|n| n.id == 1) {
+            n.max_length = Some(150.0);
+        }
+        assert!(drc(&p)
+            .iter()
+            .all(|f| !(f.code == "track_length" && f.message.contains("at most"))));
+        Ok(())
+    }
+
+    #[test]
+    fn max_length_and_target_length_both_report_when_both_breach() -> Result<(), String> {
+        let mut p = Project::default();
+        net_track(&mut p, 1, "SIG", 0.0, 50.0);
+        if let Some(n) = p.nets.iter_mut().find(|n| n.id == 1) {
+            n.target_length = Some(10.0);
+            n.length_tolerance = Some(1.0);
+            n.max_length = Some(40.0);
+        }
+        p.validate()?;
+        let lengths: Vec<_> = drc(&p)
+            .into_iter()
+            .filter(|f| f.code == "track_length")
+            .collect();
+        assert_eq!(lengths.len(), 2);
+        assert!(lengths.iter().any(|f| f.message.contains("targets")));
+        assert!(lengths.iter().any(|f| f.message.contains("at most")));
+        Ok(())
+    }
+
+    #[test]
+    fn length_group_skew_message_notes_vias_excluded_when_member_has_vias() -> Result<(), String> {
+        let mut p = Project::default();
+        net_track(&mut p, 1, "A", 0.0, 10.0);
+        net_track(&mut p, 2, "B", 0.0, 14.0);
+        p.board.vias.push(Via {
+            id: 200,
+            net: 2,
+            position: Point::new(12.0, 10.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        p.length_groups.push(pcbcraft_doc::LengthGroup {
+            id: 50,
+            name: "LANE".into(),
+            nets: vec![1, 2],
+            reference: None,
+            tolerance: 1.0,
+            same_layer: false,
+            profile: None,
+        });
+        p.validate()?;
+        let msg = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "length_group_skew")
+            .ok_or("skew finding missing")?
+            .message;
+        assert!(msg.contains("via barrels are not counted"));
         Ok(())
     }
 }
