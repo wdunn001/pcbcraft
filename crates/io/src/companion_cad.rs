@@ -261,11 +261,14 @@ pub fn model_reference(project_path: &str, body_id: &str, cad_part: Option<&str>
 mod tests {
     use super::*;
 
+    type Check = Result<(), String>;
+
     #[test]
-    fn stub_sidecar_is_found_next_to_the_project() {
-        let dir = tempfile::tempdir().expect("tempdir");
+    fn stub_sidecar_is_found_next_to_the_project() -> Check {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
         let step_path = dir.path().join("part.step");
-        std::fs::write(&step_path, include_bytes!("../tests/fixtures/box.step")).unwrap();
+        std::fs::write(&step_path, include_bytes!("../tests/fixtures/box.step"))
+            .map_err(|e| e.to_string())?;
         let project_path = dir.path().join("part.solidcraft");
         let stub = json!({
             "format": 22,
@@ -277,15 +280,11 @@ mod tests {
                 }
             }
         });
-        let bytes = serde_json::to_vec(&stub).unwrap();
-        std::fs::write(&project_path, &bytes).unwrap();
-        let resolved = resolve_step_bytes(
-            project_path.to_str().unwrap(),
-            &bytes,
-            None,
-            None,
-        )
-        .expect("step sidecar");
+        let bytes = serde_json::to_vec(&stub).map_err(|e| e.to_string())?;
+        std::fs::write(&project_path, &bytes).map_err(|e| e.to_string())?;
+        let path = project_path.to_str().ok_or("path")?;
+        let resolved = resolve_step_bytes(path, &bytes, None, None)?;
         assert!(resolved.starts_with(b"ISO-10303-21"));
+        Ok(())
     }
 }
