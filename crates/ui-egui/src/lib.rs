@@ -27,6 +27,7 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
+mod minimap;
 mod modifier_ui;
 mod motion;
 mod number_entry;
@@ -682,6 +683,9 @@ struct Preferences {
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
+    /// Minimap look per tab (`layout`, `schematic`): pinned, width, opacity, position.
+    #[serde(default)]
+    minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -759,6 +763,7 @@ impl Default for Preferences {
             language: default_language(),
             recent_files: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
+            minimap: Default::default(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -1154,6 +1159,8 @@ pub struct App {
     connected_cycle: usize,
     last_repeat: Option<(String, Value)>,
     needs_zoom_selection: bool,
+    /// The minimap's per-session state (`minimap.rs`).
+    minimap: minimap::State,
     tree_search_focus: bool,
     about_open: bool,
     command_focus: bool,
@@ -1741,6 +1748,7 @@ impl App {
             connected_cycle: 0,
             last_repeat: None,
             needs_zoom_selection: false,
+            minimap: minimap::State::default(),
             tree_search_focus: false,
             shortcuts_settings_open: false,
             compare_open: false,
@@ -2708,6 +2716,9 @@ impl App {
             }
             KeyAction::ToggleAssistant => {
                 self.assistant_toggle();
+            }
+            KeyAction::MinimapPeek => {
+                self.minimap.key_held = matches!(self.tab, Tab::Pcb | Tab::Schematic);
             }
         }
     }
