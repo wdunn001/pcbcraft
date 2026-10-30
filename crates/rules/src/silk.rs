@@ -1,8 +1,7 @@
 //! Silkscreen checks: ink over a pad opening, and ink too close to one.
 //!
-//! Context: called once from `drc` in `lib.rs`. Reads `board.texts` and drawn
-//! `ArtKind::Silk` layers; library footprint silk belongs to the fabrication
-//! limits check and is not examined here.
+//! Context: called once from `drc` in `lib.rs`. Reads library footprint silk,
+//! `board.texts`, and drawn `ArtKind::Silk` user layers.
 //!
 //! Local rules:
 //! - `silk_over_pad` needs no limit: ink that touches a pad opening is always
@@ -17,8 +16,9 @@
 //! Dependencies: `crates/doc/src/lib.rs` (`BoardText`, `ArtLayer`, `Pad`),
 //! `crates/doc/src/fab.rs` (`FabRules`), `crates/geom/src/lib.rs`.
 use super::Finding;
-use pcbcraft_doc::{ArtKind, ArtShape, Id, Layer, Pad, Project};
+use pcbcraft_doc::{ArtKind, ArtShape, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::{Point, point_in_polygon, segment_distance};
+use pcbcraft_library::Graphic;
 
 /// Silk-to-pad limit used when the board carries no fabrication rules, in
 /// millimetres.
@@ -50,8 +50,103 @@ fn text_box(at: Point, text: &str, size: f64, rotate: f64) -> Vec<Point> {
     .collect()
 }
 
-fn ink_of(project: &Project) -> Vec<Ink> {
+fn silk_side_of(layer: &str) -> Option<Layer> {
+    match layer {
+        "F.SilkS" => Some(Layer::Front),
+        "B.SilkS" => Some(Layer::Back),
+        _ => layer.contains("SilkS").then(|| {
+            if layer.starts_with('B') {
+                Layer::Back
+            } else {
+                Layer::Front
+            }
+        }),
+    }
+}
+
+fn graphic_layer(g: &Graphic) -> &str {
+    match g {
+        Graphic::Line { layer, .. }
+        | Graphic::Rectangle { layer, .. }
+        | Graphic::Circle { layer, .. }
+        | Graphic::Arc { layer, .. }
+        | Graphic::Polyline { layer, .. }
+        | Graphic::Text { layer, .. } => layer,
+    }
+}
+
+fn to_world(f: &Footprint, p: Point) -> Point {
+    f.position.offset(p.rotate(-f.rotation))
+}
+
+fn library_ink(project: &Project) -> Vec<Ink> {
     let mut ink = vec![];
+    for f in &project.board.footprints {
+        let Some(def) = project
+            .component(f.component)
+            .and_then(|c| c.library_footprint.as_ref())
+            .map(|l| &l.definition)
+        else {
+            continue;
+        };
+        let reference = project
+            .component(f.component)
+            .map_or_else(|| format!("footprint {}", f.id), |c| c.reference.clone());
+        for g in &def.graphics {
+            let layer = graphic_layer(g);
+            let Some(side) = silk_side_of(layer) else {
+                continue;
+            };
+            if let Graphic::Text {
+                at,
+                text,
+                size,
+                rotate,
+                ..
+            } = g
+            {
+                let height = size.y.max(size.x);
+                let world = to_world(f, *at);
+                ink.push(Ink {
+                    id: f.id,
+                    what: format!("silk text \"{text}\" on {reference}"),
+                    side,
+                    outline: text_box(world, text, height, *rotate),
+                    closed: true,
+                    filled: true,
+                    estimated: true,
+                });
+                continue;
+            }
+            let points: Vec<Point> = g
+                .path_points()
+                .into_iter()
+                .map(|p| to_world(f, p))
+                .collect();
+            if points.len() < 2 {
+                continue;
+            }
+            let closed = matches!(g, Graphic::Rectangle { .. } | Graphic::Circle { .. })
+                || points
+                    .first()
+                    .zip(points.last())
+                    .is_some_and(|(a, b)| a.distance(*b) < 1e-9);
+            ink.push(Ink {
+                id: f.id,
+                what: format!("silk figure on {reference}"),
+                side,
+                outline: points,
+                closed,
+                filled: false,
+                estimated: false,
+            });
+        }
+    }
+    ink
+}
+
+fn ink_of(project: &Project) -> Vec<Ink> {
+    let mut ink = library_ink(project);
     for t in &project.board.texts {
         ink.push(Ink {
             id: t.id,
@@ -162,9 +257,6 @@ fn ink_to_pad(ink: &Ink, pad: &[Point]) -> f64 {
 /// # Dependencies
 /// `crates/rules/src/lib.rs` (`drc`), `crates/doc/src/fab.rs` (`FabRules`).
 ///
-/// # Do not
-/// Do not examine library footprint silk here; it is reported by the
-/// fabrication limits check.
 pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
     let limit = project
         .board
@@ -231,7 +323,10 @@ pub(crate) fn silk_findings(project: &Project) -> Vec<Finding> {
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use pcbcraft_doc::{ArtLayer, BoardText, Footprint, Pad, component_template};
+    use pcbcraft_doc::{
+        ArtLayer, BoardText, Footprint, LibraryFootprint, Pad, component_template,
+    };
+    use pcbcraft_library::{FootprintDefinition, Graphic};
 
     /// One part with a round 1.0 mm pad at (10, 10).
     fn board() -> Project {
@@ -308,6 +403,37 @@ mod tests {
         let mut p = board();
         text(&mut p, Point::new(9.5, 9.7), Layer::Back);
         assert!(silk(&p).is_empty());
+    }
+    #[test]
+    fn library_silk_line_over_a_pad_is_silk_over_pad() {
+        let mut p = board();
+        if let Some(c) = p.components.first_mut() {
+            c.library_footprint = Some(LibraryFootprint {
+                library: "test".into(),
+                definition: FootprintDefinition {
+                    name: "T".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![],
+                    graphics: vec![Graphic::Line {
+                        start: Point::new(8.0, 10.0),
+                        end: Point::new(12.0, 10.0),
+                        width: 0.12,
+                        fill: String::new(),
+                        layer: "F.SilkS".into(),
+                    }],
+                    model: None,
+                    rules: None,
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+        }
+        let f = silk(&p);
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].code, "silk_over_pad");
+        assert_eq!(f[0].objects, vec![12, 12]);
+        assert!(f[0].message.contains("R2"));
     }
     #[test]
     fn drawn_silk_layer_over_a_pad_is_reported_here_not_by_277() {

@@ -1375,7 +1375,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
     // Drawn machine layers sit beside the copper.
     // not run through a via or a pad, a mask figure must not cover an exposed
     // pad, and no figure may leave the board. Drawn silk and reference art are
-    // left alone: silk over pads belongs to its own check.
+    // left alone: silk over pads is checked in silk.rs (library, text, and art).
     for layer in &board.user_layers {
         let cutting = matches!(layer.kind, ArtKind::Cut | ArtKind::Perforation);
         let masking = layer.kind == ArtKind::Mask;
