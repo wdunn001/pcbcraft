@@ -3,10 +3,10 @@
 ## Getting started
 
 On [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft), push your branch
-to the fork (never to `main`) and wait for the green **CI result** check on that
-commit. Link the Actions run in your upstream issue build report. That run is the
-required proof for workers and doc-only lanes; you do not need a pull request on
-the fork and you do not need a green local `cargo xtask ci` on a laptop.
+to the fork (never to `main`) and open a draft pull request against `main`. When
+the work is done, mark the pull request ready for review and wait for the green
+**CI result** check. Link that Actions run in the pull request. You do not need
+a green local `cargo xtask ci` on a laptop.
 
 Clone and first-run steps: [getting-started.md](getting-started.md).
 
@@ -19,12 +19,17 @@ GitHub Actions run on the pushed branch is the proof (see CONTRIBUTING.md). `car
 
 ### Fork and pull request gate (`.github/workflows/ci.yml`)
 
-On wdunn001/pcbcraft, **every branch push** runs the same jobs as upstream.
-Workers push a feature branch, wait for the green **CI result** check, and post
-that Actions link in the upstream build report. Upstream tangency-labs/pcbcraft
-still runs the gate on pull requests; a new push cancels the older run for the
-same PR. Documentation-only commits skip heavy build jobs but still run policy,
-deny and the aggregated result job.
+The gate runs on pull requests, on pushes to `main`, in the merge queue and on
+manual dispatch. A push to a feature branch starts nothing by itself; open a
+pull request (a draft is fine) to get results. This avoids the duplicate run
+that a branch push plus a pull request used to start.
+
+- **Draft pull request:** only the cheap jobs run: Changes, Format and policy, Clippy and docs, Documentation standard. **CI result** reports that set.
+- **Ready pull request:** marking it ready for review (the `ready_for_review` event) starts the full gate, including Tests, Coverage, E2E, UI strings, WebAssembly, Licenses and advisories, UI screenshots and the Windows build. **CI result** goes green only when all of them succeed.
+- **Main and merge queue:** everything, and macOS and the minimum Rust version too.
+
+Documentation-only commits skip the heavy build jobs on any of these but still
+run policy, docs standard and the result job.
 
 | Job | Command | What it enforces |
 | --- | --- | --- |
@@ -37,17 +42,56 @@ deny and the aggregated result job.
 | Tooltip text | `cargo xtask tooltips` | Lists tooltips that repeat their label, are too short or long, omit a limit, or leave a disabled control unexplained (docs/tooltips.md). Non-fatal until `--strict` is switched on (#631); exemptions with reasons live in `crates/ui-egui/tooltip-exemptions.txt` |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
+| Coverage | `cargo xtask coverage` | Runs the workspace tests under cargo-llvm-cov 0.9.1 (source-based LLVM coverage on stable with the `llvm-tools` component). Fails when workspace line coverage is under 70% or when any crate falls more than 0.5 points below `ci/coverage-baseline.json`. Uploads `coverage` (lcov and HTML) and writes the per-crate table to the job summary. Ready pull requests and main only |
 | E2E and control coverage | `cargo xtask e2e` | Runs every `a_newcomer_*` story, walks every page of the UI, and fails with one line per control that has no tooltip, no story or no id (message names the id). Uploads `e2e-coverage` (report and logs). Exemptions: `e2e-exemptions.txt` |
 | UI screenshots | `cargo xtask screenshots` | Launches the real app under Xvfb with Mesa software Vulkan and captures eight views |
-| Build | `cargo build --locked` | Windows on every change, macOS also on main |
+| Build | `cargo build --locked` | Windows on every ready pull request, macOS also on main and the merge queue |
 | CI result | none | The one check to mark as required in branch protection |
 
 Speed and friendliness to stacked pull requests:
 
-- A new push cancels the older run for the same pull request. Runs on main are never cancelled.
+- The concurrency group is the workflow plus the pull request number. A new push, or marking the pull request ready, cancels the older run of that pull request. Runs on main, in the merge queue and manual runs are never cancelled.
 - Documentation-only changes skip the build jobs; the policy, deny and result jobs still run.
 - Caches (rust-cache) are written only by main and read by everything else.
-- Forks run on every push, so a stacked branch gets results before its pull request exists. In the upstream repository, plain branch pushes are covered by the pull request run.
+- A stacked branch gets results once its pull request exists, even a draft one, whatever its base branch.
+- Job names are unchanged, so existing branch status checks still match.
+
+## Coverage gate
+
+`cargo xtask coverage` is the local twin of the `Coverage` job: it needs
+`rustup component add llvm-tools` and
+`cargo install --locked cargo-llvm-cov --version =0.9.1` (Apache-2.0 OR MIT,
+run as a test tool only). It runs the workspace tests with nextest, writes
+`target/coverage/lcov.info`, `target/coverage/html/` and `target/coverage/summary.md`
+(the per-crate table), and applies two checks:
+
+- **The bar:** workspace line coverage of at least 70% (`gate.minimum_lines` in `ci/coverage.json`). The starting measurement was 85.9%, so the bar is on the whole workspace. The file also supports `"mode": "patch"`, which checks that the lines a pull request adds are covered at the minimum (pass `--base REF`).
+- **The ratchet:** no crate may fall more than 0.5 points below its entry in `ci/coverage-baseline.json`. After a change that raises coverage, run `cargo xtask coverage --bless` and commit the new baseline so the gain cannot be lost. Raise the 70% bar in `ci/coverage.json` as the baseline allows.
+
+Line coverage counts instrumented lines only; blank lines and comments are not
+in the number. The exclusions are listed with their reasons in
+`ci/coverage.json` and nowhere else:
+
+- `xtask/*`: repository automation, including the generator of the showcase example data (the examples in `examples/` are not Rust and are not measured).
+- `apps/*/src/main.rs`: binary entry glue. The logic it calls lives in library crates, which are measured.
+- `apps/pcbcraft-web/*`: the browser entry point, built for wasm32 only and checked by the WebAssembly job.
+- `*/tests/*`, `*/tests.rs` and `crates/ui-egui/src/e2e/*`: test-only code, which is not product code.
+- `#[cfg(test)] mod` blocks inside source files: removed by reading the source, because stable Rust cannot mark them for the tool.
+
+A file is never excluded because it is poorly covered. The Coverage job does not
+reuse the Tests cache: instrumented builds go to `target/llvm-cov-target` with
+different compiler flags, so the job keeps its own cache (written by main).
+Expect about 5 minutes of tests plus the instrumented build; a cold build is longer.
+
+## Tests must assert behaviour
+
+Coverage is a floor, not a goal. A test that only executes code to raise the
+number is not acceptable and is rejected in review. Every test asserts an
+observable result (a returned value, a changed document, a drawn label, an
+error), and new code arrives with tests that fail if its behaviour breaks.
+Check by breaking the code: change the behaviour on purpose and confirm the
+test goes red. Do not lower the bar, the baseline or the exclusions to make a
+change pass; add the missing test.
 
 ## The e2e gate
 

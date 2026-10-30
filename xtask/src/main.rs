@@ -8,12 +8,14 @@
 //! # Dependencies
 //! - .github/workflows/ci.yml
 //! - docs/ci.md
+//! - xtask/src/coverage.rs
 //! - xtask/src/doc_check.rs
 //! - xtask/src/tooltips.rs
 //! - xtask/src/status_data.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
+mod coverage;
 mod doc_check;
 mod e2e;
 mod showcase;
@@ -41,6 +43,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   msrv         check the workspace with the declared rust-version toolchain
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
+  coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
   status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
@@ -544,6 +547,7 @@ fn run() -> Result<(), String> {
         "fmt" => fmt()?,
         "clippy" => clippy()?,
         "test" => test()?,
+        "coverage" => coverage::run(&root()?, args.get(1..).unwrap_or(&[]))?,
         "e2e" => e2e()?,
         "wasm" => wasm()?,
         "docs" if args.get(1).map(String::as_str) == Some("check") => {
