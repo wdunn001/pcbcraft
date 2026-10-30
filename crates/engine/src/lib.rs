@@ -7611,9 +7611,9 @@ fn run_command(
             }
             let path = std::path::Path::new(&a.path);
             let text = pcbcraft_io::read_text(path).map_err(Error::Invalid)?;
-            let imported = pcbcraft_io::read_schematic_interchange_path(path, &text)
+            let (imported, preserved_bytes) = pcbcraft_io::read_schematic_interchange_path(path, &text)
                 .map_err(Error::Invalid)?;
-            let summary = pcbcraft_io::import_summary(&imported, 0);
+            let summary = pcbcraft_io::import_summary(&imported, preserved_bytes);
             *p = imported;
             Ok(summary)
         }
@@ -10676,7 +10676,6 @@ fn run_command(
             p.sheets.push(Sheet {
                 id,
                 name: a.name,
-                interchange_uuid: None,
                 parent: None,
                 entry: None,
             });
@@ -10967,7 +10966,6 @@ fn run_command(
                 net: a.net,
                 sheet: a.sheet,
                 position: a.position,
-                interchange_uuid: None,
             });
             Ok(json!({"id":id,"name":a.name,"sheet":a.sheet}))
         }
@@ -11083,7 +11081,6 @@ fn run_command(
             p.sheets.push(Sheet {
                 id: sheet,
                 name: name.clone(),
-                interchange_uuid: None,
                 parent: None,
                 entry: None,
             });
@@ -11172,7 +11169,6 @@ fn run_command(
                     net,
                     sheet,
                     position: item.position,
-                    interchange_uuid: None,
                 });
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))

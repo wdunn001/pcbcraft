@@ -13361,7 +13361,7 @@ mod tests {
     fn schematic_import_hierarchy_matches_golden_json() -> Result<(), String> {
         let path = schematic_fixture_dir().join("schematic_import_hierarchy_root.kicad_sch");
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let project = read_schematic_interchange_path(&path, &text)?;
+        let (project, _) = read_schematic_interchange_path(&path, &text)?;
         let snapshot = schematic_snapshot(&project);
         let golden = load_schematic_golden("schematic_import_hierarchy.golden.json")?;
         assert_eq!(snapshot["components"], golden["components"]);
@@ -13404,9 +13404,12 @@ mod tests {
             serde_json::to_value(&nets).map_err(|e| e.to_string())?,
             golden["member_nets"]
         );
+        let bus_labels = golden["bus_labels"]
+            .as_u64()
+            .ok_or("golden bus_labels missing")? as usize;
         assert_eq!(
             project.labels.iter().filter(|l| l.kind == "bus").count(),
-            golden["bus_labels"].as_u64().unwrap_or(0) as usize
+            bus_labels
         );
         Ok(())
     }
