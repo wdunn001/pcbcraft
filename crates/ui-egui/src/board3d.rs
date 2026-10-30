@@ -167,7 +167,6 @@ impl View3d {
         best
     }
     /// Why the mesh could not be built, if it could not.
-    #[cfg(test)]
     pub(crate) fn build_error(&self) -> Option<String> {
         self.error.clone()
     }

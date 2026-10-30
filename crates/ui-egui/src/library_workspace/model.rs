@@ -64,10 +64,24 @@ pub(crate) fn part_project(def: &FootprintDefinition) -> (Project, Point) {
         id: PART,
         reference: "U1".into(),
         value: String::new(),
-        kind: "part".into(),
+        // Validation wants a known kind when there is no library symbol.
+        kind: "resistor".into(),
         position: Point::new(0.0, 0.0),
         rotation: 0.0,
-        pins: Vec::new(),
+        // The board check wants one pin per pad number.
+        pins: def
+            .pads
+            .iter()
+            .map(|g| pcbcraft_doc::Pin {
+                number: g.number.clone(),
+                name: String::new(),
+                offset: Point::new(0.0, 0.0),
+                net: None,
+                electrical_type: "passive".into(),
+                direction: None,
+                unit: 1,
+            })
+            .collect(),
         units: Vec::new(),
         library_symbol: None,
         library_footprint: Some(LibraryFootprint {
@@ -242,6 +256,9 @@ impl App {
                     bg: self.surface(),
                     muted: t.muted,
                 };
+                if let Some(why) = self.libws.model_view.build_error() {
+                    ui.label(fonts::text(fonts::Role::Body, why).color(t.red));
+                }
                 let size = egui::vec2(ui.available_width(), 440.0);
                 board3d::viewport(&mut self.libws.model_view, ui, &env, size);
                 ui.label(fonts::caption(t!("libws.model.hint")).color(t.muted));
@@ -551,6 +568,19 @@ mod tests {
         assert_eq!(p.board.footprints[0].pads.len(), 2);
         assert_eq!(p.board.footprints[0].position, centre);
         assert!(p.board.width > 6.0, "the board is larger than the pads");
+    }
+
+    #[test]
+    fn the_one_part_project_builds_a_mesh_with_a_body() {
+        let (p, _) = part_project(&two_pads());
+        let mesh = pcbcraft_io::board_mesh(&p, pcbcraft_io::MeshLayers::default());
+        let mesh = mesh.unwrap_or_else(|e| panic!("mesh error: {e}"));
+        assert!(
+            mesh.parts
+                .iter()
+                .any(|m| m.kind == pcbcraft_io::PartKind::Body && m.component == Some(PART)),
+            "the renderer makes a body for the part"
+        );
     }
 
     #[test]

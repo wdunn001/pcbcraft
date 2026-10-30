@@ -131,11 +131,15 @@ impl App {
                     &mut self.libws.compare_qty,
                     &segments,
                 );
+                ui.label(fonts::text(fonts::Role::Body, t!("libws.compare.only")).color(t.text));
                 checkbox(
                     ui,
                     &mut self.libws.compare_only_diff,
                     &t!("libws.compare.only"),
                     &t!("libws.compare.only.tip"),
+                );
+                ui.label(
+                    fonts::text(fonts::Role::Body, t!("libws.compare.highlight")).color(t.text),
                 );
                 checkbox(
                     ui,
