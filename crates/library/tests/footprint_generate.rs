@@ -196,6 +196,18 @@ fn tssop16_matches_soic_style_row_count() -> Result<(), String> {
 }
 
 #[test]
+fn tssop_honors_terminal_width() -> Result<(), String> {
+    let mut p = nominal_params();
+    p.pitch = 0.65;
+    p.pin_count = 16;
+    p.body_width = 4.4;
+    p.lead_width = 0.35;
+    let def = generate_footprint("tssop", LandPatternDensity::Nominal, &p)?;
+    assert!(near(def.pads[0].size.y, 0.35));
+    Ok(())
+}
+
+#[test]
 fn dfn8_two_side_pad_count() -> Result<(), String> {
     let mut p = nominal_params();
     p.pitch = 0.5;
