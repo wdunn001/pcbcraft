@@ -132,7 +132,9 @@ mod tests {
         forget_recent_path("/designs/board5.board.json");
         let after_forget = load_recent_paths();
         assert!(
-            !after_forget.iter().any(|seen| seen == "/designs/board5.board.json"),
+            !after_forget
+                .iter()
+                .any(|seen| seen == "/designs/board5.board.json"),
             "forget removes one path"
         );
         assert_eq!(
