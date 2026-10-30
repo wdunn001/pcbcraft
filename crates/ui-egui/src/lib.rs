@@ -2868,7 +2868,8 @@ impl App {
                     if brand.on_hover_text(t!("app.brand.tip")).clicked() {
                         self.home_open = true;
                     }
-                    if self.library.editor.mode == 0 {
+                    let menus_fit = !self.home_open || ui.available_width() > 200.0;
+                    if self.library.editor.mode == 0 && menus_fit {
                         ui.separator();
                         self.file_menu(ui);
                         self.edit_menu(ui);
