@@ -11,6 +11,7 @@ workspace = true
 [dependencies]
 pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
+pcbcraft-sim.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-rules.workspace = true
 serde.workspace = true

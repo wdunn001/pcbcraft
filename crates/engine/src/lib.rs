@@ -2067,7 +2067,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "output_job.package",
             "Write a whole fabrication bundle as one zip file: gerbers and drill files for every layer, the bill of materials and the pick-and-place file, plus a manifest that names every file with its size, checksum, export kind and the job that produced it. Name a recorded output job to package its recipe, or a list of kinds, or nothing for the fabrication bundle",
             schema(
-                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":["gerbers","netlist","bom","placement","dxf","cmp","idf","vrml","step","pdf","svg","ipc2581","dsn","ipc356","gencad","hyperlynx","plot","report","ps","odb","hpgl","stackup","drill_chart","stats"]},"minItems":1,"maxItems":24},"variant":{"type":"string","minLength":1,"maxLength":64}}),
+                json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"string","minLength":1,"maxLength":64},"kinds":{"type":"array","items":{"type":"string","enum":pcbcraft_doc::OUTPUT_KINDS.to_vec()},"minItems":1,"maxItems":pcbcraft_doc::MAX_OUTPUT_KINDS},"variant":{"type":"string","minLength":1,"maxLength":64}}),
                 &["path"],
             ),
         ),
@@ -2790,6 +2790,22 @@ fn render_kind(
             skipped.extend(plots.skipped);
         }
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
+        "spice" => out.push((
+            "schematic.cir".into(),
+            pcbcraft_io::spice_netlist(p)?.into_bytes(),
+        )),
+        "si_net_results" => out.push((
+            "si-net-results.csv".into(),
+            pcbcraft_io::si_net_results_csv(p)?.into_bytes(),
+        )),
+        "impedance_table" => out.push((
+            "impedance-table.csv".into(),
+            pcbcraft_io::impedance_table_csv(p)?.into_bytes(),
+        )),
+        "touchstone" => out.push((
+            "touchstone.s2p".into(),
+            pcbcraft_io::touchstone_text(p)?.into_bytes(),
+        )),
         other => {
             return Err(Error::Invalid(format!("unknown export kind {other}")));
         }
@@ -31084,6 +31100,40 @@ mod tests {
                 directory.join(name).exists(),
                 "{name} should have been written"
             );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_exports_the_per_net_signal_integrity_results() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-si-export-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"si","kinds":["si_net_results","impedance_table"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"si","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let results = std::fs::read_to_string(directory.join("si-net-results.csv"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        if !results.contains("NET,CLASS") || !results.contains("IMPEDANCE_OHM") {
+            return Err(Error::Invalid(
+                "si-net-results.csv should list nets with impedance columns".into(),
+            ));
+        }
+        let table = std::fs::read_to_string(directory.join("impedance-table.csv"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        if !table.contains("method:") {
+            return Err(Error::Invalid(
+                "impedance-table.csv should state its method".into(),
+            ));
         }
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
