@@ -11,12 +11,63 @@
 
 use super::*;
 
+/// What a row of a page tab's right-click menu does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PageAct {
+    Rename,
+    Add,
+    Remove,
+}
+
 /// Egui memory key for the page name being typed, if a rename is open.
 fn draft_key() -> egui::Id {
     egui::Id::new("schematic-page-rename-draft")
 }
 
 impl App {
+    /// The right-click menu of a page tab: rename, add, then remove last.
+    ///
+    /// # Rules
+    /// - Page 0 is the Main page: Rename and Remove are disabled and say why.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/menu.rs (`Menu`, `Item`).
+    ///
+    /// # Do not
+    /// - Run a command here; `page_switcher` runs the returned [`PageAct`].
+    fn page_menu(page: Id) -> Vec<crate::ui_kit::menu::Entry<PageAct>> {
+        use crate::ui_kit::menu::{Item, Menu};
+        use crate::ui_kit::{icons as kit, menu_icons as glyph};
+        let named = page != 0;
+        let why = t!("schematic.pages.main.tip");
+        Menu::new()
+            .group([Item::new(
+                PageAct::Rename,
+                t!("schematic.pages.rename"),
+                t!("schematic.pages.rename.tip"),
+            )
+            .icon(glyph::RENAME)
+            .enabled_if(named, why.clone())
+            .into()])
+            .group([Item::new(
+                PageAct::Add,
+                t!("schematic.pages.add"),
+                t!("schematic.pages.add.tip"),
+            )
+            .icon(kit::PLUS)
+            .into()])
+            .destructive(
+                Item::new(
+                    PageAct::Remove,
+                    t!("schematic.pages.remove"),
+                    t!("schematic.pages.remove.tip"),
+                )
+                .icon(glyph::TRASH)
+                .enabled_if(named, why),
+            )
+            .entries()
+    }
+
     /// The page the schematic canvas shows: the chosen page while it still
     /// exists, otherwise the Main page.
     ///
@@ -62,6 +113,7 @@ impl App {
         let mut pages: Vec<(Id, String)> = vec![(0, t!("schematic.pages.root"))];
         pages.extend(self.project.sheets.iter().map(|s| (s.id, s.name.clone())));
         let mut go = None;
+        let mut tab_act: Option<(Id, PageAct)> = None;
         let mut add = false;
         let mut remove = false;
         let mut open_rename = false;
@@ -83,12 +135,14 @@ impl App {
                 } else {
                     t!("schematic.pages.tab.tip")
                 };
-                if ui
-                    .selectable_label(*id == current, text)
-                    .on_hover_text(tip)
-                    .clicked()
-                {
+                let tab = ui.selectable_label(*id == current, text).on_hover_text(tip);
+                if tab.clicked() {
                     go = Some(*id);
+                }
+                if let Some(act) =
+                    crate::ui_kit::menu::context(&tab, "page-tab", || Self::page_menu(*id))
+                {
+                    tab_act = Some((*id, act));
                 }
             }
             ui.add_space(8.0);
@@ -144,6 +198,28 @@ impl App {
             self.active_page = id;
             ui.data_mut(|d| d.remove_temp::<String>(draft_key()));
             return;
+        }
+        match tab_act {
+            Some((_, PageAct::Add)) => add = true,
+            Some((id, PageAct::Rename)) => {
+                // The name box edits the page being looked at, so show the page first.
+                self.active_page = id;
+                let name = pages
+                    .iter()
+                    .find(|(page, _)| *page == id)
+                    .map(|(_, n)| n.clone())
+                    .unwrap_or_default();
+                ui.data_mut(|d| d.insert_temp(draft_key(), name));
+                return;
+            }
+            Some((id, PageAct::Remove)) => {
+                self.tool_call("schematic.remove_sheet", json!({"id": id}));
+                if self.active_page == id {
+                    self.active_page = 0;
+                }
+                return;
+            }
+            None => {}
         }
         if add {
             let mut number = pages.len();

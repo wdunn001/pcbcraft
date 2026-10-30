@@ -12,6 +12,14 @@
 
 use super::*;
 
+/// What a row of a finding's right-click menu does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FindingAct {
+    Show,
+    Hide,
+    Mute,
+}
+
 /// The tabs of the bottom sheet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum SheetTab {
@@ -296,7 +304,33 @@ impl App {
     }
 
     fn sheet_row(&mut self, ui: &mut egui::Ui, row: Row) {
-        ui.horizontal(|ui| {
+        // The whole row answers a right click; the buttons inside sit above it.
+        let (area, area_response) = ui.allocate_exact_size(
+            egui::vec2(
+                ui.available_width(),
+                crate::ui_kit::rows::FINDING_COMPACT_HEIGHT,
+            ),
+            egui::Sense::click(),
+        );
+        if let Some(act) =
+            crate::ui_kit::menu::context(&area_response, "finding", || Self::finding_menu(&row))
+        {
+            match act {
+                FindingAct::Show => self.show_finding(&row),
+                FindingAct::Hide => self.run(
+                    "rules.exclude",
+                    json!({"code": row.code, "ids": row.objects.clone()}),
+                ),
+                FindingAct::Mute => self.mute_area(&row),
+            }
+        }
+        let mut inner = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(area)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        let ui = &mut inner;
+        {
             let (colour, word) = match row.rank {
                 0 => (self.accent(), t!("sheet.severity_error")),
                 1 => (
@@ -379,7 +413,42 @@ impl App {
                     self.show_finding(&row);
                 }
             });
-        });
+        }
+    }
+
+    /// The right-click menu of a finding: show it, hide it, mute its area.
+    ///
+    /// # Rules
+    /// - Hide and Mute need an object to act on; without one they are disabled and say why.
+    ///
+    /// # Dependencies
+    /// - crates/ui-egui/src/ui_kit/menu.rs (`Menu`, `Item`).
+    ///
+    /// # Do not
+    /// - Run the command here; `sheet_row` runs the returned [`FindingAct`].
+    fn finding_menu(row: &Row) -> Vec<crate::ui_kit::menu::Entry<FindingAct>> {
+        use crate::ui_kit::menu::{Item, Menu};
+        use crate::ui_kit::{icons as kit, menu_icons as glyph};
+        let has = !row.objects.is_empty();
+        let why = t!("sheet.menu.no_objects.tip");
+        Menu::new()
+            .group([
+                Item::new(FindingAct::Show, t!("sheet.show"), t!("sheet.show.tip"))
+                    .icon(kit::EYE)
+                    .enabled_if(has, why.clone())
+                    .into(),
+            ])
+            .group([
+                Item::new(FindingAct::Hide, t!("sheet.hide"), t!("sheet.hide.tip"))
+                    .icon(kit::EYE_OFF)
+                    .enabled_if(has, why.clone())
+                    .into(),
+                Item::new(FindingAct::Mute, t!("sheet.mute"), t!("sheet.mute.tip"))
+                    .icon(glyph::MUTE)
+                    .enabled_if(has, why)
+                    .into(),
+            ])
+            .entries()
     }
 
     /// Selects the first object a finding names, on the sheet or board that
