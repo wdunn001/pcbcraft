@@ -37,7 +37,7 @@ pub use bitmap_trace::{
     MAX_IMAGE_SIDE, MAX_TRACE_CONTOURS, MAX_TRACE_VERTICES, TraceOptions, bitmap_trace_polygons,
     decode_embedded_png, decode_png, embedded_bytes, read_png_base64,
 };
-pub use board_edge::{dxf_import_outline, DxfOutlineSource};
+pub use board_edge::{DxfOutlineSource, dxf_import_outline};
 mod cam;
 mod cam_drill;
 mod cam_shapes;
@@ -1637,8 +1637,7 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
 pub fn step_board(p: &Project) -> Result<String, String> {
     p.validate()?;
     let depth = p.board.thickness;
-    let outline: Vec<Point> =
-        board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
+    let outline: Vec<Point> = board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
     let mut doc = StepDoc::new();
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
@@ -1718,8 +1717,7 @@ pub fn vrml_board(p: &Project) -> Result<String, String> {
     const MAX_PRISMS: usize = 20_000;
     const MAX_FACES: usize = 200_000;
     let depth = p.board.thickness;
-    let outline: Vec<Point> =
-        board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
+    let outline: Vec<Point> = board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
     let mut rings = vec![(outline, 0.0, depth)];
     for footprint in &p.board.footprints {
         for pad in &footprint.pads {

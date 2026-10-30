@@ -9345,7 +9345,8 @@ fn run_command(
             let mut skip_edge_segments = false;
             let mut offset = pcbcraft_geom::Point::new(0.0, 0.0);
             if a.use_outline {
-                let imported = pcbcraft_io::dxf_import_outline(&entities).map_err(Error::Invalid)?;
+                let imported =
+                    pcbcraft_io::dxf_import_outline(&entities).map_err(Error::Invalid)?;
                 let (source, points, arcs) = imported.ok_or_else(|| {
                     Error::Invalid(
                         "no closed polyline of 3 to 64 vertices to trace as an outline".into(),
@@ -9373,11 +9374,7 @@ fn run_command(
                     Vec::new()
                 } else {
                     arcs.iter()
-                        .map(|mid| {
-                            mid.map(|q| {
-                                pcbcraft_geom::Point::new(q.x - min_x, q.y - min_y)
-                            })
-                        })
+                        .map(|mid| mid.map(|q| pcbcraft_geom::Point::new(q.x - min_x, q.y - min_y)))
                         .collect()
                 };
                 if !shifted_arcs.is_empty() {
@@ -9410,8 +9407,7 @@ fn run_command(
                         && e.layer.eq_ignore_ascii_case("edge")
                         && matches!(
                             e.shape,
-                            pcbcraft_io::DxfShape::Line { .. }
-                                | pcbcraft_io::DxfShape::Arc { .. }
+                            pcbcraft_io::DxfShape::Line { .. } | pcbcraft_io::DxfShape::Arc { .. }
                         ))
                 })
                 .map(|(_, e)| match &e.shape {
