@@ -3110,9 +3110,7 @@ mod tests {
             });
         }
         assert!(
-            !drc(&p)
-                .iter()
-                .any(|f| f.code == "copper_sliver"),
+            !drc(&p).iter().any(|f| f.code == "copper_sliver"),
             "wide enough pour stays quiet"
         );
         Ok(())
