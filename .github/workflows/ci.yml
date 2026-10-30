@@ -370,6 +370,11 @@ jobs:
         env:
           SIDE: ${{ matrix.side }}
           WGPU_BACKEND: vulkan
+          # Older Mesa (the laptop runners are Ubuntu 20.04, Mesa 21) lists Vulkan
+          # debug-label functions it cannot load, and wgpu aborts when debug builds
+          # turn them on. Captures need no validation layer.
+          WGPU_DEBUG: "0"
+          WGPU_VALIDATION: "0"
         run: |
           xvfb-run -a -s '-screen 0 1600x1100x24' \
             env -u WAYLAND_DISPLAY \
