@@ -14,6 +14,8 @@
 //! - crates/ui-egui/src/ui_kit/focus.rs
 //! - crates/ui-egui/src/ui_kit/gates.rs
 //! - crates/ui-egui/src/ui_kit/icons.rs
+//! - crates/ui-egui/src/ui_kit/menu.rs
+//! - crates/ui-egui/src/ui_kit/menu_icons.rs
 //! - crates/ui-egui/src/ui_kit/card.rs
 //! - crates/ui-egui/src/ui_kit/checkbox.rs
 //! - crates/ui-egui/src/ui_kit/dialog.rs
@@ -43,6 +45,8 @@ pub mod gallery;
 #[cfg(test)]
 mod gates;
 pub mod icons;
+pub mod menu;
+pub mod menu_icons;
 pub mod number_field;
 pub mod panel_header;
 pub mod rows;

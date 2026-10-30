@@ -1156,6 +1156,8 @@ pub struct App {
     capture_select: Option<String>,
     /// Open the canvas right-click menu on the selected part in a capture.
     capture_menu: bool,
+    /// Kind of row whose right-click menu opens by itself in a capture image.
+    capture_menu_tag: Option<String>,
     /// Capture option: open the bottom sheet on its Findings tab.
     capture_sheet: bool,
     frames: u32,
@@ -1429,6 +1431,14 @@ impl App {
         self.capture_select = reference;
         self
     }
+    /// Capture option: open the right-click menu of the first visible row of this
+    /// kind (`tree-layer`, `tree-part`, `tree-net`, `library-card`, `finding`,
+    /// `page-tab`). Ignored outside capture mode.
+    pub fn with_capture_menu(mut self, tag: Option<String>) -> Self {
+        self.capture_menu_tag = tag;
+        self
+    }
+
     /// Capture option: open the canvas right-click menu on the selected part.
     /// Ignored outside capture mode.
     pub fn with_capture_view(mut self, context_menu: bool) -> Self {
@@ -1711,6 +1721,7 @@ impl App {
             capture,
             capture_select: None,
             capture_menu: false,
+            capture_menu_tag: None,
             // `--tab checks` is Layout with the Findings sheet expanded.
             capture_sheet: tab == Some("checks"),
             frames: 0,
@@ -2685,6 +2696,10 @@ impl App {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        // An open context menu owns the keys: its arrows, letters and Esc are not app shortcuts.
+        if ui_kit::menu::any_open(ctx) {
+            return;
+        }
         if ctx.current_pass_index() > 0 {
             return;
         }
@@ -6831,6 +6846,7 @@ impl App {
                 self.canvas_menu = Some((at, canvas::CanvasMenuKind::Object(id)));
             }
         }
+        ui_kit::menu::request_capture(ctx, self.capture_menu_tag.as_deref());
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0
             || (self.library.catalog.is_some()

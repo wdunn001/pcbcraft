@@ -13,6 +13,7 @@ mod board_side;
 mod builds;
 mod checks;
 mod compare;
+mod context_menus;
 mod editing;
 mod findings_counts;
 mod images;

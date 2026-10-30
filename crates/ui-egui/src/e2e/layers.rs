@@ -187,7 +187,7 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let row = text_at(&ctx, &mut app, "Copper").ok_or("the Copper row is not on screen")?;
     right_click(&ctx, &mut app, row);
-    authoring::tests::tap(&ctx, &mut app, "Hide  Space")?;
+    authoring::tests::tap(&ctx, &mut app, "Hide")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.preferences
