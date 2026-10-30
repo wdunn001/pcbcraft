@@ -1,4 +1,7 @@
-//! The committed SolidCraft export fixture stays readable as the subset the writer promises.
+//! Golden SolidCraft export file checks the writer's JSON subset without re-running export.
+//!
+//! # Dependencies
+//! - crates/io/tests/fixtures/solidcraft/board_two_parts.solidcraft
 use serde_json::Value;
 
 #[test]

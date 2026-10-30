@@ -22,8 +22,8 @@
 //!   for appearances and materials. The reference designator is the match key on re-import.
 //!
 //! # Dependencies
-//! - `./board_mesh.rs` for [`BoardMesh`], [`MeshPart`] and [`crate::model_matrix`].
-//! - `../../doc/src/lib.rs` for `Project` and `Footprint`.
+//! - crates/io/src/board_mesh.rs for [`BoardMesh`], [`MeshPart`] and [`crate::model_matrix`].
+//! - crates/doc/src/lib.rs for `Project` and `Footprint`.
 //!
 //! # Do not
 //! - Do not read model files here; the caller applies [`crate::with_models`] to the mesh first.
@@ -63,7 +63,7 @@ pub struct SolidcraftLayers {
 ///   past the vertex list; nothing partial is returned.
 /// - Body names are unique: a part named like a board body gets the suffix ` (part)`.
 /// # Dependencies
-/// - `./board_mesh.rs`
+/// - crates/io/src/board_mesh.rs
 /// # Do not
 /// - Do not change the key layout under [`SOLIDCRAFT_METADATA_KEY`] without bumping
 ///   [`SOLIDCRAFT_SCHEMA`].
