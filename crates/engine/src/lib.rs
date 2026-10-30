@@ -8331,17 +8331,12 @@ fn run_command(
             }
             let variant = a.variant.as_deref();
             let csv = match mode {
-                "grouped" => {
-                    pcbcraft_io::parts_table_csv(p, &a.fields, variant, true).map_err(|e| {
-                        Error::Invalid(e)
-                    })?
-                }
-                "layout" => pcbcraft_io::parts_table_csv_layout(p, variant).map_err(|e| {
-                    Error::Invalid(e)
-                })?,
-                _ => pcbcraft_io::parts_table_csv(p, &a.fields, variant, false).map_err(|e| {
-                    Error::Invalid(e)
-                })?,
+                "grouped" => pcbcraft_io::parts_table_csv(p, &a.fields, variant, true)
+                    .map_err(|e| Error::Invalid(e))?,
+                "layout" => pcbcraft_io::parts_table_csv_layout(p, variant)
+                    .map_err(|e| Error::Invalid(e))?,
+                _ => pcbcraft_io::parts_table_csv(p, &a.fields, variant, false)
+                    .map_err(|e| Error::Invalid(e))?,
             };
             Ok(json!({"csv": csv, "mode": mode}))
         }
@@ -25713,14 +25708,11 @@ mod tests {
             .iter()
             .map(|id| json!({"id": id, "field": {"key": "MPN", "value": "RC0603"}}))
             .collect();
-        let out = s.execute("components.update", json!({"updates": updates}), None)?["result"]
-            .clone();
+        let out =
+            s.execute("components.update", json!({"updates": updates}), None)?["result"].clone();
         assert_eq!(out["changed"], 3);
         for id in &ids {
-            assert_eq!(
-                s.project.component(*id)?.field("MPN"),
-                Some("RC0603")
-            );
+            assert_eq!(s.project.component(*id)?.field("MPN"), Some("RC0603"));
         }
         assert_eq!(s.inspect()["history"]["undo"], 1);
         s.undo()?;
@@ -25779,8 +25771,8 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn components_table_export_writes_one_row_per_component_and_skips_variant_dnp(
-    ) -> Result<(), Error> {
+    fn components_table_export_writes_one_row_per_component_and_skips_variant_dnp()
+    -> Result<(), Error> {
         let mut s = Session::default();
         for (reference, value) in [("R2", "10k"), ("R1", "1k")] {
             s.execute(
@@ -25806,11 +25798,7 @@ mod tests {
             json!({"id":r3,"key":"MPN","value":"RC0603"}),
             None,
         )?;
-        s.execute(
-            "variant.create",
-            json!({"name":"Slim","dnp":[r3]}),
-            None,
-        )?;
+        s.execute("variant.create", json!({"name":"Slim","dnp":[r3]}), None)?;
         let plain = s.execute("components.table.export", json!({}), None)?["result"]["csv"]
             .as_str()
             .ok_or_else(missing)?;
@@ -25824,11 +25812,8 @@ mod tests {
         assert_eq!(lines[1], "R1,1k,starter pads,");
         assert_eq!(lines[2], "R2,10k,starter pads,");
         assert_eq!(lines[3], "R3,10k,starter pads,RC0603");
-        let slim = s.execute(
-            "components.table.export",
-            json!({"variant":"Slim"}),
-            None,
-        )?["result"]["csv"]
+        let slim = s.execute("components.table.export", json!({"variant":"Slim"}), None)?["result"]
+            ["csv"]
             .as_str()
             .ok_or_else(missing)?;
         assert_eq!(
