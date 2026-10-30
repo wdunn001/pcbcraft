@@ -37,9 +37,34 @@ mod plot_viewer;
 mod pour_panel;
 mod properties;
 mod reference_panel;
+mod library_online;
+mod library_quality;
+mod minimap;
+mod modifier_ui;
+mod motion;
+mod number_entry;
+mod pages;
+mod palette;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod rules_fab;
 mod route_drag;
 mod sheet_rows;
 mod showcase;
+mod sources;
+mod sourcing_panel;
+mod stack_view;
+mod sync_notice;
+#[cfg(test)]
+mod target_size;
+mod targets;
+pub mod theme;
+mod tool_modifiers;
+mod toolbar;
+pub mod ui_kit;
+mod via_covering;
 mod sources;
 mod sourcing_panel;
 mod stack_view;
@@ -5162,6 +5187,7 @@ impl App {
                         }
                     });
                 } else {
+                    self.class_fab_fields(ui, &class);
                     ui.label(
                         egui::RichText::new(t!(
                             "rules.rules_tab.gap_clearance_mm_wire_width",
@@ -5844,6 +5870,8 @@ impl App {
                 });
             }
         }
+        self.class_pair_section(ui);
+        self.fab_rules_section(ui);
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
