@@ -182,6 +182,23 @@ are not full ERC/DRC. Preview `export` supports PNG and SVG for schematic/PCB
 views; it does not write fabrication BMP rasters (those PNGs come from output
 jobs).
 
+## Cancellation
+
+The MCP spec lets a client send `notifications/cancelled` with a `requestId` so the
+server can stop work for that call. PCBCraft treats every JSON-RPC message without
+an `id` as a notification: `handle_rpc` returns no reply, including for
+`notifications/cancelled`. The server does not track in-flight request ids and does
+not stop a tool that is already running.
+
+On stdio, `serve` reads stdin one line at a time and only handles the next message
+after the current `tools/call` finishes. A cancel notification sent while a long
+export runs is not read until that call returns, so it cannot interrupt
+`output_job.package`, `step.write`, `odb.write`, `pdf.write`, or similar file
+writers. The loopback `--connect` bridge handles one request per TCP connection with
+the same limitation. Stopping mid-export would need a concurrent reader and
+cooperative checks inside the writers; that is out of scope for the current server.
+Fast tools do not need cancellation in practice.
+
 ## See also
 
 - [architecture.md](architecture.md) for the mutation boundary and crate layers

@@ -19,7 +19,7 @@ requires the feature of a server that offers tools. Functions are in
 | notifications/initialized | supported | a message with no id gets no reply | yes | |
 | ordering before initialize | supported | `serve` answers -32002 to everything but `initialize` and `ping` until initialize succeeds | no | #637 |
 | ping | supported | `handle_rpc` returns `{}` | yes | |
-| cancellation (notifications/cancelled) | absent | ignored as an unknown notification; long file-writing tools cannot be cancelled | no | #639 |
+| cancellation (notifications/cancelled) | absent | no reply; in-flight tools are not stopped (see [mcp.md](mcp.md) "Cancellation") | no | #479 |
 | tools/list | supported | `tool_list`, one page | yes | |
 | pagination (cursor, nextCursor) | not needed | `tools/list`, `resources/list` and `prompts/list` return every item in one response | no | |
 | tool `title` | supported | `title_for`, applied in `tool_list` | no | #636 |
@@ -45,7 +45,7 @@ requires the feature of a server that offers tools. Functions are in
 - Tool title and annotations: #636.
 - Lifecycle gate before initialize: #637.
 - Protocol conformance tests: #638 (part of #509).
-- Cancellation of long file-writing tools: #639, optional.
+- Cancellation of long file-writing tools: #479, optional (documented limitation).
 - `outputSchema` for `inspect_design` and `checks`: #640, optional.
 - Streamable HTTP: #641. Resources: #643. Prompts: #644. Parent of these three: #614.
 - Skipped on purpose: logging, completion, sampling, roots, elicitation, tasks, icons,
