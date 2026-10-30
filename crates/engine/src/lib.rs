@@ -355,6 +355,22 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "component.set_compliance",
+            "Set typed compliance on a placed part: country of origin, product role, declarations and substances",
+            schema(
+                json!({"id":id_schema(),"compliance":{"type":"object"}}),
+                &["id", "compliance"],
+            ),
+        ),
+        (
+            "manufacturer.set",
+            "Add or replace one row in the project manufacturer table, including aliases and country",
+            schema(
+                json!({"name":{"type":"string","maxLength":128},"aliases":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":128}},"country":{"type":"string","maxLength":2},"parent":{"type":["string","null"],"maxLength":128},"supplier_responsibility_on_file":{"type":"boolean"}}),
+                &["name"],
+            ),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -5061,7 +5077,7 @@ pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
             };
         let values: Vec<String> = keys
             .iter()
-            .map(|key| c.field(key).unwrap_or("").to_string())
+            .map(|key| c.bom_value(key))
             .collect();
         let apart = if a.group {
             String::new()
@@ -5157,6 +5173,24 @@ struct FieldParams {
     key: String,
     #[serde(default)]
     value: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetComplianceParams {
+    id: Id,
+    compliance: pcbcraft_doc::Compliance,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManufacturerSetParams {
+    name: String,
+    #[serde(default)]
+    aliases: Vec<String>,
+    #[serde(default)]
+    country: String,
+    parent: Option<String>,
+    #[serde(default)]
+    supplier_responsibility_on_file: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8161,6 +8195,29 @@ fn run_command(
                 .ok_or_else(missing)?;
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
+        }
+        "component.set_compliance" => {
+            let a: SetComplianceParams = parse(params)?;
+            a.compliance.validate().map_err(Error::Invalid)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            component.compliance = a.compliance;
+            Ok(json!({"id": a.id}))
+        }
+        "manufacturer.set" => {
+            let a: ManufacturerSetParams = parse(params)?;
+            let record = pcbcraft_doc::ManufacturerRecord {
+                name: a.name,
+                aliases: a.aliases,
+                country: a.country,
+                parent: a.parent.filter(|p| !p.trim().is_empty()),
+                supplier_responsibility_on_file: a.supplier_responsibility_on_file,
+            };
+            let replaced = p.upsert_manufacturer(record).map_err(Error::Invalid)?;
+            Ok(json!({"replaced": replaced, "count": p.manufacturers.len()}))
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
@@ -25416,6 +25473,65 @@ mod tests {
         assert!(s.project.validate().is_ok());
         Ok(())
     }
+    #[test]
+    fn compliance_is_set_in_one_undo_step_and_bounds_refuse_change() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let compliance = json!({
+            "country_of_origin":{"code":"US","basis":"manufactured","as_of":"2026-03-01"},
+            "role":"flight_controller",
+            "declarations":[{
+                "regime":"rohs",
+                "status":"declared_compliant",
+                "detail":"",
+                "source":{"kind":"user","label":"bench"},
+                "as_of":"2026-03-01"
+            }]
+        });
+        s.execute(
+            "component.set_compliance",
+            json!({"id":r1,"compliance":compliance}),
+            None,
+        )?;
+        let c = s.project.component(r1).ok_or_else(missing)?;
+        assert_eq!(
+            c.compliance.country_of_origin.as_ref().map(|o| o.code.as_str()),
+            Some("US")
+        );
+        assert_eq!(c.compliance.role, Some(pcbcraft_doc::PartRole::FlightController));
+        s.execute(
+            "manufacturer.set",
+            json!({"name":"Example Components","aliases":["ExComp"],"country":"US","supplier_responsibility_on_file":true}),
+            None,
+        )?;
+        assert!(s
+            .project
+            .resolve_manufacturer("excomp")
+            .is_some());
+        let before = s.inspect();
+        let big = "x".repeat(pcbcraft_doc::MAX_COMPLIANCE_TEXT + 1);
+        assert!(
+            s.execute(
+                "component.set_compliance",
+                json!({"id":r1,"compliance":{"declarations":[{"regime":big,"status":"unknown","source":{"kind":"user","label":"x"}}]}}),
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(s.inspect(), before);
+        s.undo()?;
+        assert!(s.project.manufacturers.is_empty());
+        s.undo()?;
+        assert!(s.project.component(r1).ok_or_else(missing)?.compliance.is_empty());
+        Ok(())
+    }
+
     #[test]
     fn component_fields_are_set_replaced_cleared_and_copied() -> Result<(), Error> {
         let mut s = Session::default();

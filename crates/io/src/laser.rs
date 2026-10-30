@@ -859,6 +859,8 @@ pub mod tests {
             fields: vec![],
             sheet: 0,
         }
+    sourcing: Default::default(),
+    compliance: Default::default(),
     }
 
     pub fn laser_job_two_pad_one_track_project() -> Project {

@@ -552,7 +552,11 @@ mod tests {
                 },
             }),
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(Footprint {
             id: id + 100,
