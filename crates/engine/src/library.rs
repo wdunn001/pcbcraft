@@ -10,7 +10,8 @@ use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use serde_json::{Value, json};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::thread::ThreadId;
 
 const MAX_LIBRARY_BYTES: u64 = 32 * 1024 * 1024;
 fn regular_metadata(path: &Path) -> Result<std::fs::Metadata, String> {
@@ -128,15 +129,70 @@ pub struct LibrarySource {
 }
 const MAX_LIBRARY_SOURCES: usize = 64;
 pub static SOURCES_PATH_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
+static SOURCES_TEST_HOLDER: Mutex<Option<ThreadId>> = Mutex::new(None);
+static LIBRARY_READ_TOOL_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 /// Held by any test that redirects the sources file, so two never
 /// race over the shared slot.
-pub static SOURCES_TEST_LOCK: Mutex<()> = Mutex::new(());
-fn sources_path() -> Result<PathBuf, String> {
-    if let Some(path) = SOURCES_PATH_TEST
+pub struct SourcesTestLock {
+    inner: Mutex<()>,
+}
+
+impl SourcesTestLock {
+    /// Same contract as [`std::sync::Mutex::lock`], and records which thread
+    /// holds the redirect so other parallel tests keep using real config paths.
+    pub fn lock(&self) -> Result<SourcesTestGuard<'_>, String> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| "source test lock unavailable")?;
+        if let Ok(mut holder) = SOURCES_TEST_HOLDER.lock() {
+            *holder = Some(std::thread::current().id());
+        }
+        Ok(SourcesTestGuard { inner })
+    }
+}
+
+pub struct SourcesTestGuard<'a> {
+    inner: MutexGuard<'a, ()>,
+}
+
+impl Drop for SourcesTestGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut holder) = SOURCES_TEST_HOLDER.lock() {
+            *holder = None;
+        }
+    }
+}
+
+pub static SOURCES_TEST_LOCK: SourcesTestLock = SourcesTestLock {
+    inner: Mutex::new(()),
+};
+
+fn library_worker_thread() -> bool {
+    std::thread::current()
+        .name()
+        .is_some_and(|name| name == "pcbcraft-library")
+}
+
+fn test_sources_path_override() -> Option<PathBuf> {
+    let path = SOURCES_PATH_TEST
         .lock()
         .ok()
-        .and_then(|locked| locked.as_ref().cloned())
-    {
+        .and_then(|slot| slot.as_ref().cloned())?;
+    let holder = SOURCES_TEST_HOLDER
+        .lock()
+        .ok()
+        .and_then(|guard| *guard)?;
+    let here = std::thread::current().id();
+    if here == holder || library_worker_thread() {
+        return Some(path);
+    }
+    None
+}
+
+fn sources_path() -> Result<PathBuf, String> {
+    if let Some(path) = test_sources_path_override() {
         return Ok(path);
     }
     let directory = |key: &str| {
@@ -799,6 +855,8 @@ pub fn list_over(
     Ok(out)
 }
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
+    let library_tool = name.starts_with("library.");
+    let _library_turn = library_tool.then(|| LIBRARY_READ_TOOL_LOCK.lock());
     let text = |key: &str| {
         args.get(key)
             .and_then(Value::as_str)
@@ -1097,6 +1155,53 @@ mod tests {
                 .is_err_and(|error| error.contains("path")),
             "a missing path is refused"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn parallel_source_redirects_stay_on_their_own_config_files() -> Result<(), String> {
+        use std::sync::{Arc, Barrier};
+        let ready = Arc::new(Barrier::new(8));
+        let mut handles = Vec::with_capacity(8);
+        for slot in 0..8 {
+            let ready = Arc::clone(&ready);
+            handles.push(std::thread::spawn(move || -> Result<(), String> {
+                ready.wait();
+                let _guard = SOURCES_TEST_LOCK
+                    .lock()
+                    .map_err(|_| "test lock unavailable")?;
+                let root = TestDirectory::new()?;
+                let vendor = root.0.join(format!("vendor-{slot}"));
+                std::fs::create_dir_all(vendor.join("footprints")).map_err(|e| e.to_string())?;
+                std::fs::write(
+                    vendor.join("Parts.kicad_sym"),
+                    "(kicad_symbol_lib (version 20250114))",
+                )
+                .map_err(|e| e.to_string())?;
+                let config = root.0.join(format!("sources-{slot}.json"));
+                SOURCES_PATH_TEST
+                    .lock()
+                    .map_err(|_| "test lock unavailable")?
+                    .replace(config.clone());
+                add_folder(vendor.to_str().ok_or("folder path is not text")?, None)?;
+                let saved =
+                    std::fs::read_to_string(&config).map_err(|e| format!("config read: {e}"))?;
+                assert!(
+                    saved.contains(&vendor.to_string_lossy().into_owned()),
+                    "slot {slot} wrote its own config"
+                );
+                SOURCES_PATH_TEST
+                    .lock()
+                    .map_err(|_| "test lock unavailable")?
+                    .take();
+                Ok(())
+            }));
+        }
+        for handle in handles {
+            handle
+                .join()
+                .map_err(|_| "parallel redirect thread panicked")??;
+        }
         Ok(())
     }
 
