@@ -294,6 +294,8 @@ pub(crate) fn invoke_session(
         "library.sources",
         "library.add_folder",
         "library.remove_folder",
+        "library.set_source_role",
+        "library.read_part_sidecar",
     ]
     .contains(&name)
     {

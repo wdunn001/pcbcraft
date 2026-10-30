@@ -101,6 +101,7 @@ const SESSION_ACTIONS: &[&str] = &[
     "sample_design",
     "library.add_folder",
     "library.remove_folder",
+    "library.set_source_role",
     "library.save",
 ];
 /// Parameter names that always hold a file or folder.

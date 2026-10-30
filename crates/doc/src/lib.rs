@@ -3324,6 +3324,10 @@ pub struct ProjectLibrary {
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
+    /// Parameters, alternates and provenance for project-library parts that
+    /// do not fit in the symbol or footprint files.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<pcbcraft_library::PartSidecar>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3345,6 +3349,16 @@ impl ProjectLibrary {
             f.validate().map_err(|e| e.to_string())?;
             if !names.insert(&f.name) {
                 return Err("duplicate library footprint name".into());
+            }
+        }
+        if self.parts.len() > 256 {
+            return Err("project library supports at most 256 part records".into());
+        }
+        names.clear();
+        for part in &self.parts {
+            part.validate()?;
+            if !names.insert(&part.symbol) {
+                return Err("duplicate library part symbol name".into());
             }
         }
         Ok(())

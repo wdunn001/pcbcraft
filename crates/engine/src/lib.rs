@@ -6,6 +6,7 @@ mod images;
 pub mod library;
 mod online;
 mod outline;
+mod part_save;
 pub mod profiles;
 pub mod recents;
 pub use dry_run::{ChangeSummary, DryRun};
@@ -2313,6 +2314,7 @@ pub fn commands() -> Vec<CommandSpec> {
         })
         .chain(snapmaker::commands())
         .chain(authoring::commands())
+        .chain(part_save::commands())
         .chain(online::commands())
         .chain(images::commands())
         .chain(outline::commands())
@@ -7231,6 +7233,9 @@ fn run_command(
 ) -> Result<Value, Error> {
     if command == "cam.isolation" || snapmaker::handles(command) {
         return run_read_only(p, command, params);
+    }
+    if let Some(result) = part_save::run(p, command, params) {
+        return result;
     }
     if let Some(result) = authoring::run(p, next, command, params) {
         return result;
