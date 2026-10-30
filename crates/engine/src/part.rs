@@ -85,6 +85,25 @@ pub(super) fn commands() -> Vec<CommandSpec> {
                 &["id", "url"],
             ),
         ),
+        (
+            "part.set_distributor_credential",
+            "Store a distributor API token in the native keychain (not in the project file; native builds only)",
+            schema(
+                json!({
+                    "distributor":{"type":"string","maxLength":48},
+                    "secret":{"type":"string","maxLength":4096}
+                }),
+                &["distributor", "secret"],
+            ),
+        ),
+        (
+            "part.clear_distributor_credential",
+            "Remove a stored distributor API token from the native keychain (native builds only)",
+            schema(
+                json!({"distributor":{"type":"string","maxLength":48}}),
+                &["distributor"],
+            ),
+        ),
     ]
     .into_iter()
     .map(|(id, description, input_schema)| CommandSpec {
@@ -157,6 +176,19 @@ struct FetchDatasheetParams {
     distributor: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DistributorCredentialParams {
+    distributor: String,
+    secret: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DistributorOnlyParams {
+    distributor: String,
+}
+
 pub(super) fn run(
     p: &mut Project,
     next: &mut Id,
@@ -176,6 +208,8 @@ pub(super) fn run(
         "part.import" => part_import(p, next, params),
         "part.import_user_file" => part_import_user(p, next, params),
         "part.fetch_datasheet" => part_fetch_datasheet(p, params),
+        "part.set_distributor_credential" => part_set_distributor_credential(params),
+        "part.clear_distributor_credential" => part_clear_distributor_credential(params),
         _ => Err(Error::Invalid("unknown part command".into())),
     })())
 }
@@ -434,6 +468,43 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
         ds.retrieved_at = hash.retrieved_at;
         ds.checked_at = hash.retrieved_at;
         Ok(json!({"sha256": hash.sha256, "path": hash.path}))
+    }
+}
+
+fn part_set_distributor_credential(params: &Value) -> Result<Value, Error> {
+    let a: DistributorCredentialParams = parse(params)?;
+    bounded("distributor", &a.distributor, 48)?;
+    bounded("secret", &a.secret, 4096)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = a;
+        return Err(Error::Invalid(
+            "distributor credentials are not available on wasm builds".into(),
+        ));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pcbcraft_io::set_distributor_credential(&a.distributor, &a.secret)
+            .map_err(Error::Invalid)?;
+        Ok(json!({}))
+    }
+}
+
+fn part_clear_distributor_credential(params: &Value) -> Result<Value, Error> {
+    let a: DistributorOnlyParams = parse(params)?;
+    bounded("distributor", &a.distributor, 48)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = a;
+        return Err(Error::Invalid(
+            "distributor credentials are not available on wasm builds".into(),
+        ));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pcbcraft_io::clear_distributor_credential(&a.distributor)
+            .map_err(Error::Invalid)?;
+        Ok(json!({}))
     }
 }
 
