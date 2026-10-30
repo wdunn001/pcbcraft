@@ -2350,7 +2350,24 @@ impl LayerRecord {
             && self.name.len() <= 64
             && matches!(
                 self.kind.as_str(),
-                "copper" | "core" | "prepreg" | "soldermask" | "silkscreen" | "paste" | "custom"
+                "copper"
+                    | "core"
+                    | "prepreg"
+                    | "soldermask"
+                    | "silkscreen"
+                    | "paste"
+                    | "custom"
+                    | "adhesive"
+                    | "coverlay"
+                    | "stiffener"
+                    | "peelable_mask"
+                    | "carbon_ink"
+                    | "gold_mask"
+                    | "plating"
+                    | "finish"
+                    | "heatsink_mask"
+                    | "silver_mask"
+                    | "tin_mask"
             )
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)

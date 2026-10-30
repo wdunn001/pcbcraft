@@ -393,7 +393,7 @@ impl GerberLayer {
         }
         out.push_str(&self.body);
         out.push_str("M02*\n");
-        out
+        crate::gerber_fidelity::attach_gerber_md5(out)
     }
 }
 
