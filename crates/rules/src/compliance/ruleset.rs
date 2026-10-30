@@ -42,11 +42,9 @@ pub struct ComplianceRuleSpec {
     #[serde(default)]
     pub role: String,
     #[serde(default)]
-    pub roles: Vec<String>,
-    #[serde(default)]
     pub status: String,
     #[serde(default)]
-    pub entry_type: String,
+    pub finish_leaded: Vec<String>,
 }
 
 fn default_warning() -> String {
@@ -60,14 +58,6 @@ pub fn load_rule_set(toml_text: &str) -> Result<ComplianceRuleSet, String> {
     }
     if set.id.is_empty() {
         return Err("ruleset id is required".into());
-    }
-    for rule in &set.rules {
-        if rule.id.is_empty() {
-            return Err("each rule needs an id".into());
-        }
-        if rule.citation.is_empty() {
-            return Err(format!("rule {} needs a citation", rule.id));
-        }
     }
     Ok(set)
 }
