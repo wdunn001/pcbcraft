@@ -1647,7 +1647,7 @@ impl App {
         let shown = |name: &str| self.layer_shown(name);
         let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-let mut sheet_frame = sheet::sheet_for(p, page);
+        let mut sheet_frame = sheet::sheet_for(p, page);
         // The title block names the page being drawn, not always the first.
         sheet_frame.page = 1 + p
             .sheets
@@ -1708,7 +1708,7 @@ let mut sheet_frame = sheet::sheet_for(p, page);
                 sc.wire,
             );
         }
-if row_shown("power") {
+        if row_shown("power") {
             sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
         }
         for w in p
