@@ -100,14 +100,52 @@ since the previous tag.
 
 The nightly and release workflows share `build-dist.yml`, so a nightly run
 proves the release packaging works. Packaging logic is in
-`.github/scripts/package.sh`.
+`.github/scripts/package.sh`. Tagged releases pass `sign: true` into
+`build-dist.yml`; nightly and pull request builds leave signing off.
+
+### Signing (Windows and macOS)
+
+Release builds sign when repository secrets are present. Nightly runs and fork
+pull requests stay unsigned even if `sign` were enabled, because secrets are not
+exposed to untrusted workflows.
+
+| Secret | Purpose |
+| --- | --- |
+| `WINDOWS_CERTIFICATE` | Base64-encoded code signing PFX |
+| `WINDOWS_CERTIFICATE_PASSWORD` | PFX password |
+| `APPLE_CERTIFICATE` | Base64-encoded Developer ID Application PKCS#12 |
+| `APPLE_CERTIFICATE_PASSWORD` | PKCS#12 password |
+| `APPLE_CODESIGN_IDENTITY` | Optional full codesign identity string; otherwise the first Developer ID Application identity in the import keychain |
+| `APPLE_ID` | Apple ID for notarization (app-specific password flow) |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
+| `APPLE_TEAM_ID` | Team id for notarization |
+| `APPLE_NOTARY_KEY` | Base64-encoded App Store Connect API key (`.p8`) |
+| `APPLE_NOTARY_KEY_ID` | Key id when using the API key |
+| `APPLE_NOTARY_ISSUER_ID` | Issuer id when using the API key |
+
+Windows: `.github/scripts/sign-windows.ps1` signs `pcbcraft.exe` and
+`pcbcraft-cli.exe` before they are zipped, then runs `signtool verify /pa` in
+CI.
+
+macOS: `.github/scripts/sign-macos.sh` signs the CLI binary and app bundle with
+the hardened runtime, builds the dmg, signs the dmg, submits it to Apple, waits,
+and staples the ticket. Tarball binaries are signed but cannot be stapled; trust
+the dmg for Gatekeeper on first download.
+
+Local reproduction needs the same certificates and notarization credentials as
+CI. Without them, use unsigned nightly artifacts or build from source.
+
+Manual verification on clean machines:
+
+- Windows: `signtool verify /pa pcbcraft.exe`
+- macOS: `codesign --verify --deep --strict PCBCraft.app`, `xcrun stapler validate` on the dmg, `spctl --assess --type open` on the dmg
 
 ## Security posture
 
 - Every action is pinned to a commit SHA with the version in a comment. Dependabot opens weekly updates for actions and Cargo (egui, eframe and craft-ui are excluded and bumped by hand).
 - The workflow default is `permissions: {}`; each job asks for `contents: read`. Only the release draft job has `contents: write`.
 - Checkouts do not persist credentials. Untrusted values (tag names, inputs) reach shell steps through `env`, never inline.
-- No secrets are used.
+- Release signing reads repository secrets only in `release.yml` via `build-dist.yml`; values are passed through step `env`, never interpolated in `run:` scripts, and signing scripts keep `set +x`.
 
 ## Limits
 
@@ -125,7 +163,6 @@ The logo masters and every platform icon live in `assets/brand/`. Run `assets/br
 
 ## Open decisions for the maintainers
 
-- Code signing and notarization: Windows Authenticode and Apple Developer ID need paid certificates stored as repository secrets. Binaries are unsigned until then, and macOS users must open the app via right-click.
 - Package formats: AppImage, .deb, .msi or Flatpak are not produced yet.
 - Where the web bundle is hosted (Pages or another host) and whether tags publish it.
 - Marking `CI result` as a required check in branch protection.

@@ -63,9 +63,15 @@ case "$platform" in
 </dict>
 </plist>
 PLIST
+    if [[ "${PCBCRAFT_SIGN:-}" == 1 ]]; then
+      bash .github/scripts/sign-macos.sh prepare "$stage" "$app" "$bin/pcbcraft-cli"
+    fi
     rm "$bin/pcbcraft"
     tar -C "$(dirname "$stage")" -czf "$out/$name.tar.gz" "$name"
     hdiutil create -quiet -volname "PCBCraft $version" -srcfolder "$stage" -ov -format UDZO "$out/$name.dmg"
+    if [[ "${PCBCRAFT_SIGN:-}" == 1 ]]; then
+      bash .github/scripts/sign-macos.sh finish "$out/$name.dmg"
+    fi
     ;;
   *)
     echo "unknown platform $platform" >&2
