@@ -14,6 +14,7 @@ mod builds;
 mod checks;
 mod compare;
 mod context_menus;
+mod datasheet;
 mod editing;
 mod images;
 mod keymap;

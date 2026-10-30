@@ -11,6 +11,7 @@ mod browser;
 mod canvas;
 mod contrast;
 mod datums;
+mod datasheet;
 mod draw_target;
 mod editing;
 pub mod fonts;
@@ -1167,6 +1168,7 @@ pub struct App {
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    datasheet_pane: datasheet::Pane,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
 }
@@ -1668,6 +1670,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            datasheet_pane: datasheet::Pane::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
@@ -7109,6 +7112,7 @@ impl App {
         if self.compare_open {
             self.compare_window(&ctx);
         }
+        self.datasheet_pane.ui(&ctx);
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);

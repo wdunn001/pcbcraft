@@ -1973,6 +1973,23 @@ library.dock.place_board = Place on board
 library.dock.place_board.tip = Put this part's footprint on the board at the middle of the view, and add the part to the schematic, not yet wired.
 library.dock.datasheet = Open datasheet
 library.dock.datasheet.tip = Open this part's datasheet in your browser.
+
+# In-app datasheet reader pane (datasheet/pane.rs).
+datasheet.pane.title = Datasheet
+datasheet.pane.page = Page {page} of {pages}
+datasheet.pane.prev_page.tip = Show the previous page
+datasheet.pane.next_page.tip = Show the next page
+datasheet.pane.search = Search in document
+datasheet.pane.search.tip = Find text on every page and highlight each match
+datasheet.pane.find = Find
+datasheet.pane.matches = {count} matches
+datasheet.pane.no_matches = No matches
+datasheet.pane.prev = Previous match
+datasheet.pane.prev.tip = Jump to the previous search match
+datasheet.pane.next = Next match
+datasheet.pane.next.tip = Jump to the next search match
+datasheet.pane.no_text = This page has no text to select or search.
+datasheet.pane.page_area = Datasheet page
 library.dock.show_source = Show source and licence
 library.dock.show_source.tip = Say where this part comes from and under what licence.
 library.dock.source_line = {name} comes from {source}. {licence}

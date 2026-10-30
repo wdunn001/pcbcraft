@@ -342,7 +342,9 @@ impl App {
                     .clicked()
                         && let Some(url) = sheet.clone()
                     {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        if !self.datasheet_pane.open_file_url(&url, ui.ctx()) {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
                     }
                 });
             },

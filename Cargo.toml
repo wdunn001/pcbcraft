@@ -18,6 +18,8 @@ pcbcraft-mcp = { path = "crates/mcp" }
 pcbcraft-assistant = { path = "crates/assistant" }
 pcbcraft-ui-egui = { path = "crates/ui-egui" }
 pcbcraft-library = { path = "crates/library" }
+pcbcraft-datasheet = { path = "crates/datasheet" }
+hayro = "0.8"
 pcbcraft-text = { path = "crates/text" }
 pcbcraft-sim = { path = "crates/sim" }
 serde = { version = "1", features = ["derive"] }
