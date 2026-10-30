@@ -13,6 +13,13 @@ pub(crate) const RULER_SIZE: f32 = 22.0;
 mod sheet;
 mod underlay;
 
+/// A `#rrggbb` stroke colour, or None for empty or malformed text.
+pub(crate) fn hex_colour(text: &str) -> Option<Color32> {
+    let digits = text.strip_prefix('#').filter(|d| d.len() == 6)?;
+    let v = u32::from_str_radix(digits, 16).ok()?;
+    Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
+}
+
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
     p.on_schematic_page(page, object)
 }
@@ -1126,6 +1133,13 @@ impl App {
     pub(super) fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.pick_object_any(pos, zoom)
             .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
+            .filter(|id| !self.sheet_row_hidden(*id))
+    }
+    /// True when the sheet row an object belongs to is switched off with the eye,
+    /// so the canvas draws nothing there to pick.
+    pub(super) fn sheet_row_hidden(&self, id: Id) -> bool {
+        crate::layers_tree::sheet_row_of(&self.project, id)
+            .is_some_and(|(page, row)| !self.page_row_shown(page, row))
     }
     fn pick_object_any(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
@@ -1297,10 +1311,14 @@ impl App {
         None
     }
     /// The wire whose path passes nearest the click, within a fingertip's
-    /// width; curved wires are checked along their bow too.
+    /// width; curved wires are checked along their bow too. Wires on a locked
+    /// Layers tree row are skipped.
     fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
         let mut best: Option<(f64, Id)> = None;
         for track in &self.project.board.tracks {
+            if !self.id_allowed(track.id) {
+                continue;
+            }
             let mut reach = segment_distance(pos, track.start, track.end);
             if let Some(mid) = track.arc {
                 reach = reach
@@ -1318,6 +1336,7 @@ impl App {
             .board
             .vias
             .iter()
+            .filter(|v| self.id_allowed(v.id))
             .filter(|v| {
                 pos.distance(v.position) * (zoom as f64)
                     < (v.diameter as f32 * zoom / 2.0 + 6.0) as f64
@@ -1594,8 +1613,10 @@ impl App {
     ) {
         let page = self.schematic_page();
         let shown = |name: &str| self.layer_shown(name);
+        let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-        let sheet_frame = sheet::sheet_for(p);
+        let mut sheet_frame = sheet::sheet_for(p, page);
+        sheet_frame.title_shown &= row_shown("title");
         sheet::paint_sheet(
             painter,
             rect,
@@ -1649,7 +1670,9 @@ impl App {
                 sc.wire,
             );
         }
-        sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+        if row_shown("power") {
+            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+        }
         for w in p
             .drawn_wires
             .iter()
@@ -1668,15 +1691,16 @@ impl App {
             .graphics
             .iter()
             .filter(|g| g.layer == "schematic" && on_page(p, page, g.id))
-            .filter(|_| shown("Graphics"))
+            .filter(|_| shown("Graphics") && row_shown("drawing"))
         {
+            let ink = hex_colour(&g.color).unwrap_or(sc.body);
             if let Some(outline) = g.outline() {
                 painter.add(egui::Shape::line(
                     outline
                         .iter()
                         .map(|point| camera.screen(*point, rect))
                         .collect(),
-                    Stroke::new(1.6, sc.body),
+                    Stroke::new((g.width as f32 * camera.zoom).clamp(1.6, 12.0), ink),
                 ));
             } else if let Some(anchor) = g.points.first() {
                 painter.text(
@@ -1692,12 +1716,27 @@ impl App {
             .labels
             .iter()
             .filter(|l| on_page(p, page, l.id))
-            .filter(|_| shown("Net labels"))
+            .filter(|l| {
+                if l.kind == "power" {
+                    row_shown("power")
+                } else {
+                    shown("Net labels")
+                }
+            })
         {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
                 painter.circle_filled(at, 4.5, sc.wire);
-            } else if l.kind != "power" {
+            } else if l.kind == "power" {
+                painter.circle_filled(at, 3.0, sc.wire);
+                painter.text(
+                    at + egui::vec2(6.0, 0.0),
+                    Align2::LEFT_CENTER,
+                    p.net_name(l.net),
+                    crate::fonts::Role::Mono.font(),
+                    sc.wire,
+                );
+            } else {
                 let text = match l.kind.as_str() {
                     "global" => format!("{{{}}}", p.net_name(l.net)),
                     "hierarchical" => format!("/{}", p.net_name(l.net)),
@@ -1741,7 +1780,7 @@ impl App {
             .iter()
             .flat_map(|c| c.schematic_views())
             .filter(|c| c.sheet == page)
-            .filter(|_| shown("Symbols"))
+            .filter(|_| shown("Symbols") && row_shown("symbols"))
         {
             self.symbol(
                 painter,
