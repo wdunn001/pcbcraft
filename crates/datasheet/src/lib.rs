@@ -29,13 +29,7 @@ pub fn ingest_pdf(
 ) -> Result<(record::CacheRecord, Vec<u8>), String> {
     gate::validate_pdf_bytes(&bytes)?;
     let sha256 = gate::sha256_hex(&bytes);
-    let record = record::CacheRecord::new(
-        sha256,
-        source_url,
-        etag,
-        bytes.len() as u64,
-        now,
-    );
+    let record = record::CacheRecord::new(sha256, source_url, etag, bytes.len() as u64, now);
     Ok((record, bytes))
 }
 

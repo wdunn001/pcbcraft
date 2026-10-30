@@ -59,7 +59,12 @@ mod tests {
             Some("https://example.com/a.pdf")
         );
         assert!(http_url(Some("HTTP://example.com/a")).is_some());
-        for bad in ["", "file:///tmp/x.pdf", "javascript:alert(1)", "https://a b"] {
+        for bad in [
+            "",
+            "file:///tmp/x.pdf",
+            "javascript:alert(1)",
+            "https://a b",
+        ] {
             assert!(http_url(Some(bad)).is_none(), "{bad} is refused");
         }
         assert!(http_url(None).is_none());
