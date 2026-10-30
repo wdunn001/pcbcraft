@@ -16,7 +16,6 @@ Known `value_source.field` keys:
 Phase 2 fields (reported as unsupported until mapped):
 
 - `length_group`
-- `companion`
 - `net_class.max_length`
 - `net_class.limits.max_routed_length`
 - `net_class.limits.max_stub`
