@@ -56,8 +56,7 @@ impl TariffExposureRow {
             return Err("a tariff row needs an HTS prefix".into());
         }
         iso_country(&self.origin)?;
-        if !self.rate_percent.is_finite() || self.rate_percent < 0.0 || self.rate_percent > 1000.0
-        {
+        if !self.rate_percent.is_finite() || self.rate_percent < 0.0 || self.rate_percent > 1000.0 {
             return Err("tariff rate must be a finite percent between 0 and 1000".into());
         }
         bounded(&self.effective_from, MAX_TARIFF_TEXT, "effective from date")?;

@@ -5,17 +5,12 @@ use std::collections::BTreeMap;
 
 use super::eccn::{control_rank, highest_eccn};
 use super::list_snapshot::EntityListSnapshot;
-use super::ruleset::{bundled_export_and_trade, ComplianceRuleSet};
+use super::ruleset::{ComplianceRuleSet, bundled_export_and_trade};
 
 pub const FIELD_ECCN: &[&str] = &["ECCN", "eccn", "Export Control Classification Number"];
 pub const FIELD_HTS: &[&str] = &["HTS", "hts", "HTS Code", "Harmonized Tariff"];
 pub const FIELD_MANUFACTURER: &[&str] = &["Manufacturer", "Mfg", "MFR"];
-pub const FIELD_ORIGIN: &[&str] = &[
-    "Country of Origin",
-    "COO",
-    "Origin",
-    "country_of_origin",
-];
+pub const FIELD_ORIGIN: &[&str] = &["Country of Origin", "COO", "Origin", "country_of_origin"];
 
 const PARTY_SCREENING_FIXTURE: &str =
     include_str!("../../data/compliance/lists/party_screening_fixture.toml");
@@ -74,11 +69,7 @@ fn field_any<'a>(component: &'a Component, keys: &[&str]) -> Option<&'a str> {
 }
 
 fn bom_lines(project: &Project) -> Vec<&Component> {
-    project
-        .components
-        .iter()
-        .filter(|c| c.in_bom())
-        .collect()
+    project.components.iter().filter(|c| c.in_bom()).collect()
 }
 
 fn load_screening_list(settings: &ExportTradeSettings) -> Result<EntityListSnapshot, String> {
