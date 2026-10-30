@@ -4507,8 +4507,6 @@ struct PanelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct DrawingFrameSetParams {
     #[serde(default)]
     enabled: Option<bool>,
