@@ -2555,6 +2555,14 @@ impl Session {
         for name in ["VCC", "LED", "GND"] {
             s.execute("net.create", json!({"name":name}), None)?;
         }
+        if let Some(j1) = s.project.components.iter_mut().find(|c| c.reference == "J1") {
+            if let Some(p) = j1.pins.first_mut() {
+                p.electrical_type = "power_out".into();
+            }
+            if let Some(p) = j1.pins.get_mut(1) {
+                p.electrical_type = "power_in".into();
+            }
+        }
         for (net, a, ap, b, bp) in [
             (4, 1, "1", 2, "1"),
             (5, 2, "2", 3, "1"),
@@ -24826,6 +24834,7 @@ mod tests {
             .to_string();
         assert!(scope.contains("courtyards that overlap"));
         assert!(scope.contains("drawn silk"));
+        assert!(scope.contains("companion-part intent"));
     }
     #[test]
     fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {

@@ -41,13 +41,10 @@ fn net_pattern_matches(name: &str, pattern: &str) -> bool {
     fn rec(name: &[u8], pat: &[u8]) -> bool {
         match pat.first() {
             None => name.is_empty(),
-            Some(b'?') => name
-                .first()
-                .is_some_and(|_| rec(&name[1..], &pat[1..])),
-            Some(b'*') => rec(name, &pat[1..])
-                || name
-                    .first()
-                    .is_some_and(|_| rec(&name[1..], pat)),
+            Some(b'?') => name.first().is_some_and(|_| rec(&name[1..], &pat[1..])),
+            Some(b'*') => {
+                rec(name, &pat[1..]) || name.first().is_some_and(|_| rec(&name[1..], pat))
+            }
             Some(ch) => name
                 .first()
                 .is_some_and(|n| n.eq_ignore_ascii_case(ch) && rec(&name[1..], &pat[1..])),
@@ -100,10 +97,7 @@ fn schematic_net_graph(project: &Project) -> SchematicGraph {
     SchematicGraph { bridges, adjacency }
 }
 
-fn bfs_from_anchor(
-    graph: &SchematicGraph,
-    start: Id,
-) -> BTreeMap<Id, (usize, Option<Id>)> {
+fn bfs_from_anchor(graph: &SchematicGraph, start: Id) -> BTreeMap<Id, (usize, Option<Id>)> {
     let mut seen = BTreeMap::new();
     let mut queue = VecDeque::new();
     seen.insert(start, (0usize, None));
@@ -140,11 +134,10 @@ fn is_ground_net(project: &Project, net: Id) -> bool {
     if matches!(upper.as_str(), "GND" | "VSS" | "AGND" | "DGND") {
         return true;
     }
-    project.labels.iter().any(|l| {
-        l.net == net
-            && l.kind == "power"
-            && l.text.to_ascii_uppercase().contains("GND")
-    })
+    project
+        .labels
+        .iter()
+        .any(|l| l.net == net && l.kind == "power" && l.text.to_ascii_uppercase().contains("GND"))
 }
 
 fn is_power_net(project: &Project, net: Id) -> bool {
@@ -160,7 +153,11 @@ fn is_power_net(project: &Project, net: Id) -> bool {
     {
         return true;
     }
-    if project.labels.iter().any(|l| l.net == net && l.kind == "power") {
+    if project
+        .labels
+        .iter()
+        .any(|l| l.net == net && l.kind == "power")
+    {
         return !is_ground_net(project, net);
     }
     project.components.iter().any(|c| {
@@ -174,16 +171,12 @@ fn is_power_net(project: &Project, net: Id) -> bool {
 
 fn net_matches_usb_data(name: &str) -> bool {
     let u = name.to_ascii_uppercase();
-    u.contains("USB") && (u.contains("DP") || u.contains("DM") || u.contains("D+") || u.contains("D-"))
+    u.contains("USB")
+        && (u.contains("DP") || u.contains("DM") || u.contains("D+") || u.contains("D-"))
         || net_pattern_matches(name, "USB_*")
 }
 
-fn finding(
-    project: &Project,
-    code: &'static str,
-    message: String,
-    objects: Vec<Id>,
-) -> Finding {
+fn finding(project: &Project, code: &'static str, message: String, objects: Vec<Id>) -> Finding {
     Finding {
         code,
         severity: project.rule_severity(code, "warning"),
@@ -225,8 +218,7 @@ fn builtin_usb_series(project: &Project, graph: &SchematicGraph) -> Vec<Finding>
             .iter()
             .filter(|c| c.pins.iter().any(|p| p.net == Some(net.id)))
             .collect();
-        let Some(connector) = on_net.iter().find(|c| kind_matches(&c.kind, "connector"))
-        else {
+        let Some(connector) = on_net.iter().find(|c| kind_matches(&c.kind, "connector")) else {
             continue;
         };
         let mcu_nets: BTreeSet<Id> = project
@@ -243,9 +235,9 @@ fn builtin_usb_series(project: &Project, graph: &SchematicGraph) -> Vec<Finding>
         if targets.is_empty() {
             continue;
         }
-        let ok = targets.iter().any(|target| {
-            path_has_resistor_in_range(project, graph, net.id, *target, 22.0, 33.0)
-        });
+        let ok = targets
+            .iter()
+            .any(|target| path_has_resistor_in_range(project, graph, net.id, *target, 22.0, 33.0));
         if !ok {
             out.push(finding(
                 project,
@@ -294,10 +286,7 @@ fn builtin_cc_pulldown(project: &Project, graph: &SchematicGraph) -> Vec<Finding
             out.push(finding(
                 project,
                 "missing_cc_pulldown",
-                format!(
-                    "Add a 5.0 to 5.6 kohm resistor from {} to ground",
-                    net.name
-                ),
+                format!("Add a 5.0 to 5.6 kohm resistor from {} to ground", net.name),
                 vec![net.id],
             ));
         }
@@ -309,8 +298,7 @@ fn open_drain_on_net(project: &Project, net: Id) -> bool {
     project.components.iter().any(|c| {
         c.pins.iter().any(|p| {
             p.net == Some(net)
-                && (p.electrical_type == "open_collector"
-                    || p.electrical_type == "open_emitter")
+                && (p.electrical_type == "open_collector" || p.electrical_type == "open_emitter")
         })
     })
 }
@@ -392,12 +380,9 @@ fn termination_on_can_pair(
         if pair != (net_h, net_l) && pair != (net_l, net_h) {
             return false;
         }
-        project
-            .component(br.component)
-            .is_some_and(|c| {
-                kind_matches(&c.kind, "resistor")
-                    && value_in_range(&c.value, &c.kind, 110.0, 130.0)
-            })
+        project.component(br.component).is_some_and(|c| {
+            kind_matches(&c.kind, "resistor") && value_in_range(&c.value, &c.kind, 110.0, 130.0)
+        })
     })
 }
 
@@ -477,9 +462,10 @@ fn protection_on_path_to_sink(
     let reached = bfs_from_anchor(graph, start);
     let sink = project.components.iter().any(|c| {
         sink_kinds.iter().any(|k| kind_matches(&c.kind, k))
-            && c.pins
-                .iter()
-                .any(|p| p.net.is_some_and(|n| reached.contains_key(&n) && n != start))
+            && c.pins.iter().any(|p| {
+                p.net
+                    .is_some_and(|n| reached.contains_key(&n) && n != start)
+            })
     });
     if !sink {
         return true;
@@ -574,9 +560,9 @@ fn builtin_power_fuse(project: &Project, graph: &SchematicGraph) -> Vec<Finding>
     for c in &project.components {
         let power_entry = kind_matches(&c.kind, "connector_power")
             || (kind_matches(&c.kind, "connector")
-                && c.pins.iter().any(|p| {
-                    p.electrical_type == "power_in" || p.electrical_type == "power_out"
-                }));
+                && c.pins
+                    .iter()
+                    .any(|p| p.electrical_type == "power_in" || p.electrical_type == "power_out"));
         if !power_entry {
             continue;
         }
@@ -664,8 +650,7 @@ fn builtin_power_driven(project: &Project) -> Vec<Finding> {
                 || kind_matches(&c.kind, "buck"))
                 && c.pins.iter().any(|p| {
                     p.net == Some(net.id)
-                        && (p.electrical_type == "power_out"
-                            || p.electrical_type == "power_in")
+                        && (p.electrical_type == "power_out" || p.electrical_type == "power_in")
                 })
         });
         if !driven {
@@ -680,6 +665,7 @@ fn builtin_power_driven(project: &Project) -> Vec<Finding> {
     out
 }
 
+/// Evaluate persisted companion rules against an already-built schematic graph.
 pub fn companion_findings_for_rules(
     project: &Project,
     rules: &[CompanionRule],
@@ -742,7 +728,10 @@ pub fn companion_findings_for_rules(
                 out.push(finding(
                     project,
                     code_static,
-                    format!("Companion rule {} not satisfied on net {}", rule.name, net.name),
+                    format!(
+                        "Companion rule {} not satisfied on net {}",
+                        rule.name, net.name
+                    ),
                     vec![net.id],
                 ));
             }
@@ -751,6 +740,7 @@ pub fn companion_findings_for_rules(
     out
 }
 
+/// Built-in interface companion checks plus any rules stored on the project.
 pub fn companion_findings(project: &Project) -> Vec<Finding> {
     let graph = schematic_net_graph(project);
     let mut out = Vec::new();
@@ -788,13 +778,7 @@ mod tests {
         }
     }
 
-    fn part(
-        id: Id,
-        reference: &str,
-        kind: &str,
-        value: &str,
-        pins: Vec<Pin>,
-    ) -> Component {
+    fn part(id: Id, reference: &str, kind: &str, value: &str, pins: Vec<Pin>) -> Component {
         Component {
             id,
             reference: reference.into(),
@@ -948,10 +932,7 @@ mod tests {
             "U1",
             "ic",
             "CAN",
-            vec![
-                pin("1", Some(1), "passive"),
-                pin("2", Some(2), "passive"),
-            ],
+            vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
         assert!(companion_findings(&p)
@@ -980,10 +961,7 @@ mod tests {
             "K1",
             "relay",
             "Relay",
-            vec![
-                pin("1", Some(1), "passive"),
-                pin("2", Some(2), "passive"),
-            ],
+            vec![pin("1", Some(1), "passive"), pin("2", Some(2), "passive")],
         ));
         p.validate()?;
         assert!(companion_findings(&p)
@@ -1135,10 +1113,7 @@ mod tests {
             vec![pin("1", Some(1), "open_emitter")],
         ));
         p.validate()?;
-        let codes: BTreeSet<_> = companion_findings(&p)
-            .iter()
-            .map(|f| f.code)
-            .collect();
+        let codes: BTreeSet<_> = companion_findings(&p).iter().map(|f| f.code).collect();
         assert!(codes.contains("missing_pullup"));
         Ok(())
     }
