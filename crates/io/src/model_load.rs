@@ -458,7 +458,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn solidcraft_cache_key_follows_content_hash() {
         let a = b"{\"format\":\"solidcraft/22\"}";
         let b = b"{\"format\":\"solidcraft/22\",\"x\":1}";

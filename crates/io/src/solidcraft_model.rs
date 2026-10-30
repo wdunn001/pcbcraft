@@ -500,7 +500,7 @@ mod tests {
         let design = two_body_part();
         let v1 = write_solidcraft_json(&design)?;
         let key1 = solidcraft_cache_token(v1.as_bytes(), None);
-        let mut model = pcbcraft_library::Model3D {
+        let model = pcbcraft_library::Model3D {
             path: "part.solidcraft".into(),
             offset: [2.0, 0.0, 0.0],
             scale: [1.0, 1.0, 1.0],
