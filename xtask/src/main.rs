@@ -12,6 +12,7 @@
 //! - xtask/src/doc_check.rs
 //! - xtask/src/test_standards.rs
 //! - xtask/src/tooltips.rs
+//! - xtask/src/status_data.rs
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
@@ -20,6 +21,8 @@ mod doc_check;
 mod e2e;
 mod showcase;
 mod test_standards;
+mod status_data;
+mod status_schema;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -46,6 +49,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
+  status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -560,6 +564,7 @@ fn run() -> Result<(), String> {
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,
         "showcase" => showcase::run(&root()?)?,
+        "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
         "bless-parity" => run_env(
             "cargo",

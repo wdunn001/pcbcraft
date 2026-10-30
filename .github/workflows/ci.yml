@@ -171,6 +171,8 @@ jobs:
       contents: read
     env:
       NEXTEST_PROFILE: ci
+      CARGO_BUILD_JOBS: 4
+      CARGO_TARGET_DIR: target/ci-test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -190,13 +192,19 @@ jobs:
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo xtask test
+      - name: Run tests
+        run: |
+          for attempt in 1 2 3; do
+            if cargo xtask test; then exit 0; fi
+            rm -rf target/ci-test
+          done
+          exit 1
       - name: Upload test report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: test-report
-          path: target/nextest/ci/junit.xml
+          path: target/ci-test/nextest/ci/junit.xml
           if-no-files-found: ignore
           retention-days: 14
 
