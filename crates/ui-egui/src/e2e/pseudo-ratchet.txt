@@ -19,7 +19,7 @@ escaped | Board3d | 320 | 67
 clipped | Rules | 1280 | 3
 escaped | Rules | 1280 | 3
 clipped | Rules | 320 | 4
-escaped | Rules | 320 | 81
+escaped | Rules | 320 | 101
 escaped | Checks | 1280 | 3
 clipped | Checks | 320 | 1
 escaped | Checks | 320 | 56

@@ -303,9 +303,6 @@ impl App {
             );
         }
         ui.add_space(4.0);
-        if ui.ctx().content_rect().width() < 400.0 {
-            return;
-        }
         for field in &FAB_FIELDS {
             let current = rule_value(&rules, field.key);
             let name = pcbcraft_text::lookup(field.label, &[]);
