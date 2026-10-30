@@ -277,7 +277,7 @@ fn replacement_check_requires_matching_pad_sets_per_pin() -> Result<(), String> 
 #[test]
 fn validate_part_names_pin_and_pad_in_findings() -> Result<(), String> {
     let (symbol, footprint) = qfn_symbol_and_footprint()?;
-    let map = auto_fill(&symbol, &footprint);
+    let map = map_with_ep_marked_thermal(&symbol, &footprint)?;
     let (hx, hy) = pcbcraft_library::courtyard_half_extents(&footprint).ok_or("courtyard")?;
     let pkg = pcbcraft_library::listing::package_key("QFN-32 5x5");
     let fields = PartCatalogFields {
