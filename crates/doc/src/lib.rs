@@ -39,6 +39,8 @@ pub const MAX_OBJECTS: usize = 16384;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
+mod compliance;
+pub use compliance::*;
 mod net_members;
 mod sourcing;
 mod via_protection;
@@ -344,6 +346,8 @@ pub struct Component {
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compliance: Option<ComponentCompliance>,
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -3937,6 +3941,9 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Regulatory compliance rule sets, target markets and manufacturer table.
+    #[serde(default, skip_serializing_if = "ComplianceSettings::is_empty")]
+    pub compliance: ComplianceSettings,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -4115,6 +4122,7 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            compliance: ComplianceSettings::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -5219,10 +5227,12 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
-self.validate_manufacturers()?;
-        self.compliance_settings.validate()?;
-        self.validate_compliance_mutes()?;
-        self.decoupling.validate()?;
+        validate_compliance_settings(&self.compliance)?;
+        for component in &self.components {
+            if let Some(compliance) = &component.compliance {
+                validate_component_compliance(compliance)?;
+            }
+        }
         if self
             .components
             .iter()

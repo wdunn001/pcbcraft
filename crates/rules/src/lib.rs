@@ -17,6 +17,7 @@ mod decoupling;
 mod drill;
 mod silk;
 mod stub;
+pub mod compliance;
 
 pub use compliance::{compliance_check, ComplianceFinding};
 
