@@ -46,7 +46,7 @@ pub mod mouser;
 pub mod part_fields;
 pub mod online_import;
 pub mod open_library;
-pub mod part_sidecar;
+pub mod samtec;
 mod paths;
 pub mod rate_limit;
 mod reader;

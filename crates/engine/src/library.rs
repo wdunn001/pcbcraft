@@ -1301,7 +1301,10 @@ mod tests {
             "library.samtec.manufacturer_page",
             &json!({"mpn":"TSW-103-07-G-S"}),
         )?;
-        assert_eq!(out["url"], "https://www.samtec.com/products/tsw-103-07-g-s");
+        assert_eq!(
+            out["url"],
+            "https://www.samtec.com/products/tsw-103-07-g-s"
+        );
         Ok(())
     }
 

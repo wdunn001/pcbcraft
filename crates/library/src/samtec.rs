@@ -1,14 +1,6 @@
-//! Samtec manufacturer helpers for issue 785 step 1: build the public product
-//! page link and provenance for CAD files the user downloaded and dropped in.
-//! There is no `CadSource` fetch here until written permission is recorded on
-//! the tracking issue.
-//!
-//! # Rules
-//! - No network access; URLs are derived from the part number only.
-//! - No Samtec-owned bytes are stored in the repository or shipped in releases.
-//!
-//! # Dependencies
-//! - crates/library/src/cad.rs
+//! Samtec manufacturer helpers: public product page links and provenance for
+//! CAD files the user downloaded and imported. There is no automated fetch
+//! until written permission is recorded on the tracking issue.
 use crate::cad::{CadKind, Provenance, USER_MANUFACTURER_SOURCE_ID};
 use crate::sources::SourceError;
 use std::path::Path;
@@ -74,11 +66,7 @@ fn basename(path: &Path) -> Result<String, SourceError> {
 }
 
 /// Provenance for one user-downloaded Samtec file.
-pub fn user_download_provenance(
-    mpn: &str,
-    kind: CadKind,
-    path: &Path,
-) -> Result<Provenance, SourceError> {
+pub fn user_download_provenance(mpn: &str, kind: CadKind, path: &Path) -> Result<Provenance, SourceError> {
     let page = manufacturer_page_url(mpn)?;
     Provenance::user_manufacturer_download(MANUFACTURER, mpn, kind, &basename(path)?, &page)
 }
