@@ -128,29 +128,37 @@ mod tests {
     use std::f64::consts::{FRAC_PI_2, PI};
 
     #[test]
-    fn a_right_angle_corner_is_a_quarter_circle_of_radius_r() {
+    fn a_right_angle_corner_is_a_quarter_circle_of_radius_r() -> Result<(), &'static str> {
         let corner = Point::new(10.0, 10.0);
         let away_a = Point::new(0.0, 10.0);
         let away_b = Point::new(10.0, 20.0);
-        let fillet = track_fillet(corner, away_a, away_b, 10.0, 10.0, 2.0).expect("fillet");
+        let Some(fillet) = track_fillet(corner, away_a, away_b, 10.0, 10.0, 2.0) else {
+            return Err("fillet");
+        };
         assert!((fillet.tangent_a.x - 8.0).abs() < 1e-9);
         assert!((fillet.tangent_a.y - 10.0).abs() < 1e-9);
         assert!((fillet.tangent_b.x - 10.0).abs() < 1e-9);
         assert!((fillet.tangent_b.y - 12.0).abs() < 1e-9);
-        let arc = arc_through(fillet.tangent_a, fillet.arc_mid, fillet.tangent_b).expect("arc");
+        let Some(arc) = arc_through(fillet.tangent_a, fillet.arc_mid, fillet.tangent_b) else {
+            return Err("arc");
+        };
         assert!((arc.radius - 2.0).abs() < 1e-9);
         assert!((arc.sweep.abs() - FRAC_PI_2).abs() < 1e-9);
         assert!((arc.length() - PI / 2.0).abs() < 1e-6);
+        Ok(())
     }
 
     #[test]
-    fn short_legs_cap_the_radius() {
+    fn short_legs_cap_the_radius() -> Result<(), &'static str> {
         let corner = Point::new(10.0, 10.0);
         let away_a = Point::new(9.0, 10.0);
         let away_b = Point::new(10.0, 11.0);
-        let fillet = track_fillet(corner, away_a, away_b, 1.0, 1.0, 2.0).expect("fillet");
+        let Some(fillet) = track_fillet(corner, away_a, away_b, 1.0, 1.0, 2.0) else {
+            return Err("fillet");
+        };
         assert!((fillet.radius - 0.5).abs() < 1e-9, "radius {}", fillet.radius);
         assert!((fillet.tangent_a.x - 9.5).abs() < 1e-9);
         assert!((fillet.tangent_b.y - 10.5).abs() < 1e-9);
+        Ok(())
     }
 }

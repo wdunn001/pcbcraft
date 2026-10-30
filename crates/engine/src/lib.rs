@@ -19477,6 +19477,114 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn rounding_every_corner_of_a_board_in_one_command() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":0.0},"end":{"x":10.0,"y":0.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":0.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":20.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        let before = s.project.board.tracks.len();
+        let out = s.execute("track.round_corners", json!({"radius":1.0}), None)?["result"].clone();
+        assert_eq!(out["rounded"], 2);
+        assert_eq!(s.project.board.tracks.len(), before + 2);
+        assert_eq!(
+            s.project.board.tracks.iter().filter(|t| t.arc.is_some()).count(),
+            2
+        );
+        Ok(())
+    }
+    #[test]
+    fn segment_style_rounding_writes_chords_not_one_arc() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?;
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"segments","tolerance":0.05}),
+            None,
+        )?;
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.arc.is_none()),
+            "segments style must leave straight tracks only"
+        );
+        assert!(
+            s.project.board.tracks.len() > 3,
+            "the fillet should add more than one chord"
+        );
+        Ok(())
+    }
+    #[test]
+    fn undoing_round_corners_restores_sharp_corners_in_one_step() -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":0.0,"y":10.0},"end":{"x":10.0,"y":10.0},"width":0.2}),
+            None,
+        )?;
+        let b = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":10.0,"y":20.0},"width":0.2}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let corner = Point::new(10.0, 10.0);
+        let undo_before = s.undo.len();
+        s.execute(
+            "track.round_corners",
+            json!({"radius":2.0,"style":"arc"}),
+            None,
+        )?;
+        assert_eq!(s.undo.len(), undo_before + 1);
+        assert!(
+            s.project.board.tracks.iter().any(|t| t.arc.is_some()),
+            "rounding should add an arc"
+        );
+        s.undo()?;
+        let end = s
+            .project
+            .board
+            .tracks
+            .iter()
+            .find(|t| t.id == b)
+            .ok_or_else(missing)?
+            .start;
+        assert_eq!(end, corner);
+        assert!(
+            s.project.board.tracks.iter().all(|t| t.arc.is_none()),
+            "undo should remove fillet arcs"
+        );
+        Ok(())
+    }
+    #[test]
     fn schematic_cleanup_merges_junctions_and_trims_redundant_vertices() -> Result<(), Error> {
         let mut s = Session::default();
         let net = s.execute("net.create", json!({"name":"BUS"}), None)?["result"]["id"]
