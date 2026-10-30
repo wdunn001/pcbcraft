@@ -5,6 +5,10 @@
 //! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`;
 //! `crates/library/src/listing_adapters.rs` for the symbol adapters.
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
+use pcbcraft_library::part_search::{
+    PartSearchIndex, PartSearchQuery, DEFAULT_SEARCH_LIMIT, MAX_INDEX_PARTS,
+};
+use std::collections::BTreeMap;
 use pcbcraft_library::listing_adapters::listings_from_symbols;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use serde_json::{Value, json};
@@ -798,6 +802,108 @@ pub fn list_over(
     }
     Ok(out)
 }
+
+fn search_query_args(args: &Value) -> Result<(PartSearchQuery, usize, Vec<PartListing>), String> {
+    let need = match args.get("need") {
+        None => String::new(),
+        Some(v) => v
+            .as_str()
+            .ok_or("need must be a string")?
+            .to_string(),
+    };
+    let tags: Vec<String> = match args.get("tags") {
+        None => vec![],
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("tags: {e}"))?,
+    };
+    let filter: PartFilter = match args.get("filter") {
+        None => PartFilter::default(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("filter: {e}"))?,
+    };
+    let query_vector: Option<Vec<f32>> = match args.get("query_vector") {
+        None => None,
+        Some(v) => {
+            let raw: Vec<f64> =
+                serde_json::from_value(v.clone()).map_err(|e| format!("query_vector: {e}"))?;
+            Some(
+                raw.into_iter()
+                    .map(|n| {
+                        if !n.is_finite() {
+                            Err("query_vector components must be finite".into())
+                        } else {
+                            Ok(n as f32)
+                        }
+                    })
+                    .collect::<Result<Vec<f32>, String>>()?,
+            )
+        }
+    };
+    let limit = match args.get("limit") {
+        None => DEFAULT_SEARCH_LIMIT,
+        Some(v) => v
+            .as_u64()
+            .filter(|v| (1..=100).contains(v))
+            .and_then(|v| usize::try_from(v).ok())
+            .ok_or("limit must be an integer from 1 to 100")?,
+    };
+    let listings: Vec<PartListing> = match args.get("listings") {
+        None => vec![],
+        Some(Value::Array(a)) if a.len() > MAX_INDEX_PARTS => {
+            return Err(format!(
+                "at most {MAX_INDEX_PARTS} listings may be searched at once"
+            ));
+        }
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("listings: {e}"))?,
+    };
+    Ok((
+        PartSearchQuery {
+            need,
+            tags,
+            filter,
+            query_vector,
+        },
+        limit,
+        listings,
+    ))
+}
+
+/// Rank parts for a stated need over project, installed and caller listings.
+///
+/// # Rules
+/// Same listing sources as [`list_with_project`]. Answers `{items, total_known}`
+/// where each item carries `listing`, `score` and `reasons`. Offline keyword
+/// and tag ranking always run; vectors add to the score when present.
+pub fn search_parts_over(
+    args: &Value,
+    project: Option<&pcbcraft_doc::Project>,
+    roots: Vec<PathBuf>,
+) -> Result<Value, String> {
+    let (query, limit, mut listings) = search_query_args(args)?;
+    listings.extend(project.map(project_listings).unwrap_or_default());
+    let room = MAX_INDEX_PARTS.saturating_sub(listings.len());
+    let (installed, _found) = installed_listings(roots, room);
+    listings.extend(installed);
+    if listings.len() > MAX_INDEX_PARTS {
+        return Err(format!(
+            "at most {MAX_INDEX_PARTS} listings may be searched at once"
+        ));
+    }
+    let vectors: BTreeMap<String, Vec<f32>> = match args.get("vectors") {
+        None => BTreeMap::new(),
+        Some(v) => serde_json::from_value(v.clone()).map_err(|e| format!("vectors: {e}"))?,
+    };
+    let index = PartSearchIndex::build(&listings, &vectors)?;
+    let hits = index.search(&query, limit)?;
+    Ok(json!({
+        "items": hits,
+        "indexed": index.len(),
+    }))
+}
+
+/// [`search_parts_over`] over the user's installed folders.
+pub fn search_parts(args: &Value, project: Option<&pcbcraft_doc::Project>) -> Result<Value, String> {
+    search_parts_over(args, project, paths())
+}
+
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
@@ -808,6 +914,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
         "library.catalog" => catalog(),
         "library.sources" => sources(),
         "library.list" => list_with_project(args, None),
+        "parts.search" => search_parts(args, None),
         "design.recents" => Ok(json!({"designs": crate::recents::load_recent_paths()})),
         "library.add_folder" => {
             let name = match args.get("name") {
@@ -921,6 +1028,16 @@ mod tests {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
+    #[test]
+    fn parts_search_rejects_bad_limits() {
+        for limit in [json!(0), json!(101), json!("5")] {
+            assert!(
+                read_tool("parts.search", &json!({"need":"regulator","limit":limit})).is_err(),
+                "limit {limit} must be refused"
+            );
+        }
+    }
+
     #[test]
     fn library_search_rejects_bad_json_types_before_filesystem_access() {
         for limit in [
