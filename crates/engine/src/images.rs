@@ -304,6 +304,7 @@ fn trace(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Error>
                     width,
                     text: String::new(),
                     sublayer: sublayer.into(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }

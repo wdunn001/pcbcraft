@@ -17,6 +17,23 @@ use egui::{Color32, CornerRadius, Margin, Shadow, Stroke, Vec2};
 
 /// The 4 px spacing scale: 4, 8, 12, 16, 24, 32.
 pub const SPACE: [f32; 6] = [4.0, 8.0, 12.0, 16.0, 24.0, 32.0];
+
+/// The inner padding of the right aside (Properties and Assistant): 16 left and
+/// right, 12 top and bottom. Applied once by the aside container; content inside
+/// never adds its own side margin, so no widget reaches the panel edge.
+pub fn aside_margin() -> egui::Margin {
+    egui::Margin {
+        left: SPACE[3] as i8,
+        right: SPACE[3] as i8,
+        top: SPACE[2] as i8,
+        bottom: SPACE[2] as i8,
+    }
+}
+
+/// Space between rows in the right aside (8) and before a section header (16).
+pub const ASIDE_ROW_GAP: f32 = SPACE[1];
+/// Extra space above each section header of the right aside.
+pub const ASIDE_SECTION_GAP: f32 = SPACE[3];
 /// Corner radius of controls, chips and menus.
 pub const RADIUS_CONTROL: u8 = 4;
 /// Corner radius of cards, windows and floating canvas controls.

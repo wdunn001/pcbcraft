@@ -13,7 +13,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--sheet\n--target silk|edge\n--view3d top|front|side|bottom"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge\n--view3d top|front|side|bottom"
         );
         return Ok(());
     }
@@ -70,6 +70,8 @@ fn main() -> eframe::Result {
     let select = option("--select");
     let left = option("--left");
     let context_menu = args.iter().any(|a| a == "--context-menu");
+    let menu_tag = option("--menu");
+    let show = option("--show");
     let sheet = args.iter().any(|a| a == "--sheet");
     let target = option("--target");
     let search = option("--search");
@@ -92,7 +94,9 @@ fn main() -> eframe::Result {
                     .with_capture_select(select)
                     .with_left_tab(left)
                     .with_capture_view(context_menu)
+                    .with_capture_menu(menu_tag)
                     .with_capture_sheet(sheet)
+                    .with_capture_show(show)
                     .with_capture_target(target)
                     .with_capture_search(search)
                     .with_capture_view3d(view3d)

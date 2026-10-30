@@ -683,8 +683,8 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
-                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"}}),
-                &["layer", "shape", "points", "width"],
+                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000,"description":"required on a board graphic; a schematic graphic that omits it takes the page's default line width"},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"},"color":{"type":"string","description":"stroke colour as #rrggbb; omit for the theme ink"}}),
+                &["layer", "shape", "points"],
             ),
         ),
         (
@@ -719,6 +719,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"name":{"type":"string"}}),
                 &["id", "name"],
+            ),
+        ),
+        (
+            "schematic.set_page_setting",
+            "Set one setting of a schematic page: the title block fields title, revision, date, size, company and drawn_by, title_shown (true or false), or the drawing defaults line_width (millimetres) and line_color (#rrggbb, empty for the theme ink); setting the value a field already holds is refused",
+            schema(
+                json!({"sheet":{"type":"integer","minimum":0},"field":{"type":"string","enum":["title","revision","date","size","company","drawn_by","title_shown","line_width","line_color"]},"value":{"type":"string","maxLength":256}}),
+                &["sheet", "field", "value"],
             ),
         ),
         (
@@ -2187,7 +2195,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
                 &[],
             ),
         ),
@@ -3686,12 +3694,17 @@ struct GraphicParams {
     layer: String,
     shape: String,
     points: Vec<Point>,
-    width: f64,
+    /// Omitted on a schematic graphic: the page's default line width applies.
+    #[serde(default)]
+    width: Option<f64>,
     #[serde(default)]
     text: String,
     /// Fabrication sublayer of a board graphic: F.SilkS, B.SilkS, F.Mask or B.Mask.
     #[serde(default)]
     sublayer: String,
+    /// Stroke colour as `#rrggbb`; empty is the theme ink.
+    #[serde(default)]
+    color: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4431,6 +4444,15 @@ struct BomParams {
     fields: Vec<String>,
     #[serde(default)]
     variant: Option<String>,
+    /// Only these components; empty lists every part.
+    #[serde(default)]
+    ids: Vec<Id>,
+    /// False prints one row per part instead of one row per kind of part.
+    #[serde(default = "bom_group_default")]
+    group: bool,
+}
+fn bom_group_default() -> bool {
+    true
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4973,6 +4995,125 @@ struct FindParams {
 }
 /// Set (or clear, when `value` is `None`) one named property on a component.
 /// Returns whether the property is set afterwards.
+/// Rows keyed by value, kind, footprint, requested property values and, when parts
+/// are listed apart, the reference.
+type BomGroups =
+    std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
+
+/// The bill of materials as data: rows grouped by value, kind, footprint and
+/// the requested properties, or one row per part when `group` is false.
+///
+/// Why: the `bom.export` command and the app's export dialog (preview, File
+/// menu, part menus, Manufacture) read the same rows, so what is previewed is
+/// what is written.
+///
+/// # Rules
+/// - Reads the project only; never changes it.
+/// - Skips parts that carry `pcbcraft_doc::BOM_EXCLUDE_FIELD` set to `yes`, parts
+///   a named variant leaves unpopulated, and, when `ids` is not empty, every
+///   part not listed.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs (`Component::in_bom`).
+///
+/// # Do not
+/// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
+pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
+    let a: BomParams = parse(params)?;
+    if a.fields.len() > 16 {
+        return Err(Error::Invalid(
+            "a bill of materials lists at most 16 properties".into(),
+        ));
+    }
+    for key in &a.fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err(Error::Invalid(
+                "property names must be 1 to 64 bytes".into(),
+            ));
+        }
+    }
+    // With no explicit request, the columns the project defines are used.
+    let keys: Vec<String> = if a.fields.is_empty() {
+        p.bom_fields.iter().map(|f| f.key.clone()).collect()
+    } else {
+        a.fields.clone()
+    };
+    let variant = match a.variant.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(
+            p.variants
+                .iter()
+                .find(|v| v.name == name)
+                .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
+        ),
+    };
+    if a.ids.len() > 4096 {
+        return Err(Error::Invalid(
+            "a bill of materials names at most 4096 parts".into(),
+        ));
+    }
+    // One row per kind of part, or one row per part when not grouping
+    // (the reference then joins the key).
+    let mut groups: BomGroups = std::collections::BTreeMap::new();
+    let mut populated = 0usize;
+    for c in &p.components {
+        if !c.in_bom()
+            || (!a.ids.is_empty() && !a.ids.contains(&c.id))
+            || variant.is_some_and(|v| v.dnp.contains(&c.id))
+        {
+            continue;
+        }
+        populated += 1;
+        let footprint =
+            match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
+                Some(swap) => swap.footprint.clone(),
+                None => match &c.library_footprint {
+                    Some(footprint) => {
+                        format!("{}:{}", footprint.library, footprint.definition.name)
+                    }
+                    None => "starter pads".into(),
+                },
+            };
+        let values: Vec<String> = keys
+            .iter()
+            .map(|key| c.field(key).unwrap_or("").to_string())
+            .collect();
+        let apart = if a.group {
+            String::new()
+        } else {
+            c.reference.clone()
+        };
+        groups
+            .entry((c.value.clone(), c.kind.clone(), footprint, values, apart))
+            .or_default()
+            .push(c.reference.clone());
+    }
+    let items: Vec<Value> = groups
+        .into_iter()
+        .map(|((value, kind, footprint, values, _), mut references)| {
+            references.sort();
+            let columns = keys.clone();
+            let mut fields = serde_json::Map::new();
+            for (key, value) in columns.into_iter().zip(values) {
+                fields.insert(key, json!(value));
+            }
+            json!({
+                "quantity": references.len(),
+                "references": references,
+                "value": value,
+                "kind": kind,
+                "footprint": footprint,
+                "fields": Value::Object(fields),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "items": items,
+        "groups": items.len(),
+        "components": populated,
+        "variant": variant.map(|v| v.name.clone()),
+    }))
+}
 fn set_component_field(
     component: &mut Component,
     key: &str,
@@ -5049,6 +5190,17 @@ struct RenameParams {
 struct MoveToSheet {
     id: Id,
     sheet: Id,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPageSetting {
+    sheet: Id,
+    field: String,
+    value: String,
+}
+/// True for `#rrggbb` with hex digits only.
+fn valid_hex_colour(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -9357,6 +9509,7 @@ fn run_command(
                             width: stroke,
                             text: String::new(),
                             sublayer: String::new(),
+                            color: String::new(),
                         },
                         p,
                     ),
@@ -9375,6 +9528,7 @@ fn run_command(
                                 width: *radius,
                                 text: String::new(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9406,6 +9560,7 @@ fn run_command(
                                     width: *radius,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9425,6 +9580,7 @@ fn run_command(
                                     width: *radius,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9448,6 +9604,7 @@ fn run_command(
                                     width: stroke,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9462,6 +9619,7 @@ fn run_command(
                                         width: stroke,
                                         text: String::new(),
                                         sublayer: String::new(),
+                                        color: String::new(),
                                     },
                                     p,
                                 );
@@ -9488,6 +9646,7 @@ fn run_command(
                                 width: *height,
                                 text: value.clone(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9635,6 +9794,7 @@ fn run_command(
                             width: stroke,
                             text: String::new(),
                             sublayer: String::new(),
+                            color: String::new(),
                         },
                         p,
                     ),
@@ -9653,6 +9813,7 @@ fn run_command(
                                 width: *radius,
                                 text: String::new(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9675,6 +9836,7 @@ fn run_command(
                                     width: stroke,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9689,6 +9851,7 @@ fn run_command(
                                         width: stroke,
                                         text: String::new(),
                                         sublayer: String::new(),
+                                        color: String::new(),
                                     },
                                     p,
                                 );
@@ -9713,6 +9876,7 @@ fn run_command(
                                 width: *height,
                                 text: value.clone(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -10035,11 +10199,29 @@ fn run_command(
             if !a.points.iter().all(|p| p.valid()) {
                 return Err(Error::Invalid("graphic vertex is out of range".into()));
             }
-            if !a.width.is_finite() || a.width <= 0.0 || a.width > 1_000.0 {
+            let defaults = p.page_settings_of(0);
+            let width = match a.width {
+                Some(w) => w,
+                None if a.layer == "schematic" => defaults.line_width,
+                None => {
+                    return Err(Error::Invalid(
+                        "a board graphic needs a width, radius or text size".into(),
+                    ));
+                }
+            };
+            if !width.is_finite() || width <= 0.0 || width > 1_000.0 {
                 return Err(Error::Invalid(
                     "graphic width, radius or text size must be within 0–1000mm".into(),
                 ));
             }
+            let a = GraphicParams {
+                color: if a.color.is_empty() && a.layer == "schematic" {
+                    defaults.line_color.clone()
+                } else {
+                    a.color
+                },
+                ..a
+            };
             if a.text.len() > 1024 {
                 return Err(Error::Invalid("graphic text is too long".into()));
             }
@@ -10054,15 +10236,19 @@ fn run_command(
                     "sublayer must be F.SilkS, B.SilkS, F.Mask or B.Mask on a board graphic".into(),
                 ));
             }
+            if !a.color.is_empty() && !valid_hex_colour(&a.color) {
+                return Err(Error::Invalid("graphic colour must be #rrggbb".into()));
+            }
             let id = allocate(next)?;
             p.graphics.push(pcbcraft_doc::Graphic {
                 id,
                 layer: a.layer,
                 shape: a.shape,
                 points: a.points,
-                width: a.width,
+                width,
                 text: a.text,
                 sublayer: a.sublayer,
+                color: a.color,
             });
             Ok(json!({"id":id}))
         }
@@ -10374,6 +10560,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -10452,6 +10639,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -10553,6 +10741,88 @@ fn run_command(
             sheet.name = a.name;
             Ok(json!({"id":a.id,"name":sheet.name}))
         }
+        "schematic.set_page_setting" => {
+            let a: SetPageSetting = parse(params)?;
+            if a.sheet != 0 && !p.sheets.iter().any(|s| s.id == a.sheet) {
+                return Err(missing());
+            }
+            let value = a.value.trim().to_owned();
+            if value.len() > 256 {
+                return Err(Error::Invalid("page settings fit 256 bytes".into()));
+            }
+            let mut settings = p.page_settings_of(a.sheet);
+            let mut scratch = String::new();
+            let held = match a.field.as_str() {
+                "title" => &mut settings.title,
+                "revision" => &mut settings.revision,
+                "date" => &mut settings.date,
+                "company" => &mut settings.company,
+                "drawn_by" => &mut settings.drawn_by,
+                "size" => {
+                    let upper = value.to_ascii_uppercase();
+                    if !upper.is_empty()
+                        && !["A7", "A6", "A5", "A4", "A3", "A2", "A1", "A0"]
+                            .contains(&upper.as_str())
+                    {
+                        return Err(Error::Invalid("sheet size is A7 to A0 or empty".into()));
+                    }
+                    settings.size = upper;
+                    &mut scratch
+                }
+                "title_shown" => {
+                    let shown = match value.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err(Error::Invalid("title_shown is true or false".into())),
+                    };
+                    if settings.title_hidden == !shown {
+                        return Err(Error::Invalid(
+                            "that page setting already holds that value".into(),
+                        ));
+                    }
+                    settings.title_hidden = !shown;
+                    &mut scratch
+                }
+                "line_width" => {
+                    let width: f64 = value
+                        .parse()
+                        .map_err(|_| Error::Invalid("line_width is a number".into()))?;
+                    if !width.is_finite() || width <= 0.0 || width > 10.0 {
+                        return Err(Error::Invalid("line_width is within 0 to 10 mm".into()));
+                    }
+                    if (settings.line_width - width).abs() < 1e-9 {
+                        return Err(Error::Invalid(
+                            "that page setting already holds that value".into(),
+                        ));
+                    }
+                    settings.line_width = width;
+                    &mut scratch
+                }
+                "line_color" => {
+                    if !value.is_empty() && !valid_hex_colour(&value) {
+                        return Err(Error::Invalid("line_color is #rrggbb or empty".into()));
+                    }
+                    &mut settings.line_color
+                }
+                _ => return Err(Error::Invalid("unknown page setting".into())),
+            };
+            if matches!(
+                a.field.as_str(),
+                "title" | "revision" | "date" | "company" | "drawn_by" | "line_color"
+            ) {
+                if *held == value {
+                    return Err(Error::Invalid(
+                        "that page setting already holds that value".into(),
+                    ));
+                }
+                *held = value;
+            }
+            match p.page_settings.iter_mut().find(|s| s.sheet == a.sheet) {
+                Some(slot) => *slot = settings,
+                None => p.page_settings.push(settings),
+            }
+            Ok(json!({"sheet":a.sheet,"field":a.field}))
+        }
         "schematic.remove_sheet" => {
             let a: RemoveSheet = parse(params)?;
             if a.id == 0 {
@@ -10586,6 +10856,7 @@ fn run_command(
                 }
             }
             p.sheets.remove(index);
+            p.page_settings.retain(|s| s.sheet != a.id);
             Ok(json!({"removed":a.id,"moved":moved}))
         }
         "schematic.set_sheet_parent" => {
@@ -11200,6 +11471,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
             }
             Ok(
@@ -11348,6 +11620,7 @@ fn run_command(
                     width: w,
                     text: String::new(),
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 count += 1;
             }
@@ -11423,6 +11696,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 Ok(())
             };
@@ -15889,90 +16163,7 @@ fn run_command(
             p.variants.remove(index);
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
-        "bom.export" => {
-            let a: BomParams = parse(params)?;
-            if a.fields.len() > 16 {
-                return Err(Error::Invalid(
-                    "a bill of materials lists at most 16 properties".into(),
-                ));
-            }
-            for key in &a.fields {
-                if key.is_empty() || key.len() > 64 {
-                    return Err(Error::Invalid(
-                        "property names must be 1 to 64 bytes".into(),
-                    ));
-                }
-            }
-            // With no explicit request, the columns the project defines are used.
-            let keys: Vec<String> = if a.fields.is_empty() {
-                p.bom_fields.iter().map(|f| f.key.clone()).collect()
-            } else {
-                a.fields.clone()
-            };
-            let variant = match a.variant.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(name) => Some(
-                    p.variants
-                        .iter()
-                        .find(|v| v.name == name)
-                        .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-                ),
-            };
-            let mut groups: std::collections::BTreeMap<
-                (String, String, String, Vec<String>),
-                Vec<String>,
-            > = std::collections::BTreeMap::new();
-            let mut populated = 0usize;
-            for c in &p.components {
-                if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-                    continue;
-                }
-                populated += 1;
-                let footprint =
-                    match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
-                        Some(swap) => swap.footprint.clone(),
-                        None => match &c.library_footprint {
-                            Some(footprint) => {
-                                format!("{}:{}", footprint.library, footprint.definition.name)
-                            }
-                            None => "starter pads".into(),
-                        },
-                    };
-                let values: Vec<String> = keys
-                    .iter()
-                    .map(|key| c.field(key).unwrap_or("").to_string())
-                    .collect();
-                groups
-                    .entry((c.value.clone(), c.kind.clone(), footprint, values))
-                    .or_default()
-                    .push(c.reference.clone());
-            }
-            let items: Vec<Value> = groups
-                .into_iter()
-                .map(|((value, kind, footprint, values), mut references)| {
-                    references.sort();
-                    let columns = keys.clone();
-                    let mut fields = serde_json::Map::new();
-                    for (key, value) in columns.into_iter().zip(values) {
-                        fields.insert(key, json!(value));
-                    }
-                    json!({
-                        "quantity": references.len(),
-                        "references": references,
-                        "value": value,
-                        "kind": kind,
-                        "footprint": footprint,
-                        "fields": Value::Object(fields),
-                    })
-                })
-                .collect();
-            Ok(json!({
-                "items": items,
-                "groups": items.len(),
-                "components": populated,
-                "variant": variant.map(|v| v.name.clone()),
-            }))
-        }
+        "bom.export" => bom_export(p, params),
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -20960,6 +21151,95 @@ mod tests {
     }
 
     #[test]
+    fn page_settings_are_typed_undoable_and_follow_their_page() -> Result<(), Error> {
+        let mut s = Session::default();
+        let page = s.execute("schematic.new_sheet", json!({"name":"Power"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("page id".into()))?;
+        for (field, value) in [
+            ("title", "Sensor board"),
+            ("revision", "B"),
+            ("company", "Quasarke"),
+            ("drawn_by", "William"),
+            ("size", "a3"),
+            ("title_shown", "false"),
+            ("line_width", "0.5"),
+            ("line_color", "#ff8800"),
+        ] {
+            s.execute(
+                "schematic.set_page_setting",
+                json!({"sheet":page,"field":field,"value":value}),
+                None,
+            )?;
+        }
+        let settings = s.project.page_settings_of(page);
+        assert_eq!(settings.title, "Sensor board");
+        assert_eq!(settings.size, "A3", "sizes are stored upper case");
+        assert!(settings.title_hidden);
+        assert_eq!(settings.line_width, 0.5);
+        assert_eq!(settings.line_color, "#ff8800");
+        assert!(
+            s.project.page_settings_of(0).title.is_empty(),
+            "another page keeps its own settings"
+        );
+        for bad in [
+            json!({"sheet":page,"field":"title","value":"Sensor board"}),
+            json!({"sheet":page,"field":"size","value":"B9"}),
+            json!({"sheet":page,"field":"line_width","value":"0"}),
+            json!({"sheet":page,"field":"line_color","value":"red"}),
+            json!({"sheet":page,"field":"title_shown","value":"maybe"}),
+            json!({"sheet":999,"field":"title","value":"x"}),
+            json!({"sheet":page,"field":"nope","value":"x"}),
+        ] {
+            assert!(
+                s.execute("schematic.set_page_setting", bad.clone(), None)
+                    .is_err(),
+                "refused: {bad}"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project.page_settings_of(page).line_color, "");
+        // A schematic graphic that names no width and colour takes the Main page defaults.
+        s.execute(
+            "schematic.set_page_setting",
+            json!({"sheet":0,"field":"line_width","value":"0.4"}),
+            None,
+        )?;
+        s.execute(
+            "schematic.set_page_setting",
+            json!({"sheet":0,"field":"line_color","value":"#00aa00"}),
+            None,
+        )?;
+        s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"line","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":0.0}]}),
+            None,
+        )?;
+        let g = s
+            .project
+            .graphics
+            .last()
+            .ok_or(Error::Invalid("graphic".into()))?
+            .clone();
+        assert_eq!((g.width, g.color.as_str()), (0.4, "#00aa00"));
+        assert!(
+            s.execute(
+                "graphic.add",
+                json!({"layer":"board","shape":"line","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":0.0}]}),
+                None,
+            )
+            .is_err(),
+            "a board graphic still needs its width"
+        );
+        s.execute("schematic.remove_sheet", json!({"id":page}), None)?;
+        assert!(
+            s.project.page_settings.iter().all(|p| p.sheet != page),
+            "removing a page drops its settings"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn project_metadata_records_replaces_clears_and_refuses_bad_keys() -> Result<(), Error> {
         let mut s = Session::default();
         let out = s.execute(
@@ -23605,6 +23885,47 @@ mod tests {
             s.execute("variant.create", json!({"name":"v15"}), None)
                 .is_err(),
             "a seventeenth variant is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_bill_of_materials_skips_excluded_parts_and_can_list_parts_apart() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for (n, reference) in ["R1", "R2", "R3"].iter().enumerate() {
+            let id = s
+                .execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":reference,"value":"10k","position":{"x":10.0 * (n as f64 + 1.0),"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            ids.push(id);
+        }
+        let grouped = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(grouped["groups"], 1, "identical parts share a row");
+        assert_eq!(grouped["items"][0]["quantity"], 3);
+        let apart = s.execute("bom.export", json!({"group": false}), None)?["result"].clone();
+        assert_eq!(apart["groups"], 3, "ungrouped lists each part");
+        let some =
+            s.execute("bom.export", json!({"ids": [ids[0], ids[1]]}), None)?["result"].clone();
+        assert_eq!(some["components"], 2, "only the named parts are listed");
+        s.execute(
+            "component.field",
+            json!({"id": ids[2], "key": pcbcraft_doc::BOM_EXCLUDE_FIELD, "value": "yes"}),
+            None,
+        )?;
+        let kept = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(kept["components"], 2, "an excluded part leaves the bill");
+        assert!(
+            pcbcraft_io::bom_csv(&s.project, &[], None).is_ok_and(|csv| !csv.contains("R3")),
+            "the CSV written by output jobs skips it too"
+        );
+        assert!(
+            s.execute("bom.export", json!({"ids": vec![1u64; 4097]}), None)
+                .is_err(),
+            "too many ids are refused"
         );
         Ok(())
     }
