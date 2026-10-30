@@ -12,6 +12,7 @@ mod courtyard;
 mod drill;
 mod silk;
 mod stub;
+mod walk;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -675,49 +676,12 @@ fn pin_flagged_no_connect(project: &Project, component: Id, pin: &str) -> bool {
         .any(|f| f.pin.component == component && f.pin.pin == pin)
 }
 
-fn net_has_power_driver(project: &Project, net: Id) -> bool {
-    if project
-        .labels
-        .iter()
-        .any(|l| l.net == net && l.kind == "power")
-    {
-        return true;
-    }
-    project.components.iter().any(|c| {
-        if c.kind == "connector" && c.pins.iter().any(|p| p.net == Some(net)) {
-            return true;
-        }
-        c.pins
-            .iter()
-            .any(|p| p.net == Some(net) && p.electrical_type == "power_out")
-    })
-}
-
 fn is_ic_like(component: &pcbcraft_doc::Component) -> bool {
     !DECOUPLING_EXCLUDED_KINDS.contains(&component.kind.as_str())
         && component
             .pins
             .iter()
             .any(|p| p.electrical_type == "power_in")
-}
-
-fn net_has_pullup_to_power(project: &Project, net: Id) -> bool {
-    project.components.iter().any(|c| {
-        let acts_as_passive =
-            c.kind == "resistor" || c.pins.iter().any(|p| p.electrical_type == "passive");
-        if !acts_as_passive {
-            return false;
-        }
-        let touches_bus = c.pins.iter().any(|p| p.net == Some(net));
-        if !touches_bus {
-            return false;
-        }
-        c.pins.iter().any(|p| {
-            p.net
-                .filter(|n| *n != net)
-                .is_some_and(|other| net_has_power_driver(project, other))
-        })
-    })
 }
 
 fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
@@ -736,13 +700,6 @@ fn net_has_schematic_wiring(project: &Project, net: Id) -> bool {
         return true;
     }
     project.ports.iter().any(|p| p.net == net)
-}
-
-fn capacitor_on_net(project: &Project, net: Id) -> bool {
-    project
-        .components
-        .iter()
-        .any(|c| c.kind == "capacitor" && c.pins.iter().any(|p| p.net == Some(net)))
 }
 
 fn decoupling_distance_ok(project: &Project, ic: Id, power_pin: &str, net: Id) -> bool {
@@ -812,7 +769,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                     && !pin_flagged_no_connect(project, c.id, &p.number)
             })
         });
-        if undriven && !net_has_power_driver(project, net.id) {
+        if undriven && !walk::net_is_power_driven(project, net.id) {
             result.push(Finding {
                 code: "power_not_driven",
                 severity: project.rule_severity("power_not_driven", "warning"),
@@ -840,7 +797,20 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             if pin_flagged_no_connect(project, c.id, &p.number) {
                 continue;
             }
-            if !capacitor_on_net(project, net) {
+            if walk::find(
+                project,
+                &walk::Query {
+                    start: pcbcraft_doc::PinRef {
+                        component: c.id,
+                        pin: p.number.clone(),
+                    },
+                    target_kind: "capacitor",
+                    value: None,
+                    max_hops: 0,
+                },
+            )
+            .is_empty()
+            {
                 result.push(Finding {
                     code: "missing_decoupling",
                     severity: project.rule_severity("missing_decoupling", "warning"),
@@ -889,7 +859,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             .flat_map(|c| &c.pins)
             .any(|p| p.net == Some(net.id) && p.electrical_type == "passive");
         let needs_pullup = open_count >= 2 || (open_count >= 1 && !passive_on_net);
-        if needs_pullup && !net_has_pullup_to_power(project, net.id) {
+        if needs_pullup && !walk::pullup_reaches_power(project, net.id) {
             result.push(Finding {
                 code: "missing_pullup",
                 severity: project.rule_severity("missing_pullup", "warning"),
