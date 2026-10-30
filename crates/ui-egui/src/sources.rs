@@ -267,6 +267,17 @@ impl App {
             self.part_sources.answer = None;
             ui.close();
         }
+        if self.part_sources.source.is_some() {
+            let mut on = self.preferences.fetch_open_library_3d;
+            if ui
+                .checkbox(&mut on, t!("library.dock.fetch_open_3d"))
+                .on_hover_text(t!("library.dock.fetch_open_3d.tip"))
+                .changed()
+            {
+                self.preferences.fetch_open_library_3d = on;
+                ui.close();
+            }
+        }
     }
     /// After a source part is placed, write its maker and numbers onto the
     /// new component in one step.

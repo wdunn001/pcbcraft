@@ -667,6 +667,9 @@ struct Preferences {
     /// Library cards the person starred, by card key.
     #[serde(default)]
     library_favourites: Vec<String>,
+    /// When on, placing an open-library part also fetches its 3D model into the local cache.
+    #[serde(default)]
+    fetch_open_library_3d: bool,
     /// Region layout per workspace id; missing means the workspace default.
     #[serde(default)]
     layouts: std::collections::BTreeMap<String, workspace::RegionLayout>,
@@ -749,6 +752,7 @@ impl Default for Preferences {
             aside_lower_tab: 0,
             left_tab: 0,
             library_favourites: Vec::new(),
+            fetch_open_library_3d: false,
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             reduced_motion: motion::os_prefers_reduced_motion(),
