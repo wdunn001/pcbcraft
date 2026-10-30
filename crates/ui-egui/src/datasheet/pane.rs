@@ -41,7 +41,7 @@ impl Default for Pane {
             selection: None,
             texture: None,
             page_rect: Rect::NOTHING,
-            page_response_id: Id::NULL,
+            page_response_id: Id::new("datasheet-page-unassigned"),
         }
     }
 }
