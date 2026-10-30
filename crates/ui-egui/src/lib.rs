@@ -2954,7 +2954,7 @@ impl App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let window_w = ui.ctx().input(|i| i.screen_rect.width()).max(1.0);
+                        let window_w = ui.ctx().screen_rect().width().max(1.0);
                         ui.set_max_width(window_w);
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
