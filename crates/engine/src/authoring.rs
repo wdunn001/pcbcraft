@@ -994,9 +994,7 @@ pub(super) fn run(
                         )
                     })?;
                     if footprint.is_empty() || footprint.len() > 128 {
-                        return Err(Error::Invalid(
-                            "footprint must be 1 to 128 bytes".into(),
-                        ));
+                        return Err(Error::Invalid("footprint must be 1 to 128 bytes".into()));
                     }
                     let def = p
                         .library
