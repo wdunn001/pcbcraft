@@ -1154,6 +1154,7 @@ check.unrouted = Non routé
 check.via_aspect_ratio = Rapport de forme du via
 check.via_span_not_allowed = Portée de via non autorisée
 check.zone_island = Îlot de zone
+check.zone_island_removed = Îlot de zone supprimé
 check.zone_unconnected = Zone non connectée
 checks.measure.track_width_below = Une piste plus fine que
 checks.measure.track_length_above = Une piste plus longue que

@@ -1,15 +1,11 @@
 ---
-// Home page: hero, five-step strip, four feature bands, the feature list, showcase strip,
-// download strip and docs cards. All text comes from src/content/copy/home.json and
-// src/data/features.yaml; screenshots are neutral frames until #715.
+// One-page landing: hero, four feature bands, Get PCBCraft block. Text comes from
+// src/content/copy/home.json; images from the screen catalog via ShotFrame.
 import MarketingLayout from '../layouts/MarketingLayout.astro';
 import ShotFrame from '../components/ShotFrame.astro';
-import HeroBoard from '../components/HeroBoard.astro';
-import PipelineStrip from '../components/PipelineStrip.astro';
-import FeatureAreaCard from '../components/FeatureAreaCard.astro';
 import { areas } from '../lib/features';
 import { home, slot } from '../lib/copy';
-import { url } from '../lib/site';
+import { REPO_URL } from '../lib/site';
 import mark from '../assets/brand/concept-2.svg';
 
 const bandAlt: Record<string, string> = {
@@ -20,7 +16,7 @@ const bandAlt: Record<string, string> = {
 };
 ---
 
-<MarketingLayout title="PCBCraft" description="PCBCraft is a schematic, board layout, library and checks tool. Open source, with a desktop app and a browser build.">
+<MarketingLayout title="PCBCraft" description="PCBCraft is an open-source app for drawing a schematic, laying out the board, picking parts from libraries and writing manufacturing files.">
   <!-- Hero -->
   <section class="hero">
     <div class="wrap hero-grid">
@@ -30,111 +26,55 @@ const bandAlt: Record<string, string> = {
         <h1 {...slot(home.hero.title)}>{home.hero.title.text}</h1>
         <p class="lede" {...slot(home.hero.lede)}>{home.hero.lede.text}</p>
         <div class="cta">
-          <a class="btn primary" href={url('download/')}>{home.hero.primary.text}</a>
-          <a class="btn ghost" href={url('demo/')}>{home.hero.secondary.text}</a>
+          <a class="btn primary" href="#get">{home.hero.primary.text}</a>
+          <a class="btn ghost" href={REPO_URL} rel="noopener">{home.hero.secondary.text}</a>
         </div>
         <p class="meta mono">{home.hero.meta.text}</p>
       </div>
       <div class="hero-shot">
-        <ShotFrame id="hero-layout" alt="Decorative drawing of a circuit board with a chip, routed copper traces, vias and a connector" title="PCBCraft · layout" ratio="16 / 10.5" caption={home.hero.caption.text}>
-          <HeroBoard />
-        </ShotFrame>
-        <ul class="legend mono" aria-label="Layer colours in the drawing">
-          <li class="t-pcb"><span class="pad"></span>Top copper</li>
-          <li class="t-sch"><span class="pad"></span>Bottom copper</li>
-          <li class="t-out"><span class="pad"></span>Board edge</li>
-          <li class="t-lib"><span class="pad"></span>Copper pour</li>
-        </ul>
+        <ShotFrame id="hero-layout" alt="The PCBCraft Layout tab" title="PCBCraft · layout" caption={home.hero.caption.text} eager />
       </div>
-    </div>
-  </section>
-
-  <!-- Pipeline -->
-  <section class="section tight" aria-labelledby="pipe-h">
-    <div class="wrap">
-      <h2 id="pipe-h" {...slot(home.pipeline.title)}>{home.pipeline.title.text}</h2>
-      <p class="sub" {...slot(home.pipeline.sub)}>{home.pipeline.sub.text}</p>
-      <PipelineStrip />
     </div>
   </section>
 
   <!-- Four bands -->
   {
     home.bands.map((b, i) => (
-      <section class={`section band ${i % 2 ? 'flip' : ''}`} aria-labelledby={`band-${b.area}`}>
+      <section id={i === 0 ? 'features' : undefined} class={`section band ${i % 2 ? 'flip' : ''}`} aria-labelledby={`band-${b.area}`}>
         <div class="wrap band-grid">
           <div class="band-copy">
             <p class={`tag t-${areas.find((a) => a.id === b.area)?.tone}`}><span class="pad"></span>{b.tag}</p>
             <h2 id={`band-${b.area}`} {...slot(b.title)}>{b.title.text}</h2>
             <p class="lede" {...slot(b.body)}>{b.body.text}</p>
-            <p class="band-link"><a href={url(`features/${b.area}/`)}>{b.tag} features <span aria-hidden="true">→</span></a></p>
           </div>
-          <ShotFrame id={`home-${b.area}`} alt={bandAlt[b.area]} title={`PCBCraft · ${b.tag.toLowerCase()}`} />
+          <div class={b.area === 'layout' ? 'pair' : undefined}>
+            <ShotFrame id={b.area === 'layout' ? 'feature-layout' : `home-${b.area}`} alt={bandAlt[b.area]} title={`PCBCraft · ${b.tag.toLowerCase()}`} />
+            {b.area === 'layout' && <ShotFrame id="layers-tree" alt="The Layers tree" title="Layers" />}
+          </div>
         </div>
       </section>
     ))
   }
 
-  <!-- Feature list -->
-  <section class="section" id="feature-list" aria-labelledby="feat-h">
-    <div class="wrap">
-      <h2 id="feat-h">{home.features.title.text}</h2>
-      <p class="sub">{home.features.sub.text}</p>
-      <div class="area-grid">
-        {areas.map((a) => <FeatureAreaCard area={a} />)}
-      </div>
-      <p class="all"><a class="btn primary" href={url('features/')}>{home.features.all.text}</a></p>
-    </div>
-  </section>
-
-  <!-- Showcase strip -->
-  <section class="section" aria-labelledby="show-h">
-    <div class="wrap">
-      <h2 id="show-h">{home.showcase.title.text}</h2>
-      <p class="sub" {...slot(home.showcase.sub)}>{home.showcase.sub.text}</p>
-      <div class="shots">
-        {Array.from({ length: home.showcase.slots }, (_, i) => <ShotFrame id={`showcase-${i + 1}`} alt={`Placeholder for showcase board photo ${i + 1}`} title="Showcase" ratio="4 / 3" />)}
-      </div>
-      <p class="all"><a href={url('showcase/')}>Open the showcase <span aria-hidden="true">→</span></a></p>
-    </div>
-  </section>
-
   <!-- Download strip -->
-  <section class="section" aria-labelledby="dl-h">
+  <section class="section" id="get" aria-labelledby="dl-h">
     <div class="wrap dl">
       <div>
         <h2 id="dl-h">{home.download.title.text}</h2>
         <p class="sub" {...slot(home.download.sub)}>{home.download.sub.text}</p>
         <div class="cta">
-          <a class="btn primary" href={url('download/')}>{home.hero.primary.text}</a>
-          <a class="btn ghost" href={url('demo/')}>{home.hero.secondary.text}</a>
+          <a class="btn primary" href={REPO_URL} rel="noopener">View on GitHub</a>
         </div>
       </div>
       <div class="src">
         <p class="mono">{home.download.source.text}</p>
-        <pre class="code"><code>git clone https://github.com/tangency-labs/pcbcraft.git
+        <pre class="code"><code>git clone https://github.com/wdunn001/pcbcraft.git
 cd pcbcraft
 cargo run -p pcbcraft -- --sample</code></pre>
       </div>
     </div>
   </section>
 
-  <!-- Docs cards -->
-  <section class="section" aria-labelledby="docs-h">
-    <div class="wrap">
-      <h2 id="docs-h">{home.docs.title.text}</h2>
-      <div class="docs">
-        {
-          home.docs.cards.map((c) => (
-            <a class="card" href={url(c.path)}>
-              <b>{c.title} <span aria-hidden="true">→</span></b>
-              <span>{c.body}</span>
-            </a>
-          ))
-        }
-      </div>
-    </div>
-  </section>
 </MarketingLayout>
 
 <style>
@@ -170,16 +110,16 @@ cargo run -p pcbcraft -- --sample</code></pre>
     color: var(--pc-muted);
     font-size: 0.8rem;
   }
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem 1.4rem;
-    margin: 1rem 0 0;
-    padding: 0;
-    list-style: none;
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+  .pair {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 40rem) {
+    .pair {
+      grid-template-columns: 1fr 10rem;
+    }
   }
   .tight {
     padding: 3rem 0 4rem;

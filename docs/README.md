@@ -15,6 +15,7 @@
 | [localization.md](localization.md) | What the Localization check enforces and how to fix a failure |
 | [tooltips.md](tooltips.md) | What every control tooltip must say |
 | [tool-modifiers.md](tool-modifiers.md) | Shift, Ctrl and Alt per tool, tool hotkeys, what a press on a pin or pad does |
+| [part-sourcing.md](part-sourcing.md) | Typed manufacturer, part number and supplier fields on a part |
 | [validation.md](validation.md) | How the first subset was verified |
 | [kicad-libraries.md](kicad-libraries.md) | Library formats, limits, fixture licenses |
 | [agents/](agents/) | Researcher, enricher, worker, reviewer briefs |
