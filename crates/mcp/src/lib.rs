@@ -67,6 +67,9 @@ pub fn tool_list() -> Value {
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
+        json!({"name":"library.mcu.list","description":"List built-in MCU pin-mux tables bundled with the app","inputSchema":object(json!({}),&[])}),
+        json!({"name":"library.mcu.validate","description":"Parse and validate an MCU pin-mux TOML file, JSON import bundle, or built-in id without altering the project","inputSchema":object(json!({"builtin":{"type":"string"},"path":{"type":"string"},"text":{"type":"string"}}),&[])}),
+        json!({"name":"library.mcu.inspect","description":"Return a validated MCU pin-mux document from a built-in id, file path, or inline text","inputSchema":object(json!({"builtin":{"type":"string"},"path":{"type":"string"},"text":{"type":"string"}}),&[])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
@@ -110,7 +113,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 18] = [
         "inspect_design",
         "list_commands",
         "checks",
@@ -122,6 +125,9 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
+        "library.mcu.list",
+        "library.mcu.validate",
+        "library.mcu.inspect",
         "library.sources",
         "design.recents",
         "design.list_open",
@@ -291,6 +297,9 @@ pub(crate) fn invoke_session(
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
+        "library.mcu.list",
+        "library.mcu.validate",
+        "library.mcu.inspect",
         "library.sources",
         "library.add_folder",
         "library.remove_folder",

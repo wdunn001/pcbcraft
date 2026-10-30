@@ -96,6 +96,9 @@ distributor pages to filter with the same rules. It is read-only.
 a `.kicad_sym` file; a footprint search path is a `.pretty` directory. Results
 report search and directory-scan truncation. `library.inspect_symbol` accepts
 `path` and `name`; `library.inspect_footprint` accepts a `.kicad_mod` `path`.
+`library.mcu.list`, `library.mcu.validate`, and `library.mcu.inspect` read
+`.pcbcraft-mcu.toml` pin-mux tables or built-in STM32F4/G4 bundles without
+changing the project.
 Read tools return resolved geometry and unsupported features without changing or
 locking the project. Symbol catalogs cache two files using length/mtime; restart
 to refresh external replacements deliberately preserving both metadata fields.
@@ -195,7 +198,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.mcu.*`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |

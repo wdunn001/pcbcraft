@@ -798,6 +798,20 @@ pub fn list_over(
     }
     Ok(out)
 }
+fn mcu_from_args(args: &Value) -> Result<pcbcraft_library::mcu::McuDocument, String> {
+    if let Some(id) = args.get("builtin").and_then(Value::as_str) {
+        return pcbcraft_library::mcu::load_builtin(id);
+    }
+    if let Some(path) = args.get("path").and_then(Value::as_str) {
+        let text = read_library(Path::new(path))?;
+        return pcbcraft_library::mcu::parse_and_validate_mcu(&text);
+    }
+    if let Some(text) = args.get("text").and_then(Value::as_str) {
+        return pcbcraft_library::mcu::parse_and_validate_mcu(text);
+    }
+    Err("provide builtin, path, or text".into())
+}
+
 pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
     let text = |key: &str| {
         args.get(key)
@@ -889,6 +903,22 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
                 &optional("name_a")?,
                 &optional("name_b")?,
             )
+        }
+        "library.mcu.list" => Ok(json!({
+            "builtins": pcbcraft_library::mcu::builtin_ids(),
+            "file_suffix": pcbcraft_library::mcu::MCU_FILE_SUFFIX,
+        })),
+        "library.mcu.validate" => {
+            mcu_from_args(args)?;
+            Ok(json!({"ok": true}))
+        }
+        "library.mcu.inspect" => {
+            let doc = mcu_from_args(args)?;
+            Ok(json!({
+                "document": doc,
+                "pin_count": doc.pin.len(),
+                "package_count": doc.package.len(),
+            }))
         }
         _ => Err("unknown library query".into()),
     }
