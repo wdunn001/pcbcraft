@@ -18,8 +18,8 @@ mod gerber_job;
 mod laser;
 mod layers;
 mod library_render;
-mod migrate;
 mod machine_profile;
+mod migrate;
 mod model_load;
 mod neoden_yy1;
 mod package;
@@ -67,7 +67,6 @@ pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
-pub use migrate::{CURRENT_VERSION, migrate, read_project};
 /// Gerber file generation for copper and silk layers.
 /// # Dependencies
 /// - crates/io/src/gerber.rs
@@ -98,6 +97,7 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use migrate::{CURRENT_VERSION, migrate, read_project};
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
