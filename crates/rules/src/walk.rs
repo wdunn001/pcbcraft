@@ -11,14 +11,19 @@ const HOP_CAP: u8 = 8;
 ///
 /// `max_hops` values above 8 are clamped to 8 before searching.
 pub struct Query<'a> {
+    /// Schematic pin where the search begins.
     pub start: PinRef,
+    /// Component kind string that ends a successful walk.
     pub target_kind: &'a str,
+    /// When set, the matching component must use this value field.
     pub value: Option<&'a str>,
+    /// Passive hops allowed; values above eight clamp to eight.
     pub max_hops: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hit {
+    /// Matching component id.
     pub part: Id,
     /// Passive parts traversed, then the matching part id.
     pub path: Vec<Id>,
@@ -634,16 +639,53 @@ mod tests {
     }
 
     #[test]
-    fn walk_clamps_hop_limit_at_cap() {
-        let q = Query {
-            start: PinRef {
-                component: 1,
-                pin: "1".into(),
+    fn walk_clamps_hop_limit_at_cap() -> Result<(), String> {
+        let mut p = Project::default();
+        let nets: Vec<Id> = (1..=11).collect();
+        for (i, id) in nets.iter().enumerate() {
+            p.nets.push(Net {
+                id: *id,
+                name: format!("N{i}"),
+                ..Default::default()
+            });
+        }
+        p.components.push(library_ic(
+            100,
+            "U1",
+            vec![Pin {
+                number: "1".into(),
+                name: "IO".into(),
+                offset: Point::default(),
+                net: Some(nets[0]),
+                electrical_type: "input".into(),
+                direction: Some(0.0),
+                unit: 1,
+            }],
+        ));
+        for i in 0..10 {
+            p.components
+                .push(wire_resistor(200 + i as Id, nets[i], nets[i + 1])?);
+        }
+        let mut cap =
+            component_template("capacitor", 300, "C1".into(), Point::default()).ok_or("cap")?;
+        for pin in &mut cap.pins {
+            pin.net = Some(nets[10]);
+        }
+        p.components.push(cap);
+        p.validate()?;
+        let hits = find(
+            &p,
+            &Query {
+                start: PinRef {
+                    component: 100,
+                    pin: "1".into(),
+                },
+                target_kind: "capacitor",
+                value: None,
+                max_hops: 255,
             },
-            target_kind: "capacitor",
-            value: None,
-            max_hops: 255,
-        };
-        assert_eq!(q.hop_limit(), HOP_CAP);
+        );
+        assert!(hits.is_empty());
+        Ok(())
     }
 }
