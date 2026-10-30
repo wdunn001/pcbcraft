@@ -36,7 +36,7 @@ deny and the aggregated result job.
 | WebAssembly | `cargo xtask wasm` | The shared UI and the browser entry point build for wasm32 |
 | Tooltip text | `cargo xtask tooltips` | Lists tooltips that repeat their label, are too short or long, omit a limit, or leave a disabled control unexplained (docs/tooltips.md). Non-fatal until `--strict` is switched on (#631); exemptions with reasons live in `crates/ui-egui/tooltip-exemptions.txt` |
 | Minimum Rust version | `cargo xtask msrv` | Builds with the `rust-version` in Cargo.toml |
-| Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
+| Licenses and advisories | `cargo xtask deny` | `deny.toml`: permissive license allow list (MIT OR Apache-2.0 project), RustSec advisories, yanked crates, unknown registries and git sources |
 | E2E and control coverage | `cargo xtask e2e` | Runs every `a_newcomer_*` story, walks every page of the UI, and fails with one line per control that has no tooltip, no story or no id (message names the id). Uploads `e2e-coverage` (report and logs). Exemptions: `e2e-exemptions.txt` |
 | UI screenshots | `cargo xtask screenshots` | Launches the real app under Xvfb with Mesa software Vulkan and captures eight views |
 | Build | `cargo build --locked` | Windows on every change, macOS also on main |
@@ -91,7 +91,7 @@ Cargo.toml. The workflow builds, from clean state:
 - `pcbcraft-<tag>-windows-x86_64.zip`
 - `pcbcraft-<tag>-macos-universal.tar.gz` and `.dmg` (Apple silicon and Intel)
 - `pcbcraft-<tag>-web.zip` (trunk build of apps/pcbcraft-web)
-- `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete corresponding source, GPL-3.0)
+- `pcbcraft-<tag>-source.tar.gz` and `-source-vendored.tar.gz` (complete source, MIT OR Apache-2.0)
 - `SHA256SUMS`
 
 Everything lands in a DRAFT GitHub Release. A maintainer reviews and publishes

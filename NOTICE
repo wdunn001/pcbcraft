@@ -1,7 +1,9 @@
 PCBCraft
 Copyright (c) 2026 PCBCraft contributors.
 
-PCBCraft is licensed under GPL-3.0-or-later. See LICENSE.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE). The licence of the whole project was changed from
+GPL-3.0-or-later to MIT OR Apache-2.0 in 2026.
 
 The craft-ui dependency is from storytold/craft-libs, revision
 1aa81a773aa9198a0e4c0daeda954d622475af38, and retains its MIT OR Apache-2.0 license.
@@ -16,3 +18,17 @@ KiCad community symbol/footprint data in test fixtures retains CC-BY-SA 4.0
 with the KiCad design-output exception. Original library license and provenance:
 crates/library/tests/fixtures/LICENSE-kicad-libraries.md and docs/kicad-libraries.md.
 Embedded library artwork in original sample circuits uses that design exception.
+
+Material under its own licence, left unchanged
+- Open-library test fixtures and the embedded library artwork in the sample circuits
+  (KiCad community symbol and footprint data): CC-BY-SA 4.0 with the KiCad design-output
+  exception, as described above. They do not become MIT OR Apache-2.0.
+- UI icons copied from Lucide: ISC, with MIT for parts derived from Feather
+  (assets/icons/ui/LICENSE-lucide.txt). The domain icons drawn for PCBCraft carry the
+  project licence.
+- IBM Plex Sans and JetBrains Mono fonts: SIL Open Font License 1.1 (OFL files beside the fonts).
+- craft-ui from storytold/craft-libs: MIT OR Apache-2.0, as described above.
+- Documentation, screenshots and the site text: CC BY-SA 4.0 (site/LICENSE-docs).
+- The PCBCraft name and logo are reserved and are not covered by either licence.
+
+Dependency licences are listed in THIRD-PARTY-LICENSES.txt.

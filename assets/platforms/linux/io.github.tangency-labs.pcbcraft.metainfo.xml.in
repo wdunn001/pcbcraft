@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github.tangency-labs.pcbcraft</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>GPL-3.0-or-later</project_license>
+  <project_license>MIT OR Apache-2.0</project_license>
   <name>PCBCraft</name>
   <summary>Open-source Rust PCB design</summary>
   <developer id="io.github.tangency-labs">

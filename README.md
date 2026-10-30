@@ -4,7 +4,7 @@ One native window for schematic, board layout, libraries and checks. Every edit
 goes through a typed engine command. The desktop, the CLI and MCP call the same
 commands.
 
-GPL-3.0-or-later. UI toolkit: pinned `craft-ui` from `storytold/craft-libs`.
+MIT OR Apache-2.0. UI toolkit: pinned `craft-ui` from `storytold/craft-libs`.
 
 This is a working foundation: a schematic, assigned footprints, basic routing,
 checks, and fabrication output. It is not a finished production suite. Open
@@ -69,6 +69,7 @@ Doc index: [docs/README.md](docs/README.md).
 
 ## License
 
-GNU GPL version 3 or later; see [LICENSE](LICENSE). Third-party crates keep
-their own notices. Provenance of adapted code and library fixtures:
+MIT OR Apache-2.0, at your option; see [LICENSE-MIT](LICENSE-MIT),
+[LICENSE-APACHE](LICENSE-APACHE) and [NOTICE](NOTICE). Third-party crates and
+assets keep their own licences ([THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt)). Provenance of adapted code and library fixtures:
 [ATTRIBUTION.md](ATTRIBUTION.md).

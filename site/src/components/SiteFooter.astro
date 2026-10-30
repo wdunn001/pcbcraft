@@ -1,7 +1,7 @@
 ---
 // Footer shared by the marketing layout and the Starlight Footer override.
 // Rules: the legal line is the owner's decision (2026-10-29): docs and screenshots CC BY-SA
-// 4.0, code GPL-3.0, name and logo reserved. It appears on every page, marketing and docs.
+// 4.0, code MIT OR Apache-2.0, name and logo reserved. It appears on every page, marketing and docs.
 // Do not: reword the line or drop a link; the full text is in site/LICENSE-docs and /license/.
 import Brand from './Brand.astro';
 import { footerColumns, url } from '../lib/site';
@@ -13,7 +13,7 @@ const columns = footerColumns();
   <div class="wrap">
     <div class="about">
       <Brand />
-      <p>Schematic, board layout, libraries and checks in one window. Free software under the GPL.</p>
+      <p>Schematic, board layout, libraries and checks in one window. Free software under the MIT and Apache 2.0 licenses.</p>
     </div>
     {
       columns.map((col) => (
@@ -36,7 +36,7 @@ const columns = footerColumns();
   <div class="wrap legal">
     <p class="license">
       Docs and screenshots <a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license noopener">CC BY-SA 4.0</a>.{" "}
-      Code <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="noopener">GPL-3.0</a>.{" "}
+      Code <a href="https://opensource.org/license/mit" rel="noopener">MIT</a> OR <a href="https://www.apache.org/licenses/LICENSE-2.0" rel="noopener">Apache-2.0</a>.{" "}
       <a href={url('license/')}>PCBCraft name and logo reserved</a>.
     </p>
   </div>

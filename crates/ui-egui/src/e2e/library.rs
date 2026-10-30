@@ -22,7 +22,7 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     tap_id(
         &ctx,
         &mut app,
-        "button:#-pin connector, Built in \u{b7} GPL-#.#-or-later",
+        "button:#-pin connector, Built in \u{b7} MIT OR Apache-#.#",
     )?;
     assert!(
         matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),

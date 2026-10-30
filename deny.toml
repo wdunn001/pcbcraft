@@ -10,11 +10,11 @@ yanked = "deny"
 ignore = []
 
 [licenses]
-# PCBCraft is GPL-3.0-or-later. Every dependency license must be compatible
-# with distributing the combined work under GPL-3.0.
+# PCBCraft is MIT OR Apache-2.0. Every dependency license must be permissive
+# enough to distribute the combined work under those terms. No GPL, LGPL or AGPL.
+# MPL-2.0 stays allowed: it is file-level copyleft and fine as an unmodified dependency.
 confidence-threshold = 0.93
 allow = [
-    "GPL-3.0-or-later",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "MIT",

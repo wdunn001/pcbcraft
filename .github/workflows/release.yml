@@ -1,4 +1,4 @@
-# Tagged release: build every platform, attach checksums and GPL source
+# Tagged release: build every platform, attach checksums and source
 # archives, and open a DRAFT GitHub Release. A maintainer reviews and
 # publishes it by hand; this workflow never publishes.
 #
@@ -155,7 +155,7 @@ jobs:
             git log --no-merges --reverse --format='- %s (%h)' "$range"
             echo
             echo "Binaries are not code-signed yet. Verify downloads against SHA256SUMS.txt."
-            echo "The source archives are the complete corresponding source under GPL-3.0-or-later."
+            echo "The source archives are the complete source under MIT OR Apache-2.0."
           } > notes.md
           cat notes.md
       - name: Create the draft release

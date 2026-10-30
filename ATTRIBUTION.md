@@ -39,3 +39,7 @@ descriptions. No third-party router source was copied or ported.
 ## UI icons (assets/icons/ui)
 
 Generic icons are copied from Lucide (lucide-static 0.468.0), ISC license with MIT for parts derived from Feather; the license text is in assets/icons/ui/LICENSE-lucide.txt. Each file names its source icon in a leading comment. Domain icons (via, pads, zone, keepout, net, track, diff pair, footprint, courtyard, drill, stackup, layers, board outline, cutout, mounting hole, wire, bus, label, port, power, no-connect, junction, part, sheet, drill file) are drawn for PCBCraft and carry the project license.
+
+## Project licence
+
+The project licence changed from GPL-3.0-or-later to MIT OR Apache-2.0 (see NOTICE). Material listed above under its own licence keeps it. Code adapted from other projects must be under a compatible permissive licence.

@@ -11,7 +11,7 @@ priority: optional
 maintainer: ${PCBCRAFT_MAINTAINER}
 vendor: PCBCraft contributors
 homepage: https://github.com/tangency-labs/pcbcraft
-license: GPL-3.0-or-later
+license: MIT OR Apache-2.0
 description: |-
   Open-source Rust PCB design: schematic, layout, checks, and KiCad export.
   Includes pcbcraft-cli for headless commands and an MCP server for agents.

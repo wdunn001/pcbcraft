@@ -17,7 +17,7 @@ description: |
 
   The command-line tool is `pcbcraft.cli` (for example `pcbcraft.cli help`).
 adopt-info: pcbcraft
-license: GPL-3.0-or-later
+license: MIT OR Apache-2.0
 contact: https://github.com/tangency-labs/pcbcraft/issues
 website: https://github.com/tangency-labs/pcbcraft
 source-code: https://github.com/tangency-labs/pcbcraft

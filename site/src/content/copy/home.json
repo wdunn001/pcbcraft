@@ -6,7 +6,7 @@
     "lede": { "text": "Every edit goes through a typed engine command. The desktop, the CLI and MCP call the same commands.", "placeholder": true },
     "primary": { "text": "Download", "placeholder": false },
     "secondary": { "text": "Try it in the browser", "placeholder": false },
-    "meta": { "text": "Code GPL-3.0. Docs and screenshots CC BY-SA 4.0.", "placeholder": false },
+    "meta": { "text": "Code MIT OR Apache-2.0. Docs and screenshots CC BY-SA 4.0.", "placeholder": false },
     "caption": { "text": "Layout view", "placeholder": false }
   },
   "pipeline": {
