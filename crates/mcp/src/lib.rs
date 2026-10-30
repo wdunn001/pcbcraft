@@ -66,6 +66,8 @@ pub fn tool_list() -> Value {
         json!({"name":"library.sources","description":"List every library location the unified browser reads: folders the user added and installed locations, each with collection counts","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"library.set_source_role","description":"Mark a registered library folder as the personal or shared save target for part.save; clears the same role from any other folder","inputSchema":object(json!({"path":{"type":"string"},"role":{"type":"string","enum":["personal","shared"],"description":"omit to clear the role on this folder"}}),&["path"])}),
+        json!({"name":"library.read_part_sidecar","description":"Read a .pcbcraft-part.json sidecar for parameters, alternates and provenance beside symbol and footprint files","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
@@ -110,7 +112,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 16] = [
         "inspect_design",
         "list_commands",
         "checks",
@@ -123,6 +125,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.inspect_footprint",
         "library.compare",
         "library.sources",
+        "library.read_part_sidecar",
         "design.recents",
         "design.list_open",
         "design.activate",
