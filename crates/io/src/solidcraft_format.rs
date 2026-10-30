@@ -593,7 +593,7 @@ mod tests {
                 bodies: BTreeMap::from([(
                     "Body1".into(),
                     json!({"name": "Part", "color": [200, 200, 200], "opacity": 1.0}),
-                )],
+                ))],
                 extra: BTreeMap::new(),
             },
             extra: BTreeMap::new(),
