@@ -22,8 +22,8 @@
   </description>
   <launchable type="desktop-id">io.github.tangency-labs.pcbcraft.desktop</launchable>
   <icon type="stock">io.github.tangency-labs.pcbcraft</icon>
-  <url type="homepage">https://github.com/tangency-labs/pcbcraft</url>
-  <url type="bugtracker">https://github.com/tangency-labs/pcbcraft/issues</url>
+  <url type="homepage">https://github.com/wdunn001/pcbcraft</url>
+  <url type="bugtracker">https://github.com/wdunn001/pcbcraft/issues</url>
   <categories>
     <category>Electronics</category>
     <category>Engineering</category>

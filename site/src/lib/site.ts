@@ -31,7 +31,7 @@ export const MORE: NavItem[] = [
   { label: 'License', path: 'license/' },
 ];
 
-export const REPO_URL = 'https://github.com/tangency-labs/pcbcraft';
+export const REPO_URL = 'https://github.com/wdunn001/pcbcraft';
 
 export interface FooterColumn {
   title: string;

@@ -278,9 +278,9 @@ Optional. Checks a pull request against its issue before or while the integrator
 Integrators verify pull requests and merge them into `main`, so `main` is always the integrated build.
 
 1. Watch `gh pr list -R wdunn001/pcbcraft --state open` for pull requests with green CI. Workers do not need to ask.
-2. Verify the pull request: it merges cleanly, the report is complete, the Definition of Done is ticked and the rules in section 5 hold. Then merge it with a merge commit, never a squash or a rebase of `main`:
+2. Verify the pull request: it merges cleanly, the report is complete, the Definition of Done is ticked and the rules in section 5 hold. Wait until the pull request's "CI result" check is green (`main` has no required checks, so do not use `--auto`: it merges at once). Then merge it with a merge commit, never a squash or a rebase of `main`:
    ```sh
-   gh pr merge N -R wdunn001/pcbcraft --merge --auto
+   gh pr merge N -R wdunn001/pcbcraft --merge
    ```
 3. Resolve conflicts in the merge commit, keeping both sides' intent; if the resolution is not obvious, ask on both issues before merging.
 4. Watch the GitHub Actions run on `main`. The change is done when that full build is green; if it is red, fix forward on a branch with its own pull request or report on the issue, and never rewrite `main`.

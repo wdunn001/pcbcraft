@@ -3364,7 +3364,7 @@ impl App {
                 .clicked()
             {
                 let url = format!(
-                    "https://github.com/tangency-labs/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
+                    "https://github.com/wdunn001/pcbcraft/issues/new?labels=bug&title=Bug%20report&body=Version%20{}%0A",
                     env!("CARGO_PKG_VERSION")
                 );
                 ui.ctx().open_url(egui::OpenUrl::new_tab(url));

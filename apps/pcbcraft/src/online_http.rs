@@ -73,7 +73,7 @@ impl Default for Policy {
 /// The User-Agent every call sends.
 pub fn user_agent() -> String {
     format!(
-        "PCBCraft/{} (+https://github.com/tangency-labs/pcbcraft)",
+        "PCBCraft/{} (+https://github.com/wdunn001/pcbcraft)",
         env!("CARGO_PKG_VERSION")
     )
 }

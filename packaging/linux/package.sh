@@ -32,7 +32,7 @@ case "$ARCH" in
   aarch64 | arm64) ARCH=aarch64; DEB_ARCH=arm64; LINUX_TARGET="${LINUX_TARGET:-aarch64-unknown-linux-gnu}" ;;
   *) echo "unsupported architecture $ARCH" >&2; exit 2 ;;
 esac
-export PCBCRAFT_MAINTAINER="${PCBCRAFT_MAINTAINER:-PCBCraft contributors <https://github.com/tangency-labs/pcbcraft>}"
+export PCBCRAFT_MAINTAINER="${PCBCRAFT_MAINTAINER:-PCBCraft contributors <https://github.com/wdunn001/pcbcraft>}"
 export PCBCRAFT_BUILD_DATE
 BASENAME="pcbcraft-$DIST_TAG-linux-$ARCH"
 
