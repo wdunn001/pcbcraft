@@ -24,6 +24,7 @@ mod library_dock;
 mod modifiers;
 mod nets;
 mod pairs;
+mod pnp_machine;
 mod pours;
 mod route_drag;
 mod rules;

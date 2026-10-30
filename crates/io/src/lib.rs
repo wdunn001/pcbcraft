@@ -120,9 +120,10 @@ pub use pcbcraft_doc::Layer;
 /// # Dependencies
 /// - crates/io/src/placement_flavour.rs
 pub use placement_flavour::{
-    AngleRange, BottomRotation, ColumnField, DnpRule, PlacementColumn, PlacementFlavour,
+    AngleRange, BottomRotation, ColumnField, DnpRule, PlacedRow, PlacementColumn, PlacementFlavour,
     PlacementOptions, PlacementOrigin, PlacementOutput, PlacementUnits, RotationOffset,
-    bundled_placement_flavours, flavour_rotation, placement_flavour_from_toml, placement_flavoured,
+    bundled_placement_flavours, flavour_rotation, placed_rows, placement_flavour_from_toml,
+    placement_flavoured,
 };
 /// Plot file reading types and functions for parsing Gerber and Excellon files.
 /// # Dependencies

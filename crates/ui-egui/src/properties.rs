@@ -347,6 +347,15 @@ impl App {
                 });
             },
         );
+        if self
+            .project
+            .board
+            .footprints
+            .iter()
+            .any(|f| f.component == c.id)
+        {
+            self.placement_machine_section(ui, c.id);
+        }
         egui::Frame::NONE
             .inner_margin(egui::Margin::symmetric(16, 12))
             .show(ui, |ui| {

@@ -30,6 +30,7 @@ mod motion;
 mod number_entry;
 mod pages;
 mod palette;
+mod placement_machine_ui;
 mod plot_viewer;
 mod pour_panel;
 mod properties;
@@ -1413,6 +1414,7 @@ impl App {
                 self.preferences.left_tab = 0;
                 self.region().left_tab = "layers".to_owned();
             }
+            Some("machines") => self.region().left_tab = "machines".to_owned(),
             _ => {}
         }
         self

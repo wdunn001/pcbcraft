@@ -1,5 +1,7 @@
 //! Canonical project data. No UI or protocol dependencies.
 mod machine_profile;
+mod placement_machine;
+pub use placement_machine::*;
 mod outline;
 pub use machine_profile::*;
 pub use outline::{

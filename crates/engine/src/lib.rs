@@ -30868,7 +30868,10 @@ mod tests {
                 s.execute("machine.add", json!({"preset": preset}), None)?;
             }
         }
-        assert_eq!(s.project.machine_profiles.len(), 5);
+        assert_eq!(
+            s.project.machine_profiles.len(),
+            pcbcraft_io::builtin_machine_profile_ids().len()
+        );
         assert!(
             s.execute("machine.add", json!({"preset":"commarker-b6-mopa"}), None)
                 .is_err()
