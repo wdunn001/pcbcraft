@@ -22,6 +22,8 @@ pub enum ListingSource {
     Project,
     /// A part from an installed library.
     Installed,
+    /// A symbol or footprint from the open online library.
+    OpenLibrary,
     /// A part from an online distributor.
     Distributor,
 }
