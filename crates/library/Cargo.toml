@@ -14,5 +14,10 @@ thiserror.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 
+[features]
+default = []
+# Live distributor HTTP; off by default so only recorded answers run in normal builds.
+distributor-network = []
+
 [lints]
 workspace = true
