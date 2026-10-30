@@ -106,11 +106,58 @@ menu.settings.language.system.tip = Follow the language of this computer.
 menu.settings.language.pick.tip = Show the app in this language.
 
 menu.help = Help
-menu.help.tip = Shortcuts, the command search and bug reports.
+menu.help.tip = Shortcuts, tours, the command search and bug reports.
 menu.help.shortcuts = Shortcuts
 menu.help.shortcuts.tip = Show every keyboard shortcut and mouse gesture in one list.
 menu.help.commands = Commands
 menu.help.commands.tip = Search every command by name and run it, with its parameters explained.
+menu.help.tours = Tours
+menu.help.tours.tip = Walkthroughs that point at real controls; restart any of them here.
+menu.help.tours.browser_note = Tour progress is kept in this browser.
+
+tour.menu.start = Start
+tour.menu.start.tip = Begin this tour from the first step.
+tour.menu.restart = Restart
+tour.menu.restart.tip = Run this tour again from the first step.
+tour.menu.resume_at = Resume at step {step}
+tour.menu.resume_at.tip = Continue where you left off.
+
+tour.runner.step = Step {step} of {total}
+tour.runner.step.tip = Where you are in this tour.
+tour.runner.back = Back
+tour.runner.back.tip = Show the previous step.
+tour.runner.skip = Skip
+tour.runner.skip.tip = Leave the tour for now; Help > Tours can resume here later.
+tour.runner.next = Next
+tour.runner.next.tip = Advance to the next step.
+tour.runner.hint = The full spotlight overlay lands in a follow-up release.
+tour.runner.hint.tip = These controls save your place even before the overlay ships.
+
+tour.card.first_launch.title = New here?
+tour.card.first_launch.title.tip = A one-time welcome; tours never start on their own.
+tour.card.first_launch.body = PCBCraft can walk you through the window with short, skippable tours. Nothing starts until you choose one.
+tour.card.first_launch.body.tip = You stay in control; dismiss this card any time.
+tour.card.first_launch.footer = You can always open tours from Help > Tours.
+tour.card.first_launch.footer.tip = The Help menu lists every tour with its progress.
+tour.card.learn_more = Show me
+tour.card.learn_more.tip = Open the welcome tour when you are ready.
+tour.card.not_now = Not now
+tour.card.not_now.tip = Hide this card; you can start a tour from Help later.
+
+tour.chip.start.tip = Start this tour when you are ready.
+tour.chip.dismiss.tip = Hide this offer for this visit.
+tour.chip.hint = Tours never run twice in one session unless you ask.
+tour.chip.hint.tip = Help > Tours always lists every tour.
+
+tour.command.row = Tour: {label}
+tour.command.row.tip = Start this tour from the command search.
+
+tour.panel_hint.tip = Start the tour for this panel.
+
+tour.e2e_resume.list = Layout walkthrough (test)
+tour.e2e_resume.list.tip = Headless story fixture for tour progress.
+tour.e2e_resume.chip = Tour: Layout ({steps} steps)
+tour.e2e_resume.chip.tip = Story fixture chip label.
 
 pad_labels.number = Pads: number
 pad_labels.net = Pads: net
@@ -918,6 +965,8 @@ settings.settings_tab.choose_what_is_drawn_at.tip = Choose what is drawn at each
 settings.settings_tab.accent_color = Accent color
 settings.settings_tab.reduce_motion = Reduce motion
 settings.settings_tab.reduce_motion.tip = Turn off fades and gliding zoom. The wheel zooms in one step. Dragging is unchanged.
+settings.settings_tab.offer_tours = Offer tours
+settings.settings_tab.offer_tours.tip = When off, no tour chip or welcome card appears until you open Help > Tours or search for a tour.
 settings.settings_tab.appearance_is_saved_automatically = Appearance is saved automatically.
 settings.settings_tab.schematic_and_board = SCHEMATIC AND BOARD
 settings.settings_tab.auto_sync = Keep the board in sync with the schematic automatically

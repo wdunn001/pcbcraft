@@ -48,6 +48,7 @@ mod targets;
 pub mod theme;
 mod tool_modifiers;
 mod toolbar;
+mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
@@ -719,6 +720,15 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
+    /// When off, no tour chip or first-launch card appears without an explicit ask.
+    #[serde(default = "default_true")]
+    offer_tours: bool,
+    /// Per-tour progress (per browser profile on the web build).
+    #[serde(default)]
+    tour_progress: std::collections::BTreeMap<String, tour::state::TourRecord>,
+    /// Set once any first-launch tour card has been shown or dismissed.
+    #[serde(default)]
+    tour_first_launch_done: bool,
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -772,6 +782,9 @@ impl Default for Preferences {
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
+            offer_tours: true,
+            tour_progress: std::collections::BTreeMap::new(),
+            tour_first_launch_done: false,
         }
     }
 }
@@ -1176,6 +1189,7 @@ pub struct App {
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    tour: tour::Controller,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
 }
@@ -1749,8 +1763,75 @@ impl App {
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
             library,
+            tour: {
+                let mut catalog = Vec::new();
+                #[cfg(test)]
+                catalog.extend(tour::state::e2e_fixture_catalog());
+                tour::Controller::new(catalog)
+            },
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
+        }
+    }
+    fn tour_modal_open(&self) -> bool {
+        self.about_open
+            || self.shortcuts_open
+            || self.command_open
+            || self.compare_open
+            || self.renumber_open
+            || self.edit.dialog.open
+            || self.edit.dialog.preview_open
+    }
+    fn tour_shell_view(&self) -> tour::state::ShellView<'_> {
+        tour::state::ShellView {
+            offer_tours: self.preferences.offer_tours,
+            modal_open: self.tour_modal_open(),
+            file_busy: self.pending_source.is_some(),
+            tab: self.tab,
+            workspace: tour::WorkspaceId::from_tab(self.tab),
+            progress: &self.preferences.tour_progress,
+            first_launch_done: self.preferences.tour_first_launch_done,
+            tab_changed_at: self.tour.tab_changed_at(),
+        }
+    }
+    fn tour_tick(&mut self) {
+        if let Some(ws) = tour::WorkspaceId::from_tab(self.tab) {
+            self.tour.note_workspace_visit(ws);
+        }
+        if self.tour.first_launch_handled() {
+            self.preferences.tour_first_launch_done = true;
+        }
+        let view = self.tour_shell_view();
+        self.tour
+            .sync_triggers(view, std::time::Instant::now());
+    }
+    fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
+        let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
+        if ids.is_empty() {
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                for id in ids {
+                    self.tour_hint_button(ui, &id);
+                }
+            });
+        });
+    }
+    fn tour_hint_button(&mut self, ui: &mut egui::Ui, tour_id: &str) {
+        if self.tour.meta(tour_id).is_none() {
+            return;
+        }
+        if ui
+            .small_button("?")
+            .on_hover_text(t!("tour.panel_hint.tip"))
+            .clicked()
+        {
+            self.tour.start_from_menu(
+                &mut self.preferences.tour_progress,
+                tour_id,
+                tour::state::MenuAction::Start,
+            );
         }
     }
     fn refresh(&mut self) {
@@ -1981,6 +2062,8 @@ impl App {
         if !page(tab) && !page(self.tab) {
             self.needs_fit = true;
         }
+        self.tour
+            .note_tab_change(std::time::Instant::now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
@@ -3373,6 +3456,43 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
+            ui.menu_button(t!("menu.help.tours"), |ui| {
+                if self.browser {
+                    ui.label(
+                        egui::RichText::new(t!("menu.help.tours.browser_note"))
+                            .small()
+                            .color(self.muted()),
+                    );
+                    ui.separator();
+                }
+                for row in self.tour.menu_rows(&self.preferences.tour_progress) {
+                    let label = pcbcraft_text::lookup(&row.list_key, &[]);
+                    let detail = match row.action {
+                        tour::state::MenuAction::Resume => {
+                            let step = self
+                                .preferences
+                                .tour_progress
+                                .get(&row.id)
+                                .map(|r| r.step + 1)
+                                .unwrap_or(1);
+                            pcbcraft_text::lookup(&row.detail_key, &[("step", &step.to_string())])
+                        }
+                        tour::state::MenuAction::Restart | tour::state::MenuAction::Start => {
+                            pcbcraft_text::lookup(&row.detail_key, &[])
+                        }
+                    };
+                    if ui.button(format!("{label} ({detail})")).clicked() {
+                        self.tour.start_from_menu(
+                            &mut self.preferences.tour_progress,
+                            &row.id,
+                            row.action,
+                        );
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -3503,6 +3623,9 @@ impl App {
             && let Some(tab) = tabs.get(current)
         {
             self.region().left_tab = tab.id.to_owned();
+        }
+        if self.region().left_tab == "library" {
+            self.tour_panel_hints(ui);
         }
     }
     /// Body of the Layers tab: the parts list and the layer tree.
@@ -4397,6 +4520,11 @@ impl App {
             t!("settings.settings_tab.reduce_motion"),
         )
         .on_hover_text(t!("settings.settings_tab.reduce_motion.tip"));
+        ui.checkbox(
+            &mut self.preferences.offer_tours,
+            t!("settings.settings_tab.offer_tours"),
+        )
+        .on_hover_text(t!("settings.settings_tab.offer_tours.tip"));
         self.language_menu(ui);
         ui.label(
             egui::RichText::new(t!(
@@ -6267,6 +6395,7 @@ impl App {
             let mut padded = egui::Frame::NONE
                 .inner_margin(theme::aside_margin())
                 .begin(ui);
+            self.tour_panel_hints(&mut padded.content_ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
             return;
@@ -6723,6 +6852,28 @@ impl App {
                                     ui.label(egui::RichText::new(line).small().color(self.muted()));
                                 }
                             }
+                            for (cmd, list_key) in self.tour.command_entries() {
+                                let label = pcbcraft_text::lookup(&list_key, &[]);
+                                if !query.is_empty()
+                                    && !fuzzy_match(&query, &label)
+                                    && !fuzzy_match(&query, &cmd)
+                                {
+                                    continue;
+                                }
+                                let row_text = t!("tour.command.row", label = label);
+                                if ui
+                                    .selectable_label(false, row_text)
+                                    .on_hover_text(t!("tour.command.row.tip"))
+                                    .clicked()
+                                {
+                                    let id = cmd.strip_prefix("tour:").unwrap_or(&cmd);
+                                    self.tour.start_from_menu(
+                                        &mut self.preferences.tour_progress,
+                                        id,
+                                        tour::state::MenuAction::Start,
+                                    );
+                                }
+                            }
                             for (row, spec) in matches.iter().enumerate() {
                                 let row_text = t!(
                                     "board.footer.id_description",
@@ -7156,6 +7307,7 @@ impl App {
         #[cfg(test)]
         self.icon_rects.clear();
         self.refresh();
+        self.tour_tick();
         icons::install(&ctx);
         a11y::sync_ui_scale(&ctx, &mut self.preferences.ui_scale);
         self.assistant_frame(&ctx);
@@ -7210,6 +7362,15 @@ impl App {
                 });
         }
         a11y::paint_focus_ring(&ctx, self.accent());
+        let muted = self.muted();
+        let accent = self.accent();
+        tour::paint_offers(
+            ui,
+            &mut self.tour,
+            &mut self.preferences.tour_progress,
+            muted,
+            accent,
+        );
         self.capture(&ctx);
         ctx.request_repaint_after(std::time::Duration::from_millis(200));
     }
