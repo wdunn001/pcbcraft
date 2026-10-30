@@ -22999,14 +22999,20 @@ mod tests {
             json!({"name":"R_0805_2012Metric","preset":"rotate_90"}),
             None,
         )?;
-        assert!(
-            (s.inspect()["project"]["library"]["footprints"][0]["model"]["rotate"][2]
-                .as_f64()
-                .unwrap_or(0.0)
-                - 90.0)
-                .abs()
-                < 1e-9,
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["rotate"][2].as_f64(),
+            Some(90.0),
             "rotate_90 turns the model about Z"
+        );
+        s.execute(
+            "library.footprint.set_model_transform",
+            json!({"name":"R_0805_2012Metric","preset":"mirror"}),
+            None,
+        )?;
+        assert_eq!(
+            s.inspect()["project"]["library"]["footprints"][0]["model"]["scale"][0].as_f64(),
+            Some(-1.0),
+            "mirror negates X scale for a vertical-axis flip"
         );
         s.undo()?;
         assert_eq!(
