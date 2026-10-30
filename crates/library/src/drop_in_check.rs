@@ -8,6 +8,10 @@ const MAX_PADS: usize = 512;
 const MAX_PIN_TO_PAD: usize = 512;
 const MAX_STRING: usize = 256;
 
+fn default_category() -> Category {
+    Category::Other
+}
+
 /// One pin as used for pinout comparison.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,9 +37,8 @@ pub struct DropInPart {
     pub pins: Vec<DropInPin>,
     #[serde(default)]
     pub pin_to_pad: BTreeMap<String, Vec<String>>,
-    #[serde(default)]
+    #[serde(default = "default_category")]
     pub category: Category,
-    #[serde(default)]
     pub lifecycle: Lifecycle,
     pub value: Option<f64>,
     pub value_unit: Option<Unit>,
