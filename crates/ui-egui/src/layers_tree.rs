@@ -134,6 +134,8 @@ pub(crate) enum Action {
     HighlightNet(Option<Id>),
     /// Make this row the drawing target (the toolbar's Layer field follows).
     SetTarget(Target),
+    /// A click on a layer row: pin or unpin its see-through view.
+    PinView(Target),
     /// Add two inner copper layers below the named copper layer.
     StackAddPair(String),
     /// Rename a stackup layer.
@@ -221,6 +223,10 @@ pub(crate) struct TreeView {
     pub cursor: Option<String>,
     /// A row selected that is not one object: the board outline, a layer, a net.
     pub selected_key: Option<String>,
+    /// The layer or sublayer under the pointer this frame, for the see-through preview.
+    pub hover_target: Option<Target>,
+    /// Key of the row under the pointer this frame.
+    hovered_row: Option<String>,
     /// A rename in progress from a row menu: what it renames and the text so far.
     pub rename: Option<(RenameFor, String)>,
     last_selected: Option<Id>,
@@ -264,6 +270,8 @@ impl Default for TreeView {
             locked: BTreeSet::new(),
             cursor: None,
             selected_key: None,
+            hover_target: None,
+            hovered_row: None,
             rename: None,
             last_selected: None,
             scroll_to: None,
@@ -1879,6 +1887,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     }
     let all = rows(env, view);
+    view.hovered_row = None;
     header(ui, env, view, &all, &colours, &mut actions);
     let n = all.len();
     keyboard(ui, env, view, &all, &mut actions);
@@ -1902,6 +1911,7 @@ pub(crate) fn show(ui: &mut Ui, env: &Env, view: &mut TreeView) -> Vec<Action> {
         }
     });
     ui.spacing_mut().item_spacing.y = spacing;
+    view.hover_target = hovered_stack_target(env, &all, view.hovered_row.as_deref());
     view.offset = output.state.offset.y;
     view.viewport = output.inner_rect.height();
     view.has_focus = has_focus;
@@ -2118,6 +2128,31 @@ fn layer_visibility_name(all: &[Row], key: &str) -> Option<&'static str> {
     }
 }
 
+/// The layer or sublayer a hovered row belongs to: its own target, or the
+/// nearest ancestor's, so a net, zone or part previews the sublayer it sits on.
+///
+/// # Rules
+/// - Edge cuts and user layers have no place in the stack, so they preview nothing.
+/// - A whole-layer row (`side:` or `inner:`) previews that layer's copper.
+fn hovered_stack_target(env: &Env, all: &[Row], key: Option<&str>) -> Option<Target> {
+    let mut path = key?;
+    loop {
+        if let Some(Target::Copper(_) | Target::Silk(_) | Target::Mask(_) | Target::Paste(_)) =
+            all.iter().find(|r| r.key == path).and_then(|r| r.target)
+        {
+            return all.iter().find(|r| r.key == path).and_then(|r| r.target);
+        }
+        match path.rsplit_once('/') {
+            Some((parent, _)) => path = parent,
+            // A whole-layer row previews that layer's copper.
+            None if path.starts_with("side:") || path.starts_with("inner:") => {
+                return Some(Target::Copper(path_layer(env, path)));
+            }
+            None => return None,
+        }
+    }
+}
+
 /// Paint one row; returns true when it holds keyboard focus.
 fn paint_row(
     ui: &mut Ui,
@@ -2134,6 +2169,9 @@ fn paint_row(
     if view.focus_pending.as_deref() == Some(r.key.as_str()) {
         resp.request_focus();
         view.focus_pending = None;
+    }
+    if resp.hovered() {
+        view.hovered_row = Some(r.key.clone());
     }
     let focused = resp.has_focus();
     let selected = (r.marks && r.select.is_some() && r.select == env.selected)
@@ -3018,6 +3056,9 @@ fn activate(view: &mut TreeView, r: &Row, actions: &mut Vec<Action>) {
     view.selected_key = Some(r.key.clone());
     if let Some(target) = r.target {
         actions.push(Action::SetTarget(target));
+        if !matches!(target, Target::Edge | Target::User(_)) {
+            actions.push(Action::PinView(target));
+        }
     }
     actions.push(Action::SelectKey(r.key.clone()));
     actions.push(Action::HighlightNet(r.net));
@@ -3199,6 +3240,7 @@ impl crate::App {
                     self.run("board.layer_delete", serde_json::json!({"layer": id}));
                 }
                 Action::SetTarget(target) => self.set_target(target),
+                Action::PinView(target) => self.pin_view(target),
                 Action::StackAddPair(name) => {
                     self.run("board.stackup_add_pair", serde_json::json!({"after": name}));
                 }

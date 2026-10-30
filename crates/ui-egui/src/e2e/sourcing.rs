@@ -95,7 +95,7 @@ fn a_newcomer_adds_a_manufacturer_part_number_in_properties() -> Result<(), Stri
 }
 
 #[test]
-fn a_newcomer_exports_a_bom_with_supplier_part_numbers() -> Result<(), String> {
+fn a_newcomer_adds_a_supplier_part_number_and_sees_it_in_the_bom() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());
     let id = open_first_part_properties(&ctx, &mut app)?;

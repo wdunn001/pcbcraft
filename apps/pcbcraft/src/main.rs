@@ -13,7 +13,7 @@ fn main() -> eframe::Result {
     };
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge"
+            "PCBCraft — one-window Rust EDA\n\n--sample | --project FILE\n--control 127.0.0.1:7991\n--size WxH\n--tab files|schematic|pcb|rules|settings|libraries|project-library|symbol-editor|footprint-editor|checks|3d\n--light\n--capture /absolute/path.png\n--select REFERENCE\n--search WORDS\n--place-first-online\n--left library|layers\n--context-menu\n--show file-export|export-dialog\n--menu tree-layer|tree-part|tree-net|library-card|finding|page-tab\n--sheet\n--target silk|edge\n--view3d top|front|side|bottom"
         );
         return Ok(());
     }
@@ -75,6 +75,7 @@ fn main() -> eframe::Result {
     let sheet = args.iter().any(|a| a == "--sheet");
     let target = option("--target");
     let search = option("--search");
+    let view3d = option("--view3d");
     let place_first = args.iter().any(|a| a == "--place-first-online");
     let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
         args.iter().any(|a| a == "--offline"),
@@ -98,6 +99,7 @@ fn main() -> eframe::Result {
                     .with_capture_show(show)
                     .with_capture_target(target)
                     .with_capture_search(search)
+                    .with_capture_view3d(view3d)
                     .with_capture_place(place_first)
                     .with_online_fetcher(
                         Box::new(online_http::HttpFetcher::new(

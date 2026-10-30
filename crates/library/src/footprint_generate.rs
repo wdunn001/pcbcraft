@@ -81,6 +81,20 @@ pub struct LandPatternParams {
 }
 
 /// Build a footprint from a family id and parameter object.
+/// Generate a footprint from an IPC-7351B land pattern family.
+///
+/// # Rules
+/// - Density governs courtyard clearance, silk stroke, and pad size
+/// - All package dimensions are validated before generation
+/// - The resulting footprint is validated and must pass
+///
+/// # Dependencies
+/// - crates/library/src/footprint_generate.rs [`LandPatternParams`] for bounded input validation
+/// - crates/library/src/footprint_generate.rs [`FootprintDefinition`] for output structure
+///
+/// # Do not
+/// - Change density constants without updating IPC-7351B reference
+/// - Add new families without corresponding validation tests
 pub fn generate_footprint(
     family: &str,
     density: LandPatternDensity,

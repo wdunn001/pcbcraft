@@ -58,12 +58,12 @@ fn drag(ctx: &egui::Context, app: &mut App, from: egui::Pos2, by: egui::Vec2) {
 fn a_newcomer_opens_the_3d_view_and_sees_the_parts() -> Result<(), String> {
     let (ctx, mut app, _) = open_3d()?;
     assert!(
-        paints_text(&ctx, &mut app, "Reset view")?,
-        "the 3D tab shows its controls with no GPU renderer"
+        paints_text(&ctx, &mut app, "Drag to turn the board.")?,
+        "the 3D tab shows its hint with no GPU renderer"
     );
     assert!(
         paints_text(&ctx, &mut app, "J1")?,
-        "the parts list names the connector"
+        "the Layers tree names the connector"
     );
     assert!(
         paints_text(&ctx, &mut app, "default boxes")?,
@@ -138,11 +138,21 @@ fn a_newcomer_clicks_a_part_in_3d_and_sees_its_properties() -> Result<(), String
 }
 
 #[test]
-fn a_newcomer_picks_a_part_from_the_3d_list() -> Result<(), String> {
+fn a_newcomer_picks_a_part_from_the_layers_tree_in_3d() -> Result<(), String> {
     let (ctx, mut app, j1) = open_3d()?;
-    let family = app.view3d.body_family(j1).ok_or("J1 should have a body")?;
-    authoring::tests::tap(&ctx, &mut app, &format!("J1  {family}"))?;
-    assert_eq!(app.selected, Some(j1));
+    tap_left(&ctx, &mut app, "J1")?;
+    let reference = app
+        .selected
+        .and_then(|id| app.project.footprint(id).map(|f| f.component))
+        .or(app.selected)
+        .and_then(|id| app.project.component(id))
+        .map(|c| c.reference.clone());
+    assert_eq!(
+        reference.as_deref(),
+        Some("J1"),
+        "a Parts row selects the part in 3D too (J1 is {j1}, selected {:?})",
+        app.selected
+    );
     Ok(())
 }
 
@@ -232,7 +242,7 @@ fn a_newcomer_sees_the_real_part_model_in_3d() -> Result<(), String> {
         "wedge.gltf",
         include_bytes!("../../../io/tests/fixtures/wedge.gltf"),
     )?;
-    let (ctx, mut app, j1) = open_3d_with_model(&path)?;
+    let (_ctx, app, j1) = open_3d_with_model(&path)?;
     assert_eq!(
         app.view3d.model_status(j1),
         Some(pcbcraft_io::ModelStatus::Loaded)
@@ -248,10 +258,6 @@ fn a_newcomer_sees_the_real_part_model_in_3d() -> Result<(), String> {
     assert!(
         (hi[0] - lo[0] - 4.0).abs() < 1e-3 && (hi[1] - lo[1] - 3.0).abs() < 1e-3,
         "the 4 by 3 millimetre wedge sits on the board: {lo:?} {hi:?}"
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "J1  model")?,
-        "the parts list says model for J1"
     );
     Ok(())
 }
@@ -274,31 +280,34 @@ fn a_newcomer_sees_why_a_model_did_not_load() -> Result<(), String> {
     );
     assert!(
         paints_text(&ctx, &mut app, "Box kept.")?,
-        "the parts list says the box was kept"
+        "the 3D tab says the box was kept"
     );
     assert!(
         paints_text(&ctx, &mut app, "could not be read")?,
-        "the parts list says why in plain words"
+        "the 3D tab says why in plain words"
     );
     Ok(())
 }
 
 #[test]
-fn a_newcomer_picks_a_part_from_the_3d_list_and_resets_the_view() -> Result<(), String> {
+fn a_newcomer_looks_from_the_top_and_resets_the_3d_view() -> Result<(), String> {
     let (ctx, mut app, _j1) = open_3d()?;
-    app.selected = None;
-    tap_id(&ctx, &mut app, "button:D# chip")?;
-    assert!(app.selected.is_some(), "a part row selects that part");
-    tap_id(&ctx, &mut app, "button:R# chip")?;
-    assert!(app.selected.is_some(), "another row selects another part");
     app.view3d.yaw = 0.3;
-    tap_id(&ctx, &mut app, "button:Top view")?;
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:Top view. Look straight down at the board.",
+    )?;
     assert!(
         (app.view3d.yaw + std::f64::consts::FRAC_PI_2).abs() < 1e-9,
         "Top view looks straight down at the board"
     );
     app.view3d.yaw = 0.9;
-    tap_id(&ctx, &mut app, "button:Reset view")?;
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:Reset view. Fit the whole board in the window again.",
+    )?;
     assert!(
         (app.view3d.yaw - 0.9).abs() > 1e-9,
         "Reset view frames the board again"

@@ -378,6 +378,27 @@ fn a_newcomer_brings_in_a_drawing_and_uses_its_edge_as_the_board() -> Result<(),
 }
 
 #[test]
+fn a_newcomer_toggles_schematic_board_sync_in_settings() -> Result<(), String> {
+    let (mut app, ctx) = sample_in_settings()?;
+    assert!(
+        app.project.auto_sync,
+        "sample designs keep automatic sync on"
+    );
+    tap_id(
+        &ctx,
+        &mut app,
+        "checkbox:Keep the board in sync with the schematic automatically",
+    )?;
+    app.refresh();
+    assert!(
+        !app.project.auto_sync,
+        "one tap turns automatic sync off: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_changes_how_the_app_looks() -> Result<(), String> {
     let (mut app, ctx) = sample_in_settings()?;
     tap_id(&ctx, &mut app, "button:Light")?;
