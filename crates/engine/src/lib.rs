@@ -36158,23 +36158,24 @@ mod tests {
             .find(|f| f.component == b)
             .ok_or_else(missing)?
             .id;
-        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b) {
-            if let Some(pad) = f.pads.first_mut() {
-                pad.geometry = Some(pcbcraft_library::FootprintPad {
-                    number: "1".into(),
-                    pad_type: "smd".into(),
-                    shape: "circle".into(),
-                    position: Point::default(),
-                    rotation: 0.0,
-                    size: Point::new(1.6, 1.6),
-                    layers: vec!["In1.Cu".into()],
-                    drill: None,
-                    roundrect_ratio: None,
-                    chamfer: None,
-                    polygon: vec![],
-                    raw_source: String::new(),
-                });
-            }
+        if let Some(f) = s.project.board.footprints.iter_mut().find(|f| f.id == fp_b)
+            && let Some(pad) = f.pads.iter_mut().find(|pad| pad.number == "1")
+        {
+            pad.diameter = 1.6;
+            pad.geometry = Some(pcbcraft_library::FootprintPad {
+                number: "1".into(),
+                pad_type: "smd".into(),
+                shape: "circle".into(),
+                position: Point::default(),
+                rotation: 0.0,
+                size: Point::new(1.6, 1.6),
+                layers: vec!["In1.Cu".into()],
+                drill: None,
+                roundrect_ratio: None,
+                chamfer: None,
+                polygon: vec![],
+                raw_source: String::new(),
+            });
         }
         let tracks_before = s.project.board.tracks.len();
         let vias_before = s.project.board.vias.len();

@@ -1886,8 +1886,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, FabRules, Footprint, LayerRecord, Net, NoConnectFlag, Pad, PinRef, Track,
-        Via, component_template,
+        CopperZone, FabRules, Footprint, LayerRecord, Net, NoConnectFlag, Pad, PinRef, Track, Via,
+        component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
@@ -2596,6 +2596,26 @@ mod tests {
         p
     }
 
+    fn thru_hole_pad_geometry() -> FootprintPad {
+        FootprintPad {
+            number: "1".into(),
+            pad_type: "thru_hole".into(),
+            shape: "circle".into(),
+            position: Point::default(),
+            rotation: 0.0,
+            size: Point::new(1.6, 1.6),
+            layers: vec!["*.Cu".into(), "*.Mask".into()],
+            drill: Some(Drill {
+                size: Point::new(0.8, 0.8),
+                offset: Point::default(),
+            }),
+            roundrect_ratio: None,
+            chamfer: None,
+            polygon: vec![],
+            raw_source: String::new(),
+        }
+    }
+
     #[test]
     fn through_via_joins_top_inner_and_bottom_copper() -> Result<(), String> {
         let mut p = four_layer_project();
@@ -2604,7 +2624,16 @@ mod tests {
             name: "SIG".into(),
             ..Default::default()
         });
+        let pad_geom = thru_hole_pad_geometry();
         for (id, x) in [(2, 10.0), (3, 30.0)] {
+            if let Some(mut c) =
+                component_template("resistor", id, format!("R{id}"), Point::new(x, 10.0))
+            {
+                for pin in &mut c.pins {
+                    pin.net = Some(1);
+                }
+                p.components.push(c);
+            }
             p.board.footprints.push(Footprint {
                 id: id + 10,
                 component: id,
@@ -2615,10 +2644,10 @@ mod tests {
                 pads: vec![Pad {
                     number: "1".into(),
                     offset: Point::default(),
-                    diameter: 1.0,
+                    diameter: 1.6,
                     net: Some(1),
                     castellated: None,
-                    geometry: None,
+                    geometry: Some(pad_geom.clone()),
                 }],
             });
         }
@@ -2701,15 +2730,22 @@ mod tests {
         p.board.tracks.push(Track {
             id: 11,
             net: 2,
-            start: Point::new(10.0, 10.0),
-            end: Point::new(30.0, 10.0),
+            start: Point::new(10.0, 20.3),
+            end: Point::new(30.0, 20.3),
             width: 0.25,
             layer: inner_a,
             arc: None,
         });
         p.validate()?;
+        let clearance_on_inner = |p: &Project| {
+            drc(p).iter().any(|f| {
+                (f.code == "clearance" || f.code == "copper_short")
+                    && f.objects.contains(&11)
+                    && f.objects.contains(&10)
+            })
+        };
         assert!(
-            drc(&p).iter().any(|f| f.code == "clearance" && f.objects.contains(&11)),
+            clearance_on_inner(&p),
             "inner tracks of different nets on the same layer are checked for clearance"
         );
         if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == 11) {
@@ -2717,7 +2753,7 @@ mod tests {
         }
         p.validate()?;
         assert!(
-            !drc(&p).iter().any(|f| f.code == "clearance" && f.objects.contains(&11)),
+            !clearance_on_inner(&p),
             "moving the track to another inner layer removes the clearance finding"
         );
         Ok(())
