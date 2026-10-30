@@ -397,7 +397,8 @@ impl App {
     ///
     /// # Rules
     /// - The row never scrolls or clips; items that do not fit go into More.
-    /// - Options (Keepout toggles, Corners, Layer) and the update button sit at the right.
+    /// - Options (Keepout toggles while that tool is active, Corners while Route is
+    ///   active) sit at the right.
     ///
     /// # Do not
     /// - Draw a tool outside `toolbar_items`.
@@ -410,8 +411,9 @@ impl App {
         let pcb = self.tab == Tab::Pcb;
         // Width the right-hand options take; the tools get the rest.
         let keepout_on = pcb && matches!(self.tool, Tool::Keepout);
+        let route_on = pcb && matches!(self.tool, Tool::Route(_));
         let mut right_w = 0.0;
-        if pcb {
+        if route_on {
             right_w += 16.0 + 56.0 + 110.0 + 24.0;
         }
         if keepout_on {
@@ -491,34 +493,37 @@ impl App {
         }
     }
 
-    /// The right-hand options: Keepout toggles while that tool is active, Corners.
+    /// The right-hand options: Keepout toggles while that tool is active, Corners
+    /// while Route is active.
     fn toolbar_options(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             ui.add_space(16.0);
-            let mut idx = usize::from(!self.preferences.chamfer_corners);
-            let chamfer = t!("toolbar.corners_45");
-            let square = t!("toolbar.corners_90");
-            let (chamfer_tip, square_tip) =
-                (t!("toolbar.corners_45.tip"), t!("toolbar.corners_90.tip"));
-            segmented(
-                ui,
-                "toolbar-corners",
-                &mut idx,
-                &[
-                    Segment {
-                        label: &chamfer,
-                        tip: &chamfer_tip,
-                    },
-                    Segment {
-                        label: &square,
-                        tip: &square_tip,
-                    },
-                ],
-            );
-            ui.label(fonts::caption(t!("toolbar.corners")).color(t.muted))
-                .on_hover_text(t!("toolbar.corners.tip"));
-            self.preferences.chamfer_corners = idx == 0;
+            if matches!(self.tool, Tool::Route(_)) {
+                let mut idx = usize::from(!self.preferences.chamfer_corners);
+                let chamfer = t!("toolbar.corners_45");
+                let square = t!("toolbar.corners_90");
+                let (chamfer_tip, square_tip) =
+                    (t!("toolbar.corners_45.tip"), t!("toolbar.corners_90.tip"));
+                segmented(
+                    ui,
+                    "toolbar-corners",
+                    &mut idx,
+                    &[
+                        Segment {
+                            label: &chamfer,
+                            tip: &chamfer_tip,
+                        },
+                        Segment {
+                            label: &square,
+                            tip: &square_tip,
+                        },
+                    ],
+                );
+                ui.label(fonts::caption(t!("toolbar.corners")).color(t.muted))
+                    .on_hover_text(t!("toolbar.corners.tip"));
+                self.preferences.chamfer_corners = idx == 0;
+            }
             if matches!(self.tool, Tool::Keepout) {
                 ui.add_space(8.0);
                 self.keepout_options(ui, t);
