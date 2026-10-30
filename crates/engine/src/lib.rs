@@ -4939,7 +4939,7 @@ struct UpdateItem {
     #[serde(default)]
     size: Option<f64>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ComponentUpdateField {
     key: String,
