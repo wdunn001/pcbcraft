@@ -285,7 +285,7 @@ fn spilled_text(output: &egui::FullOutput, width: f32) -> Vec<String> {
 /// Text that spills past a 320 point window today (issue #647 report). The
 /// walk fails on a new spill and on a listed one that no longer happens, so
 /// the list shrinks as the layout is fixed.
-const KNOWN_REFLOW_DEFECTS: [&str; 13] = [
+const KNOWN_REFLOW_DEFECTS: [&str; 12] = [
     // The app bar's Help menu sits past the right edge of a 320 point window
     // on every page: the menu bar does not wrap or shrink. Needs a follow-up
     // issue (menu bar reflow at 320 points).
@@ -302,8 +302,6 @@ const KNOWN_REFLOW_DEFECTS: [&str; 13] = [
     "Board3d: \"Manufacture\" ends at 328",
     "Rules: \"Manufacture\" ends at 328",
     "Settings: \"Manufacture\" ends at 328",
-    // The 3D controls row is wider than the window (#827).
-    "Board3d: \"Reset view\" ends at 371",
 ];
 
 #[test]

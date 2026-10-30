@@ -411,6 +411,8 @@ fn outward(g: &Gen, reference: &str, number: &str) -> Res<Point> {
 /// Build the whole project into `g`.
 pub fn build(g: &mut Gen) -> Res<()> {
     g.cmd("project.rename", json!({"name": "Showcase sensor node"}))?;
+    // The demo board is placed loosely; its bypass capacitors sit within 15 mm of their pins.
+    g.cmd("rules.decoupling_set", json!({"max_distance_mm": 15.0}))?;
     for (key, value) in [
         ("title", "Showcase sensor node"),
         ("revision", "A"),
@@ -507,6 +509,9 @@ pub fn build(g: &mut Gen) -> Res<()> {
     schematic::check_pages(g, &sheet_ids, &made)?;
     g.cmd("board.sync", json!({}))?;
     board::build(g)?;
+    // Loading a file adopts free-form MPN and manufacturer fields into the typed record, so
+    // the generated project already holds them and a save, load and save round trip is stable.
+    g.s.project.adopt_free_form_sourcing();
     Ok(())
 }
 
