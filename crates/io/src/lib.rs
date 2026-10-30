@@ -14,6 +14,7 @@ mod fab_export;
 pub mod formats;
 mod generate;
 mod gerber;
+mod gerber_fidelity;
 mod gerber_job;
 mod laser;
 mod layers;
@@ -2311,6 +2312,11 @@ fn excellon_drill_file(
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     gerber_files_at(p, PACKAGE_CREATION_DATE)
 }
+
+/// Verify the `%TF.MD5` attribute on one Gerber layer file.
+pub fn assert_gerber_md5_valid(text: &str) -> Result<(), String> {
+    gerber_fidelity::verify_gerber_md5(text)
+}
 /// The same fabrication files as `gerber_files`, with the creation date the
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
@@ -2335,6 +2341,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     #[derive(Clone)]
     struct LayerFile {
         apertures: BTreeMap<Ap, u32>,
+        ap_fn: BTreeMap<u32, &'static str>,
         body: String,
         arcs: String,
         ops: usize,
@@ -2344,6 +2351,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         fn new(scale: f64) -> Self {
             Self {
                 apertures: BTreeMap::new(),
+                ap_fn: BTreeMap::new(),
                 body: String::new(),
                 arcs: String::new(),
                 ops: 0,
@@ -2351,7 +2359,13 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             }
         }
         fn code(&mut self, ap: Ap) -> Result<u32, String> {
+            self.code_fn(ap, None)
+        }
+        fn code_fn(&mut self, ap: Ap, function: Option<&'static str>) -> Result<u32, String> {
             if let Some(code) = self.apertures.get(&ap) {
+                if let Some(f) = function {
+                    self.ap_fn.entry(*code).or_insert(f);
+                }
                 return Ok(*code);
             }
             if self.apertures.len() >= MAX_APERTURES {
@@ -2359,6 +2373,9 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             }
             let code = 10 + self.apertures.len() as u32;
             self.apertures.insert(ap, code);
+            if let Some(f) = function {
+                self.ap_fn.insert(code, f);
+            }
             Ok(code)
         }
         fn flash(&mut self, code: u32, x: f64, y: f64) -> Result<(), String> {
@@ -2424,7 +2441,9 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 out.push_str(&format!("%TF.FileFunction,{ff}*%\n"));
             }
             for (ap, code) in &self.apertures {
-                if matches!(ap, Ap::Track(_)) {
+                if let Some(f) = self.ap_fn.get(code) {
+                    out.push_str(&format!("%TA.AperFunction,{f}*%\n"));
+                } else if matches!(ap, Ap::Track(_)) {
                     out.push_str("%TA.AperFunction,Conductor,Cu*%\n");
                 }
                 match *ap {
@@ -2458,20 +2477,30 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             out.push_str(&self.body);
             out.push_str(&self.arcs);
             out.push_str("M02*\n");
-            out
+            gerber_fidelity::attach_gerber_md5(out)
         }
     }
-    let mut front = LayerFile::new(scale);
-    let mut back = LayerFile::new(scale);
-    let mirror =
-        |x: f64, y: f64, back: bool| -> (f64, f64) { if back { (-x + 0.0, y) } else { (x, y) } };
+    let mut copper: BTreeMap<pcbcraft_doc::Layer, LayerFile> = BTreeMap::new();
+    for layer in p.copper_layers() {
+        copper.insert(layer, LayerFile::new(scale));
+    }
+    let mirror = |x: f64, y: f64, flip: bool| -> (f64, f64) {
+        if flip {
+            (-x, y)
+        } else {
+            (x, y)
+        }
+    };
     for z in &p.board.zones {
         if !z.filled {
             continue;
         }
-        let is_back = z.layer == pcbcraft_doc::Layer::Back;
+        let layer = z.layer;
+        let flip = gerber_fidelity::copper_layer_is_back(p, layer);
         let fill = pcbcraft_doc::zone_fill(p, z)?;
-        let file = if is_back { &mut back } else { &mut front };
+        let Some(file) = copper.get_mut(&layer) else {
+            continue;
+        };
         let code = file.code(Ap::Circle(1))?;
         // The fill is what ships: gaps round foreign copper, thermal spokes and
         // the island policy are already applied. Each piece is one G36 region
@@ -2480,7 +2509,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         for piece in &fill.pieces {
             for (index, ring) in piece.iter().enumerate() {
                 let points: Vec<(f64, f64)> =
-                    ring.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
+                    ring.iter().map(|q| mirror(q.x, q.y, flip)).collect();
                 if index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }
@@ -2490,10 +2519,19 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 }
             }
         }
+        for (at, diameter, function) in gerber_fidelity::plane_pour_aperture_flashes(p, z)? {
+            let w = (diameter * 1_000.0).round() as u64;
+            let code = file.code_fn(Ap::Circle(w.max(1)), Some(function))?;
+            let (x, y) = mirror(at.x, at.y, flip);
+            file.flash(code, x, y)?;
+        }
     }
     for t in &p.board.tracks {
-        let is_back = t.layer == pcbcraft_doc::Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
+        let layer = t.layer;
+        let flip = gerber_fidelity::copper_layer_is_back(p, layer);
+        let Some(file) = copper.get_mut(&layer) else {
+            continue;
+        };
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
@@ -2501,10 +2539,10 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             if file.ops > MAX_OPS {
                 return Err("gerber export exceeds the object limit".into());
             }
-            let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
-            let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
-            let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
-            let clockwise = if is_back {
+            let (sx, sy) = mirror(t.start.x, t.start.y, flip);
+            let (ex, ey) = mirror(t.end.x, t.end.y, flip);
+            let (cx, cy) = mirror(arc.center.x, arc.center.y, flip);
+            let clockwise = if flip {
                 arc.sweep > 0.0
             } else {
                 arc.sweep < 0.0
@@ -2523,8 +2561,8 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             file.stroke(
                 code,
                 &[
-                    mirror(t.start.x, t.start.y, is_back),
-                    mirror(t.end.x, t.end.y, is_back),
+                    mirror(t.start.x, t.start.y, flip),
+                    mirror(t.end.x, t.end.y, flip),
                 ],
                 false,
             )?;
@@ -2539,10 +2577,6 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 continue;
             }
             let world = f.pad_world_position(pad);
-            let through = g.pad_type == "thru_hole" || g.drill.is_some();
-            let layers = f.pad_geometry_layers(pad);
-            let is_back = f.board_side() == pcbcraft_doc::Layer::Back
-                || (!layers.is_empty() && !layers.iter().any(|l| l.starts_with("F.")));
             let ap = match g.shape.as_str() {
                 "circle" => {
                     let w = (g.size.x * 1_000.0).round() as u64;
@@ -2571,34 +2605,32 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                 }
                 _ => Ap::Circle((pad.diameter.max(0.001) * 1_000.0).round() as u64),
             };
-            let (front_code, back_code) = if through {
-                (front.code(ap.clone())?, back.code(ap.clone())?)
-            } else if is_back {
-                (0, back.code(ap)?)
-            } else {
-                (front.code(ap)?, 0)
-            };
-            if front_code != 0 {
-                front.flash(front_code, world.x, world.y)?;
-            }
-            if back_code != 0 {
-                let (x, y) = mirror(world.x, world.y, true);
-                back.flash(back_code, x, y)?;
+            for layer in p.copper_layers() {
+                if !f.pad_on_copper(pad, layer) {
+                    continue;
+                }
+                let function = gerber_fidelity::pad_copper_aperture_function(p, layer, f, pad);
+                let Some(file) = copper.get_mut(&layer) else {
+                    continue;
+                };
+                let code = file.code_fn(ap.clone(), function)?;
+                let flip = gerber_fidelity::copper_layer_is_back(p, layer);
+                let (x, y) = mirror(world.x, world.y, flip);
+                file.flash(code, x, y)?;
             }
         }
     }
     for v in &p.board.vias {
         let d = (v.diameter * 1_000.0).round() as u64;
         let ap = Ap::Circle(d.max(1));
-        let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
-        if reaches_top {
-            let front_code = front.code(ap.clone())?;
-            front.flash(front_code, v.position.x, v.position.y)?;
-        }
-        if reaches_bottom {
-            let back_code = back.code(ap)?;
-            let (x, y) = mirror(v.position.x, v.position.y, true);
-            back.flash(back_code, x, y)?;
+        for layer in p.via_span_layers(v) {
+            let Some(file) = copper.get_mut(&layer) else {
+                continue;
+            };
+            let code = file.code(ap.clone())?;
+            let flip = gerber_fidelity::copper_layer_is_back(p, layer);
+            let (x, y) = mirror(v.position.x, v.position.y, flip);
+            file.flash(code, x, y)?;
         }
     }
     let mut outline = LayerFile::new(scale);
@@ -2624,14 +2656,12 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
     let drill_map = fab_export::drill_map_plot(p)?;
     let mut files = BTreeMap::new();
-    files.insert(
-        "pcb-F.Cu.gbr".into(),
-        front.finish(false, "front copper layer", Some("Copper,L1,Top")),
-    );
-    files.insert(
-        "pcb-B.Cu.gbr".into(),
-        back.finish(true, "back copper layer", Some("Copper,L2,Bot")),
-    );
+    for (layer, file) in &copper {
+        let name = gerber_fidelity::copper_gerber_basename(p, *layer);
+        let ff = gerber_fidelity::copper_file_function(p, *layer);
+        let comment = format!("{} copper layer", p.layer_name(*layer));
+        files.insert(name, file.finish(false, &comment, Some(&ff)));
+    }
     for (layer, name) in [
         (pcbcraft_doc::Layer::Front, "F"),
         (pcbcraft_doc::Layer::Back, "B"),
@@ -2684,6 +2714,15 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     if !files.contains_key("pcb-Plated.drl") {
         files.insert("pcb-Plated.drl".into(), plated_drill);
+    }
+    for (name, text) in gerber_fidelity::mask_stack_gerber_files(p)? {
+        files.insert(name, text);
+    }
+    if gerber_fidelity::board_needs_viafill(p) {
+        files.insert(
+            "pcb-Viafill.gbr".into(),
+            gerber_fidelity::gerber_viafill(p)?,
+        );
     }
     // The job file is built from the files that exist, so it lists itself
     // last and never drifts from the package it travels in.
