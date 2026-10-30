@@ -1965,6 +1965,8 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+            instance: None,
+            prototype: None,
         });
         p.board.footprints.push(footprint(pads));
         p

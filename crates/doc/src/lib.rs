@@ -7,9 +7,14 @@ pub use outline::{
     segment_arc, validate_outline_arcs,
 };
 mod panel;
+mod sheet_instances;
 pub use panel::{
     PanelCopy, PanelGrid, PanelLayout, PanelSeparation, PanelSettings, board_copy_size,
     panel_layout, panel_layout_from_grid, panel_layout_with_settings,
+};
+pub use sheet_instances::{
+    MAX_INSTANCE_NAME, MAX_REFERENCE_OFFSET, MAX_SHEET_INSTANCES, SheetInstance, allocate_id,
+    collapse_instance, expand_instance, reference_with_offset, validate_sheet_instances,
 };
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
@@ -168,6 +173,10 @@ pub struct Component {
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
     pub sheet: Id,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prototype: Option<Id>,
 }
 fn is_root_sheet(id: &Id) -> bool {
     *id == 0
@@ -349,6 +358,9 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// When set, this net belongs to one materialized sheet instance copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<Id>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -3217,6 +3229,8 @@ pub struct Project {
     /// Named hierarchy ports, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<Port>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sheet_instances: Vec<SheetInstance>,
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
@@ -3408,6 +3422,7 @@ impl Default for Project {
             class_pairs: vec![],
             sheets: vec![],
             page_settings: vec![],
+            sheet_instances: vec![],
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
@@ -3526,6 +3541,8 @@ pub fn component_template(
         library_footprint: None,
         fields: vec![],
         sheet: 0,
+        instance: None,
+        prototype: None,
         pins: names
             .iter()
             .enumerate()
@@ -4074,7 +4091,7 @@ impl Project {
         }
         pages.into_iter().collect()
     }
-    fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
+    pub(crate) fn schematic_wire_page(&self, wire: &Wire) -> Option<Id> {
         let from = self.component(wire.from.component)?.sheet;
         let to = self.component(wire.to.component)?.sheet;
         if from == to { Some(from) } else { None }
@@ -4120,7 +4137,7 @@ impl Project {
         }
         best.1
     }
-    fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
+    pub fn schematic_drawn_wire_page(&self, wire: &DrawnWire) -> Id {
         let Some(net) = wire.net else {
             return 0;
         };
@@ -4385,6 +4402,7 @@ impl Project {
             .iter()
             .map(|x| x.id)
             .chain(self.sheets.iter().map(|x| x.id))
+            .chain(self.sheet_instances.iter().map(|x| x.id))
             .chain(self.ports.iter().map(|x| x.id))
             .chain(self.nets.iter().map(|x| x.id))
             .chain(self.net_classes.iter().map(|x| x.id))
@@ -4412,6 +4430,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        validate_sheet_instances(self)?;
         self.validate_parameters()?;
         if self
             .components
@@ -5603,6 +5622,8 @@ pub fn library_component(
         units,
         fields: vec![],
         sheet: 0,
+        instance: None,
+        prototype: None,
         library_symbol: Some(LibrarySymbol {
             library,
             unit: 1,

@@ -570,6 +570,8 @@ mod tests {
         });
         p.components.push(pcbcraft_doc::Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9002,
             reference: "R99".into(),
             value: "x".into(),

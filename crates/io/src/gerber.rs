@@ -872,6 +872,8 @@ mod tests {
         let numbers: Vec<&str> = pads.iter().map(|p| p.number.as_str()).collect();
         Component {
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
