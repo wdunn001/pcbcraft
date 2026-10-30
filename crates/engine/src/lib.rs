@@ -1,4 +1,13 @@
-//! The single mutation boundary used by UI, CLI and MCP.
+//! Command execution and undo for the design document shared by UI, CLI and MCP.
+//!
+//! Each handler parses parameters, validates against project limits, mutates a cloned
+//! project, then commits through the session revision and undo stack.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/io/src/lib.rs
+//! - crates/library/src/lib.rs
+//! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
 mod dry_run;
@@ -3591,6 +3600,14 @@ struct CopperNetParams {
     id: Id,
     net: Id,
 }
+/// Parameters of `wire.connect`: join two symbol pins with a schematic wire on a net.
+///
+/// # Rules
+/// - From and to must differ and name existing pins.
+/// - Net id is optional; when omitted the command reuses an existing pin net or allocates a new auto-named net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireParams {
@@ -3598,6 +3615,14 @@ struct WireParams {
     from: PinRef,
     to: PinRef,
 }
+/// Parameters of `wire.draw`: place a polyline schematic wire through given vertices.
+///
+/// # Rules
+/// - Two to 256 distinct in-range vertices; repeated consecutive points are refused.
+/// - Optional net id must exist when provided.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DrawnWireParams {
@@ -3673,6 +3698,15 @@ const CODE39: &[(char, &str)] = &[
     ('+', "nwnnnwnwn"),
     ('%', "nnnwnwnwn"),
 ];
+/// Parameters of `graphic.add`: create one schematic or board graphic primitive.
+///
+/// # Rules
+/// - Layer is schematic or board; shape vertex counts must match the shape rule.
+/// - Board graphics need an explicit width; schematic graphics may inherit page line width and colour.
+/// - Text graphics carry non-empty text up to 1024 bytes; board sublayers are limited to silk and mask names.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicParams {
@@ -3969,6 +4003,16 @@ struct OutputJobPackageParams {
     #[serde(default)]
     variant: Option<String>,
 }
+/// Parameters of `dxf.import`: read a DXF drawing into board graphics and optionally the board outline.
+///
+/// # Rules
+/// - Path must read as text; empty or unparseable drawings are refused.
+/// - Optional outline mode needs a closed polyline of 3 to 64 distinct vertices with measurable area.
+/// - Imported geometry must fit coordinate limits; the board holds at most 4096 graphics after import.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DxfImportParams {
@@ -3976,6 +4020,16 @@ struct DxfImportParams {
     #[serde(default)]
     use_outline: bool,
 }
+/// Parameters of `svg.import`: read an SVG drawing into board graphics and optionally the board outline.
+///
+/// # Rules
+/// - Path must read as text; empty or unparseable drawings are refused.
+/// - Optional outline mode needs a closed polygon of 3 to 64 distinct vertices with measurable area.
+/// - Imported geometry must fit coordinate limits; the board holds at most 4096 graphics after import.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SvgImportParams {
@@ -4243,17 +4297,41 @@ struct TeardropRemoveParams {
     #[serde(default)]
     layer: Option<Layer>,
 }
+/// Parameters of `library.link`: add or replace a nickname in the project library table.
+///
+/// # Rules
+/// - Nickname is 1 to 64 path-safe bytes without `/` or `\`.
+/// - Path is 1 to 1024 bytes; the table holds at most 64 entries.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LibraryLinkParams {
     name: String,
     path: String,
 }
+/// Parameters of `library.unlink`: remove one nickname from the project library table.
+///
+/// # Rules
+/// - The nickname must exist; missing names are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LibraryUnlinkParams {
     name: String,
 }
+/// Parameters of `padstack.define`: create or replace a reusable pad copper and drill template.
+///
+/// # Rules
+/// - Name is 1 to 64 bytes; shape is circle, rect, oval or roundrect with size within 0.05 to 100 mm.
+/// - Optional drill stays within 0.05 to 100 mm and smaller than the copper; circles need equal width and height.
+/// - Roundrect rounding is above 0 and at most 0.5; at most 256 padstacks per design.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadstackDefineParams {
@@ -4266,17 +4344,41 @@ struct PadstackDefineParams {
     #[serde(default)]
     rounding: Option<f64>,
 }
+/// Parameters of `padstack.remove`: delete one named padstack definition.
+///
+/// # Rules
+/// - The name must match a defined padstack.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadstackRemoveParams {
     name: String,
 }
+/// Parameters of `padstack.rename` and `padstack.duplicate`: rename or copy a padstack under a new name.
+///
+/// # Rules
+/// - Old and new names are 1 to 64 bytes; new name must differ and must not collide with an existing stack.
+/// - Duplicate refuses when the design already defines 256 padstacks.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PadstackRenameParams {
     name: String,
     new_name: String,
 }
+/// Parameters of `footprint.set_pad_stack`: reshape one placed pad to match a defined padstack.
+///
+/// # Rules
+/// - Pad number is 1 to 32 bytes; footprint and pad must exist with library geometry to reshape.
+/// - The stack name must exist; applying the same stack again is refused.
+/// - Through-hole stacks set drill and layers; surface stacks clear drill and use front copper only.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetPadStackParams {
@@ -4348,6 +4450,15 @@ fn class_pattern_matches(pattern: &str, name: &str) -> bool {
     }
     p == pattern.len()
 }
+/// Parameters of `netclass.width_rules`: set minimum and maximum routed width for a class.
+///
+/// # Rules
+/// - Each bound must be finite, above 0, and at most 100 mm; min cannot exceed max.
+/// - At least one of min_width or max_width must be sent; omitted fields keep the previous bound.
+/// - The merged bounds must still agree after partial updates.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WidthRulesParams {
@@ -4357,6 +4468,15 @@ struct WidthRulesParams {
     #[serde(default)]
     max_width: Option<f64>,
 }
+/// Parameters of `netclass.length_rules`: set target routed length and tolerance for a class.
+///
+/// # Rules
+/// - Target length must be above 0 and at most 10000 mm when set.
+/// - Tolerance must be between 0 and 1000 mm when set; a tolerance without a target is refused.
+/// - At least one of target_length or length_tolerance must be sent.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LengthRulesParams {
@@ -4372,12 +4492,30 @@ struct StubRulesParams {
     class: Id,
     max_stub: Value,
 }
+/// Parameters of `netclass.clearance`: replace the clearance value on one net class.
+///
+/// # Rules
+/// - Clearance must be finite, above 0, and at most 100 mm.
+/// - The class id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClassClearanceParams {
     class: Id,
     clearance: f64,
 }
+/// Parameters of `netclass.set`: rename a class or tune width, via and differential-pair defaults.
+///
+/// # Rules
+/// - At least one field must change; duplicate values for the class are refused.
+/// - Names are 1 to 128 bytes and must stay unique among classes.
+/// - Width, via outer, via drill, and pair width stay within documented mm limits; pair gap is at most 10 mm.
+/// - Via drill must stay smaller than the outer via diameter after merging with existing values.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClassSetParams {
@@ -4395,6 +4533,14 @@ struct ClassSetParams {
     #[serde(default)]
     pair_gap: Option<f64>,
 }
+/// Parameters of `netclass.remove`: delete one net class and release its nets.
+///
+/// # Rules
+/// - The class id must exist.
+/// - Class-pair clearance rules that reference the removed class are dropped with it.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClassRemoveParams {
@@ -4409,12 +4555,30 @@ struct NetLengthParams {
     #[serde(default)]
     tolerance: Option<f64>,
 }
+/// Parameters of `netclass.assign_pattern`: bulk-assign nets whose names match a wildcard pattern.
+///
+/// # Rules
+/// - Pattern is 1 to 64 bytes and must contain `*` or `?`.
+/// - At least one net name must match; the class must exist and stay within 256 nets after adds.
+/// - Matched nets are removed from other classes before joining the target class.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetClassPatternParams {
     class: Id,
     pattern: String,
 }
+/// Parameters of `netclass.assign`: put one net into a class or clear its class.
+///
+/// # Rules
+/// - The net must exist; an optional class id must name a defined class.
+/// - The net is removed from every class before it is added to the target class.
+/// - A class that already holds 256 nets refuses another net unless the net is already a member.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetClassAssignParams {
@@ -4944,17 +5108,43 @@ struct PadTableParams {
     #[serde(default)]
     component: Option<Id>,
 }
+/// Parameters of `netlist.export`: list nets with member pins and unconnected pins for review or export.
+///
+/// # Rules
+/// - Optional net id must name an existing net; when omitted every net is listed.
+/// - Unconnected pins exclude no-connect flags; read-only over the project.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetlistExportParams {
     #[serde(default)]
     net: Option<Id>,
 }
+/// Parameters of `netlist.import`: assign schematic pins to nets from a structured netlist payload.
+///
+/// # Rules
+/// - The list holds 1 to 256 nets with 1 to 128 pins each; total pins cannot exceed 4096.
+/// - Net names are 1 to 128 bytes; references and pin numbers are 1 to 64 bytes and must exist on the design.
+/// - A pin cannot appear under two net names or conflict with an existing net assignment.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetlistImportParams {
     nets: Vec<NetlistNet>,
 }
+/// Parameters of `netlist.import_session`: read an external router session file and import its net map.
+///
+/// # Rules
+/// - Path is 1 to 1024 bytes and must be readable text on disk.
+/// - Parsed nets are passed through the same import rules as `netlist.import`.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
+/// - crates/library/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionImportParams {
@@ -5231,6 +5421,15 @@ struct RenamePort {
     id: Id,
     name: String,
 }
+/// Parameters of `graphic.rotate`: turn one graphic in 90 degree steps about a pivot.
+///
+/// # Rules
+/// - Degrees must be a nonzero finite multiple of 90.
+/// - Optional pivot must be in range; default pivot is the graphic bounding-box centre.
+/// - Rotated vertices must stay in range.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicRotateParams {
@@ -5253,6 +5452,14 @@ struct LabelSetParams {
     #[serde(default)]
     net: Option<Id>,
 }
+/// Parameters of `wire.add_point`: insert one vertex into a drawn wire.
+///
+/// # Rules
+/// - Index may be from 0 through the current vertex count; position must be in range.
+/// - Wires hold at most 256 vertices; new points cannot sit within 0.01 mm of a neighbour.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AddPointParams {
@@ -5260,18 +5467,42 @@ struct AddPointParams {
     index: u32,
     position: Point,
 }
+/// Parameters of `wire.remove_point`: delete one vertex from a drawn wire.
+///
+/// # Rules
+/// - At least two vertices must remain; junction labels on the removed point block the delete.
+/// - Index must be in range for the wire.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemovePointParams {
     id: Id,
     index: u32,
 }
+/// Parameters of `wire.move`: translate every vertex of a drawn wire by a delta.
+///
+/// # Rules
+/// - Delta must be in range; a move that leaves vertices unchanged is refused.
+/// - Junction labels on the wire net follow vertices that moved.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireMoveParams {
     id: Id,
     delta: Point,
 }
+/// Parameters of `wire.set_point`: move one vertex of a drawn wire.
+///
+/// # Rules
+/// - Index and position must be in range; the new point cannot duplicate a neighbour.
+/// - Junction labels sitting on the old vertex block the move until relocated.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePointParams {
@@ -5565,6 +5796,13 @@ struct DeltaParams {
     id: Id,
     delta: Point,
 }
+/// Parameters of `graphic.move`: translate one graphic by a delta.
+///
+/// # Rules
+/// - Every moved vertex must stay in range; the graphic id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicMoveParams {
@@ -5576,22 +5814,52 @@ struct GraphicMoveParams {
 struct ObjectGroupParams {
     members: Vec<Id>,
 }
+/// Parameters of `graphic.group`: tie two to 512 graphics so they move together.
+///
+/// # Rules
+/// - Each id must exist, be unique in the list, and not already belong to another graphic group.
+/// - A project defines at most 256 graphic groups.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicGroupParams {
     graphics: Vec<Id>,
 }
+/// Parameters of `graphic.ungroup`: remove one graphic group without deleting its graphics.
+///
+/// # Rules
+/// - The group id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicGroupIdParams {
     id: Id,
 }
+/// Parameters of `graphic.translate`: move every graphic in one group by the same delta.
+///
+/// # Rules
+/// - Group id must exist; every member vertex must stay in range after the shift.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicTranslateParams {
     id: Id,
     delta: Point,
 }
+/// Parameters of `dimension.add`: create a linear dimension as a grouped set of graphics.
+///
+/// # Rules
+/// - Layer is schematic or board; start and end must differ and stay in range.
+/// - Offset defaults to 2 mm and must be within 100 mm; room must remain under graphic and group caps.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DimensionParams {
@@ -5601,6 +5869,15 @@ struct DimensionParams {
     #[serde(default)]
     offset: Option<f64>,
 }
+/// Parameters of `dimension.set`: re-measure a linear dimension graphic group.
+///
+/// # Rules
+/// - At least one of start, end or offset must be sent.
+/// - The group must contain exactly four graphics (three lines and one text label).
+/// - New ends must differ and stay in range; offset must be within 100 mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DimensionSetParams {
@@ -5645,6 +5922,14 @@ fn dimension_pieces(start: Point, end: Point, offset: f64) -> DimensionPieces {
         ],
     )
 }
+/// Parameters of `dimension.radius` and `dimension.diameter`: measure a circle with leader and label graphics.
+///
+/// # Rules
+/// - Layer is schematic or board; centre and point must differ and stay in range.
+/// - Room must remain under graphic and group caps for the three primitives that are created.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RadialParams {
@@ -5785,6 +6070,15 @@ fn unique_reference(p: &Project, base: &str) -> String {
         }
     }
 }
+/// Parameters of `wire.split`: break one drawn wire at a point on a segment.
+///
+/// # Rules
+/// - Split point must lie on a segment, in range, and at least 0.01 mm from both endpoints.
+/// - The wire id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/geom/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SplitParams {
@@ -9123,6 +9417,7 @@ fn run_command(
             Ok(json!({"name": a.name, "shape": a.shape, "replaced": replaced}))
         }
         "design.summary" => Ok(summary::build(p)),
+        // padstack.report: list defined padstacks, count placed pads that match each stack, and summarize unused stacks.
         "padstack.report" => {
             let mut stacks = Vec::with_capacity(p.padstacks.len());
             let mut used_total = 0usize;
