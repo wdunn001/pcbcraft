@@ -1,7 +1,7 @@
-//! Stories for the left rail, the library dock, the datasheet action and the
+//! Stories for the left aside, the workspace layouts, the library dock, the datasheet action and the
 //! breathing room around every dock and tab body.
 use super::super::*;
-use super::support::{frame, scrolled_to};
+use super::support::{frame, paints_text, scrolled_to};
 
 const SCREEN: Vec2 = Vec2::new(1440.0, 940.0);
 
@@ -44,19 +44,6 @@ fn centre_of(output: &egui::FullOutput, label: &str, left_of: f32) -> Option<egu
     })
 }
 
-fn click(ctx: &egui::Context, app: &mut App, at: egui::Pos2) {
-    let press = |pressed| egui::Event::PointerButton {
-        pos: at,
-        button: egui::PointerButton::Primary,
-        pressed,
-        modifiers: egui::Modifiers::NONE,
-    };
-    frame_plain(ctx, app, vec![egui::Event::PointerMoved(at)]);
-    frame_plain(ctx, app, vec![press(true)]);
-    frame_plain(ctx, app, vec![press(false)]);
-    frame_plain(ctx, app, vec![]);
-}
-
 fn fresh() -> App {
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
@@ -82,42 +69,79 @@ fn finding_counts_split_by_loudness() {
 }
 
 #[test]
-fn a_newcomer_toggles_the_library_dock_from_the_left_rail() -> Result<(), String> {
+fn a_newcomer_switches_the_left_aside_between_layers_and_library() -> Result<(), String> {
     let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let at = centre_of(&out, "Lib", 44.0).ok_or("the rail should offer the library toggle")?;
+    app.change_tab(Tab::Schematic);
+    settled(&ctx, &mut app);
+    for word in ["Layers", "Library"] {
+        assert!(
+            paints_text(&ctx, &mut app, word)?,
+            "the left aside offers {word}"
+        );
+    }
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        app.preferences.library_dock_open,
-        "the library dock starts open"
+        !out.shapes.iter().any(|s| matches!(&s.shape,
+            egui::Shape::Text(t) if t.galley.text() == "Hide")),
+        "the left aside has no Hide button"
     );
-    click(&ctx, &mut app, at);
-    assert!(
-        !app.preferences.library_dock_open,
-        "the rail toggle hides the dock"
+    authoring::tests::tap(&ctx, &mut app, "Library")?;
+    assert_eq!(app.region().left_tab, "library", "Library shows the parts");
+    authoring::tests::tap(&ctx, &mut app, "Layers")?;
+    assert_eq!(app.region().left_tab, "layers", "Layers comes back");
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    assert_eq!(
+        app.region().left_tab,
+        "library",
+        "Place part in the tool bar opens the Library tab"
     );
-    click(&ctx, &mut app, at);
+    app.change_tab(Tab::PlotFiles);
+    settled(&ctx, &mut app);
     assert!(
-        app.preferences.library_dock_open,
-        "the rail toggle shows it again"
+        paints_text(&ctx, &mut app, "Outputs")? && paints_text(&ctx, &mut app, "Machines")?,
+        "Manufacture has its own left tabs"
     );
     Ok(())
 }
 
 #[test]
-fn a_newcomer_sees_three_stacked_check_badges_and_opens_checks() -> Result<(), String> {
+fn a_newcomer_resets_the_layout_from_the_view_menu() -> Result<(), String> {
     let mut app = fresh();
-    app.checks = json!({
-        "erc": [{"severity":"error"},{"severity":"error"},{"severity":"warning"}],
-        "drc": [{"severity":"info"},{"severity":"info"},{"severity":"info"},{"severity":"info"}]
-    });
+    app.change_tab(Tab::Schematic);
+    app.region().left_tab = "library".to_owned();
+    app.region().bottom_open = true;
     let ctx = egui::Context::default();
-    let out = settled(&ctx, &mut app);
-    let errors = centre_of(&out, "2", 44.0).ok_or("an errors badge reads 2")?;
-    centre_of(&out, "1", 44.0).ok_or("a warnings badge reads 1")?;
-    centre_of(&out, "4", 44.0).ok_or("a notes badge reads 4")?;
-    click(&ctx, &mut app, errors);
-    assert_eq!(app.tab, Tab::Checks, "a badge opens the Checks tab");
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "View")?;
+    authoring::tests::tap(&ctx, &mut app, "Reset layout")?;
+    assert_eq!(
+        app.region().left_tab,
+        "layers",
+        "the default left tab returns"
+    );
+    assert!(!app.region().bottom_open, "the sheet collapses again");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_the_layout_between_2d_and_3d_and_it_is_remembered() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Pcb);
+    settled(&ctx, &mut app);
+    authoring::tests::tap(&ctx, &mut app, "3D")?;
+    assert_eq!(app.tab, Tab::Board3d, "3D swaps the center");
+    assert!(app.region().view_3d, "the Layout workspace remembers 3D");
+    authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Layout")?;
+    assert_eq!(app.tab, Tab::Board3d, "coming back to Layout restores 3D");
+    authoring::tests::tap(&ctx, &mut app, "2D")?;
+    assert_eq!(app.tab, Tab::Pcb, "2D brings the board back");
     Ok(())
 }
 
@@ -232,13 +256,15 @@ fn a_newcomer_reads_every_dock_and_tab_body_with_room_to_spare() -> Result<(), S
     app.refresh();
     let ctx = egui::Context::default();
     let out = settled(&ctx, &mut app);
-    let (rail, dock) = (44.0, 44.0 + 260.0);
+    // No rail any more: the left aside runs from the window edge, 320 wide.
+    let (rail, dock) = (0.0, 320.0);
     // The aside may grow past its 280 px minimum, so find its edge from
     // the panel's own heading, which sits one 16 px margin inside it.
     let aside = texts(&out)
         .into_iter()
-        .find(|(w, l, _, _)| w == "Details" && *l > SCREEN.x / 2.0)
-        .map(|(_, l, _, _)| l - 16.0)
+        .find(|(w, l, _, _)| w == "Properties" && *l > SCREEN.x / 2.0)
+        // 16 px margin plus the 1 px panel stroke.
+        .map(|(_, l, _, _)| l - 17.0)
         .ok_or("the right aside should show its Details heading")?;
     assert!(
         aside <= SCREEN.x - 280.0 && aside > SCREEN.x - 420.0,
@@ -369,6 +395,71 @@ fn tabbing_through_the_docks_never_leaves_focus_under_a_floating_window() -> Res
         found.is_empty(),
         "walked {walked:?}; focus hidden under a floating window:\n{}",
         found.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_opens_the_bottom_sheet_and_reads_its_tabs() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
+    settled(&ctx, &mut app);
+    assert!(!app.region().bottom_open, "the sheet starts collapsed");
+    super::support::tap_id(&ctx, &mut app, "button:Expand")?;
+    assert!(app.region().bottom_open, "the chevron opens the sheet");
+    super::support::tap_id(&ctx, &mut app, "tab:Console")?;
+    assert_eq!(app.region().bottom_tab, "console", "Console is a tab");
+    super::support::tap_id(&ctx, &mut app, "tab:Output")?;
+    assert_eq!(app.region().bottom_tab, "output", "Output is a tab");
+    assert!(
+        paints_text(&ctx, &mut app, "Last run:")?,
+        "Output says what the last run found"
+    );
+    super::support::tap_id(&ctx, &mut app, "tab:Findings")?;
+    assert_eq!(app.region().bottom_tab, "findings", "Findings is a tab");
+    super::support::tap_id(&ctx, &mut app, "button:Collapse")?;
+    assert!(!app.region().bottom_open, "the chevron collapses it again");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_turns_the_3d_view_from_the_layout_toolbar() -> Result<(), String> {
+    let mut app = fresh();
+    app.tool_call("sample_design", json!({}));
+    app.refresh();
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Board3d);
+    settled(&ctx, &mut app);
+    let before = app.view3d.yaw;
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Turn. Turn the board a quarter turn.",
+    )?;
+    assert!(
+        (app.view3d.yaw - before).abs() > 1e-9,
+        "Turn rotates the view"
+    );
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Front. Look at the board from the front edge.",
+    )?;
+    assert!(
+        app.view3d.pitch.abs() < 1e-9,
+        "Front looks level at the board"
+    );
+    super::support::tap_id(
+        &ctx,
+        &mut app,
+        "button:Side. Look at the board from the side edge.",
+    )?;
+    assert!(
+        app.view3d.yaw.abs() < 1e-9,
+        "Side looks along the long edge"
     );
     Ok(())
 }

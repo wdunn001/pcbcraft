@@ -5,7 +5,7 @@
 //! `crates/ui-egui/src/e2e/audit.rs`); this module only reads text, so the
 //! rules are unit tested without a window.
 //!
-//! Walk log lines: `P<TAB>id` painted, `T<TAB>id<TAB>page` painted with no
+//! Walk log lines: `P<TAB>id<TAB>page` painted, `T<TAB>id<TAB>page` painted with no
 //! tooltip, `N<TAB>description` painted with no usable id. Touch log lines:
 //! one control id each.
 //!
@@ -132,6 +132,8 @@ pub fn diff(walk: &str, touched: &str, exempt: &Exemptions) -> Report {
         let mut cols = line.split('\t');
         match (cols.next(), cols.next(), cols.next()) {
             (Some("P"), Some(id), _) => {
+                // An id cut at a fixed length can end in a space; the touch log is trimmed.
+                let id = id.trim_end();
                 report.painted += 1;
                 seen.push(("story", id));
                 if !touched.contains(id) && !exempt.skips("story", id) {

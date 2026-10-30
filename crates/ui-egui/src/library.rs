@@ -1,4 +1,5 @@
 use super::*;
+use crate::a11y::Named;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 
 #[derive(Default)]
@@ -307,10 +308,13 @@ impl App {
                                 .changed();
                         }
                     }
-                });
+                })
+                .response
+                .named("Library source");
             ui.horizontal(|ui| {
                 ui.label(t!("library.collection_browser.library_path"));
                 ui.add(crate::targets::text_field(&mut self.library.path).desired_width(480.0))
+                    .named(&t!("library.collection_browser.library_path"))
                     .on_hover_text(t!(
                         "library.collection_browser.the_collection_the_search_box.tip"
                     ));
@@ -322,6 +326,7 @@ impl App {
                             .hint_text(t!("library.collection_browser.folder_to_add_as_a"))
                             .desired_width(320.0),
                     )
+                    .named("Folder to add as a library source")
                     .on_hover_text(t!("library.collection_browser.folder_to_add_as_a.tip"));
                 let selected_source = items
                     .iter()
@@ -372,13 +377,15 @@ impl App {
                 }
             });
             ui.horizontal(|ui| {
-                let response = ui.add(
-                    crate::targets::text_field(&mut self.library.query)
-                        .hint_text(t!(
-                            "library.collection_browser.search_names_descriptions_keywords"
-                        ))
-                        .desired_width(360.0),
-                );
+                let response = ui
+                    .add(
+                        crate::targets::text_field(&mut self.library.query)
+                            .hint_text(t!(
+                                "library.collection_browser.search_names_descriptions_keywords"
+                            ))
+                            .desired_width(360.0),
+                    )
+                    .named("Search names, descriptions, keywords");
                 if ui
                     .button(t!("library.collection_browser.search"))
                     .on_hover_text(t!("library.collection_browser.search.tip"))
@@ -424,7 +431,7 @@ impl App {
             if results.get("scan_truncated").and_then(Value::as_bool)==Some(true) {left.label(t!("library.collection_browser.directory_scan_reached_its_limit"));}
             let listed: Vec<Value> = results.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
             let shown: Vec<&Value> = listed.iter().filter(|item| entry_matches(item, &filter)).collect();
-            let response = left.add(crate::targets::text_field(&mut self.library.filter).hint_text(t!("library.collection_browser.filter_shown_results")).desired_width(240.0));
+            let response = left.add(crate::targets::text_field(&mut self.library.filter).hint_text(t!("library.collection_browser.filter_shown_results")).desired_width(240.0)).named("Filter shown results");
             let response = response.on_hover_text(t!("library.collection_browser.narrow_the_list_below_as.tip"));
             if left.button(t!("library.collection_browser.clear_filter")).on_hover_text(t!("library.collection_browser.clear_filter.tip")).clicked() || response.double_clicked() {self.library.filter.clear();}
             if !filter.is_empty() {left.label(t!("library.collection_browser.len_of_len2_listed_entries", len = shown.len(), len2 = listed.len()));}
@@ -511,6 +518,8 @@ impl App {
             ui.allocate_painter(Vec2::new(ui.available_width(), 180.0), egui::Sense::hover());
         let (center, extent) = library_paths_extent(&paths);
         let camera = Camera {
+            mirror: false,
+            turns: 0,
             center,
             zoom: ((response.rect.width() - 24.0) / extent.x as f32)
                 .min(150.0 / extent.y as f32)
@@ -619,7 +628,7 @@ pub(super) fn library_paths_bounds(paths: &[Vec<Point>]) -> (Point, Point) {
     }
 }
 
-fn paint_library_paths(
+pub(super) fn paint_library_paths(
     painter: &egui::Painter,
     rect: Rect,
     camera: Camera,

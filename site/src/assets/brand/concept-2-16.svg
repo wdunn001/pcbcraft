@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PCBCraft concept 2, 16 px variant">
+  <title>PCBCraft concept 2, 16 px</title>
+  <rect width="512" height="512" rx="96" fill="#0b1a16"/>
+  <path d="M64 264 L120 208 H328 V424 H64 Z" fill="#1f7a5f"/>
+  <path d="M152 192 L208 136 H416 V352 H152 Z" fill="#d98e4f" stroke="#0b1a16" stroke-width="24"/>
+</svg>

@@ -1,0 +1,1286 @@
+# PCBCraft Help reference: calculators.
+# Machine-readable companion to calculators.md. One [[calculator]] per tool.
+# Every calculator becomes one engine read command `calc.<id>` (crates/calc, see
+# calculators.md section "Where it lives") and one card in the Help Reference panel.
+#
+# Field notes
+#   inputs[].range   closed interval the command accepts; outside it the command
+#                    returns Error::Invalid with the range in the message.
+#   formula          exact expression the implementation must use. SI units unless
+#                    the unit column says otherwise.
+#   accuracy         what the model claims against its own reference, never against
+#                    reality; fabrication tolerance dominates.
+#   vector           golden test. `expect` values were computed by
+#                    pcbcraft-research/ee-thesaurus/vectors.py (stdlib Python) and
+#                    cross-checked against the named reference. Tolerance is relative.
+#
+# Constants shared by several calculators (crates/calc/src/consts.rs):
+#   RHO_CU   = 1.72e-8 ohm m   annealed copper at 20 C
+#   ALPHA_CU = 0.00393 1/K     copper temperature coefficient of resistance
+#   K_CU     = 385 W/(m K)     copper thermal conductivity
+#   OZ_UM    = 34.79 um        copper thickness per oz/ft2 (fabs round to 35)
+#   MIL_MM   = 0.0254 mm
+#   C0       = 299792458 m/s
+#   ZF0      = 376.730313668 ohm
+
+schema_version = 1
+
+# ---------------------------------------------------------------- basic circuit
+
+[[calculator]]
+id = "ohms_law"
+name = "Ohm's law and power"
+group = "basic"
+summary = "Give any two of voltage, current and resistance; get the third and the power."
+inputs = [
+  { name = "voltage", unit = "V", range = [0.0, 1.0e6], optional = true },
+  { name = "current", unit = "A", range = [0.0, 1.0e6], optional = true },
+  { name = "resistance", unit = "ohm", range = [1.0e-9, 1.0e12], optional = true },
+]
+outputs = ["voltage V", "current A", "resistance ohm", "power W"]
+formula = "V = I R; P = V I = I^2 R = V^2 / R. Exactly two inputs must be given."
+source = "Ohm's law and Joule heating, any introductory circuits text (Horowitz and Hill, The Art of Electronics, 3rd ed., ch. 1)."
+validity = "Linear resistors at DC or RMS AC. Not for reactive loads (use reactance)."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { voltage = 12, resistance = 100 }
+expect = { current = 0.12, power = 1.44 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { current = 0.02, resistance = 330 }
+expect = { voltage = 6.6, power = 0.132 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { voltage = 5, current = 2 }
+expect = { resistance = 2.5, power = 10 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+
+[[calculator]]
+id = "series_parallel"
+name = "Series and parallel R, C, L"
+group = "basic"
+summary = "Combine up to 16 resistors, capacitors or inductors in series or in parallel."
+inputs = [
+  { name = "kind", unit = "enum", values = ["resistor", "capacitor", "inductor"] },
+  { name = "values", unit = "ohm | F | H", range = [1.0e-15, 1.0e12], array = [2, 16] },
+]
+outputs = ["series", "parallel"]
+formula = "R, L series = sum; parallel = 1 / sum(1/x). C is the reverse: parallel = sum, series = 1 / sum(1/x)."
+source = "Kirchhoff's laws; any introductory text."
+validity = "Ideal components."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { kind = "resistor", values = [100, 220, 330] }
+expect = { series = 650, parallel = 56.8966 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic: 1/(0.01+0.0045455+0.0030303)"
+[[calculator.vector]]
+inputs = { kind = "capacitor", values = [1.0e-6, 2.2e-6] }
+expect = { parallel = 3.2e-6, series = 6.875e-7 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { kind = "inductor", values = [10e-6, 22e-6] }
+expect = { series = 32e-6, parallel = 6.875e-6 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic"
+
+[[calculator]]
+id = "voltage_divider"
+name = "Voltage divider with load"
+group = "basic"
+summary = "Output voltage of two resistors, with an optional load resistor across the output."
+inputs = [
+  { name = "vin", unit = "V", range = [0.0, 1.0e5] },
+  { name = "r1", unit = "ohm", range = [1.0e-3, 1.0e12] },
+  { name = "r2", unit = "ohm", range = [1.0e-3, 1.0e12] },
+  { name = "load", unit = "ohm", range = [1.0e-3, 1.0e12], optional = true },
+]
+outputs = ["vout V", "current A (through r1)", "r2_effective ohm", "power_r1 W", "power_r2 W"]
+formula = "R2e = load given ? R2 || load : R2; Vout = Vin R2e / (R1 + R2e); I = Vin / (R1 + R2e)."
+source = "Horowitz and Hill, The Art of Electronics, 3rd ed., section 1.2.3 (voltage dividers) and Thevenin loading."
+validity = "Linear resistors; load modelled as a resistor to ground."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { vin = 12, r1 = 10000, r2 = 4700 }
+expect = { vout = 3.83673, current = 8.16327e-4 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic 12*4700/14700"
+[[calculator.vector]]
+inputs = { vin = 12, r1 = 10000, r2 = 4700, load = 10000 }
+expect = { vout = 2.90722 }
+tolerance = 1e-5
+crosscheck = "4700||10000 = 3197.3 ohm; 12*3197.3/13197.3"
+[[calculator.vector]]
+inputs = { vin = 3.3, r1 = 1000, r2 = 1000, load = 100000 }
+expect = { vout = 1.64179 }
+tolerance = 1e-5
+crosscheck = "1000||100000 = 990.1; 3.3*990.1/1990.1"
+
+[[calculator]]
+id = "led_resistor"
+name = "LED series resistor"
+group = "basic"
+summary = "Resistor for an LED from supply voltage, forward voltage and wanted current, with the resistor's power and the nearest E-series value."
+inputs = [
+  { name = "supply", unit = "V", range = [0.1, 1000.0] },
+  { name = "forward_voltage", unit = "V", range = [0.1, 50.0] },
+  { name = "current", unit = "A", range = [1.0e-6, 10.0] },
+  { name = "series", unit = "enum", values = ["E6", "E12", "E24", "E96"], default = "E24" },
+]
+outputs = ["resistance ohm", "power W", "nearest_standard ohm", "current_with_standard A"]
+formula = "R = (Vs - Vf) / I; P = (Vs - Vf) I. Refuse when Vf >= Vs."
+source = "Ohm's law; typical Vf: red 1.8 to 2.2 V, green or blue or white 2.8 to 3.4 V (any LED datasheet)."
+validity = "One LED or a series string whose total Vf is entered. Vf is current dependent, so the result is a starting point."
+accuracy = "exact for the given Vf"
+[[calculator.vector]]
+inputs = { supply = 5, forward_voltage = 2.0, current = 0.02 }
+expect = { resistance = 150, power = 0.06, nearest_standard = 150 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { supply = 12, forward_voltage = 3.2, current = 0.35 }
+expect = { resistance = 25.1429, power = 3.08, nearest_standard = 24 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic; E24 nearest to 25.14 is 24 (log distance 0.0464 vs 27 at 0.0714)"
+[[calculator.vector]]
+inputs = { supply = 3.3, forward_voltage = 1.8, current = 0.005 }
+expect = { resistance = 300, power = 0.0075, nearest_standard = 300 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+
+[[calculator]]
+id = "rc_rl_time_constant"
+name = "RC and RL time constant and cutoff"
+group = "basic"
+summary = "Time constant and the -3 dB corner frequency of a first-order RC or RL network."
+inputs = [
+  { name = "kind", unit = "enum", values = ["rc", "rl"] },
+  { name = "resistance", unit = "ohm", range = [1.0e-3, 1.0e12] },
+  { name = "capacitance", unit = "F", range = [1.0e-15, 1.0], optional = true },
+  { name = "inductance", unit = "H", range = [1.0e-12, 1.0e3], optional = true },
+]
+outputs = ["tau s", "cutoff Hz", "t_63 s", "t_95 s (3 tau)", "t_99 s (5 tau)"]
+formula = "RC: tau = R C. RL: tau = L / R. fc = 1 / (2 pi tau)."
+source = "First-order response; Horowitz and Hill, 3rd ed., section 1.4.2 and 1.7.1."
+validity = "Single-pole networks only."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { kind = "rc", resistance = 10000, capacitance = 100e-9 }
+expect = { tau = 1.0e-3, cutoff = 159.155 }
+tolerance = 1e-5
+crosscheck = "1/(2 pi 1e-3) = 159.15 Hz"
+[[calculator.vector]]
+inputs = { kind = "rl", resistance = 50, inductance = 10e-3 }
+expect = { tau = 2.0e-4, cutoff = 795.775 }
+tolerance = 1e-5
+crosscheck = "50/(2 pi 0.01)"
+[[calculator.vector]]
+inputs = { kind = "rc", resistance = 1000, capacitance = 1e-6 }
+expect = { tau = 1.0e-3, cutoff = 159.155 }
+tolerance = 1e-5
+crosscheck = "same tau as the first vector"
+
+[[calculator]]
+id = "lc_resonance"
+name = "Resonant frequency"
+group = "basic"
+summary = "Resonant frequency of an inductor and capacitor, or the L or C needed for a target frequency."
+inputs = [
+  { name = "inductance", unit = "H", range = [1.0e-12, 1.0e3], optional = true },
+  { name = "capacitance", unit = "F", range = [1.0e-15, 1.0], optional = true },
+  { name = "frequency", unit = "Hz", range = [1.0e-3, 1.0e12], optional = true },
+]
+outputs = ["frequency Hz", "inductance H", "capacitance F", "characteristic_impedance ohm (sqrt(L/C))"]
+formula = "f0 = 1 / (2 pi sqrt(L C)); solve for the missing one of the three."
+source = "Thomson's formula; any circuits text."
+validity = "Lossless LC. Real parts shift f0 by their parasitics."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { inductance = 10e-6, capacitance = 100e-9 }
+expect = { frequency = 159155 }
+tolerance = 1e-5
+crosscheck = "sqrt(1e-12) = 1e-6; 1/(2 pi 1e-6)"
+[[calculator.vector]]
+inputs = { inductance = 1e-3, capacitance = 1e-6 }
+expect = { frequency = 5032.92 }
+tolerance = 1e-5
+crosscheck = "1/(2 pi sqrt(1e-9))"
+[[calculator.vector]]
+inputs = { inductance = 2.2e-6, capacitance = 22e-12 }
+expect = { frequency = 2.28769e7 }
+tolerance = 1e-5
+crosscheck = "sqrt(4.84e-17) = 6.957e-9"
+
+[[calculator]]
+id = "reactance"
+name = "Reactance"
+group = "basic"
+summary = "Reactance of a capacitor or inductor at a frequency."
+inputs = [
+  { name = "frequency", unit = "Hz", range = [1.0e-3, 1.0e12] },
+  { name = "capacitance", unit = "F", range = [1.0e-15, 1.0], optional = true },
+  { name = "inductance", unit = "H", range = [1.0e-12, 1.0e3], optional = true },
+]
+outputs = ["xc ohm", "xl ohm"]
+formula = "Xc = 1 / (2 pi f C); Xl = 2 pi f L."
+source = "Any circuits text."
+validity = "Ideal components; ignores ESR and self resonance."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { frequency = 1000, capacitance = 1e-6 }
+expect = { xc = 159.155 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { frequency = 1e6, inductance = 10e-6 }
+expect = { xl = 62.8319 }
+tolerance = 1e-5
+crosscheck = "2 pi 10 = 62.83"
+[[calculator.vector]]
+inputs = { frequency = 100e6, capacitance = 100e-9 }
+expect = { xc = 0.0159155 }
+tolerance = 1e-5
+crosscheck = "hand arithmetic"
+
+[[calculator]]
+id = "decibel"
+name = "Decibel conversions"
+group = "basic"
+summary = "Convert between power ratio, voltage ratio, dB, dBm and watts."
+inputs = [
+  { name = "mode", unit = "enum", values = ["power_ratio", "voltage_ratio", "dbm_to_w", "w_to_dbm"] },
+  { name = "value", unit = "ratio | dB | dBm | W", range = [-300.0, 1.0e12] },
+]
+outputs = ["db", "ratio", "dbm", "watts"]
+formula = "dB(power) = 10 log10(P2/P1); dB(voltage, equal impedance) = 20 log10(V2/V1); dBm = 10 log10(P / 1 mW); P = 1 mW * 10^(dBm/10)."
+source = "IEEE Std 100 definitions; any RF text."
+validity = "Voltage form assumes equal source and load impedance."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { mode = "power_ratio", value = 2 }
+expect = { db = 3.0103 }
+tolerance = 1e-5
+crosscheck = "10 log10 2"
+[[calculator.vector]]
+inputs = { mode = "voltage_ratio", value = 10 }
+expect = { db = 20 }
+tolerance = 1e-9
+crosscheck = "20 log10 10"
+[[calculator.vector]]
+inputs = { mode = "w_to_dbm", value = 0.5 }
+expect = { dbm = 26.9897 }
+tolerance = 1e-5
+crosscheck = "10 log10(500)"
+[[calculator.vector]]
+inputs = { mode = "dbm_to_w", value = 30 }
+expect = { watts = 1.0 }
+tolerance = 1e-9
+crosscheck = "30 dBm is 1 W by definition"
+
+# ---------------------------------------------------------------- copper and current
+
+[[calculator]]
+id = "trace_width"
+name = "Trace width for current"
+group = "copper"
+summary = "Minimum copper width for a current and allowed temperature rise. IPC-2152 table lookup when inside its published range, IPC-2221 formula otherwise, both stated."
+inputs = [
+  { name = "current", unit = "A", range = [0.001, 100.0] },
+  { name = "temperature_rise", unit = "K", range = [1.0, 100.0], default = 10 },
+  { name = "copper_weight", unit = "oz/ft2", range = [0.25, 6.0], default = 1 },
+  { name = "layer", unit = "enum", values = ["external", "internal"], default = "external" },
+  { name = "method", unit = "enum", values = ["auto", "ipc2152", "ipc2221"], default = "auto" },
+]
+outputs = ["width mm", "width mil", "cross_section mil2", "method_used", "notes"]
+formula = """
+IPC-2221 (closed form, both layers): I = k dT^0.44 A^0.725, A in mil^2, k = 0.048 external, 0.024 internal.
+  A = (I / (k dT^0.44))^(1/0.725); width_mil = A / thickness_mil; thickness_mil = oz * 34.79 / 25.4.
+IPC-2152 (table, used by `auto` only when layer = external, copper_weight = 1 and 1 A <= I <= 10 A and dT = 10 K):
+  log-log interpolation in the published 1 oz / 10 K external table
+  (A, mil): (1,10) (2,30) (3,50) (4,80) (5,110) (6,150) (7,180) (8,220) (9,260) (10,300).
+  Other copper weights scale width by 1/oz as a stated approximation (constant cross-section), flagged in notes.
+"""
+source = """
+IPC-2221 constants: Sierra Circuits, "How to optimize your PCB trace using IPC-2152" (sources/standards/ipc2152-protoexpress.txt) and Altium IPC-2221 calculator page (sources/standards/ipc2221-trace-calc-altium.txt); the standard itself is paywalled (IPC-2221C, shop.ipc.org).
+IPC-2152 table: Altium, "PCB trace width vs current table" (sources/standards/ipc2152-altium-width-table.txt), a secondary reproduction of one IPC-2152 chart; the standard is paywalled (shop.ipc.org/ipc-2152).
+Cross-check table: Philip McGaw trace width vs current table (sources/standards/trace-width-philipmcgaw.txt).
+"""
+validity = """
+IPC-2221 curves come from 1950s test boards; the standard describes them as conservative. Assumptions stated to the user: still air, no adjacent copper planes, trace length much longer than width, FR-4.
+IPC-2152 published chart only covers 1 oz external copper at 10 K rise here; anything else falls back to IPC-2221 and the notes say so.
+Internal layers: IPC-2152 found internal and external traces behave about the same when a plane is nearby; IPC-2221 halves internal current. The notes mention this.
+"""
+accuracy = "IPC-2221: matches the published 10 K table within 1 % (the 1 % is the 34.79 vs 35 um copper rounding). IPC-2152: interpolation of a secondary reproduction; treat as +-10 %."
+[[calculator.vector]]
+inputs = { current = 1, temperature_rise = 10, copper_weight = 1, layer = "external", method = "ipc2221" }
+expect = { cross_section = 16.296, width_mm = 0.3022, width_mil = 11.8976 }
+tolerance = 1e-4
+crosscheck = "Philip McGaw table: 1 A external 1 oz 10 C = 0.300 mm (0.7 % diff from copper thickness rounding)"
+[[calculator.vector]]
+inputs = { current = 2, temperature_rise = 10, copper_weight = 1, layer = "external", method = "ipc2221" }
+expect = { cross_section = 42.3931, width_mm = 0.786154 }
+tolerance = 1e-4
+crosscheck = "Philip McGaw table: 2 A external 1 oz = 0.781 mm"
+[[calculator.vector]]
+inputs = { current = 3, temperature_rise = 10, copper_weight = 1, layer = "internal", method = "ipc2221" }
+expect = { cross_section = 192.927, width_mm = 3.57772 }
+tolerance = 1e-4
+crosscheck = "Philip McGaw table: 3 A internal 1 oz = 3.56 mm"
+[[calculator.vector]]
+inputs = { current = 2, temperature_rise = 20, copper_weight = 2, layer = "external", method = "ipc2221" }
+expect = { cross_section = 27.8356, width_mm = 0.258097 }
+tolerance = 1e-4
+crosscheck = "vectors.py; dT^0.44 = 20^0.44 = 3.737"
+[[calculator.vector]]
+inputs = { current = 2, temperature_rise = 10, copper_weight = 1, layer = "external", method = "ipc2152" }
+expect = { width_mil = 30, width_mm = 0.762 }
+tolerance = 1e-9
+crosscheck = "table row read directly"
+[[calculator.vector]]
+inputs = { current = 2.5, temperature_rise = 10, copper_weight = 1, layer = "external", method = "ipc2152" }
+expect = { width_mil = 39.7387, width_mm = 1.00936 }
+tolerance = 1e-4
+crosscheck = "log-log between (2,30) and (3,50)"
+[[calculator.vector]]
+inputs = { current = 5, temperature_rise = 10, copper_weight = 1, layer = "external", method = "ipc2152" }
+expect = { width_mil = 110, width_mm = 2.794 }
+tolerance = 1e-9
+crosscheck = "table row read directly"
+
+[[calculator]]
+id = "via_current_resistance"
+name = "Via current and resistance"
+group = "copper"
+summary = "Current a plated via carries for a temperature rise, its DC resistance, and how many vias in parallel reach a target current."
+inputs = [
+  { name = "drill", unit = "mm", range = [0.05, 10.0] },
+  { name = "plating", unit = "um", range = [5.0, 100.0], default = 25 },
+  { name = "length", unit = "mm", range = [0.1, 10.0], default = 1.6 },
+  { name = "temperature_rise", unit = "K", range = [1.0, 100.0], default = 10 },
+  { name = "target_current", unit = "A", range = [0.001, 100.0], optional = true },
+]
+outputs = ["barrel_area mm2", "current A", "resistance ohm", "count (for target_current)"]
+formula = """
+A = pi/4 ((drill + 2 plating)^2 - drill^2)  [mm^2]; A_mil2 = A / 0.0254^2.
+I = 0.024 dT^0.44 A_mil2^0.725   (IPC-2221 internal-conductor constant, the usual via convention).
+R = RHO_CU length / A.  count = ceil(target_current / I).
+"""
+source = "IPC-2221 formula as for trace_width; via convention (barrel area with internal k) as described in Altium 'PCB via size and pad size guidelines' (sources/standards/via-pad-size-altium.txt). Copper resistivity 1.72e-8 ohm m (CRC Handbook)."
+validity = "Plating thickness is what the fab actually deposits (IPC-6012 Class 2 average 20 um, Class 3 25 um); barrel resistance ignores the pad to barrel transition."
+accuracy = "same as IPC-2221; resistance exact for the modelled cylinder"
+[[calculator.vector]]
+inputs = { drill = 0.3, plating = 25, length = 1.6, temperature_rise = 10 }
+expect = { barrel_area = 0.0255254, current = 0.95117, resistance = 1.07814e-3 }
+tolerance = 1e-4
+crosscheck = "hand: A = pi/4 (0.35^2 - 0.3^2) = 0.02553 mm2; R = 1.72e-8 * 1.6e-3 / 2.553e-8"
+[[calculator.vector]]
+inputs = { drill = 0.5, plating = 25, length = 1.6, temperature_rise = 10 }
+expect = { barrel_area = 0.0412334, current = 1.34666, resistance = 6.6742e-4 }
+tolerance = 1e-4
+crosscheck = "vectors.py"
+[[calculator.vector]]
+inputs = { drill = 0.2, plating = 20, length = 1.0, temperature_rise = 10, target_current = 3 }
+expect = { barrel_area = 0.013823, current = 0.609732, resistance = 1.2443e-3, count = 5 }
+tolerance = 1e-4
+crosscheck = "ceil(3 / 0.6097) = 5"
+
+[[calculator]]
+id = "trace_resistance_drop"
+name = "Trace resistance and voltage drop"
+group = "copper"
+summary = "DC resistance of a copper trace at a temperature, and the voltage drop and heat at a current."
+inputs = [
+  { name = "width", unit = "mm", range = [0.01, 100.0] },
+  { name = "copper_weight", unit = "oz/ft2", range = [0.25, 6.0], default = 1 },
+  { name = "length", unit = "mm", range = [0.1, 10000.0] },
+  { name = "current", unit = "A", range = [0.0, 100.0], default = 0 },
+  { name = "temperature", unit = "C", range = [-55.0, 200.0], default = 20 },
+]
+outputs = ["resistance ohm", "voltage_drop V", "power W"]
+formula = "t = oz * 34.79e-6 m; R20 = RHO_CU L / (w t); R = R20 (1 + ALPHA_CU (T - 20)); V = I R; P = I^2 R."
+source = "Resistivity and temperature coefficient of copper, CRC Handbook of Chemistry and Physics (1.72e-8 ohm m, 0.00393 /K)."
+validity = "DC and low frequency. Above about 1 MHz skin depth (66 um at 1 MHz for copper) makes the effective thickness smaller; a note says so when the user enters a frequency in the future."
+accuracy = "exact for the model; real copper is 2 to 10 % thinner than nominal after etching"
+[[calculator.vector]]
+inputs = { width = 0.25, copper_weight = 1, length = 100, current = 0.5, temperature = 20 }
+expect = { resistance = 0.197758, voltage_drop = 0.098879, power = 0.0494395 }
+tolerance = 1e-4
+crosscheck = "hand: 1.72e-8 * 0.1 / (0.25e-3 * 34.79e-6)"
+[[calculator.vector]]
+inputs = { width = 1.0, copper_weight = 1, length = 50, current = 2.0, temperature = 20 }
+expect = { resistance = 0.0247197, voltage_drop = 0.0494395 }
+tolerance = 1e-4
+crosscheck = "quarter width x half length of vector 1 gives one eighth the resistance"
+[[calculator.vector]]
+inputs = { width = 0.25, copper_weight = 1, length = 100, current = 0.5, temperature = 70 }
+expect = { resistance = 0.236617, voltage_drop = 0.118309 }
+tolerance = 1e-4
+crosscheck = "vector 1 times (1 + 0.00393 * 50) = 1.1965"
+
+# ---------------------------------------------------------------- impedance and signal integrity
+
+[[calculator]]
+id = "microstrip"
+name = "Microstrip impedance"
+group = "impedance"
+summary = "Characteristic impedance and effective permittivity of a surface trace over one plane, or the width for a target impedance."
+model = "Hammerstad and Jensen 1980 quasi-static, with the Hammerstad thickness correction"
+inputs = [
+  { name = "width", unit = "mm", range = [0.01, 100.0], optional = true },
+  { name = "height", unit = "mm", range = [0.01, 10.0] },
+  { name = "er", unit = "", range = [1.0, 20.0] },
+  { name = "thickness", unit = "mm", range = [0.0, 0.5], default = 0.035 },
+  { name = "target", unit = "ohm", range = [1.0, 1000.0], optional = true },
+]
+outputs = ["z0 ohm", "eeff", "delay ps/mm", "width_for_target mm"]
+formula = """
+u = w/h, ZF0 = 376.730313668.
+ZL1(u) = ZF0/(2 pi) ln( f(u)/u + sqrt(1 + (2/u)^2) ),  f(u) = 6 + (2 pi - 6) exp( -(30.666/u)^0.7528 )
+eeff(u, er) = (er+1)/2 + (er-1)/2 (1 + 10/u)^(-a b)
+a(u) = 1 + ln( (u^4 + (u/52)^2) / (u^4 + 0.432) )/49 + ln( 1 + (u/18.1)^3 )/18.7
+b(er) = 0.564 ((er - 0.9)/(er + 3))^0.053
+thickness (tn = t/h): du1 = tn/pi ln( 1 + 4e/tn tanh^2( sqrt(6.517 u) ) ); dur = du1 (1 + sech( sqrt(er - 1) ))/2; u1 = u + du1; ur = u + dur
+Z0 = ZL1(ur) / sqrt(eeff(ur, er)); eeff_t = eeff(ur, er) (ZL1(u1)/ZL1(ur))^2
+delay = sqrt(eeff_t) / C0.
+width_for_target: bisection of Z0(w) on [0.01, 100] mm, 80 steps (Z0 is monotonic in w).
+"""
+source = "Qucs technical documentation, microstrip line, https://qucs.sourceforge.net/tech/node75.html (transcription checked in pcbcraft-research/research-283-length-impedance.md); independent implementation scikit-rf MLine (BSD-3) https://scikit-rf.readthedocs.io/en/latest/_modules/skrf/media/mline.html. Original: E. Hammerstad and O. Jensen, 'Accurate models for microstrip computer-aided design', IEEE MTT-S 1980."
+validity = "0.01 <= w/h <= 100, er < 128 (fit range). Quasi-static: no dispersion, fine below a few GHz on FR-4. Solder mask not modelled (lowers Z0 by 1 to 3 ohm)."
+accuracy = "Fit error 0.01 % (w/h <= 1) and 0.03 % (w/h <= 1000) for Z0 against the zero-thickness quasi-static solution; eeff within 0.2 %. Fabrication tolerance on h and er dominates (5 to 10 %)."
+[[calculator.vector]]
+inputs = { width = 1.0, height = 1.6, er = 4.5, thickness = 0.035 }
+expect = { z0 = 85.0992, eeff = 3.09458, delay = 5.86786 }
+tolerance = 1e-4
+crosscheck = "research-283-length-impedance.md H-J column: 85.10 ohm"
+[[calculator.vector]]
+inputs = { width = 2.0, height = 1.6, er = 4.5, thickness = 0.035 }
+expect = { z0 = 62.146, eeff = 3.25145 }
+tolerance = 1e-4
+crosscheck = "research-283 table: 62.15 ohm"
+[[calculator.vector]]
+inputs = { width = 0.2, height = 1.6, er = 4.5, thickness = 0.035 }
+expect = { z0 = 137.798 }
+tolerance = 1e-4
+crosscheck = "research-283 table: 137.80 ohm"
+[[calculator.vector]]
+inputs = { height = 1.6, er = 4.5, thickness = 0.035, target = 50 }
+expect = { width_for_target = 2.96591 }
+tolerance = 1e-3
+crosscheck = "research-283: 50 ohm H-J width 2.966 mm"
+[[calculator.vector]]
+inputs = { width = 0.3, height = 0.2, er = 4.2, thickness = 0.035 }
+expect = { z0 = 55.6389, eeff = 3.0048 }
+tolerance = 1e-4
+crosscheck = "vectors.py; typical 4-layer outer trace"
+
+[[calculator]]
+id = "embedded_microstrip"
+name = "Embedded microstrip impedance"
+group = "impedance"
+summary = "Microstrip whose trace is covered by a dielectric layer (prepreg or thick mask), lowering the impedance."
+model = "Hammerstad-Jensen surface microstrip plus the exponential cover correction of the effective permittivity"
+inputs = [
+  { name = "width", unit = "mm", range = [0.01, 100.0] },
+  { name = "height", unit = "mm", range = [0.01, 10.0] },
+  { name = "cover", unit = "mm", range = [0.0, 10.0], description = "dielectric above the trace top" },
+  { name = "er", unit = "", range = [1.0, 20.0] },
+  { name = "thickness", unit = "mm", range = [0.0, 0.5], default = 0.035 },
+]
+outputs = ["z0 ohm", "eeff"]
+formula = """
+(Z0s, eeff_s) = microstrip(w, h, er, t)
+f = exp(-2 cover / h); eeff_e = eeff_s f + er (1 - f)
+Z0 = Z0s sqrt(eeff_s / eeff_e)
+"""
+source = "The cover correction appears on calculator pages and in Wadell, 'Transmission Line Design Handbook' (Artech, 1991) ch. 3 as the usual engineering estimate; the IPC-2141 embedded form (paragraph 4.2.3) is paywalled and was criticised as wrong in the source trail (see Altium, 'Clearing trace impedance calculators and formulas', https://resources.altium.com/p/clearing-trace-impedance-calculators-and-formulas)."
+validity = "cover <= 2 h. With cover >= 2 h the result approaches a fully buried line (eeff -> er) and a stripline model is better."
+accuracy = "Engineering estimate, about 5 %. The UI labels it 'estimate; confirm with a field solver or the fab's stackup tool'."
+[[calculator.vector]]
+inputs = { width = 1.0, height = 1.6, cover = 0.1, er = 4.5, thickness = 0.035 }
+expect = { z0 = 82.9155, eeff = 3.25972 }
+tolerance = 1e-4
+crosscheck = "sanity: 0.1 mm cover lowers 85.10 ohm by 2.6 %"
+[[calculator.vector]]
+inputs = { width = 0.3, height = 0.2, cover = 0.2, er = 4.2, thickness = 0.035 }
+expect = { z0 = 47.9943, eeff = 4.03825 }
+tolerance = 1e-4
+crosscheck = "sanity: cover = h gives eeff near er"
+[[calculator.vector]]
+inputs = { width = 2.0, height = 1.6, cover = 1.6, er = 4.5, thickness = 0.035 }
+expect = { z0 = 53.8463, eeff = 4.33103 }
+tolerance = 1e-4
+crosscheck = "sanity: Z0s / sqrt(er/eeff_s) limit = 62.15 * sqrt(3.2515/4.5) = 52.8 ohm, approached"
+
+[[calculator]]
+id = "stripline"
+name = "Stripline impedance"
+group = "impedance"
+summary = "Trace centred between two planes (inner layer)."
+model = "Steer 2020 closed form with thickness (as reproduced on Wikipedia 'Stripline'), equivalent to Cohn 1954"
+inputs = [
+  { name = "width", unit = "mm", range = [0.01, 100.0] },
+  { name = "spacing", unit = "mm", range = [0.02, 20.0], description = "plane to plane distance b" },
+  { name = "er", unit = "", range = [1.0, 20.0] },
+  { name = "thickness", unit = "mm", range = [0.0, 0.5], default = 0.018 },
+]
+outputs = ["z0 ohm", "delay ps/mm"]
+formula = """
+W = w/b, T = t/b
+Weff = W - (0.35 - W)^2 / (1 + 12 T)  if W < 0.35, else W
+Cf = (2/pi) ln(1/(1-T) + 1) - (T/pi) ln(1/(1-T)^2 - 1)
+Z0 = (30 pi / sqrt(er)) (1 - T) / (Weff + Cf)
+delay = sqrt(er) / C0   (fully embedded: eeff = er)
+"""
+source = "Wikipedia, 'Stripline', formula section citing M. Steer, Microwave and RF Design (LibreTexts 3.7, 2020); original S. B. Cohn, IRE Trans. MTT-2, 1954. Cross-check: IPC-2141 form Z0 = 60/sqrt(er) ln(4 b / (0.67 pi (0.8 w + t))) as printed by NextPCB, https://www.nextpcb.com/blog/pcb-impedance-calculator-microstrip-stripline-guide (that page's variable definition for h is inconsistent; b plane-to-plane makes its example agree)."
+validity = "W/(1-T) > 0.05 and T < 0.025 for the stated accuracy; symmetric only. Offset (asymmetric) stripline is a follow-up."
+accuracy = "At least 1 % against the exact conformal mapping (Steer). The IPC-2141 cross-check agrees within 1.2 % on the three vectors."
+[[calculator.vector]]
+inputs = { width = 0.2, spacing = 0.6, er = 4.2, thickness = 0.018 }
+expect = { z0 = 55.0317 }
+tolerance = 1e-4
+crosscheck = "IPC-2141 form with b = 0.6: 54.37 ohm (1.2 % lower)"
+[[calculator.vector]]
+inputs = { width = 0.12, spacing = 0.4, er = 4.2, thickness = 0.018 }
+expect = { z0 = 55.7365 }
+tolerance = 1e-4
+crosscheck = "IPC-2141 form: 55.54 ohm"
+[[calculator.vector]]
+inputs = { width = 0.3, spacing = 1.0, er = 4.5, thickness = 0.035 }
+expect = { z0 = 54.9677 }
+tolerance = 1e-4
+crosscheck = "IPC-2141 form: 54.68 ohm"
+
+[[calculator]]
+id = "coplanar_waveguide"
+name = "Coplanar waveguide impedance"
+group = "impedance"
+summary = "Trace with ground copper on both sides on the same layer, with or without a plane underneath."
+model = "Quasi-static conformal mapping (Wen 1969; Ghione and Naldi 1984) with finite substrate, elliptic integral ratio by the Hilberg approximation"
+inputs = [
+  { name = "width", unit = "mm", range = [0.01, 100.0] },
+  { name = "gap", unit = "mm", range = [0.01, 100.0] },
+  { name = "height", unit = "mm", range = [0.01, 10.0] },
+  { name = "er", unit = "", range = [1.0, 20.0] },
+  { name = "ground_backed", unit = "bool", default = false },
+]
+outputs = ["z0 ohm", "eeff", "delay ps/mm"]
+formula = """
+K/K'(k): for 0 <= k <= 1/sqrt2: pi / ln( 2 (1 + sqrt(k')) / (1 - sqrt(k')) ), k' = sqrt(1 - k^2);
+         for 1/sqrt2 <= k <= 1: ln( 2 (1 + sqrt(k)) / (1 - sqrt(k)) ) / pi.
+k1 = w / (w + 2 s)
+CPW, finite substrate h:   k2 = sinh(pi w / 4h) / sinh(pi (w + 2s) / 4h)
+   eeff = 1 + (er - 1)/2 * [K/K'(k2)] / [K/K'(k1)];   Z0 = 30 pi / (sqrt(eeff) K/K'(k1))
+Ground-backed CPW:         k3 = tanh(pi w / 4h) / tanh(pi (w + 2s) / 4h)
+   q = K/K'(k3) / (K/K'(k1) + K/K'(k3));  eeff = 1 + q (er - 1);  Z0 = 60 pi / (sqrt(eeff) (K/K'(k1) + K/K'(k3)))
+Thickness ignored (Qucs eq. 12.14 to 12.18 is the optional refinement).
+"""
+source = "Qucs technical documentation, coplanar waveguides, https://qucs.sourceforge.net/tech/node86.html, eq. 12.4 to 12.13; scikit-rf CPW media (same equations) https://scikit-rf.readthedocs.io/en/latest/_modules/skrf/media/cpw.html."
+validity = "Quasi-static; ground copper much wider than w + 2s; no thickness. Ground-backed form assumes the side grounds are tied to the plane by vias within a small fraction of a wavelength."
+accuracy = "Hilberg ratio accurate to about 3e-6 (Qucs citing Gupta); formulas 'effectively exact' for the quasi-static zero-thickness case. Thickness and etch factor add a few percent."
+[[calculator.vector]]
+inputs = { width = 1.0, gap = 0.5, height = 1.6, er = 4.5, ground_backed = false }
+expect = { z0 = 74.1723, eeff = 2.64227 }
+tolerance = 1e-4
+crosscheck = "Hilberg ratio checked against numeric K(k) integration at k = 1/3: 0.639630785 both"
+[[calculator.vector]]
+inputs = { width = 1.0, gap = 0.5, height = 1.6, er = 4.5, ground_backed = true }
+expect = { z0 = 67.099, eeff = 2.85453 }
+tolerance = 1e-4
+crosscheck = "sanity: ground plane lowers Z0 and raises eeff"
+[[calculator.vector]]
+inputs = { width = 0.5, gap = 0.3, height = 1.6, er = 4.5, ground_backed = false }
+expect = { z0 = 77.1232, eeff = 2.71546 }
+tolerance = 1e-4
+crosscheck = "vectors.py"
+[[calculator.vector]]
+inputs = { width = 1.0, gap = 0.2, height = 0.2, er = 4.2, ground_backed = true }
+expect = { z0 = 25.8399, eeff = 3.38531 }
+tolerance = 1e-4
+crosscheck = "sanity: wide trace on thin dielectric is low impedance, near the microstrip value for w/h = 5"
+
+[[calculator]]
+id = "differential_pair"
+name = "Differential pair impedance"
+group = "impedance"
+summary = "Differential impedance of two equal surface traces side by side, and the gap or width for a target."
+model = "Hammerstad-Jensen single-ended Z0 times the edge-coupling factor 2 (1 - 0.48 exp(-0.96 s/h)), widely attributed to IPC-2141"
+inputs = [
+  { name = "width", unit = "mm", range = [0.01, 100.0] },
+  { name = "gap", unit = "mm", range = [0.01, 100.0] },
+  { name = "height", unit = "mm", range = [0.01, 10.0] },
+  { name = "er", unit = "", range = [1.0, 20.0] },
+  { name = "thickness", unit = "mm", range = [0.0, 0.5], default = 0.035 },
+  { name = "target", unit = "ohm", range = [10.0, 1000.0], optional = true },
+]
+outputs = ["zdiff ohm", "z0_single ohm", "width_for_target mm (gap held)", "coupling_factor"]
+formula = "Zdiff = 2 Z0(w, h, er, t) (1 - 0.48 exp(-0.96 s / h)); width_for_target by bisection with s fixed."
+source = "Coupling factor as printed by NextPCB differential microstrip calculator https://www.nextpcb.com/differential-microstrip-impedance-calculator and many others, attributed to IPC-2141 (paywalled; TOC at https://www.ipc.org/TOC/IPC-2141A.pdf lists 4.4.1 edge-coupled surface microstrip). Not confirmed against the standard text (pcbcraft-research/research-283-length-impedance.md). Upgrade path: Hammerstad-Jensen coupled microstrip even/odd modes, Qucs https://qucs.sourceforge.net/tech/node77.html, odd-mode error under 0.3 %."
+validity = "0.1 <= w/h <= 10, s/h >= 0.1, loosely coupled pairs (s >= w). For s < w the factor underestimates coupling."
+accuracy = "Unverified against the standard; treat as +-10 %. The UI shows the word 'estimate' and the follow-up issue swaps in the coupled H-J model."
+[[calculator.vector]]
+inputs = { width = 0.2, gap = 0.2, height = 0.2, er = 4.2, thickness = 0.035 }
+expect = { zdiff = 110.345, z0_single = 67.5956 }
+tolerance = 1e-4
+crosscheck = "factor = 2 (1 - 0.48 e^-0.96) = 1.6325"
+[[calculator.vector]]
+inputs = { width = 0.3, gap = 0.2, height = 0.2, er = 4.2, thickness = 0.035 }
+expect = { zdiff = 90.8262, z0_single = 55.6389 }
+tolerance = 1e-4
+crosscheck = "Z0 single from microstrip vector 5"
+[[calculator.vector]]
+inputs = { width = 1.0, gap = 0.5, height = 1.6, er = 4.5, thickness = 0.035 }
+expect = { zdiff = 109.677, z0_single = 85.0992 }
+tolerance = 1e-4
+crosscheck = "factor = 2 (1 - 0.48 e^-0.3) = 1.2888"
+
+[[calculator]]
+id = "propagation_delay"
+name = "Propagation delay and length matching"
+group = "impedance"
+summary = "Signal speed on a trace from its effective permittivity, and the copper length a skew budget allows."
+inputs = [
+  { name = "eeff", unit = "", range = [1.0, 20.0], description = "from microstrip/stripline, or er for a buried trace" },
+  { name = "length", unit = "mm", range = [0.0, 10000.0], optional = true },
+  { name = "skew_budget", unit = "ps", range = [0.0, 1.0e6], optional = true },
+]
+outputs = ["delay ps/mm", "delay ps/inch", "total_delay ps", "allowed_mismatch mm"]
+formula = "tpd = sqrt(eeff) / C0; total = tpd L; allowed_mismatch = skew_budget / tpd."
+source = "Johnson and Graham, High-Speed Digital Design (1993), ch. 1 (velocity of propagation); C0 = 299792458 m/s (SI)."
+validity = "Quasi-TEM; use the eeff the impedance calculator gave for the same trace."
+accuracy = "exact for the given eeff"
+[[calculator.vector]]
+inputs = { eeff = 3.2 }
+expect = { delay = 5.96698, delay_inch = 151.561 }
+tolerance = 1e-5
+crosscheck = "rule of thumb: about 150 ps/inch for FR-4 microstrip (Johnson and Graham)"
+[[calculator.vector]]
+inputs = { eeff = 4.5 }
+expect = { delay = 7.07596, delay_inch = 179.729 }
+tolerance = 1e-5
+crosscheck = "rule of thumb: about 180 ps/inch for FR-4 stripline"
+[[calculator.vector]]
+inputs = { eeff = 1.0 }
+expect = { delay = 3.33564, delay_inch = 84.7253 }
+tolerance = 1e-5
+crosscheck = "free space 1/c = 3.3356 ps/mm"
+[[calculator.vector]]
+inputs = { eeff = 3.2, skew_budget = 10 }
+expect = { allowed_mismatch = 1.67589 }
+tolerance = 1e-5
+crosscheck = "10 ps / 5.967 ps/mm"
+[[calculator.vector]]
+inputs = { eeff = 4.5, skew_budget = 25 }
+expect = { allowed_mismatch = 3.53309 }
+tolerance = 1e-5
+crosscheck = "25 / 7.076"
+
+[[calculator]]
+id = "crosstalk"
+name = "Crosstalk rule of thumb"
+group = "impedance"
+summary = "Rough near-end coupling between two parallel surface traces from their edge gap and dielectric height, plus the 3W spacing."
+inputs = [
+  { name = "gap", unit = "mm", range = [0.01, 100.0], description = "edge to edge" },
+  { name = "height", unit = "mm", range = [0.01, 10.0] },
+  { name = "width", unit = "mm", range = [0.01, 100.0] },
+]
+outputs = ["coupling (fraction of aggressor swing)", "coupling_db", "three_w_gap mm", "spacing_for_minus_20db mm"]
+formula = "coupling = 1 / (1 + (s/h)^2);  dB = 20 log10(coupling);  3W gap = 2 w (centre to centre 3 w);  s for -20 dB: s = 3 h."
+source = "Johnson and Graham, High-Speed Digital Design (1993), section 5.4 crosstalk estimate (the 1/(1+(D/H)^2) form); 3W rule, Mark Montrose, Printed Circuit Board Design Techniques for EMC Compliance (IEEE Press, 2000)."
+validity = "Order of magnitude only; microstrip over one plane; coupled length short against the rise time. Stripline couples less."
+accuracy = "Rule of thumb; typical real values within a factor of 2."
+[[calculator.vector]]
+inputs = { gap = 0.2, height = 0.2, width = 0.2 }
+expect = { coupling = 0.5, coupling_db = -6.0206, three_w_gap = 0.4 }
+tolerance = 1e-4
+crosscheck = "s = h gives half"
+[[calculator.vector]]
+inputs = { gap = 0.6, height = 0.2, width = 0.2 }
+expect = { coupling = 0.1, coupling_db = -20.0 }
+tolerance = 1e-9
+crosscheck = "s = 3h gives one tenth, -20 dB"
+[[calculator.vector]]
+inputs = { gap = 0.1, height = 0.1, width = 0.15 }
+expect = { coupling = 0.5, three_w_gap = 0.3 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+
+# ---------------------------------------------------------------- spacing and safety
+
+[[calculator]]
+id = "conductor_spacing_ipc2221"
+name = "Conductor spacing by voltage (IPC-2221)"
+group = "spacing"
+summary = "Minimum copper to copper spacing for a peak voltage, by board location class B1 to A7."
+inputs = [
+  { name = "voltage", unit = "V peak", range = [0.0, 100000.0] },
+  { name = "location", unit = "enum", values = ["B1", "B2", "B3", "B4", "A5", "A6", "A7"], default = "B2" },
+]
+outputs = ["spacing mm", "row_label", "location_description"]
+formula = """
+Table lookup (V peak, mm) by column B1 internal | B2 external uncoated to 3050 m | B3 external uncoated above 3050 m | B4 external polymer coated | A5 assembly conformal coated | A6 component lead uncoated | A7 component lead coated:
+  <=15:   0.05 0.1  0.1  0.05 0.13 0.13 0.13
+  <=30:   0.05 0.1  0.1  0.05 0.13 0.25 0.13
+  <=50:   0.1  0.6  0.6  0.13 0.13 0.4  0.13
+  <=100:  0.1  0.6  1.5  0.13 0.13 0.5  0.13
+  <=150:  0.2  0.6  3.2  0.4  0.4  0.8  0.4
+  <=170:  0.2  1.25 3.2  0.4  0.4  0.8  0.4
+  <=250:  0.2  1.25 6.4  0.4  0.4  0.8  0.4
+  <=300:  0.2  2.5  12.5 0.4  0.4  0.8  0.8
+  <=500:  0.25 2.5  12.5 0.8  0.8  1.5  0.8
+  >500:   per volt 0.0025 0.005 0.025 0.00305 0.00305 0.00305 0.00305 (spacing = V * slope)
+"""
+source = "Reproductions of IPC-2221B table 6-1: Philip McGaw, 'Creepage and clearance' (sources/standards/ipc2221-spacing-philipmcgaw.txt), SFCircuits PCB School (sources/standards/ipc2221-spacing-sfcircuits.txt), Altium high-voltage calculator page (sources/standards/ipc2221-spacing-altium.txt); the standard is paywalled (IPC-2221C, shop.ipc.org)."
+validity = "IPC-2221 is a design standard, not a safety standard; for mains or anything a person can touch use creepage_clearance_iec60664 and the product safety standard. Solder mask does not count as the B4 coating."
+accuracy = "Table values reproduced identically by three secondary sources; the >500 V slopes are the standard's own linear extension."
+[[calculator.vector]]
+inputs = { voltage = 48, location = "B2" }
+expect = { spacing = 0.6 }
+tolerance = 1e-9
+crosscheck = "row 31 to 50 V, external uncoated"
+[[calculator.vector]]
+inputs = { voltage = 325.3, location = "B2" }
+expect = { spacing = 2.5 }
+tolerance = 1e-9
+crosscheck = "230 V RMS mains peak 325 V, row 301 to 500 V"
+[[calculator.vector]]
+inputs = { voltage = 325.3, location = "B4" }
+expect = { spacing = 0.8 }
+tolerance = 1e-9
+crosscheck = "same row, coated column"
+[[calculator.vector]]
+inputs = { voltage = 1000, location = "B2" }
+expect = { spacing = 5.0 }
+tolerance = 1e-9
+crosscheck = "1000 * 0.005"
+[[calculator.vector]]
+inputs = { voltage = 1000, location = "B1" }
+expect = { spacing = 2.5 }
+tolerance = 1e-9
+crosscheck = "1000 * 0.0025"
+
+[[calculator]]
+id = "creepage_clearance_iec60664"
+name = "Creepage and clearance (IEC 60664-1 lookup)"
+group = "spacing"
+summary = "Minimum clearance through air for the impulse voltage and creepage along the surface for the working voltage, pollution degree and material group."
+inputs = [
+  { name = "working_voltage", unit = "V RMS", range = [10.0, 1000.0] },
+  { name = "mains_voltage", unit = "V RMS", range = [50.0, 1000.0], description = "nominal mains voltage line to neutral, picks the impulse voltage" },
+  { name = "overvoltage_category", unit = "enum", values = ["I", "II", "III", "IV"], default = "II" },
+  { name = "pollution_degree", unit = "enum", values = ["1", "2", "3"], default = "2" },
+  { name = "material_group", unit = "enum", values = ["I", "II", "IIIa", "IIIb"], default = "IIIa", description = "from CTI: I >= 600, II 400 to 599, IIIa 175 to 399, IIIb 100 to 174" },
+  { name = "insulation", unit = "enum", values = ["functional", "basic", "reinforced"], default = "basic" },
+  { name = "altitude", unit = "m", range = [0.0, 5000.0], default = 2000 },
+]
+outputs = ["impulse_voltage kV", "clearance mm", "creepage mm", "notes"]
+formula = """
+1. Rated impulse voltage (Table F.1), by mains voltage ceiling (V) and overvoltage category I/II/III/IV in kV:
+   <=50: 0.33 0.5 0.8 1.5 | <=100: 0.5 0.8 1.5 2.5 | <=150: 0.8 1.5 2.5 4.0 | <=300: 1.5 2.5 4.0 6.0 | <=600: 2.5 4.0 6.0 8.0 | <=1000: 4.0 6.0 8.0 12.0
+2. Clearance (Table F.2, inhomogeneous field, up to 2000 m) by impulse kV -> mm:
+   0.33: 0.01 | 0.5: 0.04 | 0.8: 0.1 | 1.5: 0.5 | 2.5: 1.5 | 4.0: 3.0 | 6.0: 5.5 | 8.0: 8.0 | 12: 14
+   pollution degree 2 floor 0.2 mm, degree 3 floor 0.8 mm. Altitude above 2000 m: multiply by the F.8 factor (2000 m 1.00, 3000 m 1.14, 4000 m 1.29, 5000 m 1.48).
+   reinforced: use the impulse voltage one step higher in the F.1 ladder.
+3. Creepage (Table F.5) by working voltage ceiling, pollution degree 1 (all groups) | degree 2 group I, II, III | degree 3 group I, II, III in mm:
+    50: 0.18 | 0.6  0.85 1.2  | 1.5 1.7 1.9
+    63: 0.2  | 0.63 0.9  1.25 | 1.6 1.8 2.0
+    80: 0.22 | 0.67 0.95 1.3  | 1.7 1.9 2.1
+   100: 0.25 | 0.71 1.0  1.4  | 1.8 2.0 2.2
+   125: 0.28 | 0.75 1.05 1.5  | 1.9 2.1 2.4
+   160: 0.32 | 0.8  1.1  1.6  | 2.0 2.2 2.5
+   200: 0.42 | 1.0  1.4  2.0  | 2.5 2.8 3.2
+   250: 0.56 | 1.25 1.8  2.5  | 3.2 3.6 4.0
+   320: 0.75 | 1.6  2.2  3.2  | 4.0 4.5 5.0
+   400: 1.0  | 2.0  2.8  4.0  | 5.0 5.6 6.3
+   500: 1.3  | 2.5  3.6  5.0  | 6.3 7.1 8.0
+   630: 1.8  | 3.2  4.5  6.3  | 8.0 9.0 10.0
+   800: 2.4  | 4.0  5.6  8.0  | 10.0 11.0 12.5
+  1000: 3.2  | 5.0  7.1  10.0 | 12.5 14.0 16.0
+   reinforced creepage = 2 x basic. Creepage is never less than clearance: result = max(creepage, clearance).
+"""
+source = "IEC 60664-1:2020 (paywalled, https://webstore.iec.ch/en/publication/59671). Table values from secondary reproductions: PTR Hartmann (sources/standards/creepage-ptr-hartmann.txt), Wurth Elektronik creepage and clearance of connectors PDF, Battery Design creepage calculator, VIOX IEC 60664-1 calculator (sources/standards/creepage-viox-calc.txt), Elektor parts 1 to 3 (sources/standards/creepage-elektor-part*.txt), TI SLUP421 and SLUAAR5 (sources/standards/iec60664-ti-*.pdf). Material group thresholds from IEC 60664-1 clause 4.8.1.3 as quoted by TI SLUAAR5."
+validity = "Low-voltage equipment up to 1000 V RMS, frequency to 30 kHz. Product standards (IEC 62368-1, 60335, 61010, 60601) override these with their own tables. Secondary reproductions: the implementer must verify every row against the standard before the panel drops the 'verify' label."
+accuracy = "Lookup; values are the standard's own. The panel shows 'reproduced from secondary sources, verify against IEC 60664-1' until a licensed copy has been checked."
+[[calculator.vector]]
+inputs = { working_voltage = 230, mains_voltage = 230, overvoltage_category = "II", pollution_degree = "2", material_group = "IIIa", insulation = "basic" }
+expect = { impulse_voltage = 2.5, clearance = 1.5, creepage = 2.5 }
+tolerance = 1e-9
+crosscheck = "Elektor part 2 worked example: 230 V mains, OVC II, PD2, group III: 1.5 mm clearance, 2.5 mm creepage (sources/standards/creepage-elektor-part2.txt)"
+[[calculator.vector]]
+inputs = { working_voltage = 230, mains_voltage = 230, overvoltage_category = "II", pollution_degree = "2", material_group = "IIIa", insulation = "reinforced" }
+expect = { impulse_voltage = 4.0, clearance = 3.0, creepage = 5.0 }
+tolerance = 1e-9
+crosscheck = "reinforced: next impulse step 4 kV -> 3.0 mm; creepage doubled to 5.0 mm (the usual 'about 5 mm' mains reinforced figure)"
+[[calculator.vector]]
+inputs = { working_voltage = 48, mains_voltage = 120, overvoltage_category = "II", pollution_degree = "2", material_group = "I", insulation = "functional" }
+expect = { impulse_voltage = 1.5, clearance = 0.5, creepage = 0.6 }
+tolerance = 1e-9
+crosscheck = "F.5 row 50 V, PD2, group I = 0.6 mm; F.2 1.5 kV = 0.5 mm"
+[[calculator.vector]]
+inputs = { working_voltage = 400, mains_voltage = 400, overvoltage_category = "III", pollution_degree = "3", material_group = "IIIa", insulation = "basic" }
+expect = { impulse_voltage = 6.0, clearance = 5.5, creepage = 6.3 }
+tolerance = 1e-9
+crosscheck = "F.1 600 V row, OVC III = 6 kV -> 5.5 mm; F.5 400 V PD3 group III = 6.3 mm"
+
+# ---------------------------------------------------------------- power and components
+
+[[calculator]]
+id = "decoupling_capacitor"
+name = "Decoupling capacitor sizing"
+group = "components"
+summary = "Bulk capacitance for a current step within a ripple budget, and the self-resonant frequency above which a capacitor stops being one."
+inputs = [
+  { name = "current_step", unit = "A", range = [1.0e-6, 1000.0] },
+  { name = "step_time", unit = "s", range = [1.0e-12, 1.0] },
+  { name = "ripple", unit = "V", range = [1.0e-4, 10.0] },
+  { name = "esl", unit = "H", range = [1.0e-12, 1.0e-6], default = 1.0e-9, description = "capacitor plus mounting inductance" },
+  { name = "capacitance", unit = "F", range = [1.0e-12, 1.0], optional = true, description = "a chosen part, for its self-resonance" },
+]
+outputs = ["capacitance_needed F", "self_resonance Hz", "impedance_target ohm (ripple / current_step)"]
+formula = "C = I dt / dV;  f_srf = 1 / (2 pi sqrt(ESL C));  Ztarget = dV / I."
+source = "Analog Devices MT-101 'Decoupling Techniques' (manifest: https://www.analog.com/media/en/training-seminars/tutorials/MT-101.pdf); the charge-balance form is in any power integrity text (Bogatin, Signal and Power Integrity Simplified, ch. 13)."
+validity = "First-order. Below the SRF the part is a capacitor; above it the mounting inductance dominates, so several values in parallel cover a wider band. Place small ones nearest the pin."
+accuracy = "Order of magnitude starting point."
+[[calculator.vector]]
+inputs = { current_step = 1.0, step_time = 5e-9, ripple = 0.05 }
+expect = { capacitance_needed = 1.0e-7, impedance_target = 0.05 }
+tolerance = 1e-9
+crosscheck = "1 A * 5 ns / 50 mV = 100 nF"
+[[calculator.vector]]
+inputs = { current_step = 0.5, step_time = 10e-9, ripple = 0.1 }
+expect = { capacitance_needed = 5.0e-8 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { current_step = 0.5, step_time = 10e-9, ripple = 0.1, esl = 1e-9, capacitance = 100e-9 }
+expect = { self_resonance = 1.59155e7 }
+tolerance = 1e-5
+crosscheck = "1/(2 pi sqrt(1e-16)) = 15.9 MHz, the textbook 0603 100 nF SRF range"
+
+[[calculator]]
+id = "i2c_pullup"
+name = "I2C pull-up resistor"
+group = "components"
+summary = "Smallest and largest pull-up for an I2C bus from supply, sink current, rise time budget and bus capacitance."
+inputs = [
+  { name = "vcc", unit = "V", range = [1.0, 6.0] },
+  { name = "vol_max", unit = "V", range = [0.0, 1.0], default = 0.4 },
+  { name = "iol", unit = "A", range = [1.0e-4, 0.03], default = 3.0e-3 },
+  { name = "rise_time", unit = "s", range = [1.0e-9, 1.0e-5], description = "1000 ns standard, 300 ns fast, 120 ns fast-plus" },
+  { name = "bus_capacitance", unit = "F", range = [1.0e-12, 1.0e-9], description = "400 pF max standard and fast, 550 pF fast-plus" },
+]
+outputs = ["rp_min ohm", "rp_max ohm", "suggested ohm (geometric mean, nearest E24)"]
+formula = "Rp_min = (Vcc - VOL_max) / IOL;  Rp_max = tr / (0.8473 Cb)  (tr measured 30 % to 70 %, 0.8473 = ln(0.7/0.3))."
+source = "Texas Instruments SLVA689, 'I2C Bus Pull-Up Resistor Calculation', equations 1 and 6 (sources/netrules/ti-slva689-i2c-pullup-sizing.txt). Bus limits from the NXP I2C-bus specification UM10204 (public)."
+validity = "Open-drain bus; VOL and IOL from the weakest device on the bus."
+accuracy = "exact for the model"
+[[calculator.vector]]
+inputs = { vcc = 3.3, vol_max = 0.4, iol = 3e-3, rise_time = 300e-9, bus_capacitance = 100e-12 }
+expect = { rp_min = 966.667, rp_max = 3540.66 }
+tolerance = 1e-5
+crosscheck = "SLVA689 figure: 3.3 V, 3 mA gives 967 ohm minimum"
+[[calculator.vector]]
+inputs = { vcc = 5.0, vol_max = 0.4, iol = 3e-3, rise_time = 1000e-9, bus_capacitance = 400e-12 }
+expect = { rp_min = 1533.33, rp_max = 2950.55 }
+tolerance = 1e-5
+crosscheck = "standard mode at the 400 pF limit: 1000e-9 / (0.8473 * 400e-12)"
+[[calculator.vector]]
+inputs = { vcc = 3.3, vol_max = 0.4, iol = 3e-3, rise_time = 120e-9, bus_capacitance = 50e-12 }
+expect = { rp_min = 966.667, rp_max = 2832.53 }
+tolerance = 1e-5
+crosscheck = "fast-mode plus on a short bus"
+
+[[calculator]]
+id = "crystal_load_capacitors"
+name = "Crystal load capacitors"
+group = "components"
+summary = "The two external capacitors for a Pierce oscillator from the crystal's specified load capacitance and the board stray capacitance."
+inputs = [
+  { name = "load_capacitance", unit = "pF", range = [4.0, 40.0] },
+  { name = "stray_capacitance", unit = "pF", range = [0.0, 15.0], default = 3, description = "pin plus trace stray per side, typically 2 to 5 pF" },
+  { name = "c1", unit = "pF", range = [1.0, 100.0], optional = true, description = "check mode: the pair you fitted" },
+  { name = "c2", unit = "pF", range = [1.0, 100.0], optional = true },
+]
+outputs = ["c1_c2 pF (equal pair)", "effective_load pF (check mode)", "nearest_e24 pF"]
+formula = "CL = C1 C2 / (C1 + C2) + Cstray.  For C1 = C2: C1 = C2 = 2 (CL - Cstray).  Check mode returns CL for the fitted pair."
+source = "Microchip AN826, 'Crystal Oscillator Basics and Crystal Selection', load capacitance section (sources/netrules/microchip-an826-crystal-oscillator-basics.txt); Raspberry Pi 'Hardware design with RP2040' crystal section (sources/netrules/rpi-hardware-design-with-rp2040.txt) as a worked example."
+validity = "Pierce oscillator with the crystal between two pins. Cstray is a guess until measured; trim by checking frequency."
+accuracy = "exact for the model; stray guess dominates"
+[[calculator.vector]]
+inputs = { load_capacitance = 12.5, stray_capacitance = 3 }
+expect = { c1_c2 = 19 }
+tolerance = 1e-9
+crosscheck = "2 (12.5 - 3) = 19; check: 19*19/38 + 3 = 12.5"
+[[calculator.vector]]
+inputs = { load_capacitance = 18, stray_capacitance = 5 }
+expect = { c1_c2 = 26 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { load_capacitance = 8, stray_capacitance = 2.5 }
+expect = { c1_c2 = 11 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+
+[[calculator]]
+id = "timer_555"
+name = "555 timer"
+group = "components"
+summary = "Astable frequency and duty cycle, or monostable pulse width, for the classic timer."
+inputs = [
+  { name = "mode", unit = "enum", values = ["astable", "monostable"] },
+  { name = "r1", unit = "ohm", range = [1000.0, 1.0e7] },
+  { name = "r2", unit = "ohm", range = [1000.0, 1.0e7], optional = true },
+  { name = "c", unit = "F", range = [1.0e-12, 1.0e-2] },
+]
+outputs = ["frequency Hz", "duty_cycle %", "t_high s", "t_low s", "pulse_width s"]
+formula = "Astable: t_high = ln2 (R1 + R2) C; t_low = ln2 R2 C; f = 1 / (t_high + t_low); D = (R1 + R2) / (R1 + 2 R2). Monostable: t = ln3 R C (1.0986 R C, often rounded to 1.1 R C)."
+source = "Wikipedia, '555 timer IC', design formulas section and worked tables (checked 2026-10-28); any 555 datasheet (TI NE555)."
+validity = "Bipolar or CMOS 555 with R1 >= 1 k; duty cycle is always above 50 % in the basic astable."
+accuracy = "exact for the model; the chip's comparator thresholds add a few percent"
+[[calculator.vector]]
+inputs = { mode = "astable", r1 = 8200, r2 = 68000, c = 10e-9 }
+expect = { frequency = 1000.48, duty_cycle = 52.8433 }
+tolerance = 1e-5
+crosscheck = "Wikipedia table: 8.2 k, 68 k, 10 nF gives 1 kHz (+0.048 %) at 52.8 %"
+[[calculator.vector]]
+inputs = { mode = "astable", r1 = 1000, r2 = 10000, c = 100e-9 }
+expect = { frequency = 686.998, duty_cycle = 52.381 }
+tolerance = 1e-5
+crosscheck = "1.4427 / (21000 * 100e-9)"
+[[calculator.vector]]
+inputs = { mode = "monostable", r1 = 91000, c = 10e-9 }
+expect = { pulse_width = 9.99737e-4 }
+tolerance = 1e-5
+crosscheck = "Wikipedia table: 91 k, 10 nF gives 1 ms (-0.026 %)"
+
+[[calculator]]
+id = "opamp_gain"
+name = "Op-amp gain"
+group = "components"
+summary = "Gain of the inverting and non-inverting resistor-feedback amplifiers, in ratio and dB."
+inputs = [
+  { name = "topology", unit = "enum", values = ["inverting", "non_inverting"] },
+  { name = "rf", unit = "ohm", range = [1.0, 1.0e9] },
+  { name = "rin", unit = "ohm", range = [1.0, 1.0e9], description = "input resistor (inverting) or ground resistor (non-inverting)" },
+]
+outputs = ["gain", "gain_db", "input_impedance ohm (inverting: rin)"]
+formula = "Inverting: G = -Rf / Rin. Non-inverting: G = 1 + Rf / Rg. dB = 20 log10 |G|."
+source = "Horowitz and Hill, 3rd ed., sections 4.2.1 and 4.2.2."
+validity = "Ideal op-amp, closed-loop gain well below the open-loop gain at the frequency of interest."
+accuracy = "exact for the model"
+[[calculator.vector]]
+inputs = { topology = "inverting", rf = 100000, rin = 10000 }
+expect = { gain = -10, gain_db = 20 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { topology = "non_inverting", rf = 47000, rin = 4700 }
+expect = { gain = 11 }
+tolerance = 1e-9
+crosscheck = "hand arithmetic"
+[[calculator.vector]]
+inputs = { topology = "non_inverting", rf = 1.0, rin = 1.0e9 }
+expect = { gain = 1.000000001 }
+tolerance = 1e-6
+crosscheck = "follower limit"
+
+[[calculator]]
+id = "ldo_thermal"
+name = "LDO dissipation and junction temperature"
+group = "components"
+summary = "Heat in a linear regulator and its junction temperature from theta-JA."
+inputs = [
+  { name = "vin", unit = "V", range = [0.5, 100.0] },
+  { name = "vout", unit = "V", range = [0.1, 100.0] },
+  { name = "iout", unit = "A", range = [0.0, 20.0] },
+  { name = "iq", unit = "A", range = [0.0, 0.1], default = 0 },
+  { name = "theta_ja", unit = "K/W", range = [1.0, 500.0] },
+  { name = "ambient", unit = "C", range = [-55.0, 125.0], default = 25 },
+  { name = "tj_max", unit = "C", range = [85.0, 175.0], default = 125 },
+]
+outputs = ["power W", "rise K", "tj C", "headroom K (tj_max - tj)", "max_iout_at_tj_max A"]
+formula = "P = (Vin - Vout) Iout + Vin Iq;  Tj = Ta + P theta_JA;  Imax = (((Tj_max - Ta)/theta_JA) - Vin Iq) / (Vin - Vout)."
+source = "Any LDO datasheet thermal section, for example TI TLV1117 or the TI application report SLVA118 'Understanding thermal dissipation and design of a heatsink'; theta-JA definition JEDEC JESD51-2."
+validity = "theta-JA is measured on a JEDEC test board; a real board with less copper runs hotter. Use the datasheet's theta-JA for the package and copper area closest to yours."
+accuracy = "exact for the model; theta-JA uncertainty 20 to 50 %"
+[[calculator.vector]]
+inputs = { vin = 5.0, vout = 3.3, iout = 0.5, iq = 5e-3, theta_ja = 65, ambient = 25 }
+expect = { power = 0.875, rise = 56.875, tj = 81.875 }
+tolerance = 1e-6
+crosscheck = "1.7 V * 0.5 A + 5 V * 5 mA = 0.875 W"
+[[calculator.vector]]
+inputs = { vin = 12, vout = 5, iout = 0.3, iq = 1e-3, theta_ja = 50, ambient = 40 }
+expect = { power = 2.112, tj = 145.6 }
+tolerance = 1e-6
+crosscheck = "over 125 C: the panel flags it"
+[[calculator.vector]]
+inputs = { vin = 3.6, vout = 1.8, iout = 0.1, iq = 100e-6, theta_ja = 250, ambient = 25 }
+expect = { power = 0.18036, tj = 70.09 }
+tolerance = 1e-6
+crosscheck = "hand arithmetic"
+
+[[calculator]]
+id = "battery_life"
+name = "Battery life"
+group = "components"
+summary = "Run time from capacity and a duty-cycled load."
+inputs = [
+  { name = "capacity", unit = "mAh", range = [1.0, 1.0e6] },
+  { name = "active_current", unit = "mA", range = [0.0, 1.0e5] },
+  { name = "sleep_current", unit = "mA", range = [0.0, 1.0e5], default = 0 },
+  { name = "active_fraction", unit = "", range = [0.0, 1.0], default = 1.0 },
+  { name = "usable_fraction", unit = "", range = [0.1, 1.0], default = 0.85, description = "self-discharge, cutoff voltage and temperature derating" },
+]
+outputs = ["average_current mA", "hours h", "days d"]
+formula = "Iavg = Ia d + Is (1 - d);  hours = capacity * usable_fraction / Iavg."
+source = "Charge balance; derating guidance from any cell datasheet (for example Energizer CR2032 datasheet, Panasonic NCR18650B)."
+validity = "Ignores Peukert and the cell's voltage curve; for a regulator between cell and load, use the input current of the regulator."
+accuracy = "+-20 % in practice"
+[[calculator.vector]]
+inputs = { capacity = 2000, active_current = 100, active_fraction = 1.0, usable_fraction = 0.85 }
+expect = { average_current = 100, hours = 17 }
+tolerance = 1e-9
+crosscheck = "2000 * 0.85 / 100"
+[[calculator.vector]]
+inputs = { capacity = 2000, active_current = 20, sleep_current = 0.01, active_fraction = 0.01, usable_fraction = 0.85 }
+expect = { average_current = 0.2099, hours = 8099.09, days = 337.462 }
+tolerance = 1e-5
+crosscheck = "0.2 + 0.0099 = 0.2099 mA"
+[[calculator.vector]]
+inputs = { capacity = 220, active_current = 30, sleep_current = 0.005, active_fraction = 0.001, usable_fraction = 0.85 }
+expect = { average_current = 0.034995, days = 222.651 }
+tolerance = 1e-5
+crosscheck = "CR2032 class cell, beacon duty"
+
+[[calculator]]
+id = "wire_gauge"
+name = "Wire gauge ampacity"
+group = "components"
+summary = "Diameter, area, resistance and the usual current limits for an AWG size, or the AWG for a current."
+inputs = [
+  { name = "awg", unit = "", range = [0, 40], integer = true, optional = true },
+  { name = "current", unit = "A", range = [0.01, 200.0], optional = true },
+  { name = "insulation_rating", unit = "enum", values = ["60C", "75C", "90C"], default = "75C" },
+]
+outputs = ["diameter mm", "area mm2", "resistance ohm/km", "ampacity A", "awg (for current)"]
+formula = """
+d = 0.127 * 92^((36 - n)/39) mm;  A = pi d^2 / 4;  R/km = RHO_CU / A * 1e9 (A in mm2).
+Ampacity table (A) for 60C/75C/90C insulation, NEC 310.16 single conductors in free air not used; enclosed values:
+  10: 30/35/40  12: 20/25/30  14: 15/20/25  16: 12/16/18  18: 10/14/16  20: 5/11/-  22: 3/7/-  24: 2.1/3.5/-  26: 1.3/2.2/-  28: 0.83/1.4/-  30: 0.52/0.86/-
+awg for current: smallest gauge number whose ampacity at the rating >= current.
+"""
+source = "Wikipedia, 'American wire gauge' (formula, table rows and NEC-derived ampacity columns; checked 2026-10-28); ampacity ultimately NFPA 70 (NEC) table 310.16."
+validity = "Solid copper at 20 C. Ampacity depends on bundling, ambient and insulation; the NEC columns are for building wire. For PCB wire-to-board use the connector's rating."
+accuracy = "Diameter and area exact from the AWG definition; resistance within 0.3 % of the published table (resistivity rounding)."
+[[calculator.vector]]
+inputs = { awg = 10 }
+expect = { diameter = 2.58819, area = 5.26115, resistance = 3.26924, ampacity = 35 }
+tolerance = 1e-5
+crosscheck = "Wikipedia: 2.588 mm, 5.26 mm2, 3.277 ohm/km, 35 A at 75 C"
+[[calculator.vector]]
+inputs = { awg = 18 }
+expect = { diameter = 1.02369, area = 0.823047, resistance = 20.898, ampacity = 14 }
+tolerance = 1e-5
+crosscheck = "Wikipedia: 1.024 mm, 0.823 mm2, 20.95 ohm/km, 14 A at 75 C"
+[[calculator.vector]]
+inputs = { awg = 24 }
+expect = { diameter = 0.510559, area = 0.20473, resistance = 84.013, ampacity = 3.5 }
+tolerance = 1e-5
+crosscheck = "Wikipedia: 0.511 mm, 0.205 mm2, 84.22 ohm/km, 3.5 A at 75 C"
+[[calculator.vector]]
+inputs = { current = 4, insulation_rating = "75C" }
+expect = { awg = 22 }
+tolerance = 0
+crosscheck = "22 AWG carries 7 A at 75 C, 24 AWG only 3.5 A"
+
+[[calculator]]
+id = "resistor_code"
+name = "Resistor colour code and SMD code"
+group = "components"
+summary = "Decode colour bands (4, 5 or 6) and SMD markings (3-digit, 4-digit, R-notation, EIA-96), or encode a value."
+inputs = [
+  { name = "bands", unit = "colour names", array = [3, 6], optional = true },
+  { name = "smd_code", unit = "text", pattern = "^[0-9R]{3,4}$|^[0-9]{2}[A-Z]$", optional = true },
+  { name = "value", unit = "ohm", range = [1.0e-3, 1.0e12], optional = true, description = "encode mode" },
+]
+outputs = ["resistance ohm", "tolerance %", "tempco ppm/K", "bands", "smd_3digit", "smd_eia96"]
+formula = """
+Colour digits: black 0 brown 1 red 2 orange 3 yellow 4 green 5 blue 6 violet 7 grey 8 white 9.
+Multiplier: same digit as power of ten; gold 0.1, silver 0.01, pink 0.001.
+Tolerance: brown 1 % (F), red 2 % (G), green 0.5 % (D), blue 0.25 % (C), violet 0.1 % (B), grey 0.01 % (L), gold 5 % (J), silver 10 % (K), none 20 % (M).
+Tempco (6th band): brown 100, red 50, orange 15, yellow 25, blue 10, violet 5 ppm/K.
+4 bands = 2 digits + multiplier + tolerance; 5 bands = 3 digits + multiplier + tolerance; 6 = 5 + tempco.
+SMD: 3-digit "ABC" = AB * 10^C; 4-digit "ABCD" = ABC * 10^D; "R" marks the decimal point (4R7 = 4.7, R10 = 0.10).
+EIA-96 "NNL": NN is the 1-based index into E96 (01 = 1.00 ... 96 = 9.76, three significant digits), L is the multiplier letter:
+  Z 0.001, Y or R 0.01, X or S 0.1, A 1, B or H 10, C 100, D 1000, E 10000, F 100000.
+"""
+source = "Wikipedia, 'Electronic color code' (IEC 60062:2016 table; checked 2026-10-28). EIA-96 letters: xdevs resistor SMD code guide https://xdevs.com/guide/rescode/ and pimylifeup SMD resistor guide https://pimylifeup.com/smd-resistor/ (both agree on Z Y/R X/S A B/H C D E F)."
+validity = "Manufacturers deviate; the decoder shows 'check the datasheet' for grey or white multipliers and for codes with unusual letters."
+accuracy = "exact decoding"
+[[calculator.vector]]
+inputs = { bands = ["yellow", "violet", "red", "gold"] }
+expect = { resistance = 4700, tolerance = 5 }
+tolerance = 1e-9
+crosscheck = "the classic 4.7 k"
+[[calculator.vector]]
+inputs = { bands = ["brown", "black", "black", "red", "brown"] }
+expect = { resistance = 10000, tolerance = 1 }
+tolerance = 1e-9
+crosscheck = "100 * 100"
+[[calculator.vector]]
+inputs = { bands = ["orange", "orange", "gold", "gold"] }
+expect = { resistance = 3.3, tolerance = 5 }
+tolerance = 1e-9
+crosscheck = "33 * 0.1"
+[[calculator.vector]]
+inputs = { smd_code = "472" }
+expect = { resistance = 4700 }
+tolerance = 1e-9
+crosscheck = "47 * 10^2"
+[[calculator.vector]]
+inputs = { smd_code = "4R7" }
+expect = { resistance = 4.7 }
+tolerance = 1e-9
+crosscheck = "R as decimal point"
+[[calculator.vector]]
+inputs = { smd_code = "68X" }
+expect = { resistance = 49.9 }
+tolerance = 1e-9
+crosscheck = "xdevs guide: 68X = 49.9 ohm (index 68 = 499, X = 0.1)"
+[[calculator.vector]]
+inputs = { smd_code = "01A" }
+expect = { resistance = 100 }
+tolerance = 1e-9
+crosscheck = "xdevs guide: 01A = 100 ohm"
+[[calculator.vector]]
+inputs = { smd_code = "34C" }
+expect = { resistance = 22100 }
+tolerance = 1e-9
+crosscheck = "index 34 = 221, C = 100"
+
+[[calculator]]
+id = "e_series"
+name = "E-series nearest value"
+group = "components"
+summary = "Nearest standard value in E6, E12, E24, E48, E96 or E192, the neighbours either side, and the error."
+inputs = [
+  { name = "value", unit = "ohm | F | H", range = [1.0e-15, 1.0e15] },
+  { name = "series", unit = "enum", values = ["E6", "E12", "E24", "E48", "E96", "E192"], default = "E24" },
+]
+outputs = ["nearest", "below", "above", "error %"]
+formula = """
+Base values: v_i = round(10^(i/N)) to 2 significant digits for N <= 24, 3 for N >= 48, i = 0..N-1.
+E24 overrides (IEC 60063 keeps the historic values): 2.6->2.7 2.9->3.0 3.2->3.3 3.5->3.6 3.8->3.9 4.2->4.3 4.6->4.7 8.3->8.2.
+E6 and E12 are every 4th and every 2nd E24 value. E192 override: index 185 is 9.20 (formula gives 9.19).
+Nearest: minimise |ln(candidate / value)| over the decade's values plus 10 x the first of the next decade.
+"""
+source = "Wikipedia, 'E series of preferred numbers' (IEC 60063 lists, formula, the eight E24 exceptions and the E192 9.20 exception; checked 2026-10-28)."
+validity = "Any unit; the series is dimensionless."
+accuracy = "exact against IEC 60063"
+[[calculator.vector]]
+inputs = { value = 4500, series = "E24" }
+expect = { nearest = 4700 }
+tolerance = 1e-9
+crosscheck = "4.3 is 4.5 % low, 4.7 is 4.4 % high; log distance picks 4.7"
+[[calculator.vector]]
+inputs = { value = 4500, series = "E96" }
+expect = { nearest = 4530 }
+tolerance = 1e-9
+crosscheck = "E96 has 4.42 and 4.53"
+[[calculator.vector]]
+inputs = { value = 123, series = "E12" }
+expect = { nearest = 120 }
+tolerance = 1e-9
+crosscheck = "E12 neighbours 120 and 150"
+[[calculator.vector]]
+inputs = { value = 123, series = "E96" }
+expect = { nearest = 124 }
+tolerance = 1e-9
+crosscheck = "E96 has 1.21 and 1.24"
+[[calculator.vector]]
+inputs = { value = 0.47, series = "E6" }
+expect = { nearest = 0.47 }
+tolerance = 1e-9
+crosscheck = "exact member"
+[[calculator.vector]]
+inputs = { value = 9.9, series = "E24" }
+expect = { nearest = 10 }
+tolerance = 1e-9
+crosscheck = "decade wrap: 9.1 vs 10"
+
+[[calculator]]
+id = "unit_converter"
+name = "Unit converter"
+group = "utilities"
+summary = "mil, mm, inch, micron and copper weight in oz/ft2."
+inputs = [
+  { name = "value", unit = "", range = [-1.0e9, 1.0e9] },
+  { name = "from", unit = "enum", values = ["mm", "mil", "inch", "um", "oz"] },
+  { name = "to", unit = "enum", values = ["mm", "mil", "inch", "um", "oz"] },
+]
+outputs = ["value"]
+formula = "1 inch = 25.4 mm exactly; 1 mil = 0.0254 mm; 1 oz/ft2 copper = 34.79 um (fabs round to 35 um; 0.5 oz = 17.4 um, 2 oz = 69.6 um). oz converts only to and from length units as a thickness."
+source = "Inch definition: NIST SP 811. Copper weight: 1 oz over 1 ft2 of copper (density 8.96 g/cm3) is 34.79 um; stated in IPC-4562 and every fab capability page (sources/standards/jlcpcb-pcb-capabilities.txt, eurocircuits-copper-layers.txt)."
+validity = "Exact conversions."
+accuracy = "exact"
+[[calculator.vector]]
+inputs = { value = 10, from = "mil", to = "mm" }
+expect = { value = 0.254 }
+tolerance = 1e-12
+crosscheck = "definition"
+[[calculator.vector]]
+inputs = { value = 1, from = "mm", to = "mil" }
+expect = { value = 39.3701 }
+tolerance = 1e-5
+crosscheck = "1/0.0254"
+[[calculator.vector]]
+inputs = { value = 2, from = "oz", to = "um" }
+expect = { value = 69.58 }
+tolerance = 1e-9
+crosscheck = "2 * 34.79"
+[[calculator.vector]]
+inputs = { value = 35, from = "um", to = "oz" }
+expect = { value = 1.00604 }
+tolerance = 1e-5
+crosscheck = "35 / 34.79"
+
+[[calculator]]
+id = "thermal_via_count"
+name = "Thermal via count"
+group = "utilities"
+summary = "How many plated vias under a hot pad reach a target thermal resistance to the plane on the other side."
+inputs = [
+  { name = "drill", unit = "mm", range = [0.1, 1.0] },
+  { name = "plating", unit = "um", range = [10.0, 50.0], default = 25 },
+  { name = "length", unit = "mm", range = [0.1, 5.0], default = 1.6 },
+  { name = "target_rth", unit = "K/W", range = [0.1, 100.0] },
+  { name = "filled", unit = "bool", default = false, description = "solder or copper filled barrel: counts the full drill area" },
+]
+outputs = ["rth_one_via K/W", "count", "array_hint (square side)"]
+formula = """
+A = pi/4 ((drill + 2 plating)^2 - drill^2)   (filled: pi/4 (drill + 2 plating)^2)
+Rth_via = length / (K_CU A);  count = ceil(Rth_via / target_rth);  array_hint = ceil(sqrt(count)).
+"""
+source = "Series thermal resistance of a cylinder, k_copper = 385 W/(m K) (CRC Handbook). Context: TI SLVA959 motor driver layout and SLYT614 buck layout notes on thermal vias (sources/netrules/ti-slva959-*.txt, ti-slyt614-*.txt)."
+validity = "Conduction through the barrel only; ignores the FR-4 in parallel (negligible), the spreading resistance in the pad and the plane, and solder wicking. Real packages see 2 to 3 times the ideal count's benefit tail off after about 9 to 16 vias."
+accuracy = "order of magnitude"
+[[calculator.vector]]
+inputs = { drill = 0.3, plating = 25, length = 1.6, target_rth = 5 }
+expect = { rth_one_via = 162.812, count = 33 }
+tolerance = 1e-4
+crosscheck = "1.6e-3 / (385 * 2.5525e-8) = 162.8 K/W"
+[[calculator.vector]]
+inputs = { drill = 0.3, plating = 25, length = 1.6, target_rth = 2 }
+expect = { rth_one_via = 162.812, count = 82 }
+tolerance = 1e-4
+crosscheck = "ceil(162.8/2)"
+[[calculator.vector]]
+inputs = { drill = 0.2, plating = 20, length = 1.0, target_rth = 10 }
+expect = { rth_one_via = 187.904, count = 19 }
+tolerance = 1e-4
+crosscheck = "A = 0.013823 mm2"

@@ -2,3 +2,6 @@
 *.pcbcraft.tmp
 /work/
 __pycache__/
+
+site/docs-preview/
+/apps/pcbcraft-web/dist/

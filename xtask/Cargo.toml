@@ -10,3 +10,9 @@ workspace = true
 [dependencies]
 serde_json.workspace = true
 pcbcraft-text.workspace = true
+pcbcraft-geom.workspace = true
+pcbcraft-doc.workspace = true
+pcbcraft-library.workspace = true
+pcbcraft-engine.workspace = true
+pcbcraft-io.workspace = true
+pcbcraft-rules.workspace = true

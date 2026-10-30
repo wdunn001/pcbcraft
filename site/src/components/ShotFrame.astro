@@ -1,0 +1,89 @@
+---
+// Frame for one screenshot. Until the screenshot component from #715 exists this draws a neutral
+// application window with a hatched slot. Default slot content (the hero drawing) replaces the hatch.
+// Rules: `alt` is required and describes what the final capture will show; `id` is the future
+// screenshot file stem in the shot catalog. The dashed "SCREENSHOT #715" mark shows while the slot is empty.
+// Do not: put a real capture here by hand; #715 swaps the inside of `.view` only.
+interface Props {
+  id: string;
+  alt: string;
+  title?: string;
+  ratio?: string;
+  caption?: string;
+}
+const { id, alt, title = 'PCBCraft', ratio = '16 / 10', caption } = Astro.props;
+const filled = Astro.slots.has('default');
+---
+
+<figure class="shot" data-shot={id}>
+  <div class="chrome" aria-hidden="true">
+    <i></i><i></i><i></i><span class="mono">{title}</span>
+  </div>
+  <div class="view" style={`aspect-ratio:${ratio}`} role="img" aria-label={alt} data-slot={filled ? undefined : 'SCREENSHOT #715'}>
+    {filled ? <slot /> : <span class="mono hatch-label">{id}</span>}
+  </div>
+  {caption && <figcaption class="mono"><span>{caption}</span><span class="right">{id}</span></figcaption>}
+</figure>
+
+<style>
+  .shot {
+    margin: 0;
+    overflow: hidden;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-edge);
+    border-radius: 10px;
+    box-shadow: var(--pc-shadow);
+  }
+  .chrome {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    height: 34px;
+    background: var(--pc-raised);
+    border-bottom: 1px solid var(--pc-line);
+    color: var(--pc-muted);
+    font-size: 0.72rem;
+  }
+  .chrome i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--pc-line);
+  }
+  .chrome span {
+    margin-inline-start: 10px;
+    letter-spacing: 0.06em;
+  }
+  .view {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    background: var(--pc-surface);
+  }
+  .view :global(svg) {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .hatch-label {
+    padding: 0.4rem 0.8rem;
+    color: var(--pc-muted);
+    font-size: 0.8rem;
+    background: var(--pc-surface);
+    border-radius: 4px;
+  }
+  .view[data-slot] {
+    background: repeating-linear-gradient(45deg, var(--pc-raised) 0 10px, var(--pc-surface) 10px 20px);
+  }
+  figcaption {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.55rem 0.9rem;
+    color: var(--pc-muted);
+    font-size: 0.75rem;
+    border-top: 1px solid var(--pc-line);
+  }
+</style>

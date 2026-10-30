@@ -41,6 +41,30 @@ pub(crate) fn name_control(response: &Response, name: &str, selected: Option<boo
     });
 }
 
+/// Give a field a spoken name in one call: `ui.add(field).named("Width")`.
+///
+/// # Rules
+/// - The name is short and says what the field holds, not its value.
+/// - Does nothing while no screen reader is attached.
+///
+/// # Dependencies
+/// - `crates/ui-egui/src/e2e/shell.rs` gate counts controls left without a name.
+///
+/// # Do not
+/// - Use it on a button; buttons use `name_control`.
+pub(crate) trait Named {
+    /// Set the accessible name and hand the response back.
+    fn named(self, name: &str) -> Self;
+}
+
+impl Named for Response {
+    fn named(self, name: &str) -> Self {
+        self.ctx
+            .accesskit_node_builder(self.id, |node| node.set_label(name));
+        self
+    }
+}
+
 /// Make a painted line of text a polite live region, so a screen reader
 /// reads it when its words change without moving keyboard focus (WCAG
 /// 4.1.3 Status Messages). The node label is always the visible text, and

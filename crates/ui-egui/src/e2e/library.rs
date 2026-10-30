@@ -8,16 +8,36 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        paints_text(&ctx, &mut app, "Search parts by name")?,
+        paints_text(&ctx, &mut app, "Keyword or part number")?,
         "the part search opens with a box that says what to type"
     );
-    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    tap_id(
+        &ctx,
+        &mut app,
+        "button:#-pin connector, Built in \u{b7} GPL-#.#-or-later",
+    )?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind.contains("connector")),
+        "a connector can be armed straight from the list, got {:?}",
+        app.tool
+    );
+    authoring::tests::tap(&ctx, &mut app, "Capacitor")?;
+    assert!(
+        matches!(&app.tool, Tool::Place(kind) if kind == "capacitor"),
+        "a capacitor can be armed from the list, got {:?}",
+        app.tool
+    );
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    tap_id(&ctx, &mut app, "textinput:Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(
             &ctx,
@@ -35,8 +55,12 @@ fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), Strin
         paints_text(&ctx, &mut app, "Resistor")?,
         "the matching part stays in the list"
     );
+    let out = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
-        !paints_text(&ctx, &mut app, "Capacitor")?,
+        !out.shapes.iter().any(|s| matches!(
+            &s.shape,
+            egui::Shape::Text(t) if t.galley.text() == "Capacitor"
+        )),
         "parts that do not match the search disappear from the list"
     );
     authoring::tests::tap(&ctx, &mut app, "Resistor")?;
@@ -58,6 +82,7 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
+    app.region().left_tab = "library".to_owned();
     app.tool_call("sample_design", json!({}));
     let r1 = app
         .project
@@ -90,21 +115,16 @@ fn a_newcomer_sees_what_each_part_is_and_hides_a_whole_set() -> Result<(), Strin
         }}),
     );
     let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(
-        paints_text(&ctx, &mut app, "    blinky red · built in")?,
-        "a part row says what the part is and where it came from: {}",
-        app.message
-    );
-    authoring::tests::tap(&ctx, &mut app, "Add part")?;
-    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    // The component list no longer shows a description or source line per row.
     assert!(
         paints_text(&ctx, &mut app, "Power bits (1 part)")?,
         "library parts are grouped under their set name: {}",
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "thin film · search words: resistor · trim")?,
+        paints_text(&ctx, &mut app, "thin film")?,
         "each library part is a card that says what it is: {}",
         app.message
     );
@@ -218,6 +238,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         position: Point::new(30.0, 20.0),
         rotation: 0.0,
         locked: None,
+        side: None,
         pads: pads
             .into_iter()
             .map(|g| Pad {
@@ -295,12 +316,14 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared.clone(), Preferences::default(), None, None);
     app.refresh();
+    app.region().left_tab = "library".to_owned();
     let ctx = egui::Context::default();
     let none = egui::Modifiers::NONE;
     frame(&ctx, &mut app, vec![], none);
-    authoring::tests::tap(&ctx, &mut app, "Add part")?;
+    app.change_tab(Tab::Schematic);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
     frame(&ctx, &mut app, vec![], none);
-    authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
+    authoring::tests::tap(&ctx, &mut app, "Keyword or part number")?;
     for letter in "resistor".chars() {
         frame(&ctx, &mut app, vec![egui::Event::Text(letter.into())], none);
     }
@@ -309,40 +332,128 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
         "with no source the list says sources are off"
     );
     assert!(
-        !paints_text(&ctx, &mut app, "SAMPLE-R-10K")?,
+        !paints_text(&ctx, &mut app, "R_Small")?,
         "no remote parts appear while sources are off"
     );
-    authoring::tests::tap(&ctx, &mut app, "Try sample source")?;
-    app.part_search = "SAMPLE-R-10K".into();
-    frame(&ctx, &mut app, vec![], none);
+    // The open library answers from its recordings: no network in a story.
+    tap_id(&ctx, &mut app, "button:Turn on Open library")?;
+    use_recorded_library(&mut app, "real-part")?;
+    app.part_search = "resistor".into();
     assert!(
-        paints_text(&ctx, &mut app, "12500 in stock")?,
-        "the card shows stock"
+        waits_for_text(&ctx, &mut app, "R_Small")?,
+        "the open library lists the parts that match the words: {}",
+        app.message
     );
-    assert!(
-        paints_text(&ctx, &mut app, "0.10 USD each")?,
-        "the card shows a price"
-    );
-    assert!(
-        paints_text(&ctx, &mut app, "Sample data, not a real catalogue")?,
-        "the card shows the source's credit"
-    );
-    authoring::tests::tap(&ctx, &mut app, "SAMPLE-R-10K")?;
-    frame(&ctx, &mut app, vec![], none);
-    assert!(matches!(&app.tool, Tool::Place(k) if k == "resistor"));
-    // A click on the sheet runs exactly this command.
-    app.run(
-        "component.add",
-        json!({"kind":"resistor","position":{"x":20.0,"y":20.0}}),
-    );
-    let session = shared.lock().map_err(|_| "session")?;
-    let part = session
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = pcbcraft_library::sources::PartSource::search(source.as_ref(), "resistor")
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "R")
+        .ok_or("the library should know the part R")?;
+    let before = shared
+        .lock()
+        .map_err(|_| "session")?
         .project
         .components
-        .last()
-        .ok_or("no part was placed")?;
-    assert_eq!(part.field("MPN"), Some("SAMPLE-R-10K"));
-    assert_eq!(part.field("Manufacturer"), Some("Example Components"));
+        .len();
+    app.place_online_for_test(&ctx, part, "schematic", Point::new(20.0, 20.0));
+    for _ in 0..100 {
+        frame(&ctx, &mut app, vec![], none);
+        let now = shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .components
+            .len();
+        if now > before {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    assert_eq!(
+        session.project.components.len(),
+        before + 1,
+        "picking the found part puts it on the sheet: {}",
+        app.message
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    // The open library answers from its recordings: no network in a story.
+    use_recorded_library(&mut app, "chip-package")?;
+    app.dock.view = library_dock::ViewKind::Footprints;
+    // Typed the way people type it: dash, capitals, no size.
+    app.part_search = "LQFP-64".into();
+    assert!(
+        waits_for_text(&ctx, &mut app, "LQFP-64")?,
+        "the footprint list shows the 64-pin package: {}",
+        app.message
+    );
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = source
+        .search_cards(
+            pcbcraft_library::open_library::CardScope::Footprints,
+            "lqfp64",
+        )
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "LQFP-64_10x10mm_P0.5mm")
+        .ok_or("the library should know the package")?;
+    app.place_online_for_test(&ctx, part, "board", Point::new(30.0, 30.0));
+    for _ in 0..100 {
+        frame(&ctx, &mut app, vec![], none);
+        if !shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .board
+            .footprints
+            .is_empty()
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    let placed = session
+        .project
+        .board
+        .footprints
+        .first()
+        .ok_or_else(|| format!("picking the package puts it on the board: {}", app.message))?;
+    assert_eq!(placed.pads.len(), 64, "all 64 pads arrive");
+    assert_eq!(placed.position, Point::new(30.0, 30.0));
+    let component = session
+        .project
+        .components
+        .iter()
+        .find(|c| c.id == placed.component)
+        .ok_or("the board part has a schematic part")?;
+    let fp = component
+        .library_footprint
+        .as_ref()
+        .ok_or("the part carries the package")?;
+    assert_eq!(fp.definition.name, "LQFP-64_10x10mm_P0.5mm");
+    assert_eq!(component.pins.len(), 64, "one schematic pin per pad");
     Ok(())
 }
 
@@ -378,34 +489,20 @@ fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {
 #[test]
 fn a_newcomer_sees_a_library_finding_with_a_fix_on_the_checks_tab() -> Result<(), String> {
     let (mut app, ctx) = app_with_overlapping_pads()?;
-    authoring::tests::tap(&ctx, &mut app, "Checks")?;
+    app.home_open = false;
+    app.change_tab(Tab::Pcb);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Checks);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     for needle in [
         "Lib pad overlap · 1 place",
         "SquashedPair: Two pads share the same copper area",
         "Fix: Move or resize the pads so their outlines no longer overlap",
     ] {
-        let mut shown = paints_text(&ctx, &mut app, needle)?;
-        for _ in 0..10 {
-            if shown {
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-            shown = paints_text(&ctx, &mut app, needle)?;
-        }
-        assert!(shown, "the Checks tab should show \"{needle}\"");
+        assert!(
+            scrolled_to_at(&ctx, &mut app, needle, 720.0)?,
+            "the findings sheet should show \"{needle}\""
+        );
     }
     Ok(())
 }
@@ -643,6 +740,249 @@ fn a_newcomer_sees_why_impossible_numbers_cannot_make_a_footprint() -> Result<()
             "pitch must be between 0.1 and 25.4 millimetres"
         )?,
         "a pitch that no package has is explained in plain words"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_makes_a_chamfered_pad_and_then_a_custom_pad() -> Result<(), String> {
+    let (shared, mut app, ctx) = authoring::tests::editor("footprint-editor")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Pad 1 · thru_hole")?;
+    authoring::tests::tap(&ctx, &mut app, "circle")?;
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, "Top left")?,
+        "a chamfered pad offers its corners by name"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Top right")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    let chamfer = draft.pads[0].chamfer.ok_or("the chamfer was not created")?;
+    assert_eq!(draft.pads[0].shape, "chamfered");
+    assert!(chamfer.corners.top_left && chamfer.corners.top_right);
+    assert!(!chamfer.corners.bottom_left && !chamfer.corners.bottom_right);
+    assert!(
+        (chamfer.ratio - 0.25).abs() < 1e-9,
+        "default cut is a quarter"
+    );
+    authoring::tests::tap(&ctx, &mut app, "Save footprint to project library")?;
+    {
+        let session = shared.lock().map_err(|_| "session unavailable")?;
+        let saved = &session.project.library.footprints[0].pads[0];
+        assert_eq!(saved.shape, "chamfered", "the cut pad reaches the project");
+        assert_eq!(saved.chamfer, Some(chamfer));
+    }
+    authoring::tests::tap(&ctx, &mut app, "Chamfered")?;
+    authoring::tests::tap(&ctx, &mut app, "Custom polygon")?;
+    authoring::tests::tap(&ctx, &mut app, "Add point")?;
+    let Some(authoring::Draft::Footprint(draft)) = app.library.editor.draft.clone() else {
+        return Err("the footprint editor lost its draft".to_string());
+    };
+    assert_eq!(draft.pads[0].shape, "custom");
+    assert!(draft.pads[0].chamfer.is_none(), "the cuts go away");
+    assert_eq!(
+        draft.pads[0].polygon.len(),
+        5,
+        "four corners plus the added point"
+    );
+    Ok(())
+}
+
+fn editor_app(page: &str) -> (App, egui::Context) {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, Some(page));
+    app.refresh();
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    (app, ctx)
+}
+
+fn symbol_draft(app: &App) -> Result<pcbcraft_library::SymbolDefinition, String> {
+    authoring::tests::draft_symbol(app)
+}
+
+#[test]
+fn a_newcomer_describes_a_new_symbol_in_every_box() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    type_into(&ctx, &mut app, "textinput:Name", "Amplifier")?;
+    type_into(&ctx, &mut app, "textinput:Reference prefix", "U")?;
+    type_into(&ctx, &mut app, "textinput:Default value", "LM358")?;
+    type_into(&ctx, &mut app, "textinput:Description", "Dual op amp")?;
+    type_into(&ctx, &mut app, "textinput:Suggested footprint", "SOIC-8")?;
+    type_into(&ctx, &mut app, "textinput:Set name", "Analog")?;
+    let draft = symbol_draft(&app)?;
+    assert_eq!(draft.name, "Amplifier", "the name is the one typed");
+    assert_eq!(
+        draft.reference, "U",
+        "the reference prefix is the one typed"
+    );
+    assert_eq!(draft.value, "LM358", "the default value is the one typed");
+    assert_eq!(
+        draft.description, "Dual op amp",
+        "the note is the one typed"
+    );
+    assert_eq!(draft.footprint, "SOIC-8", "the package is the one typed");
+    assert_eq!(draft.set, "Analog", "the set is the one typed");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_adds_pins_and_shapes_to_a_symbol_and_makes_a_second_unit() -> Result<(), String> {
+    let (mut app, ctx) = editor_app("symbol-editor");
+    let pins = symbol_draft(&app)?.pins.len();
+    tap_id(&ctx, &mut app, "button:Add pin")?;
+    assert_eq!(
+        symbol_draft(&app)?.pins.len(),
+        pins + 1,
+        "one click, one pin"
+    );
+    let shapes = symbol_draft(&app)?.graphics.len();
+    for (index, button) in [
+        "button:Line",
+        "button:Rectangle",
+        "button:Circle",
+        "button:Arc",
+        "button:Polyline",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        tap_id(&ctx, &mut app, button)?;
+        assert_eq!(
+            symbol_draft(&app)?.graphics.len(),
+            shapes + index + 1,
+            "{button} adds one shape to the drawing"
+        );
+    }
+    // Opening a pin or a shape shows its own fields.
+    tap_id(&ctx, &mut app, "button:Pin # · unit #")?;
+    tap_id(&ctx, &mut app, "button:Graphic # · unit #")?;
+    tap_id(&ctx, &mut app, "button:Duplicate preview unit")?;
+    assert!(
+        symbol_draft(&app)?.pins.iter().any(|pin| pin.unit == 2),
+        "the copy lives in a second unit"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_picks_a_drawing_tool_in_the_symbol_editor() -> Result<(), String> {
+    use crate::authoring::LibraryTool;
+    let (mut app, ctx) = editor_app("symbol-editor");
+    for (button, tool) in [
+        ("button:Draw line", LibraryTool::Line),
+        ("button:Draw circle", LibraryTool::Circle),
+        ("button:Draw arc", LibraryTool::Arc),
+        ("button:Draw polyline", LibraryTool::Polyline),
+    ] {
+        tap_id(&ctx, &mut app, button)?;
+        assert!(
+            app.library.editor.tool == tool,
+            "{button} arms its drawing tool"
+        );
+    }
+    tap_id(&ctx, &mut app, "button:Fit")?;
+    assert!(
+        app.library.editor.tool == LibraryTool::Polyline,
+        "Fit zooms the canvas and leaves the chosen tool alone"
+    );
+    let before = symbol_draft(&app)?.graphics.len();
+    tap_id(&ctx, &mut app, "button:Text")?;
+    assert_eq!(
+        symbol_draft(&app)?.graphics.len(),
+        before + 1,
+        "Text adds one text label to the symbol"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_lays_out_a_footprint_with_pads_and_a_drawing() -> Result<(), String> {
+    use crate::authoring::LibraryTool;
+    let (mut app, ctx) = editor_app("footprint-editor");
+    let pads = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.pads.len(),
+        _ => return Err("the footprint editor starts with a draft".into()),
+    };
+    tap_id(&ctx, &mut app, "button:Add pad")?;
+    let after = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.pads.len(),
+        _ => return Err("the footprint draft vanished".into()),
+    };
+    assert_eq!(after, pads + 1, "one click, one pad");
+    tap_id(&ctx, &mut app, "button:Pad")?;
+    assert!(
+        app.library.editor.tool == LibraryTool::Pad,
+        "Pad arms the pad tool"
+    );
+    tap_id(&ctx, &mut app, "button:Pad # · thru_hole")?;
+    tap_id(&ctx, &mut app, "button:Line")?;
+    tap_id(&ctx, &mut app, "button:Graphic #")?;
+    let shapes = match &app.library.editor.draft {
+        Some(Draft::Footprint(draft)) => draft.graphics.len(),
+        _ => 0,
+    };
+    assert!(shapes > 0, "the footprint now has a drawn shape to open");
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_switches_between_the_library_and_the_editor() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    app.change_tab(Tab::Libraries);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert_eq!(app.tab, Tab::Libraries, "the Libraries page stays open");
+    tap_id(&ctx, &mut app, "button:Editor")?;
+    assert_eq!(app.library.editor.mode, 2, "Editor opens the editor");
+    tap_id(&ctx, &mut app, "button:Library")?;
+    assert_eq!(app.library.editor.mode, 0, "Library comes back to browsing");
+    tap_id(&ctx, &mut app, "button:New symbol")?;
+    assert!(
+        matches!(app.library.editor.draft, Some(Draft::Symbol(_))),
+        "New symbol starts a symbol draft"
+    );
+    tap_id(&ctx, &mut app, "button:New footprint")?;
+    assert!(
+        matches!(app.library.editor.draft, Some(Draft::Footprint(_))),
+        "New footprint starts a package draft"
+    );
+    app.library.editor.mode = 0;
+    tap_id(&ctx, &mut app, "button:Original starter symbols")?;
+    assert!(
+        paints_text(&ctx, &mut app, "Place in schematic >")?,
+        "the starter symbols open with a button to place each one"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_newcomer_browses_component_libraries_from_the_library_tab() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared, Preferences::default(), None, None);
+    app.refresh();
+    app.tool_call("sample_design", json!({}));
+    let ctx = egui::Context::default();
+    app.change_tab(Tab::Schematic);
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::tap(&ctx, &mut app, "Place part")?;
+    authoring::tests::tap(
+        &ctx,
+        &mut app,
+        "Add or manage libraries in Settings \u{2192}",
+    )?;
+    assert_eq!(
+        app.tab,
+        Tab::Settings,
+        "the browse button opens the page that lists library sources"
     );
     Ok(())
 }

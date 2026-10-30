@@ -2,6 +2,7 @@
 //! panel and the board-level list of spans a via may use.
 
 use super::*;
+use crate::a11y::Named;
 use pcbcraft_doc::Layer;
 
 /// Read-only facts about a via's span, for the properties rows.
@@ -82,7 +83,7 @@ impl App {
                         }
                     }
                 })
-                .response
+                .response.named("Start layer")
                 .on_hover_text(
                     "The upper copper layer this via touches. The kind follows: Through reaches both outer layers, Blind has one end on an outer layer, Buried stays inside, Micro is a shallow laser-drilled blind via. Only starts the board allows are listed.",
                 );
@@ -98,7 +99,7 @@ impl App {
                         }
                     }
                 })
-                .response
+                .response.named("End layer")
                 .on_hover_text(
                     "The lower copper layer this via touches. Only ends that fit the start layer are listed.",
                 );
@@ -173,6 +174,7 @@ impl App {
                         }
                     })
                     .response
+                    .named("New span start layer")
                     .on_hover_text("Upper layer of the new span.");
                 ui.label("to");
                 egui::ComboBox::from_id_salt("via_span_add_to")
@@ -183,6 +185,7 @@ impl App {
                         }
                     })
                     .response
+                    .named("New span end layer")
                     .on_hover_text("Lower layer of the new span.");
             });
             ui.data_mut(|d| d.insert_temp(key, (x, y)));

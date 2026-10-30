@@ -667,6 +667,7 @@ mod tests {
             position: Point::default(),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 3.0),
@@ -723,6 +724,7 @@ mod tests {
             position: Point::new(15.0, 15.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -883,6 +885,7 @@ mod tests {
             position: Point::new(5.0, 5.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![pcbcraft_doc::Pad {
                 number: "1".into(),
                 offset: Point::new(0.0, 3.0),

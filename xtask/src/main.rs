@@ -15,6 +15,7 @@
 //! - Add a CI step that has no `cargo xtask` command behind it.
 mod doc_check;
 mod e2e;
+mod showcase;
 mod tooltips;
 
 use std::path::{Path, PathBuf};
@@ -38,6 +39,7 @@ const USAGE: &str = "usage: cargo xtask <command>
   bless-parity regenerate the reference-project parity goldens
   strings      extract | check: list text catalog keys, or fail on a bad catalog
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
+  showcase     regenerate the sample projects in examples/ from engine commands
   screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
@@ -55,7 +57,7 @@ const REQUIRED_DENY: [&str; 6] = [
 ];
 
 /// Desktop views captured for review: (file stem, extra app arguments).
-const VIEWS: [(&str, &[&str]); 8] = [
+const VIEWS: [(&str, &[&str]); 11] = [
     ("01-schematic-dark", &["--sample", "--tab", "schematic"]),
     (
         "02-schematic-light",
@@ -68,6 +70,23 @@ const VIEWS: [(&str, &[&str]); 8] = [
     (
         "07-footprint-editor",
         &["--sample", "--tab", "footprint-editor"],
+    ),
+    (
+        "09-showcase-layout",
+        &["--project", "examples/showcase.pcbcraft", "--tab", "pcb"],
+    ),
+    (
+        "10-showcase-3d",
+        &["--project", "examples/showcase.pcbcraft", "--tab", "3d"],
+    ),
+    (
+        "11-showcase-schematic",
+        &[
+            "--project",
+            "examples/showcase.pcbcraft",
+            "--tab",
+            "schematic",
+        ],
     ),
     (
         "08-dual-amplifier-pcb",
@@ -298,8 +317,8 @@ fn layers() -> Result<(), String> {
     let metadata = workspace_metadata()?;
     let layer = |name: &str| -> Option<u8> {
         match name {
-            "pcbcraft-geom" | "pcbcraft-text" => Some(0),
-            "pcbcraft-doc" | "pcbcraft-library" => Some(1),
+            "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" => Some(0),
+            "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
             "pcbcraft-mcp" | "pcbcraft-ui-egui" => Some(4),
@@ -531,6 +550,7 @@ fn run() -> Result<(), String> {
         "deny" => deny()?,
         "msrv" => msrv()?,
         "strings" => strings(args.get(1).map(String::as_str))?,
+        "showcase" => showcase::run(&root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
         "bless-parity" => run_env(
             "cargo",

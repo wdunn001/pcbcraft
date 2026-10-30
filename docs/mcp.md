@@ -82,6 +82,15 @@ To capture the actual UI, use the desktop's `--capture /absolute/path.png` optio
 
 ## Library workflow
 
+`library.list` filters part listings (the open project's saved parts, installed libraries and any `listings` you pass) with one
+filter (`categories`, `packages`, `value_min`, `value_max`, `voltage_min`,
+`temp_range`, `stock_min`, `lifecycle`, `sources`, `rohs`, `text`), `limit`
+(1-100) and a `cursor` from the previous answer. It returns `items`,
+`next_cursor` and `total_known`. A listing with an empty number never matches a
+numeric filter. Results are grouped by source in each source's own order and are
+not ranked across sources. Optional `listings` carries already loaded
+distributor pages to filter with the same rules. It is read-only.
+
 `library.catalog` discovers host folders. `library.search` accepts `path`, `kind`
 (`symbol` or `footprint`), optional `query`, and `limit` (1–100). A symbol path is
 a `.kicad_sym` file; a footprint search path is a `.pretty` directory. Results
@@ -107,6 +116,12 @@ pads connect their own front/back copper; two different pads are never bridged.
 declared differential pair, optional `width`, and `layer` (default `F.Cu`). It
 routes both nets with coupled orthogonal L geometry and refuses when the pair gap
 cannot be kept.
+`track.drag` takes a track `id`, which `end` ("start" or "end"), a `position` and an
+optional `mode` (`octilinear` by default, or `octilinear_shove`). The other end stays
+put and the track is re-laid as 45-degree copper around pads, cutouts and other
+nets' tracks; shove mode also pushes other nets' tracks aside within fixed limits.
+A refusal gives a plain reason and changes nothing. `track.set_end` stays the
+unchecked move.
 
 `library.inspect_symbol` and `library.inspect_footprint` accept `include_source`.
 When true, up to 512 KiB of original nodes are returned for editing; larger source
@@ -121,6 +136,18 @@ with `include_source: true`, or construct one using the fields documented in
 docs/kicad-libraries.md. `library.symbol.remove` / `library.footprint.remove` accept
 `name`. `component.place_custom` accepts `name`, `position`, optional reference/value;
 `footprint.assign_custom` accepts component `id` and footprint `name`.
+
+`library.import_online` adds a part fetched from an online library to the project
+library in one undoable step. It takes a `symbol` definition, an optional `footprint`
+definition, an optional `model` (a file path with optional offset, scale and rotate),
+up to four `notices` that record the source and licence in the project library, and
+`on_conflict` (`refuse` by default, `replace`, or `keep_both`). Importing identical
+content again changes nothing and answers `unchanged`. `library.place_online` does the
+same import and then places the part: `target` is `schematic` or `layout`, `position`
+is the drop point in that view, and a layout drop also adds the part to the schematic
+at a free spot, with the footprint on the board at `position`. Pad numbers must match
+the symbol pins or the whole command changes nothing. The engine never fetches files;
+the caller reads them with the library crate first.
 
 `library.save {path}` atomically writes a `.pcbcraft-lib` collection without
 changing history. `library.load {path}` validates and replaces the project-library
@@ -168,7 +195,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |

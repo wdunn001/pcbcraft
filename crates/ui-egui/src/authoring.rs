@@ -1,8 +1,10 @@
 use super::*;
+use crate::a11y::Named;
 use egui::{Pos2, Sense};
 use pcbcraft_geom::point_segment;
 use pcbcraft_library::{
-    Drill, FootprintDefinition, FootprintPad, Graphic, SymbolDefinition, SymbolPin, UnitGraphic,
+    ChamferCorners, Drill, FootprintDefinition, FootprintPad, Graphic, MAX_PAD_POLYGON_VERTICES,
+    PadChamfer, SymbolDefinition, SymbolPin, UnitGraphic,
 };
 
 /// Most pads the editor lists one by one; a 40 by 40 BGA fits.
@@ -62,6 +64,8 @@ impl Default for Editor {
             wizard: Default::default(),
             tool: LibraryTool::Select,
             camera: Camera {
+                mirror: false,
+                turns: 0,
                 center: Point::default(),
                 zoom: 18.0,
             },
@@ -201,23 +205,265 @@ fn new_footprint() -> FootprintDefinition {
         unsupported: vec![],
     }
 }
+/// Plain label for a pad shape in the shape list.
+///
+/// # Rules
+/// - Words come from the text catalog; unknown shapes show as stored.
+///
+/// # Dependencies
+/// - `crates/text/strings/en.txt` keys `library.library_editor.shape_*`.
+///
+/// # Do not
+/// - Change the stored shape names; the library and the writers match them.
+fn pad_shape_label(shape: &str) -> String {
+    match shape {
+        "circle" => t!("library.library_editor.shape_circle"),
+        "rect" => t!("library.library_editor.shape_rect"),
+        "oval" => t!("library.library_editor.shape_oval"),
+        "roundrect" => t!("library.library_editor.shape_roundrect"),
+        "chamfered" => t!("library.library_editor.shape_chamfered"),
+        "custom" => t!("library.library_editor.shape_custom"),
+        other => other.to_string(),
+    }
+}
+/// Shape list for one pad, with the extra controls the chosen shape needs.
+///
+/// Choosing chamfered starts a quarter-size cut on the top left corner
+/// (the usual pin 1 mark). Choosing custom starts from the pad's own
+/// rectangle so the outline is valid at once. Leaving a shape drops the
+/// data that only that shape uses.
+///
+/// # Rules
+/// - Every control has a tooltip and a screen reader name.
+/// - Outline problems show in red from `pcbcraft_library::custom_polygon_error`.
+///
+/// # Dependencies
+/// - `crates/library/src/lib.rs` for `PadChamfer`, `ChamferCorners`,
+///   `MAX_PAD_POLYGON_VERTICES` and `custom_polygon_error`.
+/// - `crates/ui-egui/src/a11y.rs` for `name_control`.
+///
+/// # Do not
+/// - Save from here; the footprint editor's save button validates.
+fn pad_shape_controls(ui: &mut egui::Ui, pad: &mut FootprintPad) {
+    let before = pad.shape.clone();
+    egui::ComboBox::from_id_salt("pad-shape")
+        .selected_text(pad_shape_label(&pad.shape))
+        .show_ui(ui, |ui| {
+            for shape in ["circle", "rect", "oval", "roundrect", "chamfered", "custom"] {
+                let tip = match shape {
+                    "chamfered" => t!("library.library_editor.shape_chamfered.tip"),
+                    "custom" => t!("library.library_editor.shape_custom.tip"),
+                    _ => t!("library.library_editor.copper_outline_of_the_pad.tip"),
+                };
+                ui.selectable_value(&mut pad.shape, shape.into(), pad_shape_label(shape))
+                    .on_hover_text(tip);
+            }
+        });
+    if before != pad.shape {
+        if pad.shape == "chamfered" && pad.chamfer.is_none() {
+            pad.chamfer = Some(PadChamfer {
+                ratio: 0.25,
+                corners: ChamferCorners {
+                    top_left: true,
+                    ..ChamferCorners::default()
+                },
+            });
+        }
+        if pad.shape == "custom" && pad.polygon.is_empty() {
+            let (hx, hy) = (pad.size.x / 2.0, pad.size.y / 2.0);
+            pad.polygon = vec![
+                Point::new(-hx, -hy),
+                Point::new(hx, -hy),
+                Point::new(hx, hy),
+                Point::new(-hx, hy),
+            ];
+        }
+    }
+    if pad.shape == "roundrect" {
+        let response = ui
+            .add(crate::number_entry::localized_active(
+                egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
+                    .range(0.0..=0.5)
+                    .speed(0.01)
+                    .prefix(format!("{} ", t!("library.library_editor.corner_ratio"))),
+                3,
+            ))
+            .on_hover_text(t!("library.library_editor.corner_ratio.tip"));
+        crate::a11y::name_control(&response, &t!("library.library_editor.corner_ratio"), None);
+    } else {
+        pad.roundrect_ratio = None;
+    }
+    if pad.shape == "chamfered" {
+        if let Some(chamfer) = &mut pad.chamfer {
+            let response = ui
+                .add(crate::number_entry::localized_active(
+                    egui::DragValue::new(&mut chamfer.ratio)
+                        .range(0.01..=0.5)
+                        .speed(0.01)
+                        .prefix(format!("{} ", t!("library.library_editor.cut_size"))),
+                    3,
+                ))
+                .on_hover_text(t!("library.library_editor.cut_size.tip"));
+            crate::a11y::name_control(&response, &t!("library.library_editor.cut_size"), None);
+            let corners = &mut chamfer.corners;
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut corners.top_left,
+                    t!("library.library_editor.corner_top_left"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_top_left.tip"));
+                ui.checkbox(
+                    &mut corners.top_right,
+                    t!("library.library_editor.corner_top_right"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_top_right.tip"));
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut corners.bottom_left,
+                    t!("library.library_editor.corner_bottom_left"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_bottom_left.tip"));
+                ui.checkbox(
+                    &mut corners.bottom_right,
+                    t!("library.library_editor.corner_bottom_right"),
+                )
+                .on_hover_text(t!("library.library_editor.corner_bottom_right.tip"));
+            });
+            if !corners.any() {
+                ui.label(t!("library.library_editor.pick_a_corner"));
+            }
+        }
+    } else {
+        pad.chamfer = None;
+    }
+    if pad.shape == "custom" {
+        ui.label(t!("library.library_editor.outline_points"));
+        let mut remove = None;
+        let count = pad.polygon.len();
+        for (i, vertex) in pad
+            .polygon
+            .iter_mut()
+            .enumerate()
+            .take(MAX_PAD_POLYGON_VERTICES)
+        {
+            ui.push_id(("vertex", i), |ui| {
+                point(
+                    ui,
+                    &t!("library.library_editor.point_v0", v0 = i + 1),
+                    vertex,
+                );
+                if count > 3
+                    && ui
+                        .button(t!("library.library_editor.delete_point"))
+                        .on_hover_text(t!("library.library_editor.delete_point.tip"))
+                        .clicked()
+                {
+                    remove = Some(i);
+                }
+            });
+        }
+        if let Some(i) = remove {
+            pad.polygon.remove(i);
+        }
+        if pad.polygon.len() < MAX_PAD_POLYGON_VERTICES
+            && ui
+                .button(t!("library.library_editor.add_point"))
+                .on_hover_text(t!("library.library_editor.add_point.tip"))
+                .clicked()
+        {
+            let last = pad.polygon.last().copied().unwrap_or_default();
+            pad.polygon.push(Point::new(last.x + 0.1, last.y + 0.1));
+        }
+        if let Some(reason) = pcbcraft_library::custom_polygon_error(pad.size, &pad.polygon) {
+            ui.colored_label(Color32::LIGHT_RED, reason);
+        }
+    } else {
+        pad.polygon.clear();
+    }
+}
 fn point(ui: &mut egui::Ui, label: &str, p: &mut Point) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "));
-        ui.add(egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "));
+        let size = label.to_lowercase().contains("size");
+        let name = label.to_lowercase();
+        let (across, up) = if size {
+            (
+                format!("How wide the {name} is, in millimetres."),
+                format!("How tall the {name} is, in millimetres."),
+            )
+        } else {
+            (
+                format!(
+                    "Sideways position of the {name} in millimetres, from the drawing's origin."
+                ),
+                format!(
+                    "Up-and-down position of the {name} in millimetres, from the drawing's origin."
+                ),
+            )
+        };
+        ui.add(crate::number_entry::localized_active(
+            egui::DragValue::new(&mut p.x).speed(0.1).prefix("X "),
+            3,
+        ))
+        .named(&format!("{label} X"))
+        .on_hover_text(across);
+        ui.add(crate::number_entry::localized_active(
+            egui::DragValue::new(&mut p.y).speed(0.1).prefix("Y "),
+            3,
+        ))
+        .named(&format!("{label} Y"))
+        .on_hover_text(up);
     });
 }
 fn text(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(crate::targets::text_field(value));
+        ui.add(crate::targets::text_field(value))
+            .named(label)
+            .on_hover_text(text_field_tip(label));
     });
+}
+/// What a text box in the symbol and package editors is for, keyed by its
+/// label, so each box says what to type and what it changes.
+fn text_field_tip(label: &str) -> String {
+    if label == t!("library.library_editor.name") {
+        t!("library.library_editor.name.tip")
+    } else if label == t!("library.library_editor.reference_prefix") {
+        t!("library.library_editor.reference_prefix.tip")
+    } else if label == t!("library.library_editor.default_value") {
+        t!("library.library_editor.default_value.tip")
+    } else if label == t!("library.library_editor.description") {
+        t!("library.library_editor.description.tip")
+    } else if label == t!("library.library_editor.suggested_footprint") {
+        t!("library.library_editor.suggested_footprint.tip")
+    } else if label == t!("library.library_editor.number") {
+        t!("library.library_editor.number.tip")
+    } else if label == t!("library.graphic.layer") {
+        t!("library.graphic.layer.tip")
+    } else if label == t!("library.graphic.fill") {
+        t!("library.graphic.fill.tip")
+    } else if label == t!("library.graphic.text") {
+        t!("library.graphic.text.tip")
+    } else {
+        t!("library.library_editor.field_default.tip")
+    }
 }
 fn number(ui: &mut egui::Ui, label: &str, value: &mut f64) {
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.add(egui::DragValue::new(value).speed(0.1));
+        ui.add(crate::number_entry::localized_active(
+            egui::DragValue::new(value).speed(0.1),
+            3,
+        ))
+        .named(label)
+        .on_hover_text(match label {
+            "Angle" => "The angle in degrees. Positive turns counter-clockwise.",
+            "Length" => "How long the shape is, in millimetres.",
+            "Radius" => "The distance from the centre to the edge, in millimetres.",
+            "Stroke" => "How thick the outline is, in millimetres. Zero draws the thinnest line.",
+            _ => "Type a number for this field. It updates the draft in the editor straight away.",
+        });
     });
 }
 fn graphic(ui: &mut egui::Ui, g: &mut Graphic) {
@@ -1149,7 +1395,8 @@ impl App {
         ui.label(t!("library.project_library.saved_here_live_with_the"));
         ui.horizontal(|ui| {
             ui.label(t!("library.project_library.collection_file"));
-            ui.add(crate::targets::text_field(&mut self.library.editor.path));
+            ui.add(crate::targets::text_field(&mut self.library.editor.path))
+                .named(&t!("library.project_library.collection_file"));
             if ui
                 .button(t!("library.project_library.save_library"))
                 .on_hover_text(t!("library.project_library.save_library.tip"))
@@ -1288,7 +1535,9 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(t!("library.library_editor.set"))
                         .on_hover_text(t!("library.library_editor.set.tip"));
-                    ui.add(crate::targets::text_field(&mut def.set));
+                    ui.add(crate::targets::text_field(&mut def.set))
+                        .named("Set name")
+                        .on_hover_text(t!("library.library_editor.set_field.tip"));
                 });
                 if let Err(e) = def.validate() {
                     ui.colored_label(Color32::LIGHT_RED, e.to_string());
@@ -1382,7 +1631,7 @@ impl App {
                                 egui::DragValue::new(&mut pin.unit)
                                     .range(1..=32)
                                     .prefix(format!("{} ", t!("library.library_editor.unit"))),
-                            );
+                            ).named("Pin unit");
                             egui::ComboBox::from_id_salt("pin-type")
                                 .selected_text(&pin.electrical_type)
                                 .show_ui(ui, |ui| {
@@ -1400,7 +1649,7 @@ impl App {
                                     ] {
                                         ui.selectable_value(&mut pin.electrical_type, t.into(), t);
                                     }
-                                });
+                                }).response.named("Pin type");
                             if ui
                                 .button(t!("library.library_editor.delete_pin"))
                                 .on_hover_text(t!("library.library_editor.delete_pin.tip"))
@@ -1408,7 +1657,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1431,7 +1682,7 @@ impl App {
                                 egui::DragValue::new(&mut g.unit)
                                     .range(0..=32)
                                     .prefix(format!("{} ", t!("library.library_editor.unit_0_shared"))),
-                            );
+                            ).named("Graphic unit");
                             graphic(ui, &mut g.primitive);
                             if ui
                                 .button(t!("library.library_editor.delete_graphic"))
@@ -1440,7 +1691,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings2.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1510,7 +1763,7 @@ impl App {
                                     .on_hover_text(
                                         t!("library.library_editor.unplated_hole.tip"),
                                     );
-                                });
+                                }).response.named("Pad type");
                             if before != pad.pad_type {
                                 if pad.pad_type == "unplated" {
                                     apply_unplated_defaults(pad);
@@ -1526,32 +1779,7 @@ impl App {
                                     pad.drill = None;
                                 }
                             }
-                            egui::ComboBox::from_id_salt("pad-shape")
-                                .selected_text(&pad.shape)
-                                .show_ui(ui, |ui| {
-                                    for shape in ["circle", "rect", "oval", "roundrect"] {
-                                        ui.selectable_value(&mut pad.shape, shape.into(), shape)
-                                            .on_hover_text(
-                                                t!("library.library_editor.copper_outline_of_the_pad.tip"),
-                                            );
-                                    }
-                                });
-                            if pad.shape == "roundrect" {
-                                ui.add(
-                                    egui::DragValue::new(pad.roundrect_ratio.get_or_insert(0.25))
-                                        .range(0.0..=0.5)
-                                        .speed(0.01)
-                                        .prefix(format!("{} ", t!("library.library_editor.corner_ratio"))),
-                                );
-                            } else {
-                                pad.roundrect_ratio = None;
-                            }
-                            if pad.shape != "chamfered" {
-                                pad.chamfer = None;
-                            }
-                            if pad.shape != "custom" {
-                                pad.polygon.clear();
-                            }
+                            pad_shape_controls(ui, pad);
                             if let Some(drill) = &mut pad.drill {
                                 point(ui, &t!("library.library_editor.drill_size_oval_if_unequal"), &mut drill.size);
                                 point(ui, &t!("library.library_editor.drill_offset"), &mut drill.offset);
@@ -1564,7 +1792,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings3.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1587,7 +1817,9 @@ impl App {
                             {
                                 remove = Some(i);
                             }
-                        });
+                        })
+.header_response
+.on_hover_text(t!("library.library_editor.show_or_hide_the_settings2.tip"));
                     });
                 }
                 if let Some(i) = remove {
@@ -1702,6 +1934,19 @@ pub(crate) mod tests {
         app.tool_call("redo", json!({}));
         assert_eq!(app.project.library.symbols.len(), 1);
         Ok(())
+    }
+    /// Opens a page the way a person does now that the pages live in menus:
+    /// Settings is Edit > Preferences, Rules and Checks are in View.
+    pub(crate) fn open_page(ctx: &egui::Context, app: &mut App, page: &str) -> Result<(), String> {
+        let (menu, item) = match page {
+            "Settings" => ("Edit", "Preferences"),
+            "Rules" => ("View", "Rules"),
+            "Checks" => ("View", "Checks"),
+            other => return Err(format!("{other} is not a page in a menu")),
+        };
+        tap(ctx, app, menu)?;
+        frame(ctx, app, vec![]);
+        tap(ctx, app, item)
     }
     /// Find the button whose label reads exactly `label`, scrolling the page
     /// down and then up if needed, and click it like a person would.

@@ -1,0 +1,94 @@
+---
+// Layout for every marketing page: head, theme init, skip link, shared header and footer.
+// Context: the docs use Starlight's own page shell with the same header and footer through
+// the overrides in ../components/starlight.
+// Rules: one <h1> per page, supplied by the page; `description` is required for SEO.
+// Do not: set colours here; they come from ../styles/theme.css.
+import '../styles/fonts.css';
+import '../styles/theme.css';
+import '../styles/marketing.css';
+import SiteHeader from '../components/SiteHeader.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
+import { url } from '../lib/site';
+
+interface Props {
+  title: string;
+  description: string;
+}
+const { title, description } = Astro.props;
+const fullTitle = title === 'PCBCraft' ? 'PCBCraft' : `${title} | PCBCraft`;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href={url('favicon.svg')} type="image/svg+xml" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <meta name="theme-color" content="#0A1411" />
+    <script is:inline src={url('theme-init.js')}></script>
+  </head>
+  <body class="marketing">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="inner">
+        <SiteHeader>
+          <a slot="search" class="search-link" href={url('docs/')} title="Open the documentation and its search">Search docs</a>
+          <ThemeToggle slot="theme" />
+        </SiteHeader>
+      </div>
+    </header>
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>
+
+<style is:global>
+  .search-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    color: var(--pc-muted) !important;
+    background: var(--pc-surface);
+    border: 1px solid var(--pc-edge);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .search-link:hover {
+    color: var(--pc-text) !important;
+    border-color: var(--pc-copper);
+  }
+  .search-link kbd {
+    padding: 0 0.35rem;
+    font: 0.72rem var(--pc-font-mono);
+    border: 1px solid var(--pc-line);
+    border-radius: 3px;
+  }
+  @media (max-width: 40rem) {
+    .search-link kbd {
+      display: none;
+    }
+    .search-link {
+      padding: 0.45rem 0.6rem;
+    }
+  }
+  @media (max-width: 26rem) {
+    .search-link {
+      display: none;
+    }
+  }
+</style>

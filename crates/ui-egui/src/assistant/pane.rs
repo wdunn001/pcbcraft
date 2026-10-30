@@ -14,7 +14,7 @@ use pcbcraft_assistant::Item;
 pub(crate) fn show(app: &mut App, ui: &mut egui::Ui) {
     let muted = app.muted();
     egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(16, 12))
+        .inner_margin(egui::Margin::ZERO)
         .show(ui, |ui| {
             header(app, ui, muted);
             if app.assistant.confirm_forget {
@@ -198,7 +198,8 @@ fn composer(app: &mut App, ui: &mut egui::Ui) {
             .desired_width(f32::INFINITY)
             .hint_text(text::input_hint()),
     );
-    edit.on_hover_text(if off {
+    use crate::a11y::Named;
+    edit.named(&text::input_hint()).on_hover_text(if off {
         text::disabled_tip()
     } else {
         text::input_tip()

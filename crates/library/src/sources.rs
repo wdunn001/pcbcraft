@@ -83,6 +83,32 @@ pub enum SourceError {
     Unavailable(String),
 }
 
+/// Sources answer part searches with stock, prices, lifecycle and datasheet
+/// links. Implementations may be live (network) or recorded (file). Every
+/// implementation must be thread-safe and return bounded results.
+///
+/// # Rules
+/// - `id()` returns a short stable string used as the cache key.
+/// - `search()` returns at most `MAX_RESULTS` entries.
+/// - `fetch()` returns `NotFound` when the part number is not recognized.
+/// - Error variants: `Invalid` (bad input), `NotFound` (no match),
+///   `RateLimited` (back off), `Unavailable` (service down).
+///
+/// # Dependencies
+/// - crates/library/src/sources.rs `PartResult` (this module): the record returned by searches.
+/// - crates/library/src/sources.rs `SourceError` (this module): error types.
+/// - crates/library/src/sources.rs `SetupCard` (this module): setup instructions shown to the user.
+/// - crates/library/src/sources.rs `Attribution` (this module): credit text and link.
+///
+/// # Implementations
+/// - crates/library/src/sources.rs `FixtureSource` (this module): recorded answers from JSON files.
+/// - crates/library/src/sources.rs Live distributor sources: separate crates that implement this trait and
+///   are discovered through the source registry.
+///
+/// # Do not
+/// - Return unbounded result lists; truncate to `MAX_RESULTS`.
+/// - Store mutable state without synchronization; the trait requires `Send + Sync`.
+/// - Return `Invalid` for a part number that simply has no match; use `NotFound`.
 pub trait PartSource: Send + Sync {
     /// Short stable identifier used as the cache key.
     fn id(&self) -> &str;
@@ -94,6 +120,12 @@ pub trait PartSource: Send + Sync {
     fn fetch(&self, mpn: &str) -> Result<PartResult, SourceError>;
     fn setup(&self) -> SetupCard;
     fn attribution(&self) -> Attribution;
+    /// The source's own attribute names and values for one part number, such
+    /// as `Resistance` and `Package / Case`, for `listing::listing_from_result`.
+    /// Empty when the source has none.
+    fn attributes(&self, _mpn: &str) -> BTreeMap<String, String> {
+        BTreeMap::new()
+    }
     /// Seconds a cached answer from this source stays usable.
     fn cache_secs(&self) -> u64 {
         DEFAULT_CACHE_SECS
@@ -195,6 +227,8 @@ struct FixtureFile {
 pub struct FixtureSource {
     name: String,
     parts: Vec<PartResult>,
+    /// Lowercase part number to the recorded attribute map.
+    attributes: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl FixtureSource {
@@ -213,11 +247,35 @@ impl FixtureSource {
         Ok(Self {
             name: file.name,
             parts: file.parts,
+            attributes: BTreeMap::new(),
         })
+    }
+
+    /// Add recorded attributes: a JSON object mapping a part number to a flat
+    /// object of text values. Bounded like [`FixtureSource::from_json`].
+    pub fn with_attributes(mut self, json: &str) -> Result<Self, SourceError> {
+        if json.len() > 4_000_000 {
+            return Err(SourceError::Invalid(
+                "the recorded attributes file is too large".into(),
+            ));
+        }
+        let map: BTreeMap<String, BTreeMap<String, String>> = serde_json::from_str(json)
+            .map_err(|e| SourceError::Invalid(format!("the attributes file is not valid: {e}")))?;
+        if map.len() > 1000 {
+            return Err(SourceError::Invalid("too many recorded attributes".into()));
+        }
+        self.attributes = map
+            .into_iter()
+            .map(|(mpn, attrs)| (mpn.to_lowercase(), attrs))
+            .collect();
+        Ok(self)
     }
 }
 
 impl PartSource for FixtureSource {
+    // Contract: id() returns "fixture", search() returns at most MAX_RESULTS
+    // entries matching the query, fetch() returns NotFound when the part
+    // number is not in the recorded set.
     fn id(&self) -> &str {
         "fixture"
     }
@@ -245,6 +303,12 @@ impl PartSource for FixtureSource {
             .find(|p| p.mpn.eq_ignore_ascii_case(q))
             .cloned()
             .ok_or_else(|| SourceError::NotFound(q.to_owned()))
+    }
+    fn attributes(&self, mpn: &str) -> BTreeMap<String, String> {
+        self.attributes
+            .get(&mpn.trim().to_lowercase())
+            .cloned()
+            .unwrap_or_default()
     }
     fn setup(&self) -> SetupCard {
         SetupCard {

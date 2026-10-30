@@ -167,7 +167,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                                 .collect()
                         }),
                     outline_error: pad.outline_error(),
-                    layer: Layer::Front,
+                    layer: f.pad_layer(pad),
                     pad: true,
                     clearance: local,
                     bridge: if plated {
@@ -699,6 +699,100 @@ pub fn erc(project: &Project) -> Vec<Finding> {
                 message: format!("{} has {pins} connected pins", net.name),
                 objects: vec![net.id],
             });
+        }
+    }
+    for net in &project.nets {
+        let mut on_net = vec![];
+        for c in &project.components {
+            for p in &c.pins {
+                if p.net == Some(net.id) {
+                    on_net.push((c.id, c.reference.as_str(), p));
+                }
+            }
+        }
+        if on_net.is_empty() {
+            continue;
+        }
+        let mut types = BTreeSet::new();
+        for (_, _, p) in &on_net {
+            types.insert(p.electrical_type.as_str());
+        }
+        let type_list: Vec<_> = types.iter().copied().collect();
+        for i in 0..type_list.len() {
+            for j in i..type_list.len() {
+                let ta = type_list[i];
+                let tb = type_list[j];
+                let level = project.pin_matrix_level(ta, tb);
+                if level == "ok" {
+                    continue;
+                }
+                let count_a = on_net
+                    .iter()
+                    .filter(|(_, _, p)| p.electrical_type == ta)
+                    .count();
+                let count_b = on_net
+                    .iter()
+                    .filter(|(_, _, p)| p.electrical_type == tb)
+                    .count();
+                if ta == tb {
+                    if count_a < 2 {
+                        continue;
+                    }
+                } else if count_a == 0 || count_b == 0 {
+                    continue;
+                }
+                let Some((id_a, ref_a, pin_a)) =
+                    on_net.iter().find(|(_, _, p)| p.electrical_type == ta)
+                else {
+                    continue;
+                };
+                let pin_b = if ta == tb {
+                    on_net
+                        .iter()
+                        .find(|(id, _, p)| p.electrical_type == tb && *id != *id_a)
+                } else {
+                    on_net.iter().find(|(_, _, p)| p.electrical_type == tb)
+                };
+                let Some((id_b, ref_b, pin_b)) = pin_b else {
+                    continue;
+                };
+                let hint = if ta == "output" && tb == "output" {
+                    "keep one driver or add a resistor"
+                } else if level == "error" {
+                    "separate the nets or change one pin type"
+                } else {
+                    "confirm this pairing is intentional"
+                };
+                result.push(Finding {
+                    code: "pin_conflict",
+                    severity: project.rule_severity("pin_conflict", level.as_str()),
+                    message: format!(
+                        "{ref_a} pin {} ({ta}) and {ref_b} pin {} ({tb}) drive the same net; {hint}",
+                        pin_a.number, pin_b.number
+                    ),
+                    objects: vec![*id_a, *id_b],
+                });
+            }
+        }
+        let drives = ["output", "bidirectional", "power_out", "passive"];
+        let has_driver = on_net
+            .iter()
+            .any(|(_, _, p)| drives.contains(&p.electrical_type.as_str()));
+        if !has_driver {
+            for (id, reference, pin) in &on_net {
+                if pin.electrical_type == "input" {
+                    result.push(Finding {
+                        code: "undriven_input",
+                        severity: project.rule_severity("undriven_input", "warning"),
+                        message: format!(
+                            "{reference} pin {} (input) sits on {} with no driver; tie it to an \
+                             output or a passive partner",
+                            pin.number, net.name
+                        ),
+                        objects: vec![*id],
+                    });
+                }
+            }
         }
     }
     result.retain(|f| {
@@ -1817,6 +1911,7 @@ mod tests {
                 position: Point::new(x, 10.0),
                 rotation: 0.0,
                 locked: None,
+                side: None,
                 pads: vec![Pad {
                     number: "1".into(),
                     offset: Point::default(),
@@ -1872,6 +1967,110 @@ mod tests {
         });
         p.validate()?;
         assert!(!erc(&p).iter().any(|f| f.code == "unassigned_pin"));
+        Ok(())
+    }
+    fn pin_on_net(
+        p: &mut Project,
+        component: Id,
+        reference: &str,
+        number: &str,
+        electrical_type: &str,
+        net: Id,
+    ) -> Result<(), String> {
+        let Some(c) = p.components.iter_mut().find(|c| c.id == component) else {
+            return Err("component id missing in test setup".into());
+        };
+        c.reference = reference.into();
+        if let Some(pin) = c.pins.iter_mut().find(|pin| pin.number == number) {
+            pin.net = Some(net);
+            pin.electrical_type = electrical_type.into();
+        } else {
+            c.pins.push(pcbcraft_doc::Pin {
+                number: number.into(),
+                name: number.into(),
+                offset: Point::default(),
+                net: Some(net),
+                electrical_type: electrical_type.into(),
+                direction: None,
+                unit: 1,
+            });
+        }
+        Ok(())
+    }
+    #[test]
+    fn erc_flags_two_outputs_on_one_net_and_undriven_input() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "BUS".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "IN".into(),
+            ..Default::default()
+        });
+        let mut u1 = component_template("resistor", 10, "U1".into(), Point::new(0.0, 0.0))
+            .ok_or("template missing")?;
+        u1.pins.clear();
+        p.components.push(u1);
+        let mut u2 = component_template("resistor", 11, "U2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        u2.pins.clear();
+        p.components.push(u2);
+        let mut u3 = component_template("resistor", 12, "U3".into(), Point::new(20.0, 0.0))
+            .ok_or("template missing")?;
+        u3.pins.clear();
+        p.components.push(u3);
+        pin_on_net(&mut p, 10, "U1", "3", "output", 1)?;
+        pin_on_net(&mut p, 11, "U2", "7", "output", 1)?;
+        pin_on_net(&mut p, 12, "U3", "1", "input", 2)?;
+        p.validate()?;
+        let findings = erc(&p);
+        let conflict = findings
+            .iter()
+            .find(|f| f.code == "pin_conflict")
+            .ok_or("expected pin_conflict")?;
+        assert_eq!(conflict.severity, "error");
+        assert!(
+            conflict
+                .message
+                .contains("U1 pin 3 (output) and U2 pin 7 (output)"),
+            "{}",
+            conflict.message
+        );
+        assert!(
+            findings.iter().any(|f| f.code == "undriven_input"),
+            "input alone should report undriven_input"
+        );
+        Ok(())
+    }
+    #[test]
+    fn erc_power_input_fed_by_power_output_is_clean() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "VCC".into(),
+            ..Default::default()
+        });
+        let mut j1 = component_template("connector", 10, "J1".into(), Point::default())
+            .ok_or("template missing")?;
+        j1.pins.clear();
+        p.components.push(j1);
+        let mut j2 = component_template("connector", 11, "J2".into(), Point::new(10.0, 0.0))
+            .ok_or("template missing")?;
+        j2.pins.clear();
+        p.components.push(j2);
+        pin_on_net(&mut p, 10, "J1", "1", "power_in", 1)?;
+        pin_on_net(&mut p, 11, "J2", "1", "power_out", 1)?;
+        p.validate()?;
+        let findings = erc(&p);
+        assert!(
+            !findings
+                .iter()
+                .any(|f| f.code == "pin_conflict" || f.code == "undriven_input"),
+            "{findings:?}"
+        );
         Ok(())
     }
     #[test]
@@ -2238,6 +2437,7 @@ mod tests {
             position: Point::new(20.0, 10.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -2354,6 +2554,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads,
         });
         p.validate()?;
@@ -2750,6 +2951,7 @@ mod tests {
             position: Point::new(30.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![
                 Pad {
                     number: "1".into(),
@@ -2945,6 +3147,7 @@ mod tests {
             position: Point::new(20.0, 20.0),
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),
@@ -3285,6 +3488,7 @@ mod tests {
                 kind: "copper".into(),
                 thickness: 0.035,
                 copper_role: None,
+                ..Default::default()
             });
             if i < 6 {
                 p.board.layer_records.push(pcbcraft_doc::LayerRecord {
@@ -3292,6 +3496,7 @@ mod tests {
                     kind: "prepreg".into(),
                     thickness: 0.2,
                     copper_role: None,
+                    ..Default::default()
                 });
             }
         }
@@ -3472,6 +3677,7 @@ mod pour_tests {
             position: at,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),

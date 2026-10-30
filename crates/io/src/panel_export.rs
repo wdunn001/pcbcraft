@@ -179,6 +179,7 @@ pub(crate) fn build_panel_project(
     out.board.zones.clear();
     out.board.fiducials.clear();
     out.board.outline = None;
+    out.board.outline_arcs.clear();
     out.board.width = layout.panel_width;
     out.board.height = layout.panel_height;
     out.board.drill_origin = Point::new(0.0, 0.0);

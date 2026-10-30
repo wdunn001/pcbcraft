@@ -57,6 +57,7 @@ pub fn tool_list() -> Value {
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
+        json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
@@ -109,7 +110,7 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 14] = [
+    const READ_ONLY: [&str; 15] = [
         "inspect_design",
         "list_commands",
         "checks",
@@ -117,6 +118,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "screenshot",
         "library.catalog",
         "library.search",
+        "library.list",
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
@@ -274,6 +276,13 @@ pub(crate) fn invoke_session(
     validate_tool_schema(name, args)?;
     if matches!(name, "design.list_open" | "design.activate") {
         return Err("multi-document tools require the desktop control bridge".into());
+    }
+    if name == "library.list" {
+        let s = session
+            .lock()
+            .map_err(|_| "session unavailable after internal failure".to_string())?;
+        return pcbcraft_engine::library::list_with_project(args, Some(&s.project))
+            .map(text_result);
     }
     if [
         "design.recents",
@@ -1006,6 +1015,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod http_tests;
 #[cfg(test)]
@@ -1304,6 +1315,61 @@ mod tests {
                 .unwrap_or("")
                 .contains("copper-only"),
             "the quick pass says what it ran"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn online_library_commands_are_listed_and_import_through_a_tool_call() -> Result<(), String> {
+        let session = shared(Session::default());
+        let listed = call_tool(&session, "list_commands", &json!({}));
+        let ids: Vec<String> = listed
+            .pointer("/structuredContent/commands")
+            .and_then(Value::as_array)
+            .map(|all| {
+                all.iter()
+                    .filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for id in ["library.import_online", "library.place_online"] {
+            assert!(ids.iter().any(|x| x == id), "{id} is listed");
+        }
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../library/tests/fixtures/device.kicad_sym");
+        let inspected = call_tool(
+            &session,
+            "library.inspect_symbol",
+            &json!({"path":path,"name":"R"}),
+        );
+        let symbol = inspected
+            .pointer("/structuredContent/definition")
+            .cloned()
+            .ok_or("missing definition")?;
+        let imported = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.import_online","params":{
+                "symbol":symbol,
+                "notices":["Imported symbol from a test source. Licence CC-BY-SA 4.0."]}}),
+        );
+        assert_eq!(imported.get("isError"), Some(&json!(false)));
+        let state = session.lock().map_err(|_| "session unavailable")?.inspect();
+        assert_eq!(
+            state
+                .pointer("/project/library/notices/0")
+                .and_then(Value::as_str),
+            Some("Imported symbol from a test source. Licence CC-BY-SA 4.0.")
+        );
+        let refused = call_tool(
+            &session,
+            "execute",
+            &json!({"command":"library.place_online","params":{"target":"layout","position":{"x":1.0,"y":1.0}}}),
+        );
+        assert_eq!(
+            refused.get("isError"),
+            Some(&json!(true)),
+            "a symbol is required"
         );
         Ok(())
     }
@@ -2902,5 +2968,42 @@ mod tests {
                 .is_some_and(|p| !p.is_empty())
         );
         Ok(())
+    }
+
+    #[test]
+    fn library_list_does_not_change_the_revision() -> Result<(), String> {
+        let session = shared(Session::default());
+        let result = call_tool(&session, "library.list", &json!({"limit": 5}));
+        assert_eq!(result.get("isError"), Some(&json!(false)));
+        let locked = session.lock().map_err(|_| "session unavailable")?;
+        assert_eq!(locked.revision, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn library_list_is_listed_with_its_schema() -> Result<(), String> {
+        let tools = tool_list();
+        let tool = tools["tools"]
+            .as_array()
+            .and_then(|l| l.iter().find(|t| t["name"] == "library.list"))
+            .ok_or("library.list missing from tool_list")?;
+        assert_eq!(tool["inputSchema"]["properties"]["limit"]["maximum"], 100);
+        assert!(tool["inputSchema"]["properties"]["filter"].is_object());
+        assert!(tool_kind("library.list") == ToolKind::ReadOnly);
+        Ok(())
+    }
+
+    #[test]
+    fn a_filter_with_more_than_sixteen_categories_or_a_limit_of_zero_or_over_one_hundred_is_refused()
+     {
+        let session = shared(Session::default());
+        for args in [
+            json!({"limit": 0}),
+            json!({"limit": 101}),
+            json!({"filter": {"categories": vec!["led"; 17]}}),
+        ] {
+            let r = call_tool(&session, "library.list", &args);
+            assert_eq!(r.get("isError"), Some(&json!(true)), "{args}");
+        }
     }
 }

@@ -68,6 +68,25 @@ join logical nets.
 `examples/dual-amplifier.pcbcraft` is a larger native sample (multi-unit op-amp,
 edited DIP8, front and back copper).
 
+`examples/showcase.pcbcraft` is the finished showcase board: a battery powered
+sensor node with 55 parts on three schematic pages, a four-layer board with
+ground and power pours, stitching vias, a USB pair, two builds and no check
+findings. Open it from the Start page (**Showcase board**). Regenerate it with
+`cargo xtask showcase`; `examples/showcase-with-findings.pcbcraft` is the same
+design with one error and two warnings, for reading the Checks page.
+
+## What the checks cover
+
+The Checks tab runs after every edit and lists what it finds, grouped by check.
+
+- Pins with no connection (pins flagged no-connect are skipped), parts with no footprint, and power pins left floating.
+- Copper clearance, using the strictest of the board default and the net classes on either side. A rule between two named nets can ask for a bigger gap.
+- Track width and stub length against the net class limits when set.
+- Pads, drills, part courtyards, board text and silkscreen that touch or overlap, and cut, perforation and mask figures against copper, pads and the board edge.
+- Board outline edge and circular cutout clearance.
+
+Limits: some findings can be false alarms, and there are no pin-type, annular-ring, zone or hierarchy checks yet. Each check can be set to warning or turned off in the project rules. Hide this hides one finding; Quiet this area hides a check inside a box around the finding.
+
 ## Libraries
 
 Open **Libraries**. Search a symbol, preview it, **Place in schematic**. Select

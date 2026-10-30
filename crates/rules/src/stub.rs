@@ -295,6 +295,7 @@ mod tests {
             position: at,
             rotation: 0.0,
             locked: None,
+            side: None,
             pads: vec![Pad {
                 number: "1".into(),
                 offset: Point::default(),

@@ -1,0 +1,46 @@
+{
+  "_note": "Marketing copy for the home page. Every entry has text and placeholder. placeholder true shows a dashed COPY #718 mark on the page until the copy issue (#718) replaces the text with a sentence that has a claim row. Entries marked false are labels, not claims.",
+  "hero": {
+    "eyebrow": { "text": "Open-source electronics design", "placeholder": true },
+    "title": { "text": "One native window for schematic, board layout, libraries and checks.", "placeholder": true },
+    "lede": { "text": "Every edit goes through a typed engine command. The desktop, the CLI and MCP call the same commands.", "placeholder": true },
+    "primary": { "text": "Download", "placeholder": false },
+    "secondary": { "text": "Try it in the browser", "placeholder": false },
+    "meta": { "text": "Code GPL-3.0. Docs and screenshots CC BY-SA 4.0.", "placeholder": false },
+    "caption": { "text": "Layout view", "placeholder": false }
+  },
+  "pipeline": {
+    "title": { "text": "From schematic to fab files", "placeholder": true },
+    "sub": { "text": "Placeholder line that introduces the five steps. Final copy lands with #718.", "placeholder": true },
+    "steps": ["Capture", "Place", "Route", "Check", "Fabricate"]
+  },
+  "bands": [
+    { "area": "schematic", "tag": "Schematic", "title": { "text": "Headline for the schematic band goes here.", "placeholder": true }, "body": { "text": "Placeholder paragraph for the schematic band. Final copy lands with #718.", "placeholder": true } },
+    { "area": "layout", "tag": "Layout", "title": { "text": "Headline for the layout band goes here.", "placeholder": true }, "body": { "text": "Placeholder paragraph for the layout band. Final copy lands with #718.", "placeholder": true } },
+    { "area": "libraries", "tag": "Libraries", "title": { "text": "Headline for the libraries band goes here.", "placeholder": true }, "body": { "text": "Placeholder paragraph for the libraries band. Final copy lands with #718.", "placeholder": true } },
+    { "area": "outputs", "tag": "Outputs", "title": { "text": "Headline for the outputs band goes here.", "placeholder": true }, "body": { "text": "Placeholder paragraph for the outputs band. Final copy lands with #718.", "placeholder": true } }
+  ],
+  "features": {
+    "title": { "text": "What PCBCraft does", "placeholder": false },
+    "sub": { "text": "Every item below is backed by a command, a tool or a test in the code. The full list shows the proof for each.", "placeholder": false },
+    "all": { "text": "See every feature", "placeholder": false }
+  },
+  "showcase": {
+    "title": { "text": "Made with PCBCraft", "placeholder": false },
+    "sub": { "text": "Placeholder line about boards built by users. Entries arrive with the showcase data.", "placeholder": true },
+    "slots": 3
+  },
+  "download": {
+    "title": { "text": "Get PCBCraft", "placeholder": false },
+    "sub": { "text": "Placeholder line about releases. The download page lands with #717.", "placeholder": true },
+    "source": { "text": "Or build it from source:", "placeholder": false }
+  },
+  "docs": {
+    "title": { "text": "Documentation", "placeholder": false },
+    "cards": [
+      { "title": "Guide", "body": "Run PCBCraft and open the sample board.", "path": "docs/guide/getting-started/" },
+      { "title": "Reference", "body": "Commands, tools and file formats.", "path": "docs/reference/overview/" },
+      { "title": "Changelog", "body": "What changed in each release.", "path": "changelog/" }
+    ]
+  }
+}

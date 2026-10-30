@@ -12,3 +12,4 @@ workspace = true
 serde.workspace = true
 thiserror.workspace = true
 i_overlay.workspace = true
+i_float = "5.0"
