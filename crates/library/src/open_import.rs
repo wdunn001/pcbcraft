@@ -61,16 +61,14 @@ pub fn import_open(
     let model = footprint
         .as_ref()
         .and_then(|f| CadRef::new(CadKind::Model, &f.library, &f.name).ok());
-    let with_model = (footprint.as_ref(), model.as_ref());
-    let symbol_footprint = (footprint.as_ref(), None);
-    let symbol_only = (None, None);
-    let attempts: &[(_, _)] = if fetch_3d {
-        &[with_model, symbol_footprint, symbol_only]
-    } else {
-        &[symbol_footprint, symbol_only]
-    };
+    let candidates = [
+        (footprint.as_ref(), model.as_ref()),
+        (footprint.as_ref(), None),
+        (None, None),
+    ];
+    let start = usize::from(!fetch_3d);
     let mut last = invalid("the part could not be imported");
-    for (fp, m) in attempts {
+    for (fp, m) in &candidates[start..] {
         match import_part(source, &symbol, fp.copied(), m.copied()) {
             Ok(part) => return Ok(part.to_params()),
             Err(e) => last = e,
@@ -95,13 +93,10 @@ fn import_footprint_sku(
 ) -> Result<Value, SourceError> {
     let footprint = footprint_cad_ref(rest)?;
     let model = CadRef::new(CadKind::Model, &footprint.library, &footprint.name).ok();
-    let tries: &[Option<&CadRef>] = if fetch_3d {
-        &[model.as_ref(), None]
-    } else {
-        &[None]
-    };
+    let candidates = [model.as_ref(), None];
+    let start = usize::from(!fetch_3d);
     let mut last = invalid("the footprint could not be imported");
-    for m in tries {
+    for m in &candidates[start..] {
         match import_footprint_only(source, &footprint, *m) {
             Ok(part) => return Ok(part.to_params()),
             Err(e) => last = e,
