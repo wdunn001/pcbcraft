@@ -262,9 +262,13 @@ jobs:
         with:
           shared-key: wasm
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/setup-node@49933aa1476afcddd496a8cafea5871a2a8b39b # v4.4.0
-        with:
-          node-version: "22"
+      - name: Ensure Node.js
+        run: |
+          if ! command -v node; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends nodejs npm
+          fi
+          node --version
       - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: trunk
