@@ -3320,6 +3320,8 @@ fn default_auto_sync() -> bool {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectLibrary {
+    /// Source and licence lines appended when online parts (including optional
+    /// open-library 3D models) are imported into the project library.
     #[serde(default)]
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,

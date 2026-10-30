@@ -7,6 +7,7 @@ mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
 pub mod online_import;
+pub mod open_import;
 pub mod open_library;
 mod paths;
 mod reader;
