@@ -323,6 +323,17 @@ impl Out {
                 w(2) * VRML_UNIT_MM,
             ]);
         }
+        let diffuse = n
+            .fields
+            .get("appearance")
+            .and_then(|a| a.fields.get("material"))
+            .and_then(|m| m.nums.get("diffuseColor"))
+            .filter(|c| c.len() == 3)
+            .map(|c| [c[0] as f32, c[1] as f32, c[2] as f32]);
+        if self.model.color.is_none() {
+            self.model.color = diffuse;
+        }
+        let idx_before = self.model.indices.len();
         let mut face: Vec<u32> = vec![];
         let idx = geo.nums.get("coordIndex").map_or(&[][..], Vec::as_slice);
         for &v in idx.iter().chain(std::iter::once(&-1.0)) {
@@ -343,15 +354,9 @@ impl Out {
                 face.push(base as u32 + v as u32);
             }
         }
-        if self.model.color.is_none()
-            && let Some(c) = n
-                .fields
-                .get("appearance")
-                .and_then(|a| a.fields.get("material"))
-                .and_then(|m| m.nums.get("diffuseColor"))
-                .filter(|c| c.len() == 3)
-        {
-            self.model.color = Some([c[0] as f32, c[1] as f32, c[2] as f32]);
+        let added = &self.model.indices[idx_before..];
+        if !added.is_empty() {
+            self.model.push_triangles(added, diffuse)?;
         }
         Ok(())
     }
@@ -390,6 +395,8 @@ pub fn read_vrml(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
             positions: vec![],
             indices: vec![],
             color: None,
+            triangle_materials: vec![],
+            authored_colors: vec![],
         },
     };
     let mut id: M = [[0.0; 4]; 4];
@@ -400,5 +407,6 @@ pub fn read_vrml(bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     if out.model.indices.is_empty() {
         return err("The model file holds no triangles.");
     }
+    out.model.finish_materials()?;
     Ok(out.model)
 }

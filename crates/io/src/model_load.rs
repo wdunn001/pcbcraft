@@ -8,12 +8,13 @@
 //! (`vrml_read.rs`) and STEP solids (`step_read.rs`, millimetres).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
+use crate::mesh_material::{MaterialClass, classify_model_color};
 use std::path::Path;
 use std::sync::Arc;
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
-pub const LOADER_VERSION: u32 = 1;
+pub const LOADER_VERSION: u32 = 2;
 /// Largest model file read, in bytes.
 pub const MAX_MODEL_BYTES: usize = 32 * 1024 * 1024;
 /// Most vertices one model may produce.
@@ -32,8 +33,47 @@ pub struct LoadedModel {
     pub indices: Vec<u32>,
     /// Diffuse colour 0..1 of the first material, when the file has one.
     pub color: Option<[f32; 3]>,
+    /// One material class per triangle.
+    pub triangle_materials: Vec<MaterialClass>,
+    /// Authored sRGB colours for triangles with [`MaterialClass::Authored`].
+    pub authored_colors: Vec<[f32; 3]>,
 }
 impl LoadedModel {
+    pub(crate) fn push_triangles(
+        &mut self,
+        indices: &[u32],
+        diffuse: Option<[f32; 3]>,
+    ) -> Result<(), ModelError> {
+        let tri_count = indices.len() / 3;
+        let (class, authored) = diffuse
+            .map(classify_model_color)
+            .unwrap_or((MaterialClass::MouldCompound, [0.0; 3]));
+        self.triangle_materials
+            .extend(std::iter::repeat_n(class, tri_count));
+        let rgb = if class == MaterialClass::Authored {
+            authored
+        } else {
+            [0.0; 3]
+        };
+        self.authored_colors
+            .extend(std::iter::repeat_n(rgb, tri_count));
+        Ok(())
+    }
+
+    pub(crate) fn finish_materials(&mut self) -> Result<(), ModelError> {
+        let tris = self.indices.len() / 3;
+        if tris == 0 {
+            return Ok(());
+        }
+        if self.triangle_materials.len() == tris {
+            return Ok(());
+        }
+        self.triangle_materials.clear();
+        self.authored_colors.clear();
+        let batch = self.indices.clone();
+        self.push_triangles(&batch, self.color)
+    }
+
     /// Axis-aligned bounds, or `None` for an empty model.
     pub fn bounds(&self) -> Option<([f64; 3], [f64; 3])> {
         let first = *self.positions.first()?;
@@ -268,10 +308,14 @@ impl Walk<'_> {
             }
             self.out.indices.extend(tri.iter().map(|i| base as u32 + i));
         }
-        if self.out.color.is_none() {
+        let diffuse = {
             let c = prim.material().pbr_metallic_roughness().base_color_factor();
-            self.out.color = Some([c[0], c[1], c[2]]);
+            Some([c[0], c[1], c[2]])
+        };
+        if self.out.color.is_none() {
+            self.out.color = diffuse;
         }
+        self.out.push_triangles(&indices, diffuse)?;
         Ok(())
     }
 }
@@ -292,6 +336,8 @@ fn load_gltf(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
             positions: vec![],
             indices: vec![],
             color: None,
+            triangle_materials: vec![],
+            authored_colors: vec![],
         },
         visited: 0,
     };
@@ -313,6 +359,7 @@ fn load_gltf(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
     if walk.out.indices.is_empty() {
         return err("The model file holds no triangles.");
     }
+    walk.out.finish_materials()?;
     Ok(walk.out)
 }
 

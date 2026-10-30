@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod mesh_material;
 mod diff;
 mod drawn;
 mod fab_export;
@@ -47,6 +48,10 @@ pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
     with_models,
+};
+pub use mesh_material::{
+    MaterialClass, classify_model_color, linear_to_srgb_byte, parametric_body_material,
+    srgb_channel_to_linear, srgb_to_linear,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,

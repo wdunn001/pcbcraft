@@ -21,6 +21,8 @@ fn convert(text: &str) -> Result<LoadedModel, ModelError> {
         positions: vec![],
         indices: vec![],
         color: None,
+        triangle_materials: vec![],
+        authored_colors: vec![],
     };
     for holder in table.shell.values() {
         let Ok(shell) = table.to_compressed_shell(holder) else {
@@ -45,6 +47,7 @@ fn convert(text: &str) -> Result<LoadedModel, ModelError> {
     if out.indices.is_empty() {
         return Err(fail("The STEP file holds no solid the reader can use."));
     }
+    out.finish_materials()?;
     Ok(out)
 }
 
