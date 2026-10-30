@@ -1965,6 +1965,8 @@ mod tests {
             }),
             fields: vec![],
             sheet: 0,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
