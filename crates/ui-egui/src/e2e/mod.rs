@@ -35,6 +35,7 @@ mod sheet_rows;
 mod shell;
 mod showcase;
 mod toolbar;
+mod tours;
 mod tree_rows;
 mod via_covering;
 mod vias;
