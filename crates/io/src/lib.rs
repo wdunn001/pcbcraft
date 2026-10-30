@@ -23,6 +23,7 @@ mod machine_profile;
 mod model_load;
 mod neoden_yy1;
 mod package;
+#[cfg(feature = "plugin-firmware-target")]
 pub mod plugins;
 mod panel_export;
 mod part_bodies;

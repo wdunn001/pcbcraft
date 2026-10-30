@@ -9,13 +9,13 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-plugin-firmware-target = []
+plugin-firmware-target = ["dep:pcbcraft-plugin-sdk"]
 
 [dependencies]
 pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
 pcbcraft-library.workspace = true
-pcbcraft-plugin-sdk.workspace = true
+pcbcraft-plugin-sdk = { workspace = true, optional = true }
 pcbcraft-rules.workspace = true
 serde.workspace = true
 serde_json.workspace = true
