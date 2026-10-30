@@ -1,4 +1,4 @@
-//! Typed compliance facts on a placed part: where it was made, what role it plays
+﻿//! Typed compliance facts on a placed part: where it was made, what role it plays
 //! in the product, dated declarations against named regimes, and optional substance
 //! notes. Project-level manufacturer aliases live on [`Project::manufacturers`].
 //!
@@ -106,12 +106,19 @@ pub struct DeclarationSource {
 }
 
 /// Optional free-form substance note on a part.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DeclaredSubstance {
     pub name: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
+    /// Weight fraction in percent when known, for REACH Article 33 checks.
+    #[serde(default, skip_serializing_if = "is_zero_weight")]
+    pub weight_percent: f64,
+}
+
+fn is_zero_weight(w: &f64) -> bool {
+    *w == 0.0
 }
 
 /// Typed compliance record on one component. Empty records are not saved.
@@ -159,12 +166,16 @@ fn valid_iso3166_alpha2(code: &str) -> bool {
             .all(|b| b.is_ascii_uppercase() || b.is_ascii_lowercase())
 }
 
-fn valid_date(date: &str) -> bool {
+fn valid_date_inner(date: &str) -> bool {
     date.is_empty()
         || (date.len() == 10
             && date.as_bytes()[4] == b'-'
             && date.as_bytes()[7] == b'-'
             && date.chars().all(|c| c.is_ascii_digit() || c == '-'))
+}
+
+fn valid_date(date: &str) -> bool {
+    valid_date_inner(date)
 }
 
 /// Lowercase letters and digits only, for alias lookup.
@@ -223,6 +234,9 @@ impl DeclaredSubstance {
         }
         bounded("substance name", &self.name, MAX_COMPLIANCE_TEXT)?;
         bounded("substance note", &self.note, MAX_COMPLIANCE_TEXT)?;
+        if !self.weight_percent.is_finite() || !(0.0..=100.0).contains(&self.weight_percent) {
+            return Err("substance weight percent must be between 0 and 100".into());
+        }
         Ok(())
     }
 }
@@ -511,4 +525,29 @@ impl Compliance {
         self.declarations.push(declaration);
         self.validate()
     }
+
+    pub fn declaration_for(&self, regime: &str) -> Option<&Declaration> {
+        self.declarations
+            .iter()
+            .find(|d| d.regime.trim().eq_ignore_ascii_case(regime))
+    }
+}
+
+/// Project-level compliance rule set selection and board-level RoHS options.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ComplianceProjectSettings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rule_sets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_rohs_exemption: Option<String>,
+}
+
+/// Calendar date in `YYYY-MM-DD` form, or empty when unknown.
+pub fn valid_date(text: &str) -> bool {
+    valid_date_inner(text)
+}
+
+pub fn date_le(a: &str, b: &str) -> bool {
+    valid_date(a) && valid_date(b) && a <= b
 }

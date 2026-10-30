@@ -34,10 +34,10 @@ pub use sourcing::{
     SupplierPart, lifecycle_text,
 };
 pub use compliance::{
-    Compliance, CountryOfOrigin, DeclaredSubstance, Declaration, DeclarationSource,
-    DeclarationSourceKind, DeclarationStatus, ManufacturerRecord, PartRole,
+    apply_listing_declarations, date_le, normalize_manufacturer_name, part_role_text, valid_date,
+    Compliance, ComplianceProjectSettings, CountryOfOrigin, DeclaredSubstance, Declaration,
+    DeclarationSource, DeclarationSourceKind, DeclarationStatus, ManufacturerRecord, PartRole,
     MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS, MAX_SUBSTANCES,
-    apply_listing_declarations, normalize_manufacturer_name, part_role_text,
 };
 pub mod fill;
 pub use fill::{
@@ -3302,6 +3302,8 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    #[serde(default)]
+    pub compliance_settings: ComplianceProjectSettings,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -3450,6 +3452,7 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            compliance_settings: ComplianceProjectSettings::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
