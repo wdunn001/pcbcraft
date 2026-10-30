@@ -789,7 +789,8 @@ fn chat_requests_ask_for_streaming_on_both_protocols() -> Result<(), String> {
         assert_eq!(body.get("stream").and_then(Value::as_bool), Some(true));
         if protocol == Protocol::OpenAi {
             assert_eq!(
-                body.pointer("/stream_options/include_usage").and_then(Value::as_bool),
+                body.pointer("/stream_options/include_usage")
+                    .and_then(Value::as_bool),
                 Some(true)
             );
         }

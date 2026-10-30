@@ -556,9 +556,7 @@ impl Worker {
             }
             match stream_rx.recv_timeout(CANCEL_POLL) {
                 Ok(part) => {
-                    if let Some(done) =
-                        self.handle_stream_part(part, &mut parser, &mut streamed)
-                    {
+                    if let Some(done) = self.handle_stream_part(part, &mut parser, &mut streamed) {
                         return done;
                     }
                 }
@@ -612,11 +610,9 @@ impl Worker {
                 }
                 None
             }
-            Ok(crate::backend::HttpStreamPart::End { status }) => Some(Ok((
-                status,
-                parser.finish_body(),
-                *streamed,
-            ))),
+            Ok(crate::backend::HttpStreamPart::End { status }) => {
+                Some(Ok((status, parser.finish_body(), *streamed)))
+            }
             Ok(crate::backend::HttpStreamPart::Chunk(_)) => None,
             Err(e) => Some(Err(e)),
         }

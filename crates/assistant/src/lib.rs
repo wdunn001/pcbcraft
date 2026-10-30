@@ -1,7 +1,6 @@
 //! Assistant conversation model: backend seam, transcript, and turn accounting (no UI).
 mod api;
 mod backend;
-mod stream;
 mod connections;
 mod context;
 mod describe;
@@ -11,6 +10,7 @@ mod http;
 mod prompt;
 mod script;
 mod store;
+mod stream;
 mod text;
 mod tool_names;
 mod transcript;
@@ -23,8 +23,8 @@ pub use api::{
 };
 pub use backend::{
     AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, ModelInfo,
-    PermissionOption, deliver_streamed_body,
-    PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
+    PermissionOption, PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
+    deliver_streamed_body,
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
 pub use context::{Context, MAX_NOTE, MAX_PICTURE_BYTES, Selection, Sent, note, picture};

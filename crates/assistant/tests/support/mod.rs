@@ -137,10 +137,7 @@ impl FakeServer {
 fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     std::thread::sleep(Duration::from_millis(r.delay_ms));
     let (ctype, body) = if stream && r.status == 200 {
-        (
-            "text/event-stream",
-            openai_completion_to_sse(&r.body),
-        )
+        ("text/event-stream", openai_completion_to_sse(&r.body))
     } else {
         ("application/json", r.body.clone())
     };
@@ -157,7 +154,10 @@ fn answer(mut c: TcpStream, r: Reply, stream: bool) {
 fn openai_completion_to_sse(json_body: &str) -> String {
     let v: Value = serde_json::from_str(json_body).unwrap_or(Value::Null);
     let mut out = String::new();
-    if let Some(t) = v.pointer("/choices/0/message/content").and_then(Value::as_str) {
+    if let Some(t) = v
+        .pointer("/choices/0/message/content")
+        .and_then(Value::as_str)
+    {
         if !t.is_empty() {
             let line = json!({"choices": [{"delta": {"content": t}}]});
             out.push_str(&format!("data: {line}\n\n"));

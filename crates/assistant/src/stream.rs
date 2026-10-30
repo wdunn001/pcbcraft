@@ -144,11 +144,7 @@ impl StreamParser {
                 }
             }
         }
-        if out.is_empty() {
-            None
-        } else {
-            Some(out)
-        }
+        if out.is_empty() { None } else { Some(out) }
     }
 
     fn anthropic_data(&mut self, v: &Value) -> Option<Vec<StreamText>> {
@@ -276,7 +272,11 @@ impl StreamParser {
                         AnthropicBlockAcc::Thinking(t) if !t.is_empty() => {
                             content.push(json!({"type": "thinking", "thinking": t}));
                         }
-                        AnthropicBlockAcc::Tool { id, name, input_json } => {
+                        AnthropicBlockAcc::Tool {
+                            id,
+                            name,
+                            input_json,
+                        } => {
                             let input: Value = if input_json.trim().is_empty() {
                                 json!({})
                             } else {
