@@ -549,9 +549,35 @@ pub fn compare(
                 "same_pad_count": pa.len() == pb.len(),
             }))
         }
-        _ => Err("kind must be symbol or footprint".into()),
+        "parts" => Err("parts compare needs a parts array, not library paths".into()),
+        _ => Err("kind must be symbol, footprint, or parts".into()),
     }
 }
+
+fn compare_part_listings(args: &Value) -> Result<Value, String> {
+    let parts: Vec<pcbcraft_library::listing_compare::ComparePartInput> =
+        match args.get("parts") {
+            None => return Err("missing parts".into()),
+            Some(Value::Array(a)) => a
+                .iter()
+                .map(|v| {
+                    serde_json::from_value(v.clone())
+                        .map_err(|e| format!("parts: {e}"))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Some(_) => return Err("parts must be an array".into()),
+        };
+    let quantity = match args.get("quantity") {
+        None => 1,
+        Some(v) => v
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or("quantity must be an integer")?,
+    };
+    let table = pcbcraft_library::listing_compare::compare_table(&parts, quantity)?;
+    Ok(json!({"kind":"parts","table":table}))
+}
+
 use pcbcraft_library::listing_adapters::MAX_LISTINGS;
 /// Page size when the caller gives no limit.
 const DEFAULT_LIST_LIMIT: usize = 30;
@@ -873,6 +899,10 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
             )
         }
         "library.compare" => {
+            let kind = text("kind")?;
+            if kind == "parts" {
+                return compare_part_listings(args);
+            }
             let optional = |key: &str| -> Result<String, String> {
                 match args.get(key) {
                     None => Ok(String::new()),
@@ -885,7 +915,7 @@ pub fn read_tool(name: &str, args: &Value) -> Result<Value, String> {
             compare(
                 Path::new(text("path_a")?),
                 Path::new(text("path_b")?),
-                text("kind")?,
+                kind,
                 &optional("name_a")?,
                 &optional("name_b")?,
             )
@@ -1074,6 +1104,70 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn library_compare_parts_returns_diff_rows_for_two_to_five_listings() -> Result<(), String> {
+        let listing = |name: &str, package: &str, stock: u64| -> Value {
+            json!({
+                "label": name,
+                "pins": 2,
+                "listing": {
+                    "source": "fixture",
+                    "source_id": "sample",
+                    "source_ref": name,
+                    "manufacturer": "",
+                    "mpn": name,
+                    "description": "",
+                    "category": "resistor",
+                    "source_category": "",
+                    "package_key": "",
+                    "package_text": package,
+                    "price_breaks": [{"quantity": 1, "unit_price": 0.1, "currency": "USD"}],
+                    "lifecycle": "unknown",
+                    "lifecycle_raw": "",
+                    "stock": stock,
+                }
+            })
+        };
+        let out = read_tool(
+            "library.compare",
+            &json!({
+                "kind": "parts",
+                "parts": [listing("A", "1206", 5), listing("B", "0603", 9)],
+                "quantity": 1
+            }),
+        )?;
+        assert_eq!(out["kind"], "parts");
+        let rows = out["table"]["rows"].as_array().ok_or("rows missing")?;
+        let package = rows
+            .iter()
+            .find(|r| r["label"] == "Package")
+            .ok_or("package row missing")?;
+        assert_eq!(package["differs"], true);
+        assert!(
+            read_tool(
+                "library.compare",
+                &json!({"kind":"parts","parts":[listing("A","1206",5)]})
+            )
+            .is_err(),
+            "one part is below the minimum"
+        );
+        assert!(
+            read_tool(
+                "library.compare",
+                &json!({"kind":"parts","parts":[
+                    listing("A","1206",5),
+                    listing("B","1206",5),
+                    listing("C","1206",5),
+                    listing("D","1206",5),
+                    listing("E","1206",5),
+                    listing("F","1206",5),
+                ]})
+            )
+            .is_err(),
+            "six parts exceed the maximum"
+        );
+        Ok(())
+    }
+
     fn library_source_tools_answer_through_the_read_tool_router() -> Result<(), String> {
         let _guard = SOURCES_TEST_LOCK
             .lock()

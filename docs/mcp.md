@@ -195,7 +195,7 @@ MCP hints, so a client can decide when to ask the user first.
 
 | Kind | Tools | readOnly | destructive | idempotent |
 | --- | --- | --- | --- | --- |
-| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare`, `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
+| Read only | `inspect_design`, `list_commands`, `checks`, `board_mesh`, `screenshot`, `library.catalog`, `library.search`, `library.list`, `library.inspect_*`, `library.compare` (symbols, footprints, or two to five part listings), `library.sources`, `design.recents`, `design.list_open`, `design.activate` | yes | no | yes |
 | Writes files outside the project | `*.write`, `*.export`, `export`, `save`, `library.save`, `library.export_*`, `output_job.package` | no | no | yes |
 | Replaces the whole design | `new_design`, `sample_design`, `open` | no | yes | no |
 | Everything else (`execute`, `batch`, `undo`, `redo`, engine commands, `library.add_folder`, `library.remove_folder`) | edits that can be undone | no | no | no |
