@@ -534,6 +534,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,

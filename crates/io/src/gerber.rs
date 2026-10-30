@@ -857,6 +857,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: vec![],
             })
             .collect()
     }

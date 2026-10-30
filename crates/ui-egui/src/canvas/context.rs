@@ -385,6 +385,7 @@ impl App {
                 self.tool = Tool::Wire(Some(PinRef {
                     component: pin.component,
                     pin: pin.pin.clone(),
+                    unit: None,
                 }));
             }
             (CanvasAct::MarkNoConnect, _) => self.tool = Tool::NoConnect,

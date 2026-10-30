@@ -32,10 +32,14 @@ pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
 };
 
+/// Schematic copy of one physical pin on a multi-unit symbol.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PinAppearance {
+    /// Schematic unit that draws this copy (1 through 32).
     pub unit: u32,
+    /// Pin anchor in the symbol local frame, in millimetres.
     pub offset: Point,
+    /// Facing angle in degrees when the library supplies one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direction: Option<f64>,
 }
@@ -5602,8 +5606,8 @@ pub fn symbol_units(def: &pcbcraft_library::SymbolDefinition) -> Result<BTreeSet
     Ok(units)
 }
 
-/// One schematic `Pin` row per distinct physical number, with extra unit copies in
-/// `appearances`.
+/// Builds one schematic [`Pin`] row per distinct physical number, storing extra unit
+/// copies in [`Pin::appearances`].
 pub fn collapse_symbol_pins(
     definition: &pcbcraft_library::SymbolDefinition,
 ) -> Result<Vec<Pin>, String> {
