@@ -62,7 +62,10 @@ pub use diff::{DesignChange, DesignDiff, project_diff};
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
-pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use drawn::{
+    DrawnLayerPlots, conformal_coat_assembly_note, conformal_coat_keepout_gerber,
+    drawn_layer_plots,
+};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };
@@ -935,18 +938,7 @@ fn pdf_draw(page: &mut impl DrawPage, p: &Project, view: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Export the design as a one-page vector PDF document, in bytes.
-pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
-    p.validate()?;
-    if view != "pcb" && view != "schematic" {
-        return Err("view must be pcb or schematic".into());
-    }
-    let (min, max) = preview_bounds(p, view);
-    let mut page = PdfPage::new();
-    page.fit(min, max);
-    page.color([1.0, 1.0, 1.0], false)?;
-    page.op("0 0 842 595 re f")?;
-    pdf_draw(&mut page, p, view)?;
+fn pdf_bytes_from_page(page: PdfPage) -> Vec<u8> {
     let content = page.ops.as_bytes();
     let mut pdf: Vec<u8> = Vec::new();
     let mut offsets = [0u32; 5];
@@ -979,7 +971,44 @@ pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
     pdf.extend_from_slice(
         format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n").as_bytes(),
     );
-    Ok(pdf)
+    pdf
+}
+
+/// Export the design as a one-page vector PDF document, in bytes.
+pub fn pdf_document(p: &Project, view: &str) -> Result<Vec<u8>, String> {
+    p.validate()?;
+    if view != "pcb" && view != "schematic" {
+        return Err("view must be pcb or schematic".into());
+    }
+    let (min, max) = preview_bounds(p, view);
+    let mut page = PdfPage::new();
+    page.fit(min, max);
+    page.color([1.0, 1.0, 1.0], false)?;
+    page.op("0 0 842 595 re f")?;
+    pdf_draw(&mut page, p, view)?;
+    Ok(pdf_bytes_from_page(page))
+}
+
+/// Assembly drawing PDF: the schematic view plus a note when a conformal
+/// coating keep-out plot is configured on the board.
+pub fn assembly_drawing_document(p: &Project) -> Result<Vec<u8>, String> {
+    p.validate()?;
+    let view = "schematic";
+    let (min, max) = preview_bounds(p, view);
+    let mut page = PdfPage::new();
+    page.fit(min, max);
+    page.color([1.0, 1.0, 1.0], false)?;
+    page.op("0 0 842 595 re f")?;
+    pdf_draw(&mut page, p, view)?;
+    if let Some(note) = conformal_coat_assembly_note(p) {
+        page.text(
+            Point::new(min.x, min.y - 5.0),
+            1.2,
+            [0.05, 0.05, 0.05],
+            &note,
+        )?;
+    }
+    Ok(pdf_bytes_from_page(page))
 }
 
 /// Draw one view as a standalone PostScript document: the same path, circle
@@ -12609,6 +12638,61 @@ mod tests {
         assert!(
             text.contains("T2,3.000,0.000,no,2"),
             "locating pegs are unplated hits"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn conformal_coat_keepout_gerber_names_layer_side_and_polarity() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.user_layers.push(pcbcraft_doc::ArtLayer {
+            id: 7,
+            name: "No Coat Here".into(),
+            kind: pcbcraft_doc::ArtKind::Other,
+            dotted: false,
+            dot_pitch: 1.0,
+            dot_size: 0.5,
+            visible: true,
+            shapes: vec![pcbcraft_doc::ArtShape::Rect {
+                x: 4.0,
+                y: 4.0,
+                width: 10.0,
+                height: 8.0,
+                rotate: 0.0,
+            }],
+        });
+        p.board.conformal_coat_keepout = Some(pcbcraft_doc::ConformalCoatKeepout {
+            layer: 7,
+            plot_name: "CoatKeepout-F".into(),
+            side: "top".into(),
+            polarity: "negative".into(),
+        });
+        let text = conformal_coat_keepout_gerber(&p)?;
+        assert!(
+            text.contains("%TF.FileFunction,Other,CoatKeepout-F,ConformalCoatingKeepout,Top*%"),
+            "the plot declares its layer name and side"
+        );
+        assert!(
+            text.contains("%TF.FilePolarity,Negative*%"),
+            "polarity is stated on the file"
+        );
+        assert!(
+            text.contains("drawn layer \"No Coat Here\""),
+            "the comment names the source drawn layer"
+        );
+        let note = conformal_coat_assembly_note(&p).ok_or("assembly note")?;
+        assert!(
+            note.contains("Conformal coating keep-out")
+                && note.contains("No Coat Here")
+                && note.contains("CoatKeepout-F")
+                && note.contains("top side")
+                && note.contains("negative polarity"),
+            "the assembly drawing repeats the purpose"
+        );
+        let pdf = assembly_drawing_document(&p)?;
+        assert!(
+            pdf.starts_with(b"%PDF-1.4"),
+            "assembly drawing stays a PDF"
         );
         Ok(())
     }

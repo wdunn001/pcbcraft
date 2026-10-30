@@ -1645,6 +1645,24 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(json!({}), &[]),
         ),
         (
+            "board.set_conformal_coat_keepout",
+            "Point conformal coating keep-out export at one drawn layer and record the Gerber plot name, assembly side and image polarity",
+            schema(
+                json!({
+                    "layer": id_schema(),
+                    "plot_name": {"type":"string","minLength":1,"maxLength":48},
+                    "side": {"type":"string","enum":["top","bottom"]},
+                    "polarity": {"type":"string","enum":["positive","negative"]},
+                }),
+                &["layer", "plot_name", "side", "polarity"],
+            ),
+        ),
+        (
+            "board.clear_conformal_coat_keepout",
+            "Stop exporting a conformal coating keep-out plot from the board",
+            schema(json!({}), &[]),
+        ),
+        (
             "board.set_pair_rule",
             "Require a minimum clearance in millimetres between two named nets, stricter than class or board default when larger; the same pair replaces its earlier rule",
             schema(
@@ -2789,6 +2807,10 @@ fn render_kind(
             }
             skipped.extend(plots.skipped);
         }
+        "conformal_coat" => out.push((
+            "conformal-coat-keepout.gbr".into(),
+            pcbcraft_io::conformal_coat_keepout_gerber(p)?.into_bytes(),
+        )),
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
         other => {
             return Err(Error::Invalid(format!("unknown export kind {other}")));
@@ -4828,6 +4850,14 @@ struct MachiningParams {
     drill_tolerance: Option<f64>,
     #[serde(default)]
     edge_tolerance: Option<f64>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConformalCoatKeepoutParams {
+    layer: Id,
+    plot_name: String,
+    side: String,
+    polarity: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -15029,6 +15059,37 @@ fn run_command(
             }
             let had = p.board.machining.is_some();
             p.board.machining = None;
+            Ok(json!({"removed": had}))
+        }
+        "board.set_conformal_coat_keepout" => {
+            let a: ConformalCoatKeepoutParams = parse(params)?;
+            let plot_name = a.plot_name.trim();
+            let cfg = pcbcraft_doc::ConformalCoatKeepout {
+                layer: a.layer,
+                plot_name: plot_name.into(),
+                side: a.side,
+                polarity: a.polarity,
+            };
+            if !cfg.valid() {
+                return Err(Error::Invalid(
+                    "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
+                        .into(),
+                ));
+            }
+            if !p.board.user_layers.iter().any(|l| l.id == cfg.layer) {
+                return Err(Error::Invalid("unknown drawn layer".into()));
+            }
+            p.board.conformal_coat_keepout = Some(cfg.clone());
+            Ok(json!({"conformal_coat_keepout": cfg}))
+        }
+        "board.clear_conformal_coat_keepout" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "board.clear_conformal_coat_keepout takes an empty object".into(),
+                ));
+            }
+            let had = p.board.conformal_coat_keepout.is_some();
+            p.board.conformal_coat_keepout = None;
             Ok(json!({"removed": had}))
         }
         "board.set_pair_rule" => {
@@ -35798,6 +35859,77 @@ mod tests {
             entities.len(),
             2,
             "the outline and the label read back from the mill path"
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn conformal_coat_export_writes_gerber_and_artifact() -> Result<(), Error> {
+        let mut s = Session::default();
+        let layer = s.execute(
+            "board.layer_add",
+            json!({"name":"No Coat","kind":"other"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "board.layer_rect_add",
+            json!({"layer":layer,"x":2.0,"y":2.0,"width":20.0,"height":15.0}),
+            None,
+        )?;
+        s.execute(
+            "board.set_conformal_coat_keepout",
+            json!({
+                "layer": layer,
+                "plot_name": "CoatKeepout-F",
+                "side": "bottom",
+                "polarity": "positive",
+            }),
+            None,
+        )?;
+        s.execute(
+            "output_job.add",
+            json!({"name":"coat","kinds":["conformal_coat"]}),
+            None,
+        )?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-conformal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).map_err(|e| Error::Invalid(e.to_string()))?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"coat","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        let text = std::fs::read_to_string(directory.join("conformal-coat-keepout.gbr"))
+            .map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            text.contains("ConformalCoatingKeepout,Bot"),
+            "the export kind writes a bottom-side keep-out plot"
+        );
+        let artifact = s.execute(
+            "artifact.add",
+            json!({
+                "name": "conformal keep-out",
+                "kind": "conformal_coat_plot",
+                "path": "conformal-coat-keepout.gbr",
+            }),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        let gen = s.query(
+            "artifact.generate",
+            json!({"id": artifact}),
+            None,
+        )?["result"]["payload"]
+            .as_str()
+            .ok_or_else(missing)?;
+        assert!(
+            gen.contains("%TF.FilePolarity,Positive*%"),
+            "artifact generate matches the configured polarity"
         );
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())

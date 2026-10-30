@@ -1853,7 +1853,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 30] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1879,6 +1879,7 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "drill_chart",
     "stats",
     "layer_plots",
+    "conformal_coat",
     "panel",
     "raster",
     "laser_job",
@@ -1983,6 +1984,7 @@ pub const ARTIFACT_KINDS: &[&str] = &[
     "outline_gcode",
     "stencil",
     "laser_path",
+    "conformal_coat_plot",
     "package",
 ];
 const ARTIFACT_SETTINGS_MAX: usize = 4096;
@@ -2710,6 +2712,59 @@ fn board_er() -> f64 {
 fn board_origin() -> Point {
     Point::default()
 }
+/// Which drawn layer plots as the conformal coating keep-out Gerber, and how
+/// that file declares its name, side and polarity for the assembler.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ConformalCoatKeepout {
+    /// Drawn layer whose figures become the keep-out plot.
+    pub layer: Id,
+    /// Gerber layer name carried in FileFunction, 1 to 48 bytes.
+    pub plot_name: String,
+    /// Assembly side: `top` or `bottom`.
+    pub side: String,
+    /// Image polarity: `positive` or `negative`.
+    pub polarity: String,
+}
+impl ConformalCoatKeepout {
+    fn plot_name_valid(name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty()
+            && name.len() <= 48
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_graphic() && b != b'*' && b != b',')
+    }
+    /// True when every field is within its bound.
+    pub fn valid(&self) -> bool {
+        Self::plot_name_valid(&self.plot_name)
+            && matches!(self.side.as_str(), "top" | "bottom")
+            && matches!(self.polarity.as_str(), "positive" | "negative")
+    }
+    /// Side word for a Gerber FileFunction attribute.
+    pub fn gerber_side(&self) -> &'static str {
+        if self.side == "bottom" {
+            "Bot"
+        } else {
+            "Top"
+        }
+    }
+    /// Side words for human-readable export notes.
+    pub fn side_label(&self) -> &'static str {
+        if self.side == "bottom" {
+            "bottom"
+        } else {
+            "top"
+        }
+    }
+    /// Polarity word with an initial capital for Gerber attributes.
+    pub fn gerber_polarity(&self) -> &'static str {
+        if self.polarity == "negative" {
+            "Negative"
+        } else {
+            "Positive"
+        }
+    }
+}
 /// Machining notes recorded for fabrication: whether the board edges are
 /// plated and the tolerances the mill and drill are held to.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -2784,6 +2839,9 @@ pub struct Board {
     /// Machining notes for fabrication, absent when none were recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machining: Option<MachiningNotes>,
+    /// Drawn layer exported as the conformal coating keep-out Gerber, when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conformal_coat_keepout: Option<ConformalCoatKeepout>,
     /// Clearance rules between specific pairs of nets, ordered by net ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pair_rules: Vec<NetPairRule>,
@@ -4782,6 +4840,20 @@ impl Project {
         for l in &self.board.user_layers {
             if !l.valid() || !art_names.insert(l.name.as_str()) {
                 return Err("drawn layers need a unique name and sane figures".into());
+            }
+        }
+        if let Some(c) = &self.board.conformal_coat_keepout {
+            if !c.valid()
+                || !self
+                    .board
+                    .user_layers
+                    .iter()
+                    .any(|l| l.id == c.layer)
+            {
+                return Err(
+                    "conformal coat keep-out needs a known drawn layer, plot name, side and polarity"
+                        .into(),
+                );
             }
         }
         let mut paired: BTreeSet<(Id, Id)> = BTreeSet::new();
