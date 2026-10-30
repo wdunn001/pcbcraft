@@ -13,6 +13,13 @@ pub(crate) const RULER_SIZE: f32 = 22.0;
 mod sheet;
 mod underlay;
 
+/// A `#rrggbb` stroke colour, or None for empty or malformed text.
+pub(crate) fn hex_colour(text: &str) -> Option<Color32> {
+    let digits = text.strip_prefix('#').filter(|d| d.len() == 6)?;
+    let v = u32::from_str_radix(digits, 16).ok()?;
+    Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
+}
+
 fn on_page(p: &Project, page: Id, object: Id) -> bool {
     p.on_schematic_page(page, object)
 }
@@ -25,7 +32,7 @@ pub(super) enum CanvasMenuKind {
     Object(Id),
 }
 
-fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
+pub(crate) fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
     if let Some(c) = project.component(id) {
         let p = c.position;
         let pad = 3.0;
@@ -70,7 +77,7 @@ fn selection_bounds(project: &Project, id: Id) -> Option<(Point, Point)> {
 
 /// The world rectangle each tab should show by default: the board outline on
 /// the PCB tab, the whole drawing sheet on the schematic tab.
-fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
+pub(crate) fn view_bounds(project: &Project, pcb: bool) -> (Point, Point) {
     if !pcb {
         return sheet::sheet_bounds(project);
     }
@@ -227,6 +234,7 @@ pub(crate) fn polygon_contains(points: &[Point], pos: Point) -> bool {
 #[derive(Clone, Copy)]
 enum CanvasIcon {
     Fit,
+    Map,
     Move,
     Rotate,
     ZoomIn,
@@ -246,6 +254,7 @@ impl App {
         let response = response.on_hover_text(tip);
         let name = match icon {
             CanvasIcon::Fit => "Fit",
+            CanvasIcon::Map => "Map",
             CanvasIcon::Move => "Move",
             CanvasIcon::Rotate => "Rotate",
             CanvasIcon::ZoomIn => "Zoom in",
@@ -278,6 +287,23 @@ impl App {
                     painter.line_segment([corner, at(sx * 7.0, sy * 3.0)], stroke);
                     painter.line_segment([corner, at(sx * 3.0, sy * 7.0)], stroke);
                 }
+            }
+            CanvasIcon::Map => {
+                // A folded map: three panels with the creases showing.
+                let top = [(-8.0, -5.0), (-3.0, -7.0), (3.0, -5.0), (8.0, -7.0)];
+                let bottom = [(-8.0, 7.0), (-3.0, 5.0), (3.0, 7.0), (8.0, 5.0)];
+                painter.add(egui::Shape::line(
+                    top.iter().map(|p| at(p.0, p.1)).collect(),
+                    stroke,
+                ));
+                painter.add(egui::Shape::line(
+                    bottom.iter().map(|p| at(p.0, p.1)).collect(),
+                    stroke,
+                ));
+                painter.line_segment([at(-8.0, -5.0), at(-8.0, 7.0)], stroke);
+                painter.line_segment([at(8.0, -7.0), at(8.0, 5.0)], stroke);
+                painter.line_segment([at(-3.0, -7.0), at(-3.0, 5.0)], stroke);
+                painter.line_segment([at(3.0, -5.0), at(3.0, 7.0)], stroke);
             }
             CanvasIcon::ZoomIn | CanvasIcon::ZoomOut => {
                 painter.circle_stroke(at(-1.5, -1.5), 5.5, stroke);
@@ -852,7 +878,7 @@ impl App {
             }
         }
         // Fit and zoom stay on the canvas; board/schematic tools live in the strip under the tabs.
-        egui::Area::new(egui::Id::new("fit-fab"))
+        let card = egui::Area::new(egui::Id::new("fit-fab"))
             .pivot(Align2::RIGHT_BOTTOM)
             .fixed_pos(rect.right_bottom() + Vec2::new(-16.0, -16.0))
             .constrain_to(rect)
@@ -917,9 +943,21 @@ impl App {
                             {
                                 self.needs_fit = true;
                             }
+                            if self
+                                .canvas_icon(
+                                    ui,
+                                    "canvas-map",
+                                    CanvasIcon::Map,
+                                    &t!("board.canvas.map.tip"),
+                                )
+                                .clicked()
+                            {
+                                self.minimap_toggle();
+                            }
                         });
                     });
             });
+        self.minimap_show(ui.ctx(), rect, card.response.rect);
         if matches!(self.tab, Tab::Schematic | Tab::Pcb)
             && let Some(id) = self.selected
         {
@@ -981,6 +1019,7 @@ impl App {
     /// Keep only what a focused tree row points at: one copper face or one
     /// drawn machine layer. Everything else falls back to plain board colour.
     fn apply_layer_focus(p: &mut Project, focus: &str) {
+        let bottom = p.bottom_layer();
         let board = &mut p.board;
         match focus.strip_prefix("copper:") {
             Some("front") => {
@@ -990,9 +1029,9 @@ impl App {
                 board.vias.clear();
             }
             Some("back") => {
-                board.tracks.retain(|t| t.layer == Layer::Back);
-                board.zones.retain(|z| z.layer == Layer::Back);
-                board.texts.retain(|t| t.layer == Layer::Back);
+                board.tracks.retain(|t| t.layer == bottom);
+                board.zones.retain(|z| z.layer == bottom);
+                board.texts.retain(|t| t.layer == bottom);
                 board.vias.clear();
             }
             _ => {}
@@ -1126,6 +1165,13 @@ impl App {
     pub(super) fn pick_object(&self, pos: Point, zoom: f32) -> Option<Id> {
         self.pick_object_any(pos, zoom)
             .filter(|id| !crate::layers_tree::is_locked(&self.project, &self.tree.locked, *id))
+            .filter(|id| !self.sheet_row_hidden(*id))
+    }
+    /// True when the sheet row an object belongs to is switched off with the eye,
+    /// so the canvas draws nothing there to pick.
+    pub(super) fn sheet_row_hidden(&self, id: Id) -> bool {
+        crate::layers_tree::sheet_row_of(&self.project, id)
+            .is_some_and(|(page, row)| !self.page_row_shown(page, row))
     }
     fn pick_object_any(&self, pos: Point, zoom: f32) -> Option<Id> {
         if self.tab == Tab::Schematic {
@@ -1297,10 +1343,14 @@ impl App {
         None
     }
     /// The wire whose path passes nearest the click, within a fingertip's
-    /// width; curved wires are checked along their bow too.
+    /// width; curved wires are checked along their bow too. Wires on a locked
+    /// Layers tree row are skipped.
     fn pick_track(&self, pos: Point, zoom: f32) -> Option<Id> {
         let mut best: Option<(f64, Id)> = None;
         for track in &self.project.board.tracks {
+            if !self.id_allowed(track.id) {
+                continue;
+            }
             let mut reach = segment_distance(pos, track.start, track.end);
             if let Some(mid) = track.arc {
                 reach = reach
@@ -1318,6 +1368,7 @@ impl App {
             .board
             .vias
             .iter()
+            .filter(|v| self.id_allowed(v.id))
             .filter(|v| {
                 pos.distance(v.position) * (zoom as f64)
                     < (v.diameter as f32 * zoom / 2.0 + 6.0) as f64
@@ -1594,8 +1645,16 @@ impl App {
     ) {
         let page = self.schematic_page();
         let shown = |name: &str| self.layer_shown(name);
+        let row_shown = |row: &str| self.page_row_shown(page, row);
         let sc = sheet::SheetColours::for_theme(self.colours().dark);
-        let sheet_frame = sheet::sheet_for(p);
+        let mut sheet_frame = sheet::sheet_for(p, page);
+        // The title block names the page being drawn, not always the first.
+        sheet_frame.page = 1 + p
+            .sheets
+            .iter()
+            .position(|s| s.id == page)
+            .map_or(0, |i| i + 1);
+        sheet_frame.title_shown &= row_shown("title");
         sheet::paint_sheet(
             painter,
             rect,
@@ -1649,7 +1708,9 @@ impl App {
                 sc.wire,
             );
         }
-        sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"));
+        if row_shown("power") {
+            sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
+        }
         for w in p
             .drawn_wires
             .iter()
@@ -1668,15 +1729,16 @@ impl App {
             .graphics
             .iter()
             .filter(|g| g.layer == "schematic" && on_page(p, page, g.id))
-            .filter(|_| shown("Graphics"))
+            .filter(|_| shown("Graphics") && row_shown("drawing"))
         {
+            let ink = hex_colour(&g.color).unwrap_or(sc.body);
             if let Some(outline) = g.outline() {
                 painter.add(egui::Shape::line(
                     outline
                         .iter()
                         .map(|point| camera.screen(*point, rect))
                         .collect(),
-                    Stroke::new(1.6, sc.body),
+                    Stroke::new((g.width as f32 * camera.zoom).clamp(1.6, 12.0), ink),
                 ));
             } else if let Some(anchor) = g.points.first() {
                 painter.text(
@@ -1692,12 +1754,27 @@ impl App {
             .labels
             .iter()
             .filter(|l| on_page(p, page, l.id))
-            .filter(|_| shown("Net labels"))
+            .filter(|l| {
+                if l.kind == "power" {
+                    row_shown("power")
+                } else {
+                    shown("Net labels")
+                }
+            })
         {
             let at = camera.screen(l.position, rect);
             if l.kind == "junction" {
                 painter.circle_filled(at, 4.5, sc.wire);
-            } else if l.kind != "power" {
+            } else if l.kind == "power" {
+                painter.circle_filled(at, 3.0, sc.wire);
+                painter.text(
+                    at + egui::vec2(6.0, 0.0),
+                    Align2::LEFT_CENTER,
+                    p.net_name(l.net),
+                    crate::fonts::Role::Mono.font(),
+                    sc.wire,
+                );
+            } else {
                 let text = match l.kind.as_str() {
                     "global" => format!("{{{}}}", p.net_name(l.net)),
                     "hierarchical" => format!("/{}", p.net_name(l.net)),
@@ -1741,7 +1818,7 @@ impl App {
             .iter()
             .flat_map(|c| c.schematic_views())
             .filter(|c| c.sheet == page)
-            .filter(|_| shown("Symbols"))
+            .filter(|_| shown("Symbols") && row_shown("symbols"))
         {
             self.symbol(
                 painter,
@@ -1846,9 +1923,23 @@ impl App {
                     } else {
                         pin.position
                     };
+                    // The name reads inside the body: right-aligned and left of the
+                    // stem end for a pin on the right, hung below it for a pin on top.
+                    let stem = at(pin.stem_end()) - at(pin.position);
+                    let (anchor, shift) = if stem.x.abs() >= stem.y.abs() {
+                        if stem.x < 0.0 {
+                            (Align2::RIGHT_BOTTOM, Vec2::new(-3.0, -3.0))
+                        } else {
+                            (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                        }
+                    } else if stem.y > 0.0 {
+                        (Align2::LEFT_TOP, Vec2::new(3.0, 3.0))
+                    } else {
+                        (Align2::LEFT_BOTTOM, Vec2::new(3.0, -3.0))
+                    };
                     painter.text(
-                        at(label_at) + Vec2::new(3.0, -3.0),
-                        Align2::LEFT_BOTTOM,
+                        at(label_at) + shift,
+                        anchor,
                         &pin.name,
                         FontId::monospace(10.0),
                         sc.muted,
@@ -2521,6 +2612,7 @@ mod library_render_tests {
             ..Default::default()
         });
         project.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
             id: 1,
             reference: "ZZ8".into(),

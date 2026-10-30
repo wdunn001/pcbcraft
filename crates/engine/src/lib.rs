@@ -1,19 +1,32 @@
 //! The single mutation boundary used by UI, CLI and MCP.
+//! `run_command` match arms apply one validated change each and return JSON for callers.
+//!
+//! # Rules
+//! - Handler validation and refusal rules are documented on parameter structs and plain comments on arms without structs.
+//!
+//! # Dependencies
+//! - crates/doc/src/lib.rs
+//! - crates/io/src/lib.rs
+//! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
 mod dry_run;
 mod images;
+mod layout;
 pub mod library;
 mod online;
 mod outline;
 pub mod profiles;
 pub mod recents;
+pub mod scope;
+pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
 mod selection_clip;
 mod snapmaker;
 mod summary;
 mod tuning;
+mod via_protection;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -340,9 +353,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "part.attach_source",
-            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU)",
+            "Record where a part came from on a placed component in one step: manufacturer, part number, datasheet link and the distributor's own order number are written as named properties (Manufacturer, MPN, Datasheet, and one property per distributor ending in SKU) and into the typed sourcing record (with an optional description, lifecycle text and product link)",
             schema(
-                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256}}),
+                json!({"id":id_schema(),"manufacturer":{"type":"string","maxLength":256},"mpn":{"type":"string","maxLength":256},"datasheet":{"type":"string","maxLength":256},"distributor":{"type":"string","maxLength":48},"sku":{"type":"string","maxLength":256},"description":{"type":"string","maxLength":256},"lifecycle":{"type":"string","maxLength":64},"product_url":{"type":"string","maxLength":512}}),
                 &["id", "manufacturer", "mpn"],
             ),
         ),
@@ -352,6 +365,22 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"key":{"type":"string"},"value":{"type":["string","null"]}}),
                 &["id", "key"],
+            ),
+        ),
+        (
+            "component.set_sourcing",
+            "Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
+            schema(
+                json!({"id":id_schema(),"manufacturer":{"type":["string","null"],"maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":256},"lifecycle":{"type":["string","null"],"enum":["active","nrnd","last_time_buy","obsolete","unknown",null]},"moisture_level":{"type":["integer","null"],"minimum":1,"maximum":6},"rohs":{"type":["boolean","null"]},"reach":{"type":["boolean","null"]},"halogen_free":{"type":["boolean","null"]}}),
+                &["id"],
+            ),
+        ),
+        (
+            "component.set_supplier",
+            "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
+            schema(
+                json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
+                &["id", "supplier"],
             ),
         ),
         (
@@ -675,8 +704,8 @@ pub fn commands() -> Vec<CommandSpec> {
             "graphic.add",
             "Add a free-standing schematic or board graphic: line, rect, circle, arc, polygon or text",
             schema(
-                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"}}),
-                &["layer", "shape", "points", "width"],
+                json!({"layer":{"type":"string","enum":["schematic","board"]},"shape":{"type":"string","enum":["line","rect","circle","arc","polygon","text"]},"points":{"type":"array","items":point_schema(),"minItems":1,"maxItems":256},"width":{"type":"number","exclusiveMinimum":0,"maximum":1000,"description":"required on a board graphic; a schematic graphic that omits it takes the page's default line width"},"text":{"type":"string","maxLength":1024},"sublayer":{"type":"string","enum":["F.SilkS","B.SilkS","F.Mask","B.Mask"],"description":"board graphics only: the silkscreen or solder mask side the figure belongs to"},"color":{"type":"string","description":"stroke colour as #rrggbb; omit for the theme ink"}}),
+                &["layer", "shape", "points"],
             ),
         ),
         (
@@ -711,6 +740,14 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"id":id_schema(),"name":{"type":"string"}}),
                 &["id", "name"],
+            ),
+        ),
+        (
+            "schematic.set_page_setting",
+            "Set one setting of a schematic page: the title block fields title, revision, date, size, company and drawn_by, title_shown (true or false), or the drawing defaults line_width (millimetres) and line_color (#rrggbb, empty for the theme ink); setting the value a field already holds is refused",
+            schema(
+                json!({"sheet":{"type":"integer","minimum":0},"field":{"type":"string","enum":["title","revision","date","size","company","drawn_by","title_shown","line_width","line_color"]},"value":{"type":"string","maxLength":256}}),
+                &["sheet", "field", "value"],
             ),
         ),
         (
@@ -902,14 +939,6 @@ pub fn commands() -> Vec<CommandSpec> {
             schema(
                 json!({"position":point_schema(),"diameter":{"type":"number","minimum":0.05,"maximum":25,"description":"drill diameter, millimetres"}}),
                 &["position", "diameter"],
-            ),
-        ),
-        (
-            "hole.slot",
-            "Route an unplated mounting slot between two centres: width is the drill diameter, length runs centre to centre plus that width",
-            schema(
-                json!({"start":point_schema(),"end":point_schema(),"width":{"type":"number","minimum":0.05,"maximum":25,"description":"slot width, millimetres"}}),
-                &["start", "end", "width"],
             ),
         ),
         (
@@ -1414,14 +1443,6 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
-            "via.set_covering",
-            "Set how one via is protected under the solder mask (open, tented, tented_covered, plugged, plugged_covered, filled, filled_covered, filled_capped, named after the seven via protection types); omit covering to follow the board default. Anything but open needs a drilled hole",
-            schema(
-                json!({"id":id_schema(),"covering":{"type":"string","enum":["open","tented","tented_covered","plugged","plugged_covered","filled","filled_covered","filled_capped"]}}),
-                &["id"],
-            ),
-        ),
-        (
             "via.allow_span",
             "Allow or forbid one extra via span on this board, such as a buried span the fabricator offers; forbidding is refused while a via uses the span",
             schema(
@@ -1567,9 +1588,9 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "board.set_layer_record",
-            "Record or replace one physical board layer: its name, role (copper, core, prepreg, soldermask, silkscreen, paste or custom) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
+            "Record or replace one physical board layer: its name, role (see board.set_layer_record kind list) and thickness in millimetres, plus optional function, side, polarity, material (see board.materials), dk (1 to 20), df (0 to 1), thickness_tol_pct (0 to 50), copper_weight_oz (0.1 to 10), foil (rolled or electrodeposited) and linked_copper (the copper row a mask, silk or paste row sits on); at most 32 layers per board. Fields left out keep their value on an existing layer",
             schema(
-                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":["copper","core","prepreg","soldermask","silkscreen","paste","custom"]},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
+                json!({"name":{"type":"string","minLength":1,"maxLength":64},"kind":{"type":"string","enum":pcbcraft_doc::LAYER_KINDS},"thickness":{"type":"number"},"copper_role":{"type":"string","enum":["signal","plane","mixed","hatched"]},"function":{"type":"string","enum":pcbcraft_doc::LAYER_FUNCTIONS},"side":{"type":"string","enum":["top","bottom","internal","both","none"]},"polarity":{"type":"string","enum":["positive","negative"]},"material":{"type":"string","maxLength":64},"dk":{"type":"number","minimum":1,"maximum":20},"df":{"type":"number","minimum":0,"maximum":1},"thickness_tol_pct":{"type":"number","minimum":0,"maximum":50},"copper_weight_oz":{"type":"number","minimum":0.1,"maximum":10},"foil":{"type":"string","enum":["rolled","electrodeposited"]},"linked_copper":{"type":"string","maxLength":64}}),
                 &["name", "kind", "thickness"],
             ),
         ),
@@ -1747,8 +1768,16 @@ pub fn commands() -> Vec<CommandSpec> {
             "rules.severity",
             "Change how one check code reports: error, warning, or off to silence it; null or omitting severity restores its default",
             schema(
-                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
+                json!({"code":{"type":"string","description":"check code: unassigned_pin, single_pin_net, missing_decoupling, pin_conflict, undriven_input, clearance, copper_short, pad_clearance_bound, board_edge, cutout_clearance, track_width, track_length, stub_length, unrouted, missing_footprint, panel_copper_near_score, panel_component_near_score, panel_tab_too_narrow, panel_too_large_for_assembler, panel_missing_fiducials"},"severity":{"type":["string","null"],"enum":["error","warning","off",null]}}),
                 &["code"],
+            ),
+        ),
+        (
+            "rules.decoupling_set",
+            "Set how close a capacitor must be to an integrated circuit power pin for the missing_decoupling check, and the capacitor value its findings suggest; give at least one field",
+            schema(
+                json!({"max_distance_mm":{"type":"number","minimum":0.1,"maximum":50,"description":"pad centre to pad centre, millimetres; default 3.0"},"suggested_value":{"type":"string","minLength":1,"maxLength":32,"description":"value named in findings; default 100 nF"}}),
+                &[],
             ),
         ),
         (
@@ -2179,7 +2208,7 @@ pub fn commands() -> Vec<CommandSpec> {
             "bom.export",
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
-                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
                 &[],
             ),
         ),
@@ -2304,11 +2333,13 @@ pub fn commands() -> Vec<CommandSpec> {
             input_schema,
         })
         .chain(snapmaker::commands())
+        .chain(layout::commands())
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(via_protection::commands())
         .collect()
 }
 
@@ -2380,10 +2411,11 @@ impl Session {
         if commands.is_empty() || commands.len() > 128 {
             return Err(Error::Invalid("batch must contain 1–128 commands".into()));
         }
-        if commands
-            .iter()
-            .all(|c| c.command == "cam.isolation" || snapmaker::handles(&c.command))
-        {
+        if commands.iter().all(|c| {
+            c.command == "cam.isolation"
+                || snapmaker::handles(&c.command)
+                || layout::handles(&c.command)
+        }) {
             let mut results = vec![];
             for command in commands {
                 results.push(run_read_only(
@@ -2474,7 +2506,8 @@ impl Session {
         self.revision = self.revision.saturating_add(1);
         Ok(json!({"revision":self.revision}))
     }
-    pub fn replace(&mut self, p: Project) -> Result<Value, Error> {
+    pub fn replace(&mut self, mut p: Project) -> Result<Value, Error> {
+        p.adopt_free_form_sourcing();
         p.validate()?;
         self.next_id = self
             .next_id
@@ -3596,6 +3629,15 @@ struct DrawnWireParams {
     points: Vec<Point>,
     net: Option<Id>,
 }
+/// Parameters of `barcode.place`: draw a Code 39 barcode as vertical line graphics.
+///
+/// # Rules
+/// - Text is trimmed, uppercased, 1 to 48 characters, and must be encodable in Code 39.
+/// - Layer is schematic or board; height and module width sit in fixed ranges.
+/// - The barcode must fit on the drawing and stay under the graphic count cap.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BarcodeParams {
@@ -3608,6 +3650,15 @@ struct BarcodeParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Parameters of `schematic.table`: lay out a component table as schematic line and text graphics.
+///
+/// # Rules
+/// - Position must be valid; at most three column keys, each 1 to 32 bytes.
+/// - Row cap is 1 to 200 when set; default columns are reference and value when none are given.
+/// - The table bounding box and graphic budget must fit the schematic limits.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SchematicTableParams {
@@ -3671,13 +3722,26 @@ struct GraphicParams {
     layer: String,
     shape: String,
     points: Vec<Point>,
-    width: f64,
+    /// Omitted on a schematic graphic: the page's default line width applies.
+    #[serde(default)]
+    width: Option<f64>,
     #[serde(default)]
     text: String,
     /// Fabrication sublayer of a board graphic: F.SilkS, B.SilkS, F.Mask or B.Mask.
     #[serde(default)]
     sublayer: String,
+    /// Stroke colour as `#rrggbb`; empty is the theme ink.
+    #[serde(default)]
+    color: String,
 }
+/// Parameters of `graphic.scale`: scale every vertex of one graphic about an anchor.
+///
+/// # Rules
+/// - The scale factor must be between 0.01 and 100; the anchor point must be valid when set.
+/// - Scaled vertices and stroke width must stay within drawing limits unless `keep_width` is true.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicScaleParams {
@@ -3686,6 +3750,14 @@ struct GraphicScaleParams {
     around: Option<Point>,
     keep_width: Option<bool>,
 }
+/// Parameters of `plot.to_schematic`: copy board copper and optional text into schematic graphics.
+///
+/// # Rules
+/// - The plot origin must be valid; at most 4096 elements are created.
+/// - Plotted points and stroke sizes must stay within drawing limits; text length is capped.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PlotToSchematicParams {
@@ -3695,6 +3767,15 @@ struct PlotToSchematicParams {
     #[serde(default = "plot_text")]
     include_text: bool,
 }
+/// Parameters of `graphic.to_track`: turn a line or polyline graphic into board tracks on a net.
+///
+/// # Rules
+/// - Only line or polygon graphics with at least two vertices qualify.
+/// - The net must exist; width defaults to the graphic stroke when omitted.
+/// - Zero-length segments and out-of-range points are refused; the graphic is removed after conversion.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicToTrackParams {
@@ -3705,6 +3786,15 @@ struct GraphicToTrackParams {
     #[serde(default = "front")]
     layer: Layer,
 }
+/// Parameters of `graphic.set`: change layer, stroke width, or text on one graphic.
+///
+/// # Rules
+/// - At least one of `layer`, `width`, or `text` must be set.
+/// - Layer must be schematic or board; width and text limits match other graphic commands.
+/// - Text may only be set on text-shaped graphics.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicSetParams {
@@ -3716,6 +3806,13 @@ struct GraphicSetParams {
     #[serde(default)]
     text: Option<String>,
 }
+/// Parameters of `graphic.set_point`: move one vertex of a graphic polyline or polygon.
+///
+/// # Rules
+/// - The vertex index must be in range; the new position must be valid.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct GraphicPointParams {
@@ -3723,6 +3820,15 @@ struct GraphicPointParams {
     index: usize,
     position: Point,
 }
+/// Parameters of `label.place`: add a net label, power symbol, or junction on the schematic.
+///
+/// # Rules
+/// - `kind` must be a known label kind; bus labels use `label.place_bus` instead.
+/// - The net must exist; position and rotation must be valid.
+/// - Junction labels must sit on a drawn wire vertex of the same net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelParams {
@@ -3732,12 +3838,27 @@ struct LabelParams {
     #[serde(default)]
     rotation: f64,
 }
+/// Parameters of `wire.draw_bus`: draw a bus polyline and ensure its member nets exist.
+///
+/// # Rules
+/// - The polyline needs 2 to 256 distinct valid vertices.
+/// - The bus name must parse as stem*count; missing member nets are created.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BusWireParams {
     points: Vec<Point>,
     name: String,
 }
+/// Parameters of `label.place_bus`: place a bus label and ensure its member nets exist.
+///
+/// # Rules
+/// - Position and rotation must be valid; the bus name must parse as stem*count.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BusLabelParams {
@@ -3746,12 +3867,27 @@ struct BusLabelParams {
     #[serde(default)]
     rotation: f64,
 }
+/// Parameters of `label.set_bus`: rename a bus label and refresh its member nets.
+///
+/// # Rules
+/// - The target must be a bus label; the new name must differ and parse as stem*count.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BusLabelSetParams {
     id: Id,
     name: String,
 }
+/// Parameters of `pin.no_connect`: mark a schematic pin as intentionally unconnected.
+///
+/// # Rules
+/// - The pin must exist on the component and must not already be wired.
+/// - Duplicate no-connect flags on the same pin are refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NoConnectParams {
@@ -3970,6 +4106,15 @@ struct SvgImportParams {
     #[serde(default)]
     use_outline: bool,
 }
+/// Parameters of `schematic.import_sheet`: load a sheet file and append it as a new page.
+///
+/// # Rules
+/// - The path must read a valid sheet file; the resolved sheet name is 1 to 128 bytes and unique.
+/// - Imported references must not collide; unknown symbol kinds and port net rules are enforced like placement.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ImportSheetParams {
@@ -3977,6 +4122,15 @@ struct ImportSheetParams {
     #[serde(default)]
     name: Option<String>,
 }
+/// Parameters of `via.place`: add a plated via on a net, optionally spanning inner layers.
+///
+/// # Rules
+/// - The net must exist; position must be valid.
+/// - Diameter defaults from the net class when omitted; drill defaults to 0 when omitted.
+/// - Diameter and drill must be finite with drill smaller than the pad; layer span must be allowed on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ViaParams {
@@ -4046,6 +4200,14 @@ fn resolve_via_span(
         (b.index() != last).then_some(b),
     ))
 }
+/// Parameters of `board.datum_add`: record a fabrication datum by point or by anchoring to a hole.
+///
+/// # Rules
+/// - The name must be valid and unique; exactly one of `position` or `hole` must be supplied.
+/// - Position must lie inside the board; at most 64 datums per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DatumAddParams {
@@ -4053,6 +4215,13 @@ struct DatumAddParams {
     position: Option<Point>,
     hole: Option<Id>,
 }
+/// Parameters of `board.datum_rename`: rename a board datum.
+///
+/// # Rules
+/// - The new name must be valid and unique among other datums.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DatumRenameParams {
@@ -4083,12 +4252,26 @@ fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
     }
     Ok(())
 }
+/// Parameters of `board.hole_place`: add a round unplated hole.
+///
+/// # Rules
+/// - Position must be valid; drill diameter is 0.05 to 25 mm; at most 512 holes per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HolePlaceParams {
     position: Point,
     diameter: f64,
 }
+/// Parameters of `board.fiducial_place`: add a circular fiducial on F.Cu or B.Cu.
+///
+/// # Rules
+/// - Position must be valid; diameter is 0.2 to 10 mm; at most 128 fiducials per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
@@ -4098,6 +4281,14 @@ struct FiducialPlaceParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Parameters of `board.fiducial_set`: change fiducial diameter and/or copper layer.
+///
+/// # Rules
+/// - At least one of `diameter` or `layer` must be set.
+/// - Diameter and layer values follow the same limits as placement; unchanged size and layer is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FiducialSetParams {
@@ -4107,6 +4298,14 @@ struct FiducialSetParams {
     #[serde(default)]
     layer: Option<String>,
 }
+/// Parameters of `board.nettie_place`: place a two-pad net tie between two nets.
+///
+/// # Rules
+/// - The two nets must differ and exist; position must be valid.
+/// - Pad diameter is 0.3 to 20 mm with a finite rotation; at most 128 ties per board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetTiePlaceParams {
@@ -4117,6 +4316,14 @@ struct NetTiePlaceParams {
     rotation: Option<f64>,
     diameter: f64,
 }
+/// Parameters of `board.nettie_set`: change the nets and/or pad size of a net tie.
+///
+/// # Rules
+/// - At least one field must be set; the two nets must differ and exist after the update.
+/// - Diameter stays within 0.3 to 20 mm; identical net pair and size is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetTieSetParams {
@@ -4128,6 +4335,13 @@ struct NetTieSetParams {
     #[serde(default)]
     diameter: Option<f64>,
 }
+/// Parameters of `board.nettie_move`: move a net tie and optionally set its rotation.
+///
+/// # Rules
+/// - Position must be valid; rotation when set must be finite.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NetTieMoveParams {
@@ -4136,12 +4350,27 @@ struct NetTieMoveParams {
     #[serde(default)]
     rotation: Option<f64>,
 }
+/// Parameters of `board.hole_set_size`: change the drill diameter of an unplated hole.
+///
+/// # Rules
+/// - Diameter must be 0.05 to 25 mm; the hole id must exist.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HoleSizeParams {
     id: Id,
     diameter: f64,
 }
+/// Parameters of `hole.slot`: add a slotted unplated hole from two centre points.
+///
+/// # Rules
+/// - Both centres must be valid; width is 0.05 to 25 mm; span is at least 0.01 mm and at most 50 mm.
+/// - The slot capsule must fit inside the board rectangle; the hole count cap applies.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SlotParams {
@@ -4149,6 +4378,14 @@ struct SlotParams {
     end: Point,
     width: f64,
 }
+/// Parameters of `pattern.repeat`: step-and-repeat holes or round cutouts on a grid.
+///
+/// # Rules
+/// - Grid is 1 to 64 by 1 to 64 with positive spacing; 1 to 64 source ids, each a hole or cutout once.
+/// - At least two copies total; every copy is checked to fit before any id is allocated.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RepeatParams {
@@ -4164,6 +4401,14 @@ enum PatternSource {
     Hole(Hole),
     Cutout(Cutout),
 }
+/// Parameters of `board.notch`: cut a rectangular notch into one board outline edge.
+///
+/// # Rules
+/// - Segment index must name an outline edge; width is 0 to 50 mm and depth 0 to 25 mm along valid ranges.
+/// - The notch must sit within the edge and cannot cut through the board; outline vertex cap is 64.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NotchParams {
@@ -4416,6 +4661,15 @@ struct BomParams {
     fields: Vec<String>,
     #[serde(default)]
     variant: Option<String>,
+    /// Only these components; empty lists every part.
+    #[serde(default)]
+    ids: Vec<Id>,
+    /// False prints one row per part instead of one row per kind of part.
+    #[serde(default = "bom_group_default")]
+    group: bool,
+}
+fn bom_group_default() -> bool {
+    true
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -4958,6 +5212,122 @@ struct FindParams {
 }
 /// Set (or clear, when `value` is `None`) one named property on a component.
 /// Returns whether the property is set afterwards.
+/// Rows keyed by value, kind, footprint, requested property values and, when parts
+/// are listed apart, the reference.
+type BomGroups =
+    std::collections::BTreeMap<(String, String, String, Vec<String>, String), Vec<String>>;
+
+/// The bill of materials as data: rows grouped by value, kind, footprint and
+/// the requested properties, or one row per part when `group` is false.
+///
+/// Why: the `bom.export` command and the app's export dialog (preview, File
+/// menu, part menus, Manufacture) read the same rows, so what is previewed is
+/// what is written.
+///
+/// # Rules
+/// - Reads the project only; never changes it.
+/// - Skips parts that carry `pcbcraft_doc::BOM_EXCLUDE_FIELD` set to `yes`, parts
+///   a named variant leaves unpopulated, and, when `ids` is not empty, every
+///   part not listed.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs (`Component::in_bom`).
+///
+/// # Do not
+/// - Print the bill from anywhere else; `pcbcraft_io::bom_csv` is the file writer.
+pub fn bom_export(p: &Project, params: &Value) -> Result<Value, Error> {
+    let a: BomParams = parse(params)?;
+    if a.fields.len() > 16 {
+        return Err(Error::Invalid(
+            "a bill of materials lists at most 16 properties".into(),
+        ));
+    }
+    for key in &a.fields {
+        if key.is_empty() || key.len() > 64 {
+            return Err(Error::Invalid(
+                "property names must be 1 to 64 bytes".into(),
+            ));
+        }
+    }
+    // With no explicit request, the columns the project defines are used.
+    let keys: Vec<String> = if a.fields.is_empty() {
+        p.bom_fields.iter().map(|f| f.key.clone()).collect()
+    } else {
+        a.fields.clone()
+    };
+    let variant = match a.variant.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(
+            p.variants
+                .iter()
+                .find(|v| v.name == name)
+                .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
+        ),
+    };
+    if a.ids.len() > 4096 {
+        return Err(Error::Invalid(
+            "a bill of materials names at most 4096 parts".into(),
+        ));
+    }
+    // One row per kind of part, or one row per part when not grouping
+    // (the reference then joins the key).
+    let mut groups: BomGroups = std::collections::BTreeMap::new();
+    let mut populated = 0usize;
+    for c in &p.components {
+        if !c.in_bom()
+            || (!a.ids.is_empty() && !a.ids.contains(&c.id))
+            || variant.is_some_and(|v| v.dnp.contains(&c.id))
+        {
+            continue;
+        }
+        populated += 1;
+        let footprint =
+            match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
+                Some(swap) => swap.footprint.clone(),
+                None => match &c.library_footprint {
+                    Some(footprint) => {
+                        format!("{}:{}", footprint.library, footprint.definition.name)
+                    }
+                    None => "starter pads".into(),
+                },
+            };
+        let values: Vec<String> = keys.iter().map(|key| c.bom_value(key)).collect();
+        let apart = if a.group {
+            String::new()
+        } else {
+            c.reference.clone()
+        };
+        groups
+            .entry((c.value.clone(), c.kind.clone(), footprint, values, apart))
+            .or_default()
+            .push(c.reference.clone());
+    }
+    let items: Vec<Value> = groups
+        .into_iter()
+        .map(|((value, kind, footprint, values, _), mut references)| {
+            references.sort();
+            let columns = keys.clone();
+            let mut fields = serde_json::Map::new();
+            for (key, value) in columns.into_iter().zip(values) {
+                fields.insert(key, json!(value));
+            }
+            json!({
+                "quantity": references.len(),
+                "references": references,
+                "value": value,
+                "kind": kind,
+                "footprint": footprint,
+                "fields": Value::Object(fields),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "items": items,
+        "groups": items.len(),
+        "components": populated,
+        "variant": variant.map(|v| v.name.clone()),
+    }))
+}
 fn set_component_field(
     component: &mut Component,
     key: &str,
@@ -5008,6 +5378,51 @@ struct AttachSourceParams {
     distributor: String,
     #[serde(default)]
     sku: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    lifecycle: String,
+    #[serde(default)]
+    product_url: String,
+}
+/// Reads a key that may be absent (leave alone), null (clear) or a value (set).
+fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourcingParams {
+    id: Id,
+    #[serde(default, deserialize_with = "present")]
+    manufacturer: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    mpn: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
+    #[serde(default, deserialize_with = "present")]
+    moisture_level: Option<Option<u8>>,
+    #[serde(default, deserialize_with = "present")]
+    rohs: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    reach: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    halogen_free: Option<Option<bool>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SupplierParams {
+    id: Id,
+    supplier: String,
+    #[serde(default)]
+    part_number: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5029,12 +5444,40 @@ struct RenameParams {
     id: Id,
     name: String,
 }
+/// Parameters of `schematic.move_component`: move one component onto another schematic page.
+///
+/// # Rules
+/// - The destination sheet must exist when it is not 0.
+/// - Moving to the sheet the component already occupies is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MoveToSheet {
     id: Id,
     sheet: Id,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetPageSetting {
+    sheet: Id,
+    field: String,
+    value: String,
+}
+/// True for `#rrggbb` with hex digits only.
+fn valid_hex_colour(text: &str) -> bool {
+    text.len() == 7 && text.starts_with('#') && text[1..].bytes().all(|b| b.is_ascii_hexdigit())
+}
+/// Parameters of `schematic.remove_sheet`: delete a schematic page and optionally reassign its parts.
+///
+/// # Rules
+/// - The root sheet id 0 cannot be removed.
+/// - If the sheet still holds components, `move_to` must name another sheet or the root (0).
+/// - `move_to` cannot equal the sheet being removed; the destination must exist when not 0.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemoveSheet {
@@ -5056,6 +5499,15 @@ struct SetSheetParent {
 struct NetPagesParams {
     net: Id,
 }
+/// Parameters of `schematic.place_port`: add a hierarchical port that carries one net onto a page.
+///
+/// # Rules
+/// - The port name is 1 to 63 ASCII letters, digits or underscores.
+/// - The net and page must exist; the position must be valid.
+/// - The name must be unique on that page and must not name a different net on another page.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PortParams {
@@ -5064,6 +5516,16 @@ struct PortParams {
     sheet: Id,
     position: Point,
 }
+/// Parameters of `schematic.move_port`: move a port to a new position, page, or both.
+///
+/// # Rules
+/// - At least one of `position` or `sheet` must be set.
+/// - The target page must exist; the position must be valid.
+/// - The port name must stay unique on the destination page.
+/// - A no-op move is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MovePort {
@@ -5073,6 +5535,14 @@ struct MovePort {
     #[serde(default)]
     sheet: Option<Id>,
 }
+/// Parameters of `schematic.rename_port`: change a port name while keeping its net and page.
+///
+/// # Rules
+/// - The new name follows the same rules as `schematic.place_port`.
+/// - The name must stay unique on the page and must not name a different net elsewhere.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RenamePort {
@@ -5086,12 +5556,27 @@ struct GraphicRotateParams {
     degrees: f64,
     around: Option<Point>,
 }
+/// Parameters of `label.rotate`: add degrees to a label rotation.
+///
+/// # Rules
+/// - `degrees` must be finite; the stored angle is normalized modulo 360.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelRotateParams {
     id: Id,
     degrees: f64,
 }
+/// Parameters of `label.set`: change a label kind and/or net.
+///
+/// # Rules
+/// - At least one of `kind` or `net` must be set; bus labels cannot be retyped or switched here.
+/// - Junction labels must remain on a wire vertex of the chosen net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelSetParams {
@@ -5140,6 +5625,13 @@ struct TrackWidthParams {
     id: Id,
     width: f64,
 }
+/// Parameters of `schematic.remove_port`, `board.fiducial_remove`, `board.nettie_remove`, and `board.datum_remove`: remove one object by id.
+///
+/// # Rules
+/// - The id must match an existing object of the kind the command removes.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct IdParams {
@@ -5207,13 +5699,6 @@ fn drag_mode() -> route::Mode {
 enum TrackEnd {
     Start,
     End,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ViaCoveringParams {
-    id: Id,
-    #[serde(default)]
-    covering: Option<pcbcraft_doc::ViaCovering>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -5500,6 +5985,13 @@ struct RadialParams {
     point: Point,
     layer: String,
 }
+/// Parameters of `label.move`: reposition a schematic label.
+///
+/// # Rules
+/// - The position must be valid; junction labels must stay on a wire vertex of their net.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LabelMoveParams {
@@ -6133,18 +6625,10 @@ fn pad(p: &Project, r: &PadRef, layer: Layer) -> Result<(Point, Id), Error> {
         .find(|pad| pad.number == r.pad)
         .ok_or_else(missing)?;
     let layer_name = p.layer_name(layer);
-    let on_layer = pad
-        .geometry
-        .as_ref()
-        .map(|_| {
-            f.pad_geometry_layers(pad).iter().any(|l| {
-                l == "*.Cu"
-                    || l == &layer_name
-                    || l == layer.name()
-                    || p.resolve_copper_layer(l).ok() == Some(layer)
-            })
-        })
-        .unwrap_or(layer == f.board_side());
+    let on_layer = match pad.geometry {
+        None => layer == p.face_layer(f.board_side()),
+        Some(_) => p.pad_on_copper(f, pad, layer),
+    };
     if !on_layer {
         return Err(Error::Invalid(format!(
             "pad {} has no copper on {}",
@@ -6177,11 +6661,7 @@ fn pad_touches_track_point(p: &Project, point: Point, net: Id, layer: Layer) -> 
             if pad.net != Some(net) {
                 continue;
             }
-            let on_layer = pad
-                .geometry
-                .as_ref()
-                .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
-                .unwrap_or(layer == Layer::Front);
+            let on_layer = p.pad_on_copper(footprint, pad, layer);
             if !on_layer {
                 continue;
             }
@@ -6258,11 +6738,8 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
         CopperNode::Via(i) => p.board.vias[i].net,
         CopperNode::Pad(..) => return Err(missing()),
     };
-    let pad_layers = |pad: &Pad, layer: Layer| -> bool {
-        pad.geometry
-            .as_ref()
-            .map(|g| g.layers.iter().any(|l| l == layer.name() || l == "*.Cu"))
-            .unwrap_or(layer == Layer::Front)
+    let pad_layers = |f: usize, pad: &Pad, layer: Layer| -> bool {
+        p.pad_on_copper(&p.board.footprints[f], pad, layer)
     };
     let mut nodes: Vec<CopperNode> = Vec::new();
     for (i, t) in p.board.tracks.iter().enumerate() {
@@ -6306,14 +6783,14 @@ fn select_connected_copper(p: &Project, seed: Id) -> Result<(Vec<Id>, Vec<Value>
             }
             (Track(x), Pad(f, q)) | (Pad(f, q), Track(x)) => {
                 let (t, pad) = (&p.board.tracks[x], &p.board.footprints[f].pads[q]);
-                pad_layers(pad, t.layer)
+                pad_layers(f, pad, t.layer)
                     && [t.start, t.end].iter().any(|e| {
                         e.distance(pad_anchor(f, q)) <= pad.bounding_radius() + TRACK_ENDPOINT_EPS
                     })
             }
             (Via(y), Pad(f, q)) | (Pad(f, q), Via(y)) => {
                 let (v, pad) = (&p.board.vias[y], &p.board.footprints[f].pads[q]);
-                p.via_span_layers(v).iter().any(|l| pad_layers(pad, *l))
+                p.via_span_layers(v).iter().any(|l| pad_layers(f, pad, *l))
                     && v.position.distance(pad_anchor(f, q))
                         <= v.diameter / 2.0 + pad.bounding_radius() + TRACK_ENDPOINT_EPS
             }
@@ -6978,6 +7455,7 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
     match command {
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
+        c if layout::handles(c) => layout::run(p, c, params),
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
         ))),
@@ -7077,7 +7555,7 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation" || snapmaker::handles(command) {
+    if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(command) {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {
@@ -7087,6 +7565,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = via_protection::run(p, command, params) {
         return result;
     }
     if let Some(result) = images::run(p, next, command, params) {
@@ -8010,6 +8491,54 @@ fn run_command(
             let set = set_component_field(component, &a.key, a.value.as_deref())?;
             Ok(json!({"id": a.id, "key": a.key, "set": set}))
         }
+        "component.set_sourcing" => {
+            let a: SourcingParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            let text = |slot: &mut String, v: Option<Option<String>>| {
+                if let Some(v) = v {
+                    *slot = v.map(|t| t.trim().to_owned()).unwrap_or_default();
+                }
+            };
+            text(&mut next.manufacturer, a.manufacturer);
+            text(&mut next.mpn, a.mpn);
+            text(&mut next.description, a.description);
+            if let Some(v) = a.lifecycle {
+                next.lifecycle = v;
+            }
+            if let Some(v) = a.moisture_level {
+                next.moisture_level = v;
+            }
+            if let Some(v) = a.rohs {
+                next.rohs = v;
+            }
+            if let Some(v) = a.reach {
+                next.reach = v;
+            }
+            if let Some(v) = a.halogen_free {
+                next.halogen_free = v;
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "sourcing": component.sourcing}))
+        }
+        "component.set_supplier" => {
+            let a: SupplierParams = parse(params)?;
+            let component = p
+                .components
+                .iter_mut()
+                .find(|c| c.id == a.id)
+                .ok_or_else(missing)?;
+            let mut next = component.sourcing.clone();
+            next.set_supplier(&a.supplier, a.part_number.as_deref(), a.url.as_deref())
+                .map_err(Error::Invalid)?;
+            component.sourcing = next;
+            Ok(json!({"id": a.id, "suppliers": component.sourcing.suppliers}))
+        }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
             let bounded = |name: &str, v: &str, max: usize| -> Result<(), Error> {
@@ -8030,6 +8559,9 @@ fn run_command(
             bounded("datasheet", &a.datasheet, 256)?;
             bounded("distributor", &a.distributor, 48)?;
             bounded("sku", &a.sku, 256)?;
+            bounded("description", &a.description, 256)?;
+            bounded("lifecycle", &a.lifecycle, 64)?;
+            bounded("product_url", &a.product_url, 512)?;
             let component = p
                 .components
                 .iter_mut()
@@ -8055,6 +8587,29 @@ fn run_command(
                 };
                 put(key, &a.sku)?;
             }
+            // The typed record gets the same facts, plus what only the typed record keeps.
+            let mut next = component.sourcing.clone();
+            next.manufacturer = a.manufacturer.trim().to_owned();
+            next.mpn = a.mpn.trim().to_owned();
+            if !a.description.trim().is_empty() {
+                next.description = a.description.trim().to_owned();
+            }
+            if !a.lifecycle.trim().is_empty() {
+                let kind = pcbcraft_library::listing::lifecycle_from(&a.lifecycle);
+                if kind != pcbcraft_library::listing::Lifecycle::Unknown {
+                    next.lifecycle = Some(kind);
+                }
+            }
+            if !a.sku.trim().is_empty() && !a.distributor.trim().is_empty() {
+                next.set_supplier(
+                    a.distributor.trim(),
+                    Some(a.sku.trim()),
+                    Some(a.product_url.as_str()),
+                )
+                .map_err(Error::Invalid)?;
+            }
+            next.validate().map_err(Error::Invalid)?;
+            component.sourcing = next;
             Ok(json!({"id": a.id, "fields": written}))
         }
         "component.find" => {
@@ -9288,6 +9843,7 @@ fn run_command(
                             width: stroke,
                             text: String::new(),
                             sublayer: String::new(),
+                            color: String::new(),
                         },
                         p,
                     ),
@@ -9306,6 +9862,7 @@ fn run_command(
                                 width: *radius,
                                 text: String::new(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9337,6 +9894,7 @@ fn run_command(
                                     width: *radius,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9356,6 +9914,7 @@ fn run_command(
                                     width: *radius,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9379,6 +9938,7 @@ fn run_command(
                                     width: stroke,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9393,6 +9953,7 @@ fn run_command(
                                         width: stroke,
                                         text: String::new(),
                                         sublayer: String::new(),
+                                        color: String::new(),
                                     },
                                     p,
                                 );
@@ -9419,6 +9980,7 @@ fn run_command(
                                 width: *height,
                                 text: value.clone(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9566,6 +10128,7 @@ fn run_command(
                             width: stroke,
                             text: String::new(),
                             sublayer: String::new(),
+                            color: String::new(),
                         },
                         p,
                     ),
@@ -9584,6 +10147,7 @@ fn run_command(
                                 width: *radius,
                                 text: String::new(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9606,6 +10170,7 @@ fn run_command(
                                     width: stroke,
                                     text: String::new(),
                                     sublayer: String::new(),
+                                    color: String::new(),
                                 },
                                 p,
                             );
@@ -9620,6 +10185,7 @@ fn run_command(
                                         width: stroke,
                                         text: String::new(),
                                         sublayer: String::new(),
+                                        color: String::new(),
                                     },
                                     p,
                                 );
@@ -9644,6 +10210,7 @@ fn run_command(
                                 width: *height,
                                 text: value.clone(),
                                 sublayer: String::new(),
+                                color: String::new(),
                             },
                             p,
                         );
@@ -9966,11 +10533,29 @@ fn run_command(
             if !a.points.iter().all(|p| p.valid()) {
                 return Err(Error::Invalid("graphic vertex is out of range".into()));
             }
-            if !a.width.is_finite() || a.width <= 0.0 || a.width > 1_000.0 {
+            let defaults = p.page_settings_of(0);
+            let width = match a.width {
+                Some(w) => w,
+                None if a.layer == "schematic" => defaults.line_width,
+                None => {
+                    return Err(Error::Invalid(
+                        "a board graphic needs a width, radius or text size".into(),
+                    ));
+                }
+            };
+            if !width.is_finite() || width <= 0.0 || width > 1_000.0 {
                 return Err(Error::Invalid(
                     "graphic width, radius or text size must be within 0–1000mm".into(),
                 ));
             }
+            let a = GraphicParams {
+                color: if a.color.is_empty() && a.layer == "schematic" {
+                    defaults.line_color.clone()
+                } else {
+                    a.color
+                },
+                ..a
+            };
             if a.text.len() > 1024 {
                 return Err(Error::Invalid("graphic text is too long".into()));
             }
@@ -9985,15 +10570,19 @@ fn run_command(
                     "sublayer must be F.SilkS, B.SilkS, F.Mask or B.Mask on a board graphic".into(),
                 ));
             }
+            if !a.color.is_empty() && !valid_hex_colour(&a.color) {
+                return Err(Error::Invalid("graphic colour must be #rrggbb".into()));
+            }
             let id = allocate(next)?;
             p.graphics.push(pcbcraft_doc::Graphic {
                 id,
                 layer: a.layer,
                 shape: a.shape,
                 points: a.points,
-                width: a.width,
+                width,
                 text: a.text,
                 sublayer: a.sublayer,
+                color: a.color,
             });
             Ok(json!({"id":id}))
         }
@@ -10305,6 +10894,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -10383,6 +10973,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 ids.push(id);
             }
@@ -10483,6 +11074,88 @@ fn run_command(
             sheet.name = a.name;
             Ok(json!({"id":a.id,"name":sheet.name}))
         }
+        "schematic.set_page_setting" => {
+            let a: SetPageSetting = parse(params)?;
+            if a.sheet != 0 && !p.sheets.iter().any(|s| s.id == a.sheet) {
+                return Err(missing());
+            }
+            let value = a.value.trim().to_owned();
+            if value.len() > 256 {
+                return Err(Error::Invalid("page settings fit 256 bytes".into()));
+            }
+            let mut settings = p.page_settings_of(a.sheet);
+            let mut scratch = String::new();
+            let held = match a.field.as_str() {
+                "title" => &mut settings.title,
+                "revision" => &mut settings.revision,
+                "date" => &mut settings.date,
+                "company" => &mut settings.company,
+                "drawn_by" => &mut settings.drawn_by,
+                "size" => {
+                    let upper = value.to_ascii_uppercase();
+                    if !upper.is_empty()
+                        && !["A7", "A6", "A5", "A4", "A3", "A2", "A1", "A0"]
+                            .contains(&upper.as_str())
+                    {
+                        return Err(Error::Invalid("sheet size is A7 to A0 or empty".into()));
+                    }
+                    settings.size = upper;
+                    &mut scratch
+                }
+                "title_shown" => {
+                    let shown = match value.as_str() {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err(Error::Invalid("title_shown is true or false".into())),
+                    };
+                    if settings.title_hidden == !shown {
+                        return Err(Error::Invalid(
+                            "that page setting already holds that value".into(),
+                        ));
+                    }
+                    settings.title_hidden = !shown;
+                    &mut scratch
+                }
+                "line_width" => {
+                    let width: f64 = value
+                        .parse()
+                        .map_err(|_| Error::Invalid("line_width is a number".into()))?;
+                    if !width.is_finite() || width <= 0.0 || width > 10.0 {
+                        return Err(Error::Invalid("line_width is within 0 to 10 mm".into()));
+                    }
+                    if (settings.line_width - width).abs() < 1e-9 {
+                        return Err(Error::Invalid(
+                            "that page setting already holds that value".into(),
+                        ));
+                    }
+                    settings.line_width = width;
+                    &mut scratch
+                }
+                "line_color" => {
+                    if !value.is_empty() && !valid_hex_colour(&value) {
+                        return Err(Error::Invalid("line_color is #rrggbb or empty".into()));
+                    }
+                    &mut settings.line_color
+                }
+                _ => return Err(Error::Invalid("unknown page setting".into())),
+            };
+            if matches!(
+                a.field.as_str(),
+                "title" | "revision" | "date" | "company" | "drawn_by" | "line_color"
+            ) {
+                if *held == value {
+                    return Err(Error::Invalid(
+                        "that page setting already holds that value".into(),
+                    ));
+                }
+                *held = value;
+            }
+            match p.page_settings.iter_mut().find(|s| s.sheet == a.sheet) {
+                Some(slot) => *slot = settings,
+                None => p.page_settings.push(settings),
+            }
+            Ok(json!({"sheet":a.sheet,"field":a.field}))
+        }
         "schematic.remove_sheet" => {
             let a: RemoveSheet = parse(params)?;
             if a.id == 0 {
@@ -10516,6 +11189,7 @@ fn run_command(
                 }
             }
             p.sheets.remove(index);
+            p.page_settings.retain(|s| s.sheet != a.id);
             Ok(json!({"removed":a.id,"moved":moved}))
         }
         "schematic.set_sheet_parent" => {
@@ -10873,6 +11547,7 @@ fn run_command(
             }
             Ok(json!({"sheet":sheet,"name":name,"components":components,"ports":ports}))
         }
+        // schematic.cleanup: merge duplicate junction labels and drop redundant wire vertices; refuses when nothing would change.
         "schematic.cleanup" => {
             let mut merged = 0usize;
             let mut keep: Vec<(Point, Id)> = Vec::new();
@@ -11125,6 +11800,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
             }
             Ok(
@@ -11273,6 +11949,7 @@ fn run_command(
                     width: w,
                     text: String::new(),
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 count += 1;
             }
@@ -11348,6 +12025,7 @@ fn run_command(
                     width,
                     text,
                     sublayer: String::new(),
+                    color: String::new(),
                 });
                 Ok(())
             };
@@ -12290,6 +12968,7 @@ fn run_command(
                 from_layer,
                 to_layer,
                 covering: None,
+                covering_bottom: None,
             });
             Ok(json!({"id":id,"diameter":diameter,"drill":drill}))
         }
@@ -12433,6 +13112,7 @@ fn run_command(
                         from_layer: None,
                         to_layer: None,
                         covering: None,
+                        covering_bottom: None,
                     });
                     ids.push(id);
                 }
@@ -12498,7 +13178,7 @@ fn run_command(
                 return Err(Error::Invalid("that zone is already on the layer".into()));
             }
             zone.layer = layer;
-            Ok(json!({"id":a.id,"layer":zone.layer}))
+            Ok(json!({"id":a.id,"layer":p.layer_name(layer)}))
         }
         "zone.set_net" => {
             let a: ZoneSetNetParams = parse(params)?;
@@ -12518,14 +13198,21 @@ fn run_command(
                 return Err(Error::Invalid("that zone already pours on the net".into()));
             }
             zone.net = a.net;
+            let (id, filled, vertices, cutouts, zone_layer) = (
+                zone.id,
+                zone.filled,
+                zone.outline.len(),
+                zone.cutouts.len(),
+                zone.layer,
+            );
             Ok(json!({
-                "id": zone.id,
-                "net": zone.net,
+                "id": id,
+                "net": a.net,
                 "net_name": name,
-                "layer": zone.layer,
-                "filled": zone.filled,
-                "outline_vertices": zone.outline.len(),
-                "cutouts": zone.cutouts.len(),
+                "layer": p.layer_name(zone_layer),
+                "filled": filled,
+                "outline_vertices": vertices,
+                "cutouts": cutouts,
             }))
         }
         "zone.set_point" => {
@@ -12656,7 +13343,7 @@ fn run_command(
             Ok(json!({
                 "id": a.id,
                 "net": zone.net,
-                "layer": zone.layer,
+                "layer": p.layer_name(zone.layer),
                 "filled": zone.filled,
                 "area": (fill.area() * 1e6).round() / 1e6,
                 "pieces": fill.pieces.len(),
@@ -13217,7 +13904,9 @@ fn run_command(
                         if a.net.is_some_and(|n| t.net != n) || !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "net": t.net, "layer": t.layer}));
+                        found.push(
+                            json!({"id": t.id, "net": t.net, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "via" => {
@@ -13234,7 +13923,7 @@ fn run_command(
                             continue;
                         }
                         found.push(
-                            json!({"id": z.id, "net": z.net, "layer": z.layer, "filled": z.filled}),
+                            json!({"id": z.id, "net": z.net, "layer": p.layer_name(z.layer), "filled": z.filled}),
                         );
                     }
                 }
@@ -13265,7 +13954,9 @@ fn run_command(
                         if !matches_layer(&t.layer) {
                             continue;
                         }
-                        found.push(json!({"id": t.id, "text": t.text, "layer": t.layer}));
+                        found.push(
+                            json!({"id": t.id, "text": t.text, "layer": p.layer_name(t.layer)}),
+                        );
                     }
                 }
                 "component" => {
@@ -13601,16 +14292,7 @@ fn run_command(
             let name = a.name.trim().to_string();
             if name.is_empty()
                 || name.len() > 64
-                || !matches!(
-                    a.kind.as_str(),
-                    "copper"
-                        | "core"
-                        | "prepreg"
-                        | "soldermask"
-                        | "silkscreen"
-                        | "paste"
-                        | "custom"
-                )
+                || !pcbcraft_doc::LAYER_KINDS.contains(&a.kind.as_str())
                 || !a.thickness.is_finite()
                 || !(0.0..=100.0).contains(&a.thickness)
                 || a.material.as_ref().is_some_and(|m| m.len() > 64)
@@ -14132,6 +14814,30 @@ fn run_command(
             }
             p.pin_matrix.clear();
             Ok(json!({"reset": true}))
+        }
+        "rules.decoupling_set" => {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Params {
+                max_distance_mm: Option<f64>,
+                suggested_value: Option<String>,
+            }
+            let a: Params = parse(params)?;
+            if a.max_distance_mm.is_none() && a.suggested_value.is_none() {
+                return Err(Error::Invalid(
+                    "give max_distance_mm, suggested_value or both".into(),
+                ));
+            }
+            if let Some(d) = a.max_distance_mm {
+                p.decoupling.max_distance_mm = d;
+            }
+            if let Some(v) = a.suggested_value {
+                p.decoupling.suggested_value = v.trim().to_string();
+            }
+            p.decoupling.validate().map_err(Error::Invalid)?;
+            Ok(
+                json!({"max_distance_mm": p.decoupling.max_distance_mm, "suggested_value": p.decoupling.suggested_value}),
+            )
         }
         "rules.severity" => {
             let a: RuleSeverityParams = parse(params)?;
@@ -15810,90 +16516,7 @@ fn run_command(
             p.variants.remove(index);
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
-        "bom.export" => {
-            let a: BomParams = parse(params)?;
-            if a.fields.len() > 16 {
-                return Err(Error::Invalid(
-                    "a bill of materials lists at most 16 properties".into(),
-                ));
-            }
-            for key in &a.fields {
-                if key.is_empty() || key.len() > 64 {
-                    return Err(Error::Invalid(
-                        "property names must be 1 to 64 bytes".into(),
-                    ));
-                }
-            }
-            // With no explicit request, the columns the project defines are used.
-            let keys: Vec<String> = if a.fields.is_empty() {
-                p.bom_fields.iter().map(|f| f.key.clone()).collect()
-            } else {
-                a.fields.clone()
-            };
-            let variant = match a.variant.as_deref().map(str::trim) {
-                None | Some("") => None,
-                Some(name) => Some(
-                    p.variants
-                        .iter()
-                        .find(|v| v.name == name)
-                        .ok_or_else(|| Error::Invalid(format!("no variant named {name}")))?,
-                ),
-            };
-            let mut groups: std::collections::BTreeMap<
-                (String, String, String, Vec<String>),
-                Vec<String>,
-            > = std::collections::BTreeMap::new();
-            let mut populated = 0usize;
-            for c in &p.components {
-                if variant.is_some_and(|v| v.dnp.contains(&c.id)) {
-                    continue;
-                }
-                populated += 1;
-                let footprint =
-                    match variant.and_then(|v| v.footprints.iter().find(|o| o.component == c.id)) {
-                        Some(swap) => swap.footprint.clone(),
-                        None => match &c.library_footprint {
-                            Some(footprint) => {
-                                format!("{}:{}", footprint.library, footprint.definition.name)
-                            }
-                            None => "starter pads".into(),
-                        },
-                    };
-                let values: Vec<String> = keys
-                    .iter()
-                    .map(|key| c.field(key).unwrap_or("").to_string())
-                    .collect();
-                groups
-                    .entry((c.value.clone(), c.kind.clone(), footprint, values))
-                    .or_default()
-                    .push(c.reference.clone());
-            }
-            let items: Vec<Value> = groups
-                .into_iter()
-                .map(|((value, kind, footprint, values), mut references)| {
-                    references.sort();
-                    let columns = keys.clone();
-                    let mut fields = serde_json::Map::new();
-                    for (key, value) in columns.into_iter().zip(values) {
-                        fields.insert(key, json!(value));
-                    }
-                    json!({
-                        "quantity": references.len(),
-                        "references": references,
-                        "value": value,
-                        "kind": kind,
-                        "footprint": footprint,
-                        "fields": Value::Object(fields),
-                    })
-                })
-                .collect();
-            Ok(json!({
-                "items": items,
-                "groups": items.len(),
-                "components": populated,
-                "variant": variant.map(|v| v.name.clone()),
-            }))
-        }
+        "bom.export" => bom_export(p, params),
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
@@ -17181,7 +17804,7 @@ fn run_command(
                 return Err(Error::Invalid("that track is already on the layer".into()));
             }
             track.layer = layer;
-            Ok(json!({"id":a.id,"layer":track.layer}))
+            Ok(json!({"id":a.id,"layer":p.layer_name(layer)}))
         }
         "track.set_width_net" => {
             let a: TrackNetWidthParams = parse(params)?;
@@ -17262,25 +17885,6 @@ fn run_command(
                 a.mode,
             )
         }
-        "via.set_covering" => {
-            let a: ViaCoveringParams = parse(params)?;
-            let via = p
-                .board
-                .vias
-                .iter_mut()
-                .find(|v| v.id == a.id)
-                .ok_or_else(missing)?;
-            if via.drill <= 0.0
-                && a.covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
-            {
-                return Err(Error::Invalid(
-                    "a via without a drilled hole cannot be tented, plugged or filled".into(),
-                ));
-            }
-            via.covering = a.covering;
-            Ok(json!({"id":a.id,"covering":via.covering}))
-        }
         "board.set_via_covering_default" => {
             let a: ViaCoveringDefaultParams = parse(params)?;
             p.board.via_covering_default = a.covering;
@@ -17306,9 +17910,10 @@ fn run_command(
                 ));
             }
             if drill <= 0.0
-                && via
-                    .covering
-                    .is_some_and(|c| c != pcbcraft_doc::ViaCovering::Open)
+                && [via.covering, via.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != pcbcraft_doc::ViaCovering::Open)
             {
                 return Err(Error::Invalid(
                     "a tented, plugged or filled via needs a drilled hole".into(),
@@ -17420,8 +18025,10 @@ fn run_command(
             if let Some(rotation) = a.rotation {
                 text.rotation = rotation;
             }
+            let (id, words, size, rotation) =
+                (text.id, text.text.clone(), text.size, text.rotation);
             Ok(
-                json!({"id":text.id,"text":text.text,"size":text.size,"layer":text.layer,"rotation":text.rotation}),
+                json!({"id":id,"text":words,"size":size,"layer":p.layer_name(layer),"rotation":rotation}),
             )
         }
         "text.rotate" => {
@@ -20861,6 +21468,95 @@ mod tests {
     }
 
     #[test]
+    fn page_settings_are_typed_undoable_and_follow_their_page() -> Result<(), Error> {
+        let mut s = Session::default();
+        let page = s.execute("schematic.new_sheet", json!({"name":"Power"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or(Error::Invalid("page id".into()))?;
+        for (field, value) in [
+            ("title", "Sensor board"),
+            ("revision", "B"),
+            ("company", "Quasarke"),
+            ("drawn_by", "William"),
+            ("size", "a3"),
+            ("title_shown", "false"),
+            ("line_width", "0.5"),
+            ("line_color", "#ff8800"),
+        ] {
+            s.execute(
+                "schematic.set_page_setting",
+                json!({"sheet":page,"field":field,"value":value}),
+                None,
+            )?;
+        }
+        let settings = s.project.page_settings_of(page);
+        assert_eq!(settings.title, "Sensor board");
+        assert_eq!(settings.size, "A3", "sizes are stored upper case");
+        assert!(settings.title_hidden);
+        assert_eq!(settings.line_width, 0.5);
+        assert_eq!(settings.line_color, "#ff8800");
+        assert!(
+            s.project.page_settings_of(0).title.is_empty(),
+            "another page keeps its own settings"
+        );
+        for bad in [
+            json!({"sheet":page,"field":"title","value":"Sensor board"}),
+            json!({"sheet":page,"field":"size","value":"B9"}),
+            json!({"sheet":page,"field":"line_width","value":"0"}),
+            json!({"sheet":page,"field":"line_color","value":"red"}),
+            json!({"sheet":page,"field":"title_shown","value":"maybe"}),
+            json!({"sheet":999,"field":"title","value":"x"}),
+            json!({"sheet":page,"field":"nope","value":"x"}),
+        ] {
+            assert!(
+                s.execute("schematic.set_page_setting", bad.clone(), None)
+                    .is_err(),
+                "refused: {bad}"
+            );
+        }
+        s.undo()?;
+        assert_eq!(s.project.page_settings_of(page).line_color, "");
+        // A schematic graphic that names no width and colour takes the Main page defaults.
+        s.execute(
+            "schematic.set_page_setting",
+            json!({"sheet":0,"field":"line_width","value":"0.4"}),
+            None,
+        )?;
+        s.execute(
+            "schematic.set_page_setting",
+            json!({"sheet":0,"field":"line_color","value":"#00aa00"}),
+            None,
+        )?;
+        s.execute(
+            "graphic.add",
+            json!({"layer":"schematic","shape":"line","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":0.0}]}),
+            None,
+        )?;
+        let g = s
+            .project
+            .graphics
+            .last()
+            .ok_or(Error::Invalid("graphic".into()))?
+            .clone();
+        assert_eq!((g.width, g.color.as_str()), (0.4, "#00aa00"));
+        assert!(
+            s.execute(
+                "graphic.add",
+                json!({"layer":"board","shape":"line","points":[{"x":0.0,"y":0.0},{"x":5.0,"y":0.0}]}),
+                None,
+            )
+            .is_err(),
+            "a board graphic still needs its width"
+        );
+        s.execute("schematic.remove_sheet", json!({"id":page}), None)?;
+        assert!(
+            s.project.page_settings.iter().all(|p| p.sheet != page),
+            "removing a page drops its settings"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn project_metadata_records_replaces_clears_and_refuses_bad_keys() -> Result<(), Error> {
         let mut s = Session::default();
         let out = s.execute(
@@ -23367,6 +24063,47 @@ mod tests {
             s.execute("variant.create", json!({"name":"v15"}), None)
                 .is_err(),
             "a seventeenth variant is refused"
+        );
+        Ok(())
+    }
+    #[test]
+    fn a_bill_of_materials_skips_excluded_parts_and_can_list_parts_apart() -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut ids = vec![];
+        for (n, reference) in ["R1", "R2", "R3"].iter().enumerate() {
+            let id = s
+                .execute(
+                    "component.add",
+                    json!({"kind":"resistor","reference":reference,"value":"10k","position":{"x":10.0 * (n as f64 + 1.0),"y":10.0}}),
+                    None,
+                )?["result"]["id"]
+                .as_u64()
+                .ok_or_else(missing)?;
+            ids.push(id);
+        }
+        let grouped = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(grouped["groups"], 1, "identical parts share a row");
+        assert_eq!(grouped["items"][0]["quantity"], 3);
+        let apart = s.execute("bom.export", json!({"group": false}), None)?["result"].clone();
+        assert_eq!(apart["groups"], 3, "ungrouped lists each part");
+        let some =
+            s.execute("bom.export", json!({"ids": [ids[0], ids[1]]}), None)?["result"].clone();
+        assert_eq!(some["components"], 2, "only the named parts are listed");
+        s.execute(
+            "component.field",
+            json!({"id": ids[2], "key": pcbcraft_doc::BOM_EXCLUDE_FIELD, "value": "yes"}),
+            None,
+        )?;
+        let kept = s.execute("bom.export", json!({}), None)?["result"].clone();
+        assert_eq!(kept["components"], 2, "an excluded part leaves the bill");
+        assert!(
+            pcbcraft_io::bom_csv(&s.project, &[], None).is_ok_and(|csv| !csv.contains("R3")),
+            "the CSV written by output jobs skips it too"
+        );
+        assert!(
+            s.execute("bom.export", json!({"ids": vec![1u64; 4097]}), None)
+                .is_err(),
+            "too many ids are refused"
         );
         Ok(())
     }
@@ -28235,7 +28972,12 @@ mod tests {
                 .filter(|f| {
                     !matches!(
                         f["code"].as_str(),
-                        Some("zone_unconnected" | "zone_island" | "thermal_starved")
+                        Some(
+                            "zone_unconnected"
+                                | "zone_island"
+                                | "zone_island_removed"
+                                | "thermal_starved",
+                        )
                     ) && f["objects"]
                         .as_array()
                         .is_some_and(|o| o.contains(&json!(zone)))
@@ -35988,6 +36730,66 @@ mod tests {
         )?;
         s.execute("via.place", buried, None)?;
         assert_eq!(s.project.board.vias.len(), 2);
+        Ok(())
+    }
+    /// A four-layer session with the stackup rows a designer would add.
+    fn four_layer_session() -> Result<(Session, u64), Error> {
+        let mut s = Session::default();
+        for name in ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"] {
+            s.project
+                .board
+                .layer_records
+                .push(pcbcraft_doc::LayerRecord {
+                    name: name.into(),
+                    kind: "copper".into(),
+                    thickness: 0.035,
+                    ..Default::default()
+                });
+        }
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        Ok((s, net))
+    }
+    #[test]
+    fn every_command_name_is_registered_once() {
+        let mut seen = std::collections::BTreeSet::new();
+        for spec in commands() {
+            assert!(seen.insert(spec.id), "command {} is listed twice", spec.id);
+        }
+    }
+    #[test]
+    fn a_bottom_track_on_four_layers_is_the_bottom_layer_not_in3() -> Result<(), Error> {
+        let (mut s, net) = four_layer_session()?;
+        let added = s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":5.0,"y":5.0},"end":{"x":15.0,"y":5.0},"width":0.25,"layer":"B.Cu"}),
+            None,
+        )?;
+        let track = s.project.board.tracks.last().ok_or_else(missing)?.clone();
+        assert_eq!(track.layer, s.project.bottom_layer());
+        assert_eq!(track.layer.index(), 3);
+        assert!(s.project.is_bottom(track.layer));
+        assert_eq!(s.project.layer_name(track.layer), "B.Cu");
+        let found = s.execute("items.find", json!({"kind":"track","layer":"B.Cu"}), None)?;
+        assert_eq!(
+            found["result"]["items"][0]["layer"], "B.Cu",
+            "{found} after {added}"
+        );
+        // The layer it lands on in fabrication output is the last copper file.
+        let bottom = pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())
+            .map_err(Error::Invalid)?;
+        assert!(bottom.contains("Copper,L4,Bot"), "{bottom}");
+        assert!(
+            bottom.contains("D01*"),
+            "the track is drawn on the bottom file"
+        );
+        let inner = pcbcraft_io::gerber_copper(&s.project, Layer::Back).map_err(Error::Invalid)?;
+        assert!(inner.contains("Copper,L2,Inr"), "{inner}");
+        assert!(
+            !inner.contains("D01*"),
+            "inner copper carries no bottom track"
+        );
         Ok(())
     }
     #[test]
