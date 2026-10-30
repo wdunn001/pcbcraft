@@ -1595,8 +1595,7 @@ impl App {
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
-            tours: tour::data::embedded()
-                .expect("embedded tours must validate; see tour::data tests"),
+            tours: tour::data::embedded_for_shell(),
             preferences,
             recent_designs: pcbcraft_engine::recents::load_recent_paths(),
             home_open: false,

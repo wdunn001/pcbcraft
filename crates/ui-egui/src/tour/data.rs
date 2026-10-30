@@ -76,6 +76,14 @@ pub fn embedded() -> Result<Doc, String> {
     Ok(doc)
 }
 
+/// Embedded tours for the shell. Invalid shipped data yields an empty catalog so the app still opens.
+pub fn embedded_for_shell() -> Doc {
+    match embedded() {
+        Ok(doc) => doc,
+        Err(_) => Doc::default(),
+    }
+}
+
 /// Validate every rule on a parsed document against the English catalog.
 pub fn validate(doc: &Doc) -> Result<(), String> {
     validate_with_catalog(doc, &catalog_keys())
@@ -185,50 +193,33 @@ fn require_catalog_key(keys: &BTreeSet<String>, key: &str, label: &str) -> Resul
 fn validate_wait_for(raw: &str, command_ids: &BTreeSet<String>) -> Result<(), String> {
     match raw {
         "document_changed" | "selection:part" | "selection:any" => Ok(()),
-        _ if raw.starts_with("click:") => {
-            let anchor = raw.strip_prefix("click:").unwrap_or("");
-            if anchor.is_empty() {
-                Err("wait_for click: needs an anchor id".into())
-            } else {
-                Ok(())
-            }
-        }
-        _ if raw.starts_with("tool:") => {
-            let name = raw.strip_prefix("tool:").unwrap_or("");
-            if name.is_empty() {
-                Err("wait_for tool: needs a tool name".into())
-            } else {
-                Ok(())
-            }
-        }
-        _ if raw.starts_with("tab:") => {
-            let tab = raw.strip_prefix("tab:").unwrap_or("");
-            if WORKSPACES.contains(&tab) {
-                Ok(())
-            } else {
-                Err(format!("wait_for tab: unknown workspace `{tab}`"))
-            }
-        }
-        _ if raw.starts_with("panel_open:") => {
-            let panel = raw.strip_prefix("panel_open:").unwrap_or("");
-            if panel.is_empty() {
+        _ if raw.starts_with("click:") => match raw.strip_prefix("click:") {
+            Some(anchor) if !anchor.is_empty() => Ok(()),
+            _ => Err("wait_for click: needs an anchor id".into()),
+        },
+        _ if raw.starts_with("tool:") => match raw.strip_prefix("tool:") {
+            Some(name) if !name.is_empty() => Ok(()),
+            _ => Err("wait_for tool: needs a tool name".into()),
+        },
+        _ if raw.starts_with("tab:") => match raw.strip_prefix("tab:") {
+            Some(tab) if WORKSPACES.contains(&tab) => Ok(()),
+            Some(tab) => Err(format!("wait_for tab: unknown workspace `{tab}`")),
+            None => Err("wait_for tab: needs a workspace id".into()),
+        },
+        _ if raw.starts_with("panel_open:") => match raw.strip_prefix("panel_open:") {
+            Some(panel) if PANEL_TABS.contains(&panel) => Ok(()),
+            Some(panel) if panel.is_empty() => {
                 Err("wait_for panel_open: needs a region tab id".into())
-            } else if PANEL_TABS.contains(&panel) {
-                Ok(())
-            } else {
-                Err(format!("wait_for panel_open: unknown region tab `{panel}`"))
             }
-        }
-        _ if raw.starts_with("command:") => {
-            let id = raw.strip_prefix("command:").unwrap_or("");
-            if id.is_empty() {
-                Err("wait_for command: needs a command id".into())
-            } else if command_ids.contains(id) {
-                Ok(())
-            } else {
-                Err(format!("wait_for command: unknown command `{id}`"))
-            }
-        }
+            Some(panel) => Err(format!("wait_for panel_open: unknown region tab `{panel}`")),
+            None => Err("wait_for panel_open: needs a region tab id".into()),
+        },
+        _ if raw.starts_with("command:") => match raw.strip_prefix("command:") {
+            Some(id) if id.is_empty() => Err("wait_for command: needs a command id".into()),
+            Some(id) if command_ids.contains(id) => Ok(()),
+            Some(id) => Err(format!("wait_for command: unknown command `{id}`")),
+            None => Err("wait_for command: needs a command id".into()),
+        },
         _ => Err(format!("unknown wait_for `{raw}`")),
     }
 }
@@ -402,6 +393,54 @@ placement = "auto"
         assert!(
             err.contains("unknown condition"),
             "expected condition error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_tour_ids_are_rejected() -> Result<(), String> {
+        let text = format!("{}\n{}", good_tour_toml().trim(), good_tour_toml().trim());
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("duplicate tour");
+        assert!(
+            err.contains("duplicate tour id"),
+            "expected duplicate tour error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_workspace_is_rejected() -> Result<(), String> {
+        let text = good_tour_toml().replace("workspace = \"files\"", "workspace = \"pcb\"");
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("bad workspace");
+        assert!(
+            err.contains("unknown workspace"),
+            "expected workspace error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_trigger_is_rejected() -> Result<(), String> {
+        let text = good_tour_toml().replace("trigger = \"manual\"", "trigger = \"always\"");
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("bad trigger");
+        assert!(
+            err.contains("unknown trigger"),
+            "expected trigger error, got {err}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_placement_is_rejected() -> Result<(), String> {
+        let text = good_tour_toml().replace("placement = \"auto\"", "placement = \"center\"");
+        let doc = parse_toml(&text)?;
+        let err = validate_fixture(&doc).expect_err("bad placement");
+        assert!(
+            err.contains("unknown placement"),
+            "expected placement error, got {err}"
         );
         Ok(())
     }
