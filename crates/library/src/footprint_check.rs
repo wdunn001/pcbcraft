@@ -813,6 +813,8 @@ mod tests {
                 offset: [25.4, 0.0, 0.0],
                 scale: [1.0, 1.0, 1.0],
                 rotate: [0.0, 0.0, 0.0],
+                cad_part: None,
+                body_id: None,
                 raw_source: "(offset (xyz 25.4 0 0))".into(),
             }),
             rules: None,

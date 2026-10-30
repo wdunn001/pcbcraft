@@ -453,6 +453,12 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a companion CAD project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
+    /// Stable body id for re-import alignment across CAD edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_id: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {

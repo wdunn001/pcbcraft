@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod companion_cad;
 mod diff;
 mod drawn;
 mod fab_export;
@@ -23,7 +24,7 @@ mod model_load;
 mod neoden_yy1;
 mod package;
 mod panel_export;
-mod part_bodies;
+pub mod part_bodies;
 mod plot_read;
 mod raster;
 mod step_read;
@@ -47,6 +48,10 @@ pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
     with_models,
+};
+pub use companion_cad::{
+    COMPANION_METADATA_KEY, COMPANION_SCHEMA, companion_cache_token, content_sha256_hex,
+    is_companion_project_path, model_reference, resolve_step_bytes, write_footprint_body,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
@@ -98,7 +103,8 @@ pub use machine_profile::{
 };
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
-    ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
+    ModelCacheKey, ModelError, SharedModel, load_model, load_model_with_part, model_cache_key,
+    model_extension_supported,
 };
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
@@ -1634,6 +1640,90 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
         ring = ring.into_iter().step_by(2).collect();
     }
     ring
+}
+
+/// Export one library footprint as a STEP solid: the pad extent extruded from
+/// the pad plane (z = 0) upward by `height_mm`, in millimetres, Z up.
+pub fn step_footprint_package(
+    def: &pcbcraft_library::FootprintDefinition,
+    height_mm: f64,
+) -> Result<String, String> {
+    def.validate()
+        .map_err(|e| format!("The footprint could not be exported: {e}"))?;
+    let height = height_mm.clamp(0.05, 100.0);
+    let ring = footprint_package_ring(def).ok_or_else(|| {
+        "The footprint has no pads, so it has nothing to extrude.".to_string()
+    })?;
+    let mut doc = StepDoc::new();
+    doc.add("PRODUCT('PACKAGE','pcbcraft footprint','',('Mechanical Design'))")?;
+    doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
+    doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
+    doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
+    let shape = doc.add("SHAPE_REPRESENTATION('package',(#14,#15),#7)")?;
+    doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
+    doc.add("(LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.)LENGTH_MEASURE())")?;
+    doc.add("(NAMED_UNIT(*)PLANE_ANGLE_UNIT()SI_UNIT($,.RADIAN.))")?;
+    doc.add("(NAMED_UNIT(*)SI_UNIT($,.STERADIAN.)SOLID_ANGLE_MEASURE())")?;
+    doc.add("UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(0.001),#8,'distance_accuracy_value','confusion accuracy')")?;
+    let origin = doc.point((0.0, 0.0, 0.0))?;
+    let axis = doc.direction((0.0, 0.0, 1.0))?;
+    let reference = doc.direction((1.0, 0.0, 0.0))?;
+    let base = doc.add(&format!(
+        "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+    ))?;
+    doc.add("SHAPE_DEFINITION_REPRESENTATION(#5,#6)")?;
+    let mut items = vec![base];
+    let faces = doc.prism_between(&ring, 0.0, height)?;
+    if faces.is_empty() {
+        return Err("The footprint outline could not be turned into a solid.".into());
+    }
+    items.extend(faces);
+    let listed: Vec<String> = items.iter().map(|i| format!("#{i}")).collect();
+    doc.set(
+        shape,
+        &format!("SHAPE_REPRESENTATION('package',({}),#7)", listed.join(",")),
+    );
+    let mut out = String::new();
+    out.push_str("ISO-10303-21;\nHEADER;\n");
+    out.push_str("FILE_DESCRIPTION(('pcbcraft footprint export'),'2;1');\n");
+    out.push_str("FILE_NAME('package.step','','','(pcbcraft)','pcbcraft','pcbcraft','');\n");
+    out.push_str("FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));\n");
+    out.push_str("ENDSEC;\nDATA;\n");
+    for line in &doc.lines {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
+    Ok(out)
+}
+
+fn footprint_package_ring(def: &pcbcraft_library::FootprintDefinition) -> Option<Vec<Point>> {
+    if def.pads.is_empty() {
+        return None;
+    }
+    let mut lo = def.pads[0].position;
+    let mut hi = lo;
+    for pad in &def.pads {
+        let hw = pad.size.x / 2.0;
+        let hh = pad.size.y / 2.0;
+        lo = Point::new(
+            lo.x.min(pad.position.x - hw),
+            lo.y.min(pad.position.y - hh),
+        );
+        hi = Point::new(
+            hi.x.max(pad.position.x + hw),
+            hi.y.max(pad.position.y + hh),
+        );
+    }
+    ((hi.x - lo.x) > 1e-6 && (hi.y - lo.y) > 1e-6).then(|| {
+        vec![
+            Point::new(lo.x, lo.y),
+            Point::new(hi.x, lo.y),
+            Point::new(hi.x, hi.y),
+            Point::new(lo.x, hi.y),
+        ]
+    })
 }
 
 /// Export the board as an AP214 STEP file: the outline and every placed pad
@@ -7751,6 +7841,8 @@ mod tests {
                 offset: [0.0; 3],
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
+                cad_part: None,
+                body_id: None,
                 raw_source: String::new(),
             });
         }
