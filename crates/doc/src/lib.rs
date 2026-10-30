@@ -3312,10 +3312,22 @@ pub struct Project {
     /// reconcile the board in the same undo step as the edit.
     #[serde(default = "default_auto_sync")]
     pub auto_sync: bool,
+    /// Links placed schematic components to generic and orderable library records.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub part_links: BTreeMap<Id, PlacedPartLink>,
 }
 
 fn default_auto_sync() -> bool {
     true
+}
+
+/// Which library records a placed component uses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlacedPartLink {
+    pub component_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orderable_part_id: Option<String>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -3324,6 +3336,12 @@ pub struct ProjectLibrary {
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
+    /// Generic part definitions copied into the project (symbol, footprint, parameters).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub part_components: Vec<pcbcraft_library::records::ComponentRecord>,
+    /// Orderable manufacturer parts bound to a [`part_components`] entry.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orderable_parts: Vec<pcbcraft_library::records::OrderablePartRecord>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3333,6 +3351,7 @@ impl ProjectLibrary {
         if self.symbols.len() > 256 || self.footprints.len() > 256 {
             return Err("project library supports at most 256 symbols and 256 footprints".into());
         }
+        pcbcraft_library::records::validate_store(&self.part_components, &self.orderable_parts)?;
         let mut names = BTreeSet::new();
         for s in &self.symbols {
             s.validate().map_err(|e| e.to_string())?;
@@ -3464,6 +3483,7 @@ impl Default for Project {
                 texts: vec![],
             },
             auto_sync: true,
+            part_links: BTreeMap::new(),
         }
     }
 }
@@ -3589,6 +3609,52 @@ impl Project {
             }
         });
     }
+    /// Every placed part link must name a component on the schematic and
+    /// records that exist in the project library.
+    pub fn validate_part_links(&self) -> Result<(), String> {
+        if self.part_links.len() > MAX_ITEMS {
+            return Err("part link limit reached (2048)".into());
+        }
+        let component_ids: BTreeSet<_> = self.components.iter().map(|c| c.id).collect();
+        let record_components: BTreeSet<_> = self
+            .library
+            .part_components
+            .iter()
+            .map(|c| c.id.as_str())
+            .collect();
+        let orderables: BTreeSet<_> = self
+            .library
+            .orderable_parts
+            .iter()
+            .map(|o| o.id.as_str())
+            .collect();
+        for (id, link) in &self.part_links {
+            if !component_ids.contains(id) {
+                return Err("part link names a missing component".into());
+            }
+            if !record_components.contains(link.component_id.as_str()) {
+                return Err("part link names a missing component record".into());
+            }
+            if let Some(orderable_id) = &link.orderable_part_id {
+                let Some(orderable) = self
+                    .library
+                    .orderable_parts
+                    .iter()
+                    .find(|o| o.id == *orderable_id)
+                else {
+                    return Err("part link names a missing orderable part record".into());
+                };
+                if orderable.component_id != link.component_id {
+                    return Err("orderable part record does not match the component record".into());
+                }
+                if !orderables.contains(orderable_id.as_str()) {
+                    return Err("part link names a missing orderable part record".into());
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Check the parameter table and its bindings: bounded names, values and
     /// notes, at most one binding per field, and every binding naming a
     /// parameter and an object that can carry that field.
@@ -4412,6 +4478,7 @@ impl Project {
     }
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
+        self.validate_part_links()?;
         self.validate_parameters()?;
         if self
             .components
