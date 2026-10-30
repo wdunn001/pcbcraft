@@ -596,7 +596,7 @@ fn skeletons_lists_four_one_bend_routes_for_a_generic_offset() {
     let via_diag = 2.0 + (2.0f64).hypot(2.0, 2.0);
     let via_l = 6.0;
     let mut lengths: Vec<f64> = routes.iter().map(|p| length(p)).collect();
-    lengths.sort_by(|x, y| x.partial_cmp(y).unwrap());
+    lengths.sort_by(|x, y| x.total_cmp(y));
     assert!((lengths[0] - via_diag).abs() < 1e-6);
     assert!((lengths[3] - via_l).abs() < 1e-6);
 }
@@ -608,28 +608,26 @@ fn path_ok_rejects_hull_crossings_and_points_outside_the_keep_in_box() {
     assert!(path_ok(&clear, &inside));
     let outside = vec![Point::new(-1.0, 5.0), Point::new(5.0, 5.0)];
     assert!(!path_ok(&outside, &inside));
-    let blocked = open_space(
-        (0.0, 0.0),
-        (10.0, 10.0),
-        vec![pad_hull(5.0, 5.0, 0.5, 1)],
-    );
+    let blocked = open_space((0.0, 0.0), (10.0, 10.0), vec![pad_hull(5.0, 5.0, 0.5, 1)]);
     let through = vec![Point::new(1.0, 5.0), Point::new(9.0, 5.0)];
     assert!(!path_ok(&through, &blocked));
 }
 
 #[test]
-fn walkaround_detours_around_a_hull_while_fixing_both_ends() {
+fn walkaround_detours_around_a_hull_while_fixing_both_ends() -> Result<(), String> {
     let space = open_space(
         (0.0, 0.0),
         (20.0, 20.0),
         vec![pad_hull(10.0, 10.0, 1.0, 7)],
     );
     let line = vec![Point::new(2.0, 10.0), Point::new(18.0, 10.0)];
-    let detoured = walkaround(&line, &space, Turn::Shortest).expect("detour within iteration cap");
+    let detoured = walkaround(&line, &space, Turn::Shortest)
+        .ok_or_else(|| "walkaround returned None within iteration cap".to_string())?;
     assert_eq!(detoured.first(), line.first());
     assert_eq!(detoured.last(), line.last());
     assert!(path_ok(&detoured, &space));
     assert!(length(&detoured) > length(&line) + 0.5);
+    Ok(())
 }
 
 #[test]
@@ -649,26 +647,23 @@ fn optimize_shortens_a_zig_with_a_legal_one_bend_shortcut() {
 }
 
 #[test]
-fn find_path_picks_a_legal_route_or_reports_a_specific_failure() {
+fn find_path_picks_a_legal_route_or_reports_a_specific_failure() -> Result<(), String> {
     let open = open_space((0.0, 0.0), (20.0, 20.0), vec![]);
     let path = find_path(Point::new(2.0, 2.0), Point::new(18.0, 2.0), &open)
-        .expect("clear horizontal run");
+        .map_err(|f| format!("expected clear horizontal run, got {f:?}"))?;
     assert_eq!(acute(&path), 0);
     assert!(path_ok(&path, &open));
 
-    match find_path(Point::new(-1.0, 2.0), Point::new(18.0, 2.0), &open).unwrap_err() {
-        Failure::OutsideBoard => {}
-        _ => panic!("expected outside board"),
+    match find_path(Point::new(-1.0, 2.0), Point::new(18.0, 2.0), &open) {
+        Err(Failure::OutsideBoard) => {}
+        other => return Err(format!("expected OutsideBoard, got {other:?}")),
     }
 
-    let blocked = open_space(
-        (0.0, 0.0),
-        (20.0, 20.0),
-        vec![pad_hull(10.0, 10.0, 1.0, 42)],
-    );
-    match find_path(Point::new(10.0, 10.0), Point::new(18.0, 2.0), &blocked).unwrap_err() {
-        Failure::TooClose(id) => assert_eq!(id, 42),
-        _ => panic!("expected too close to net 42"),
+    let blocked =
+        open_space((0.0, 0.0), (20.0, 20.0), vec![pad_hull(10.0, 10.0, 1.0, 42)]);
+    match find_path(Point::new(10.0, 10.0), Point::new(18.0, 2.0), &blocked) {
+        Err(Failure::TooClose(id)) if id == 42 => {}
+        other => return Err(format!("expected TooClose(42), got {other:?}")),
     }
 
     let choke = open_space(
@@ -681,7 +676,8 @@ fn find_path_picks_a_legal_route_or_reports_a_specific_failure() {
         ],
     );
     let detour = find_path(Point::new(0.5, 3.0), Point::new(5.5, 3.0), &choke)
-        .expect("detour above the pad row");
+        .map_err(|f| format!("expected detour above the pad row, got {f:?}"))?;
     assert!(path_ok(&detour, &choke));
     assert!(length(&detour) > 5.0 + 0.2);
+    Ok(())
 }

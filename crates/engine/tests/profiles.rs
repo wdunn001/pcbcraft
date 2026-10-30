@@ -201,33 +201,47 @@ fn profile_list_includes_usb2() -> Result<(), Error> {
 }
 
 #[test]
-fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
-    let slugs = pcbcraft_engine::profiles::manifest_slugs();
-    assert_eq!(slugs.len(), pcbcraft_engine::profiles::BUILT_INS.len());
-    for (slug, builtin) in slugs.iter().zip(pcbcraft_engine::profiles::BUILT_INS.iter()) {
+fn manifest_slugs_match_built_ins_and_manifest_jsonl() -> Result<(), String> {
+    use pcbcraft_engine::profiles::{manifest_slugs, parse_builtin, BUILT_INS};
+    use std::collections::BTreeSet;
+
+    let slugs = manifest_slugs();
+    assert_eq!(slugs.len(), BUILT_INS.len());
+    for (slug, builtin) in slugs.iter().zip(BUILT_INS.iter()) {
         assert_eq!(*slug, builtin.id);
     }
+    let mut seen = BTreeSet::new();
+    for slug in slugs {
+        if !seen.insert(*slug) {
+            return Err(format!("duplicate slug {slug}"));
+        }
+        let body = parse_builtin(slug)?;
+        if body.trim().is_empty() {
+            return Err(format!("empty embedded profile for {slug}"));
+        }
+    }
     let manifest = include_str!("../profiles/manifest.jsonl");
-    let manifest_slugs: std::collections::BTreeSet<&str> = manifest
+    let manifest_slugs: BTreeSet<String> = manifest
         .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|line| {
-            serde_json::from_str::<serde_json::Value>(line)
-                .ok()
-                .and_then(|v| {
-                    (v["topic"].as_str() == Some("netrules"))
-                        .then_some(v["slug"].as_str())
-                        .flatten()
-                })
+            let v: serde_json::Value = serde_json::from_str(line).ok()?;
+            if v["topic"].as_str()? != "netrules" {
+                return None;
+            }
+            Some(v["slug"].as_str()?.to_string())
         })
         .collect();
     for slug in slugs {
-        assert!(manifest_slugs.contains(slug), "manifest.jsonl missing {slug}");
+        if !manifest_slugs.contains(*slug) {
+            return Err(format!("manifest.jsonl missing {slug}"));
+        }
     }
+    Ok(())
 }
 
 #[test]
-fn class_pattern_matches_glob_oracle() {
+fn class_pattern_matches_glob_oracle() -> Result<(), String> {
     use pcbcraft_engine::profiles::class_pattern_matches;
     let cases: &[(&str, &str, bool)] = &[
         ("USB_*", "USB_D+", true),
@@ -249,17 +263,21 @@ fn class_pattern_matches_glob_oracle() {
             "pattern {pattern:?} name {name:?}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn parse_builtin_returns_embedded_toml_or_unknown_error() {
+fn parse_builtin_returns_embedded_toml_or_unknown_error() -> Result<(), String> {
     use pcbcraft_engine::profiles::parse_builtin;
-    let usb = parse_builtin("usb2").expect("usb2 is built in");
-    let doc: toml::Value = toml::from_str(usb).expect("embedded TOML parses");
+    let usb = parse_builtin("usb2")?;
+    let doc: toml::Value = toml::from_str(usb).map_err(|e| e.to_string())?;
     assert_eq!(doc["schema"].as_integer(), Some(1));
     assert_eq!(doc["profile"]["id"].as_str(), Some("usb2"));
-    let err = parse_builtin("not-a-profile").unwrap_err();
-    assert!(err.contains("unknown profile"));
+    match parse_builtin("not-a-profile") {
+        Err(err) if err.contains("unknown profile") => Ok(()),
+        Err(err) => Err(format!("unexpected error for unknown profile: {err}")),
+        Ok(_) => Err("not-a-profile should not parse".into()),
+    }
 }
 
 #[test]
