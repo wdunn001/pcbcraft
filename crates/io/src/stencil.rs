@@ -479,4 +479,18 @@ mod stencil_tests {
         assert!(files.contains_key("stencil-cut.svg"));
         Ok(())
     }
+
+    #[test]
+    fn stencil_package_writes_paste_and_cut_for_sample_led_board() -> Result<(), String> {
+        let json = include_str!("../tests/fixtures/sample_led_panel_base.json");
+        let p: Project = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        p.validate()?;
+        let files = stencil_files(&p, &StencilOptions::default())?;
+        assert!(files.contains_key("paste-top.gbr"));
+        assert!(files.contains_key("paste-bottom.gbr"));
+        assert!(files.contains_key("stencil-cut.svg"));
+        let manifest = files.get("manifest.json").ok_or("manifest")?;
+        assert!(manifest.contains("area_ratio_warnings"));
+        Ok(())
+    }
 }
