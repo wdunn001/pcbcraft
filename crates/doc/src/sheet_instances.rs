@@ -410,7 +410,7 @@ mod sheet_instance_tests {
     use super::*;
     use crate::{Pin, Project, Sheet};
 
-    fn two_resistor_template() -> (Project, Id, Id, Id) {
+    fn two_resistor_template() -> Result<(Project, Id, Id, Id), String> {
         let mut p = Project::default();
         let mut next = 10u64;
         let sheet = 3;
@@ -420,9 +420,9 @@ mod sheet_instance_tests {
             parent: Some(0),
             entry: None,
         });
-        let r1 = allocate_id(&p, &mut next).expect("id");
-        let r2 = allocate_id(&p, &mut next).expect("id");
-        let net = allocate_id(&p, &mut next).expect("id");
+        let r1 = allocate_id(&p, &mut next)?;
+        let r2 = allocate_id(&p, &mut next)?;
+        let net = allocate_id(&p, &mut next)?;
         p.nets.push(Net {
             id: net,
             name: "LOCAL".into(),
@@ -478,12 +478,12 @@ mod sheet_instance_tests {
             instance: None,
             prototype: None,
         });
-        (p, sheet, r1, r2)
+        Ok((p, sheet, r1, r2))
     }
 
     #[test]
     fn sheet_instances_validate_refuses_unknown_parent() -> Result<(), String> {
-        let (mut p, sheet, _, _) = two_resistor_template();
+        let (mut p, sheet, _, _) = two_resistor_template()?;
         p.sheet_instances.push(SheetInstance {
             id: 50,
             sheet,
