@@ -53,6 +53,8 @@ pub(super) struct Editor {
     poly_points: Vec<Point>,
     arc_points: Vec<Point>,
     drag_anchor: Option<(LibraryPick, Point)>,
+    /// Path typed for linking a companion CAD project to the footprint model.
+    companion_pick_path: String,
 }
 impl Default for Editor {
     fn default() -> Self {
@@ -60,6 +62,7 @@ impl Default for Editor {
             mode: 0,
             draft: None,
             path: "parts.pcbcraft-lib".into(),
+            companion_pick_path: String::new(),
             notice: None,
             wizard: Default::default(),
             tool: LibraryTool::Select,
@@ -1716,6 +1719,68 @@ impl App {
                     .clicked()
                 {
                     save = Some(("library.footprint.upsert", json!({"definition":def})));
+                }
+                ui.separator();
+                ui.heading(t!("library.library_editor.model_3d"));
+                if let Some(model) = &def.model {
+                    ui.label(t!(
+                        "library.library_editor.companion_model_path",
+                        path = model.path.as_str()
+                    ));
+                    if model.cad_part.as_ref().is_some_and(|s| !s.is_empty()) {
+                        ui.label(t!(
+                            "library.library_editor.companion_cad_part",
+                            part = model.cad_part.as_deref().unwrap_or("")
+                        ));
+                    }
+                } else {
+                    ui.label(t!("library.library_editor.no_3d_model"));
+                }
+                ui.label(t!("library.library_editor.companion_project_path"));
+                ui.text_edit_singleline(&mut self.library.editor.companion_pick_path);
+                if ui
+                    .button(t!("library.library_editor.replace_with_companion_part"))
+                    .on_hover_text(t!("library.library_editor.replace_with_companion_part.tip"))
+                    .clicked()
+                {
+                    let path = self.library.editor.companion_pick_path.trim().to_owned();
+                    if !path.is_empty() {
+                        let body_id = format!("{}-body", def.name);
+                        let _ = self.run(
+                            "library.footprint.link_companion_cad",
+                            json!({"name": def.name, "path": path, "body_id": body_id}),
+                        );
+                    }
+                }
+                if def.model.as_ref().is_some_and(|m| {
+                    pcbcraft_io::is_companion_project_path(&m.path)
+                }) && ui
+                    .button(t!("library.library_editor.open_in_companion_cad"))
+                    .on_hover_text(t!("library.library_editor.open_in_companion_cad.tip"))
+                    .clicked()
+                {
+                    if let Some(path) = def.model.as_ref().map(|m| m.path.clone()) {
+                        let _ = self.run("library.companion.open_project", json!({"path": path}));
+                    }
+                }
+                if def.model.as_ref().is_some_and(|m| {
+                    pcbcraft_io::is_companion_project_path(&m.path)
+                }) && ui
+                    .button(t!("library.library_editor.reimport_companion_model"))
+                    .on_hover_text(t!("library.library_editor.reimport_companion_model.tip"))
+                    .clicked()
+                {
+                    if let Some(path) = def.model.as_ref().map(|m| m.path.clone()) {
+                        if self
+                            .run(
+                                "library.footprint.reimport_companion_cad",
+                                json!({"name": def.name}),
+                            )
+                            .is_ok()
+                        {
+                            self.view3d.invalidate_model_path(&path);
+                        }
+                    }
                 }
                 ui.separator();
                 ui.heading(t!("library.library_editor.pads"));

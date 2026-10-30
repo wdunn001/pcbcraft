@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
-pub const LOADER_VERSION: u32 = 1;
+pub const LOADER_VERSION: u32 = 2;
 /// Largest model file read, in bytes.
 pub const MAX_MODEL_BYTES: usize = 32 * 1024 * 1024;
 /// Most vertices one model may produce.
@@ -95,7 +95,7 @@ pub fn model_cache_key(
 pub fn model_extension_supported(path: &str) -> bool {
     matches!(
         extension(path).as_str(),
-        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp"
+        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp" | "solidcraft"
     )
 }
 fn extension(path: &str) -> String {
@@ -117,6 +117,16 @@ fn extension(path: &str) -> String {
 /// # Do not
 /// Do not place the model on the board here; that is `board_mesh::with_models`.
 pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
+    load_model_with_part(path, bytes, None, None)
+}
+
+/// Read a model file, resolving companion CAD projects through their STEP sidecar.
+pub fn load_model_with_part(
+    path: &str,
+    bytes: &[u8],
+    cad_part: Option<&str>,
+    cache_root: Option<&Path>,
+) -> Result<LoadedModel, ModelError> {
     if bytes.len() > MAX_MODEL_BYTES {
         return err(format!(
             "The model file is {} MB, over the {} MB limit.",
@@ -128,6 +138,11 @@ pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         "gltf" | "glb" => load_gltf(path, bytes),
         "wrl" | "vrml" => crate::vrml_read::read_vrml(bytes),
         "step" | "stp" => crate::step_read::read_step(bytes),
+        "solidcraft" => {
+            let step = crate::companion_cad::resolve_step_bytes(path, bytes, cad_part, cache_root)
+                .map_err(ModelError)?;
+            crate::step_read::read_step(&step)
+        }
         "" => err("The model file has no extension, so its format is unknown."),
         other => err(format!("The model format .{other} is not supported.")),
     }
@@ -371,6 +386,8 @@ mod tests {
             offset: [10.0, 0.0, 0.0],
             scale: [2.0, 1.0, 1.0],
             rotate: [0.0, 0.0, 90.0],
+            cad_part: None,
+            body_id: None,
             raw_source: String::new(),
         };
         let mat = model_matrix(&model, pcbcraft_geom::Point::new(0.0, 0.0), 0.0, false, 0.0);
@@ -428,6 +445,31 @@ mod tests {
             .map(|e| e.0)
             .unwrap_or_default();
         assert!(broken.contains("STEP"), "{broken}");
+        Ok(())
+    }
+
+    #[test]
+    fn companion_project_loads_through_its_step_sidecar() -> Check {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let step_path = dir.path().join("part.step");
+        std::fs::write(&step_path, include_bytes!("../tests/fixtures/box.step"))
+            .map_err(|e| e.to_string())?;
+        let project_path = dir.path().join("part.solidcraft");
+        let stub = serde_json::json!({
+            "format": 22,
+            "metadata": {
+                "org.pcbcraft": {
+                    "schema": "pcbcraft-interop/1",
+                    "step_sidecar": "part.step",
+                    "body_id": "body-1",
+                }
+            }
+        });
+        let bytes = serde_json::to_vec(&stub).map_err(|e| e.to_string())?;
+        std::fs::write(&project_path, &bytes).map_err(|e| e.to_string())?;
+        let path = project_path.to_str().ok_or("path")?;
+        let m = load_model(path, &bytes).map_err(|e| e.to_string())?;
+        assert!(!m.indices.is_empty(), "triangles from STEP sidecar");
         Ok(())
     }
 

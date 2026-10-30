@@ -197,6 +197,8 @@ fn open_3d_with_model(model_path: &str) -> Result<(egui::Context, App, Id), Stri
                     offset: [0.0; 3],
                     scale: [1.0; 3],
                     rotate: [0.0; 3],
+                    cad_part: None,
+                    body_id: None,
                     raw_source: String::new(),
                 }),
                 rules: None,

@@ -543,6 +543,8 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     offset,
                     scale,
                     rotate,
+                    cad_part: None,
+                    body_id: None,
                     raw_source: source[child.span.clone()].to_owned(),
                 });
             }

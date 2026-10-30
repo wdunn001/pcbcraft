@@ -91,6 +91,8 @@ impl Default for MeshLayers {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelPlacement {
     pub path: String,
+    /// Part name inside a companion CAD project, when the file holds more than one.
+    pub cad_part: Option<String>,
     pub matrix: [f64; 16],
     /// True once [`with_models`] replaced the default box by the file's triangles.
     pub loaded: bool,
@@ -799,7 +801,7 @@ pub enum ModelStatus {
 /// Do not read files here; the caller owns loading and caching.
 pub fn with_models(
     mesh: &mut BoardMesh,
-    mut lookup: impl FnMut(&str) -> ModelLookup,
+    mut lookup: impl FnMut(&ModelPlacement) -> ModelLookup,
 ) -> Vec<(Id, ModelStatus)> {
     let mut notes = vec![];
     for part in &mut mesh.parts {
@@ -809,7 +811,7 @@ pub fn with_models(
         if part.kind != PartKind::Body {
             continue;
         }
-        match lookup(&model.path) {
+        match lookup(model) {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
             ModelLookup::Ready(m) => {
@@ -1595,6 +1597,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             {
                 b.part.model = Some(ModelPlacement {
                     path: model.path.clone(),
+                    cad_part: model.cad_part.clone(),
                     matrix: model_matrix(
                         model,
                         fp.position,
@@ -2087,6 +2090,8 @@ mod tests {
             offset,
             scale: [scale; 3],
             rotate,
+            cad_part: None,
+            body_id: None,
             raw_source: String::new(),
         }
     }

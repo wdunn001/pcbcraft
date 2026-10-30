@@ -96,6 +96,15 @@ struct FrameKey {
     selected: Option<Id>,
     gold: bool,
 }
+impl View3d {
+    /// Forget a cached companion CAD model so the next refresh reloads it.
+    pub(crate) fn invalidate_model_path(&mut self, path: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.models.invalidate_path(path);
+        let _ = path;
+    }
+}
+
 impl Default for View3d {
     fn default() -> Self {
         Self {
