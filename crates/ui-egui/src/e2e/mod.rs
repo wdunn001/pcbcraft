@@ -25,6 +25,7 @@ mod library_browser;
 mod library_dock;
 mod modifiers;
 mod nets;
+mod outline_arcs;
 mod pairs;
 mod pours;
 mod route_drag;

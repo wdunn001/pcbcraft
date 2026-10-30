@@ -30,6 +30,7 @@ mod library_quality;
 mod modifier_ui;
 mod motion;
 mod number_entry;
+mod outline_arcs;
 mod pages;
 mod palette;
 mod plot_viewer;
@@ -1126,6 +1127,7 @@ pub struct App {
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     route_drag: route_drag::State,
+    outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
     canvas_rect: Rect,
@@ -1701,6 +1703,7 @@ impl App {
             },
             drag: None,
             route_drag: route_drag::State::default(),
+            outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
             canvas_rect: Rect::NOTHING,
@@ -1928,6 +1931,9 @@ impl App {
         self.selected = id;
         self.edit.extra.clear();
         self.selected_unit = 1;
+        if id.is_some() {
+            self.outline_ui.clear_pick();
+        }
         self.load_properties();
     }
     fn load_properties(&mut self) {
@@ -6290,6 +6296,18 @@ impl App {
                         self.page_properties(ui, page, true);
                     } else if self.selected.is_none() && self.tree.selected_key.is_some() {
                         self.tree_row_properties(ui);
+                    } else if self.selected.is_none()
+                        && self.project.board.outline.is_some()
+                        && (self.outline_ui.segment.is_some()
+                            || self
+                                .tree
+                                .selected_key
+                                .as_deref()
+                                .is_some_and(|k| k == "edge" || k.ends_with("/edge")))
+                    {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.outline_inspector(ui));
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))

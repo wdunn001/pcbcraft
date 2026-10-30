@@ -331,6 +331,9 @@ impl App {
 impl App {
     pub(super) fn select_at(&mut self, pos: Point, zoom: f32) {
         let id = self.pick_filtered(pos, zoom);
+        if id.is_none() && self.try_pick_outline(pos, zoom) {
+            return;
+        }
         self.select(id);
         if self.tab == Tab::Schematic
             && let Some(c) = id.and_then(|id| self.project.component(id))
@@ -781,6 +784,7 @@ impl App {
             }
         }
         self.paint_route_drag(ui, &painter, rect, camera, cursor);
+        self.paint_outline_handles(&painter, rect, camera);
         if response.drag_started_by(egui::PointerButton::Primary)
             && let Some(pos) = cursor
         {
@@ -792,9 +796,11 @@ impl App {
         {
             self.end_route_drag(pos, camera.zoom);
         }
+        self.outline_canvas_drag(&response, cursor, camera.zoom);
         if response.drag_started_by(egui::PointerButton::Primary)
             && matches!(self.tool, Tool::Select)
             && !self.route_drag.active()
+            && !self.outline_ui.drag_active()
             && let Some(pos) = ui
                 .input(|i| i.pointer.press_origin())
                 .map(|p| camera.world(p, rect))

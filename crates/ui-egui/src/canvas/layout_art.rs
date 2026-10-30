@@ -12,6 +12,7 @@
 //! - Pure painting: nothing here reads input or edits the project.
 use super::*;
 use egui::epaint::TextShape;
+use pcbcraft_doc::segment_arc;
 use std::f32::consts::FRAC_PI_2;
 
 /// Colours of the board drawing for one theme, from the design system's
@@ -106,18 +107,26 @@ fn nice_step(zoom: f32, min_px: f32) -> f64 {
 /// Bounding box of the board outline (or plain rectangle) in millimetres.
 fn board_bounds(p: &Project) -> (Point, Point) {
     match &p.board.outline {
-        Some(points) if points.len() >= 3 => points.iter().fold(
-            (
-                Point::new(f64::INFINITY, f64::INFINITY),
-                Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
-            ),
-            |(lo, hi), q| {
-                (
-                    Point::new(lo.x.min(q.x), lo.y.min(q.y)),
-                    Point::new(hi.x.max(q.x), hi.y.max(q.y)),
+        Some(points) if points.len() >= 3 => {
+            if let Some((lo, hi)) =
+                pcbcraft_doc::outline_extent(points, &p.board.outline_arcs)
+            {
+                (lo, hi)
+            } else {
+                points.iter().fold(
+                    (
+                        Point::new(f64::INFINITY, f64::INFINITY),
+                        Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
+                    ),
+                    |(lo, hi), q| {
+                        (
+                            Point::new(lo.x.min(q.x), lo.y.min(q.y)),
+                            Point::new(hi.x.max(q.x), hi.y.max(q.y)),
+                        )
+                    },
                 )
-            },
-        ),
+            }
+        }
         _ => (Point::default(), Point::new(p.board.width, p.board.height)),
     }
 }
@@ -190,9 +199,32 @@ impl App {
                 Point::new(0.0, p.board.height),
             ],
         };
-        let screen: Vec<Pos2> = world.iter().map(|q| camera.screen(*q, rect)).collect();
-        painter.add(pad_shape(screen.clone(), false, art.substrate));
-        painter.add(egui::Shape::closed_line(screen, Stroke::new(1.5, art.edge)));
+        let arcs = &p.board.outline_arcs;
+        let n = world.len();
+        let mut edge_pts: Vec<Pos2> = Vec::new();
+        for i in 0..n {
+            if i == 0 {
+                edge_pts.push(camera.screen(world[i], rect));
+            }
+            if let Some(arc) = segment_arc(&world, arcs, i) {
+                let steps = 32;
+                for k in 1..=steps {
+                    edge_pts.push(camera.screen(arc.point_at(k as f64 / steps as f64), rect));
+                }
+            } else {
+                edge_pts.push(camera.screen(world[(i + 1) % n], rect));
+            }
+        }
+        let fill_ring: Vec<Pos2> = if arcs.iter().any(Option::is_some) {
+            pcbcraft_doc::flatten_outline(&world, arcs, 0.05)
+                .iter()
+                .map(|q| camera.screen(*q, rect))
+                .collect()
+        } else {
+            world.iter().map(|q| camera.screen(*q, rect)).collect()
+        };
+        painter.add(pad_shape(fill_ring, false, art.substrate));
+        painter.add(egui::Shape::closed_line(edge_pts, Stroke::new(1.5, art.edge)));
     }
 
     /// Rulers along the top and left edges in millimetres. They follow pan and
