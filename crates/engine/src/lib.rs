@@ -14457,9 +14457,7 @@ fn run_command(
         "rules.esd_max_distance_mm" => {
             let a: RuleEsdMaxMmParams = parse(params)?;
             if !a.max_mm.is_finite() || a.max_mm < 0.5 || a.max_mm > 100.0 {
-                return Err(Error::Invalid(
-                    "esd distance must be 0.5 to 100 mm".into(),
-                ));
+                return Err(Error::Invalid("esd distance must be 0.5 to 100 mm".into()));
             }
             p.esd_max_distance_mm = a.max_mm;
             Ok(json!({"esd_max_distance_mm": a.max_mm}))
@@ -24969,7 +24967,8 @@ mod tests {
             json!({}),
         ] {
             assert!(
-                s.execute("rules.esd_max_distance_mm", params, None).is_err(),
+                s.execute("rules.esd_max_distance_mm", params, None)
+                    .is_err(),
                 "bad esd distance leaves the project unchanged"
             );
         }
