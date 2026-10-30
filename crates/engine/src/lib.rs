@@ -21039,6 +21039,31 @@ mod tests {
     }
 
     #[test]
+    fn placing_a_custom_library_part_with_auto_sync_creates_its_board_footprint()
+    -> Result<(), Error> {
+        let mut s = Session::default();
+        let mut symbol = library::symbol(
+            std::path::Path::new(&library_fixture("device.kicad_sym")),
+            "R",
+        )?;
+        symbol.name = "AutoSyncR".into();
+        s.execute("library.symbol.upsert", json!({"definition": symbol}), None)?;
+        let id = s.execute(
+            "component.place_custom",
+            json!({"name":"AutoSyncR","position":{"x":12.0,"y":14.0},"reference":"R9"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        assert_eq!(s.project.board.footprints.len(), 1);
+        assert_eq!(s.project.board.footprints[0].component, id);
+        s.undo()?;
+        assert!(s.project.components.is_empty());
+        assert!(s.project.board.footprints.is_empty());
+        Ok(())
+    }
+
+    #[test]
     fn auto_sync_can_be_turned_off_and_board_sync_applies_pending_changes() -> Result<(), Error> {
         let mut s = Session::default();
         s.execute("project.set_auto_sync", json!({"auto_sync": false}), None)?;
