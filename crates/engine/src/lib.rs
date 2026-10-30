@@ -31095,7 +31095,7 @@ mod tests {
     }
 
     #[test]
-    fn output_job_writes_bring_up_plan_files() -> Result<(), Error> {
+    fn a_newcomer_gets_a_bring_up_checklist_for_the_board() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let directory =
             std::env::temp_dir().join(format!("pcbcraft-bring-up-{}", std::process::id()));
@@ -31110,10 +31110,17 @@ mod tests {
             json!({"name":"bringup","directory":directory.to_string_lossy()}),
             None,
         )?;
-        for name in ["bring-up-plan.md", "bring-up-plan.csv"] {
-            let text = std::fs::read_to_string(directory.join(name)).map_err(Error::Invalid)?;
-            assert!(!text.is_empty(), "{name} should not be empty");
-        }
+        let md = std::fs::read_to_string(directory.join("bring-up-plan.md")).map_err(Error::Invalid)?;
+        assert!(
+            md.contains("Bring-up plan") && md.contains("Power rails"),
+            "markdown checklist covers rails: {md}"
+        );
+        let csv =
+            std::fs::read_to_string(directory.join("bring-up-plan.csv")).map_err(Error::Invalid)?;
+        assert!(
+            csv.contains("SECTION") && csv.contains("rail"),
+            "csv mirrors the plan: {csv}"
+        );
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())
     }

@@ -358,6 +358,7 @@ pub fn bring_up_export_files(project: &Project) -> Result<BTreeMap<String, Strin
 mod tests {
     use super::*;
     use pcbcraft_doc::{Footprint, Net, Pin};
+    use pcbcraft_geom::Point;
 
     #[test]
     fn markdown_lists_an_uncovered_net_and_rail() -> Result<(), String> {
