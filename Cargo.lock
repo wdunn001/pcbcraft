@@ -2945,7 +2945,6 @@ name = "pcbcraft-calc"
 version = "0.1.0"
 dependencies = [
  "serde",
- "toml",
 ]
 
 [[package]]
@@ -2975,6 +2974,7 @@ name = "pcbcraft-engine"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "pcbcraft-calc",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-io",

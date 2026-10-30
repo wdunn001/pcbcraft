@@ -1,0 +1,108 @@
+# Glossary part 11-protocols
+schema = 1
+
+[[term]]
+id = "i2c"
+term = "I2C bus"
+category = "protocols"
+short = "Two wire open drain serial bus with clock and data."
+long = "I2C uses pull ups and shared addresses. Bus capacitance and pull up value set maximum clock for the wiring."
+synonyms = ["I squared C"]
+related = ["pull_up", "open_drain"]
+units = ""
+in_pcbcraft = []
+search = "i2c sda scl open drain"
+calculator = "i2c_pullup"
+source = "Interface standard practice"
+
+[[term]]
+id = "spi"
+term = "SPI bus"
+category = "protocols"
+short = "Four wire synchronous serial link with separate clock and data lines."
+long = "SPI pushes speed limits with short routes and defined ground return. Chip selects stay independent per device."
+synonyms = ["serial peripheral"]
+related = ["net", "skew"]
+units = ""
+in_pcbcraft = []
+search = "spi mosi miso sck cs"
+source = "Interface standard practice"
+
+[[term]]
+id = "uart"
+term = "UART link"
+category = "protocols"
+short = "Asynchronous serial with start bit, data and stop bit."
+long = "UART tolerates level shifting with transceivers. Baud rate and cable length must match receiver sampling margin."
+synonyms = ["async serial"]
+related = ["pull_up", "connector", "uart"]
+units = "baud"
+in_pcbcraft = []
+search = "uart async serial tx rx"
+source = "Interface standard practice"
+
+[[term]]
+id = "usb"
+term = "USB interface"
+category = "protocols"
+short = "Universal serial bus for power and data to peripherals."
+long = "USB2 needs controlled impedance pairs and proper connector pin order. ESD protection sits near the receptacle."
+synonyms = ["USB2"]
+related = ["differential_pair", "esd"]
+units = ""
+in_pcbcraft = []
+search = "usb differential pair esd"
+source = "Interface standard practice"
+
+[[term]]
+id = "can"
+term = "CAN bus"
+category = "protocols"
+short = "Differential automotive serial network with arbitration."
+long = "CAN uses twisted pairs and termination at bus ends. Common mode chokes help on long harness runs."
+synonyms = ["Controller Area Network"]
+related = ["differential_signal", "termination"]
+units = ""
+in_pcbcraft = []
+search = "can bus differential terminate"
+source = "Interface standard practice"
+
+[[term]]
+id = "ethernet"
+term = "Ethernet PHY link"
+category = "protocols"
+short = "Physical layer connection for wired network traffic."
+long = "Ethernet magnetics isolate the cable from the PHY. Length matched pairs and proper termination preserve eye margin."
+synonyms = ["RJ45 link"]
+related = ["differential_pair", "magnetics"]
+units = ""
+in_pcbcraft = []
+search = "ethernet phy magnetics rj45"
+source = "Interface standard practice"
+
+[[term]]
+id = "magnetics"
+term = "Ethernet magnetics"
+category = "protocols"
+short = "Transformer set that couples PHY to the cable with isolation."
+long = "Magnetics include common mode filtering and center taps. Layout keeps the PHY to magnetics path short and symmetric."
+synonyms = ["MagJack"]
+related = ["ethernet", "common_mode_choke"]
+units = ""
+in_pcbcraft = []
+search = "magnetics transformer ethernet jack"
+source = "Interface standard practice"
+
+[[term]]
+id = "connector"
+term = "Board connector"
+category = "protocols"
+short = "Mechanical interface that mates the board to cables or other boards."
+long = "Connectors define pinout, current rating and ESD exposure. Footprints must match the exact manufacturer number."
+synonyms = ["header", "receptacle"]
+related = ["footprint", "esd"]
+units = ""
+in_pcbcraft = []
+search = "connector header pinout cable"
+source = "Mechanical design practice"
+

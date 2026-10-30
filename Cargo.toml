@@ -9,6 +9,7 @@ rust-version = "1.95"
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
+pcbcraft-calc = { path = "crates/calc" }
 pcbcraft-geom = { path = "crates/geom" }
 pcbcraft-doc = { path = "crates/doc" }
 pcbcraft-rules = { path = "crates/rules" }

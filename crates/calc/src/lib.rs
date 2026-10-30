@@ -20,10 +20,13 @@ pub mod basic;
 pub mod components;
 pub mod consts;
 pub mod copper;
+pub mod glossary;
 pub mod impedance;
 pub mod meta;
 pub mod spacing;
 pub mod utilities;
+
+pub use glossary::{search_glossary, term_by_id, GlossaryHit, Term, TERMS};
 
 /// Why a calculator refused its inputs.
 #[derive(Debug, Clone, PartialEq)]
