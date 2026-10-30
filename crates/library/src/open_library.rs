@@ -24,7 +24,6 @@ use crate::sources::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Id used in cache keys and notices.
 pub const SOURCE_ID: &str = "open-library";
@@ -287,13 +286,6 @@ fn from_fetch(err: FetchError, what: &str) -> SourceError {
     }
 }
 
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 /// The official open libraries as a CAD source and a part source.
 ///
 /// # Rules
@@ -329,7 +321,7 @@ impl OpenLibrarySource {
             fetcher,
             cache,
             config,
-            clock: Box::new(now_secs),
+            clock: Box::new(crate::wall_clock::unix_secs_now),
             commits: Mutex::new(BTreeMap::new()),
         }
     }

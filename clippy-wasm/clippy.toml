@@ -1,5 +1,5 @@
 # Used by `cargo xtask wasm` when clippy runs with --target wasm32-unknown-unknown.
 disallowed-methods = [
-    { path = "std::time::SystemTime::now", reason = "the browser has no std clock; use crate::wall_clock::unix_secs_now" },
+    { path = "std::time::SystemTime::now", reason = "the browser has no std clock; use the crate wall_clock helper (ui-egui or pcbcraft-library)" },
     { path = "std::time::Instant::now", reason = "the browser has no std clock; use web_time::Instant" },
 ]

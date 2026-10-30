@@ -14,6 +14,7 @@ mod sexpr;
 pub mod sources;
 mod symbol_check;
 mod validation;
+mod wall_clock;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
