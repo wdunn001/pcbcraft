@@ -12,6 +12,9 @@ mod courtyard;
 mod drill;
 mod silk;
 mod stub;
+mod width_advice;
+
+pub use width_advice::{width_advice, width_advice_on_layer, WidthAdvice};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -1184,6 +1187,26 @@ pub fn drc(project: &Project) -> Vec<Finding> {
                     objects: vec![track.id],
                 });
             }
+        }
+        if project.rule_disabled("track_width_advice") {
+            continue;
+        }
+        if let Some(advice) = width_advice::width_advice_on_layer(project, track.net, track.layer)
+            && track.width + 1e-6 < advice.width_mm
+            && let Some(current) = project.effective_current(track.net)
+        {
+            result.push(Finding {
+                code: "track_width_advice",
+                severity: project.rule_severity("track_width_advice", "warning"),
+                message: format!(
+                    "{} track is {:.3} mm wide, {} advice asks at least {:.3} mm for {current:.2} A",
+                    project.net_name(track.net),
+                    track.width,
+                    advice.method,
+                    advice.width_mm,
+                ),
+                objects: vec![track.id],
+            });
         }
     }
     for wire in airwires_from(&items) {

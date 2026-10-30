@@ -3047,6 +3047,7 @@ dependencies = [
 name = "pcbcraft-rules"
 version = "0.1.0"
 dependencies = [
+ "pcbcraft-calc",
  "pcbcraft-doc",
  "pcbcraft-geom",
  "pcbcraft-library",

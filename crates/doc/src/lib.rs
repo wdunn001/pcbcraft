@@ -349,6 +349,12 @@ pub struct Net {
     /// Defaults to zero, and requires a target.
     #[serde(default)]
     pub length_tolerance: Option<f64>,
+    /// Steady or RMS current the net must carry, in amperes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<f64>,
+    /// Allowed conductor temperature rise above ambient, in kelvin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_rise: Option<f64>,
 }
 /// A check the designer wrote themselves: one plain measurement with one
 /// limit, re-run with the built-in checks after every edit. The measure is
@@ -413,6 +419,12 @@ pub struct NetClass {
     /// Default coupling gap for differential pairs on member nets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pair_gap: Option<f64>,
+    /// Default current for member nets, in amperes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<f64>,
+    /// Default allowed temperature rise for member nets, in kelvin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature_rise: Option<f64>,
     /// Nets belonging to this class.
     #[serde(default)]
     pub nets: Vec<Id>,
@@ -4195,6 +4207,25 @@ impl Project {
     pub fn net_class_id(&self, net: Id) -> Option<Id> {
         self.net_class(net).map(|c| c.id)
     }
+    /// Current for a net: the net value when set, otherwise the class default.
+    pub fn effective_current(&self, net: Id) -> Option<f64> {
+        let n = self.nets.iter().find(|n| n.id == net)?;
+        n.current
+            .or_else(|| self.net_class(net).and_then(|c| c.current))
+    }
+    /// Temperature rise for a net: the net value when set, otherwise the class
+    /// default, otherwise 10 K when a current is known.
+    pub fn effective_temperature_rise(&self, net: Id) -> Option<f64> {
+        if self.effective_current(net).is_none() {
+            return None;
+        }
+        let n = self.nets.iter().find(|n| n.id == net)?;
+        Some(
+            n.temperature_rise
+                .or_else(|| self.net_class(net).and_then(|c| c.temperature_rise))
+                .unwrap_or(10.0),
+        )
+    }
     /// Severity a check code should report at: the project override when it
     /// names one of the two real levels, otherwise the check's own default.
     pub fn rule_severity(&self, code: &str, default: &str) -> String {
@@ -4591,6 +4622,10 @@ impl Project {
                 || n.length_tolerance
                     .is_some_and(|t| !t.is_finite() || !(0.0..=100_000.0).contains(&t))
                 || (n.length_tolerance.is_some() && n.target_length.is_none())
+                || n.current
+                    .is_some_and(|i| !i.is_finite() || !(0.001..=100.0).contains(&i))
+                || n.temperature_rise
+                    .is_some_and(|t| !t.is_finite() || !(1.0..=100.0).contains(&t))
             {
                 return Err("invalid net length target or tolerance".into());
             }
@@ -4637,6 +4672,10 @@ impl Project {
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
                 || c.pair_gap
                     .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 10.0)
+                || c.current
+                    .is_some_and(|i| !i.is_finite() || !(0.001..=100.0).contains(&i))
+                || c.temperature_rise
+                    .is_some_and(|t| !t.is_finite() || !(1.0..=100.0).contains(&t))
             {
                 return Err("invalid net class".into());
             }
