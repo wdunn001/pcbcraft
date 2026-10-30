@@ -1,6 +1,7 @@
 //! Export package records: a package is data, not code.
 //!
-//! Context: issue #224, child of the export packages epic (#214). A package names the
+//! Context: export packages epic (#214); the record shape and validation live here (#224).
+//! A package names the
 //! files one recipient asks for (a board maker, an assembler, a single-file exchange
 //! format) as a list of contents, each with a writer format, a few options and a file
 //! name template. The records ship as a bundled data file (`crates/io/data/packages.json`)

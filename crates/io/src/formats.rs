@@ -4,7 +4,9 @@
 //! items; Open, Import, Save as and Export as build their format lists, desktop file
 //! filters and the browser `accept` list from [`FORMATS`], so a new format is added
 //! here and nowhere else. A row only *describes* a format and names the command that
-//! runs it; the readers and writers stay where they are.
+//! runs it; the readers and writers stay where they are. Export packages (issue #214)
+//! reuse the same writers through [`crate::export_package::CONTENT_FORMATS`]; a package
+//! content names a format id from that table, not a second registry.
 //! Local rules:
 //! - Every format has exactly one [`Scope`]. Save as lists the `Project` scope that
 //!   can be written; Export as lists the `Output` scope; the two never overlap.
