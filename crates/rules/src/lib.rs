@@ -3896,4 +3896,207 @@ mod pour_tests {
         assert!(f.contains(Point::new(20.0, 28.0)));
         Ok(())
     }
+
+    fn tracks_on_both_layers() -> Project {
+        let mut p = Project::default();
+        p.board.width = 50.0;
+        p.board.height = 50.0;
+        p.nets.push(Net {
+            id: 1,
+            name: "sig".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.25,
+            layer: Layer::Back,
+            arc: None,
+        });
+        p
+    }
+
+    #[test]
+    fn obstacles_lists_foreign_copper_on_the_requested_layer_only() -> Result<(), String> {
+        let mut p = tracks_on_both_layers();
+        p.validate()?;
+        let front = obstacles(&p, Layer::Front);
+        let back = obstacles(&p, Layer::Back);
+        assert_eq!(front.len(), 1, "one front track");
+        assert_eq!(back.len(), 1, "one back track");
+        assert_eq!(front[0].id, 20);
+        assert_eq!(back[0].id, 21);
+        assert!(front[0].is_track);
+        assert!(back[0].is_track);
+        Ok(())
+    }
+
+    #[test]
+    fn obstacles_exclude_nothing_on_an_empty_board() -> Result<(), String> {
+        let p = Project::default();
+        assert!(obstacles(&p, Layer::Front).is_empty());
+        assert!(obstacles(&p, Layer::Back).is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn obstacles_carry_the_clearance_of_their_net_class() -> Result<(), String> {
+        let mut p = fixture();
+        if let Some(c) = p.components.iter_mut().find(|c| c.id == 2) {
+            c.library_footprint = Some(pcbcraft_doc::LibraryFootprint {
+                library: "Test".into(),
+                definition: pcbcraft_library::FootprintDefinition {
+                    name: "pad".into(),
+                    description: String::new(),
+                    keywords: String::new(),
+                    pads: vec![],
+                    graphics: vec![],
+                    model: None,
+                    rules: Some(pcbcraft_library::FootprintRules {
+                        clearance: Some(0.42),
+                        mask_margin: None,
+                        paste_margin: None,
+                    }),
+                    raw_source: String::new(),
+                    unsupported: vec![],
+                },
+            });
+        }
+        p.validate()?;
+        let front = obstacles(&p, Layer::Front);
+        let with_rules = front
+            .iter()
+            .find(|o| o.id == 12)
+            .ok_or("footprint 12 pad should appear on front")?;
+        assert_eq!(with_rules.clearance, Some(0.42));
+        assert!(!with_rules.is_track);
+        Ok(())
+    }
+
+    #[test]
+    fn copper_conflicts_reports_only_pairs_that_include_a_given_id() -> Result<(), String> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 4,
+            start: Point::new(20.0, 5.0),
+            end: Point::new(20.0, 15.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let for_twenty = copper_conflicts(&p, &[20]);
+        assert_eq!(
+            for_twenty
+                .iter()
+                .filter(|f| f.code == "copper_short")
+                .count(),
+            1,
+            "one short involves track 20"
+        );
+        assert!(
+            for_twenty
+                .iter()
+                .any(|f| f.code == "copper_short" && f.objects.contains(&20)),
+            "{for_twenty:?}"
+        );
+        assert!(
+            copper_conflicts(&p, &[21])
+                .iter()
+                .any(|f| f.code == "copper_short" && f.objects.contains(&21)),
+            "the crossing track also reports the short"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_conflicts_is_empty_for_clear_copper() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 20.0),
+            end: Point::new(30.0, 20.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        assert!(
+            copper_conflicts(&p, &[20])
+                .iter()
+                .all(|f| f.code != "copper_short"),
+            "a lone track on its net does not short"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_conflicts_reports_a_foreign_net_short() -> Result<(), String> {
+        let mut p = fixture();
+        p.nets.push(Net {
+            id: 4,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 4,
+            start: Point::new(20.0, 5.0),
+            end: Point::new(20.0, 15.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.validate()?;
+        let short = copper_conflicts(&p, &[20])
+            .into_iter()
+            .find(|f| f.code == "copper_short")
+            .ok_or("crossing nets must short")?;
+        assert!(
+            short.objects.contains(&20) && short.objects.contains(&21),
+            "both track ids appear in the short: {:?}",
+            short.objects
+        );
+        assert!(
+            copper_conflicts(&p, &[999]).is_empty(),
+            "an id that does not participate returns nothing"
+        );
+        Ok(())
+    }
 }
