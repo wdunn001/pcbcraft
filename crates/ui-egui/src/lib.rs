@@ -38,6 +38,8 @@ mod reference_panel;
 mod route_drag;
 mod showcase;
 mod sources;
+mod stack_view;
+mod sync_notice;
 #[cfg(test)]
 mod target_size;
 mod targets;
@@ -684,9 +686,6 @@ struct Preferences {
     /// Let a new route push other nets' tracks aside; needs chamfered corners.
     #[serde(default)]
     route_shove: bool,
-    /// Show the board as seen from the bottom side, mirrored left to right.
-    #[serde(default)]
-    view_from_below: bool,
     /// Show the Assistant tab and its shortcut; off starts nothing.
     #[serde(default = "default_true")]
     assistant_enabled: bool,
@@ -757,7 +756,6 @@ impl Default for Preferences {
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
-            view_from_below: false,
             assistant_enabled: true,
             assistant_connections: Vec::new(),
             assistant_default: String::new(),
@@ -927,27 +925,70 @@ enum DrawShape {
     Poly,
     Words,
 }
+/// The 2D view transform: pan, zoom, a left-right mirror and quarter turns.
+///
+/// Why: the Top | Bottom control mirrors the board (the view from the other
+/// side) and the rotate buttons turn it in 90 degree steps; every painter and
+/// every pointer lookup goes through [`Camera::screen`] and [`Camera::world`],
+/// so drawing and picking cannot disagree.
+///
+/// # Rules
+/// - Order: shift to the centre, mirror x, turn clockwise by `turns` quarters,
+///   then scale. `turns` is always 0 to 3.
+///
+/// # Do not
+/// - Offset the centre by screen amounts; use [`Camera::pan_screen`].
 #[derive(Clone, Copy)]
 struct Camera {
     center: Point,
     zoom: f32,
-    /// Look at the board from below: screen x runs the other way.
+    /// Look at the board from the other side: screen x runs the other way.
     mirror: bool,
+    /// Quarter turns clockwise on screen.
+    turns: u8,
 }
 impl Camera {
+    /// A zoom-free offset taken through the mirror and the turns.
+    fn turn(self, dx: f64, dy: f64) -> (f64, f64) {
+        let (mut x, mut y) = (if self.mirror { -dx } else { dx }, dy);
+        for _ in 0..(self.turns % 4) {
+            (x, y) = (-y, x);
+        }
+        (x, y)
+    }
+    /// The inverse of [`Camera::turn`].
+    fn unturn(self, dx: f64, dy: f64) -> (f64, f64) {
+        let (mut x, mut y) = (dx, dy);
+        for _ in 0..(self.turns % 4) {
+            (x, y) = (y, -x);
+        }
+        (if self.mirror { -x } else { x }, y)
+    }
     fn screen(self, p: Point, rect: Rect) -> egui::Pos2 {
-        let dx = (p.x - self.center.x) as f32 * self.zoom;
-        rect.center()
-            + Vec2::new(
-                if self.mirror { -dx } else { dx },
-                (p.y - self.center.y) as f32 * self.zoom,
-            )
+        let (x, y) = self.turn(p.x - self.center.x, p.y - self.center.y);
+        rect.center() + Vec2::new(x as f32 * self.zoom, y as f32 * self.zoom)
     }
     fn world(self, p: egui::Pos2, rect: Rect) -> Point {
-        let dx = (p.x - rect.center().x) as f64 / self.zoom as f64;
-        Point::new(
-            self.center.x + if self.mirror { -dx } else { dx },
-            self.center.y + (p.y - rect.center().y) as f64 / self.zoom as f64,
+        let z = self.zoom as f64;
+        let (x, y) = self.unturn(
+            (p.x - rect.center().x) as f64 / z,
+            (p.y - rect.center().y) as f64 / z,
+        );
+        Point::new(self.center.x + x, self.center.y + y)
+    }
+    /// Move the picture by a screen amount, so a drag follows the pointer.
+    fn pan_screen(&mut self, d: Vec2) {
+        let z = self.zoom as f64;
+        let (x, y) = self.unturn(d.x as f64 / z, d.y as f64 / z);
+        self.center = self.center.offset(Point::new(-x, -y));
+    }
+    /// Where world +x and +y point on screen, as unit vectors.
+    fn axes(self) -> (Vec2, Vec2) {
+        let (ax, ay) = self.turn(1.0, 0.0);
+        let (bx, by) = self.turn(0.0, 1.0);
+        (
+            Vec2::new(ax as f32, ay as f32),
+            Vec2::new(bx as f32, by as f32),
         )
     }
 }
@@ -968,6 +1009,8 @@ pub struct App {
     route_layer: pcbcraft_doc::Layer,
     /// What the drawing tools draw on; the Layers tree, toolbar and status bar share it.
     target: draw_target::Target,
+    /// How strongly each layer is painted this frame; see `stack_view.rs`.
+    stack: stack_view::StackView,
     preferences: Preferences,
     /// Text for the language chosen in Settings.
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
@@ -1060,6 +1103,10 @@ pub struct App {
     /// The bottom sheet under the canvas.
     sheet: bottom_sheet::SheetState,
     needs_fit: bool,
+    /// The layer view a click pinned: it stays forward until unpinned.
+    pinned_view: Option<draw_target::Target>,
+    /// Whether the board lacks schematic changes, by revision; see `sync_notice.rs`.
+    sync_behind: Option<(u64, bool)>,
     /// The Renumber parts window, opened from the Edit menu.
     renumber_open: bool,
     /// Left edge of the central page, so tests can check text keeps its margin.
@@ -1109,6 +1156,8 @@ pub struct App {
     capture_select: Option<String>,
     /// Open the canvas right-click menu on the selected part in a capture.
     capture_menu: bool,
+    /// Kind of row whose right-click menu opens by itself in a capture image.
+    capture_menu_tag: Option<String>,
     /// Capture option: open the bottom sheet on its Findings tab.
     capture_sheet: bool,
     frames: u32,
@@ -1382,6 +1431,14 @@ impl App {
         self.capture_select = reference;
         self
     }
+    /// Capture option: open the right-click menu of the first visible row of this
+    /// kind (`tree-layer`, `tree-part`, `tree-net`, `library-card`, `finding`,
+    /// `page-tab`). Ignored outside capture mode.
+    pub fn with_capture_menu(mut self, tag: Option<String>) -> Self {
+        self.capture_menu_tag = tag;
+        self
+    }
+
     /// Capture option: open the canvas right-click menu on the selected part.
     /// Ignored outside capture mode.
     pub fn with_capture_view(mut self, context_menu: bool) -> Self {
@@ -1418,13 +1475,31 @@ impl App {
         }
         self
     }
-    /// Start with a drawing target (`silk`, `edge` or `copper`) so a
+    /// Start the 3D view at a named angle (`top`, `front`, `side`, `bottom`)
+    /// so a `--capture` image shows that view.
+    pub fn with_capture_view3d(mut self, name: Option<String>) -> Self {
+        use std::f64::consts::FRAC_PI_2;
+        self.view3d.start_angle = match name.as_deref() {
+            Some("top") => Some((-FRAC_PI_2, 1.5)),
+            Some("front") => Some((-FRAC_PI_2, 0.0)),
+            Some("side") => Some((0.0, 0.0)),
+            Some("bottom") => Some((-3.0 * FRAC_PI_2 / 2.0, -0.62)),
+            _ => None,
+        };
+        self
+    }
+    /// Start with a drawing target (`silk`, `edge` or `copper`), or `flipped` to
+    /// look from the bottom, so a
     /// `--capture` image shows the Active tag on that layer.
     pub fn with_capture_target(mut self, name: Option<String>) -> Self {
         use draw_target::{Side, Target};
         let target = match name.as_deref() {
             Some("silk") => Target::Silk(Side::Top),
             Some("edge") => Target::Edge,
+            Some("flipped") => {
+                self.set_view_side(true);
+                return self;
+            }
             _ => return self,
         };
         self.set_target(target);
@@ -1596,17 +1671,22 @@ impl App {
             dock: library_dock::Dock::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
+            stack: stack_view::StackView::plain(2, false),
+            pinned_view: None,
+            sync_behind: None,
             renumber_open: false,
             active_page: 0,
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
+                turns: 0,
                 center: Point::new(40.0, 24.0),
                 zoom: 11.0,
             },
             plot_viewer: plot_viewer::State::default(),
             pcb: Camera {
                 mirror: false,
+                turns: 0,
                 center: Point::new(30.0, 20.0),
                 zoom: 15.0,
             },
@@ -1642,6 +1722,7 @@ impl App {
             capture,
             capture_select: None,
             capture_menu: false,
+            capture_menu_tag: None,
             capture_sheet: false,
             frames: 0,
             binding_capture: None,
@@ -2615,6 +2696,10 @@ impl App {
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
+        // An open context menu owns the keys: its arrows, letters and Esc are not app shortcuts.
+        if ui_kit::menu::any_open(ctx) {
+            return;
+        }
         if ctx.current_pass_index() > 0 {
             return;
         }
@@ -3150,6 +3235,14 @@ impl App {
             {
                 self.run("board.sync", json!({}));
                 self.change_tab(Tab::Pcb);
+            }
+            let mut auto = self.project.auto_sync;
+            if ui
+                .checkbox(&mut auto, t!("menu.edit.auto_sync"))
+                .on_hover_text(t!("menu.edit.auto_sync.tip"))
+                .changed()
+            {
+                self.run("project.set_auto_sync", json!({"auto_sync": auto}));
             }
             ui.separator();
             if let Some(lit) = self.highlight_net
@@ -6448,8 +6541,8 @@ impl App {
                             status_item(ui, None, &text, &t!("board.footer.x_y_mm.tip"), true);
                         }
                         if self.tab == Tab::Pcb {
-                            let text = t!("target.status", layer = self.target_label());
-                            status_item(ui, None, &text, &t!("target.status.tip"), false);
+                            let text = self.layer_status();
+                            status_item(ui, None, &text, &t!("view.layer_status.tip"), false);
                         }
                         if let Some(reading) = self.measure_readout() {
                             status_item(
@@ -6772,6 +6865,7 @@ impl App {
                 self.canvas_menu = Some((at, canvas::CanvasMenuKind::Object(id)));
             }
         }
+        ui_kit::menu::request_capture(ctx, self.capture_menu_tag.as_deref());
         let library_ready = self.tab != Tab::Libraries
             || self.library.editor.mode != 0
             || (self.library.catalog.is_some()
@@ -6988,7 +7082,6 @@ impl App {
             project: &self.project,
             revision: self.revision,
             selected: self.selected,
-            dark: self.preferences.dark,
             bg: self.surface(),
             muted: self.muted(),
         };
