@@ -104,7 +104,7 @@ enum Backend {
 
 struct Inner {
     backend: Backend,
-    offline: AtomicBool,
+    offline: Arc<AtomicBool>,
     queue: Mutex<Vec<String>>,
     done: Mutex<BTreeMap<String, Result<Vec<u8>, FetchError>>>,
     #[cfg(target_arch = "wasm32")]
@@ -134,7 +134,7 @@ impl BrowserTransport {
         Self {
             inner: Arc::new(Inner {
                 backend: Backend::Recorded { index, base },
-                offline: AtomicBool::new(false),
+                offline: Arc::new(AtomicBool::new(false)),
                 queue: Mutex::new(Vec::new()),
                 done: Mutex::new(BTreeMap::new()),
                 #[cfg(target_arch = "wasm32")]
@@ -152,23 +152,16 @@ impl BrowserTransport {
 
     /// Live browser fetch queue for wasm builds.
     #[cfg(target_arch = "wasm32")]
-    pub fn live() -> Self {
+    pub fn live(offline: Arc<AtomicBool>) -> Self {
         Self {
             inner: Arc::new(Inner {
                 backend: Backend::Live,
-                offline: AtomicBool::new(false),
+                offline,
                 queue: Mutex::new(Vec::new()),
                 done: Mutex::new(BTreeMap::new()),
                 flight: Mutex::new(None),
             }),
         }
-    }
-
-    /// When true, every `get` answers offline before enqueueing.
-    pub fn set_offline(&self, offline: bool) {
-        self.inner
-            .offline
-            .store(offline, Ordering::Release);
     }
 
     /// Drain at most one queued request (or advance the in-flight wasm fetch).

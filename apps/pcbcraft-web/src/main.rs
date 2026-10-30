@@ -46,8 +46,8 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
     let session = pcbcraft_mcp::shared(demo_session());
-    let transport = Arc::new(BrowserTransport::live());
     let offline = Arc::new(AtomicBool::new(false));
+    let transport = Arc::new(BrowserTransport::live(Arc::clone(&offline)));
     eframe::WebRunner::new()
         .start(
             canvas,
