@@ -1,9 +1,18 @@
 //! First-slice Samtec series generators: footprint, symbol, and parametric body.
+//!
+//! # Rules
+//! - Generated footprints carry the verify note and a public drawing link in the description.
+//! - Options are bounded by each series table before any geometry is built.
+//!
+//! # Dependencies
+//! - crates/library/src/connector_series_data.rs
+//! - crates/library/src/footprint_generate.rs
+//! - crates/library/src/online_import.rs
 use crate::connector_parametric::{
-    build_parametric_spec, housing_length_mm, ConnectorParametricSpec,
+    ConnectorParametricSpec, build_parametric_spec, housing_length_mm,
 };
-use crate::connector_series_data::{series_spec, ConnectorSeriesSpec};
-use crate::footprint_generate::{generate_footprint, LandPatternDensity, LandPatternParams};
+use crate::connector_series_data::{ConnectorSeriesSpec, series_spec};
+use crate::footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use crate::online_import::generic_symbol_for;
 use crate::{FootprintDefinition, Model3D, SymbolDefinition};
 use std::fmt::Write as _;
@@ -84,10 +93,7 @@ fn validate_options(
             errors.push(ConnectorFieldError::new(
                 "stack_code",
                 "is required for BTH".into(),
-                spec.stack_codes
-                    .iter()
-                    .map(|s| s.code.clone())
-                    .collect(),
+                spec.stack_codes.iter().map(|s| s.code.clone()).collect(),
             ));
         } else if spec
             .stack_height_mm(options.stack_code.as_deref().unwrap_or(""))
@@ -96,10 +102,7 @@ fn validate_options(
             errors.push(ConnectorFieldError::new(
                 "stack_code",
                 "is not a valid stack code".into(),
-                spec.stack_codes
-                    .iter()
-                    .map(|s| s.code.clone())
-                    .collect(),
+                spec.stack_codes.iter().map(|s| s.code.clone()).collect(),
             ));
         }
     } else if spec.lead_tail_mm(&options.lead_code).is_err() {
@@ -123,7 +126,10 @@ fn format_part_number(spec: &ConnectorSeriesSpec, options: &ConnectorSeriesOptio
     };
     let positions_total = options.positions_per_row * options.rows;
     let mut out = tmpl.clone();
-    out = out.replace("{positions:03}", &format!("{:03}", options.positions_per_row));
+    out = out.replace(
+        "{positions:03}",
+        &format!("{:03}", options.positions_per_row),
+    );
     out = out.replace("{positions_total:03}", &format!("{:03}", positions_total));
     out = out.replace("{lead}", &options.lead_code);
     if let Some(stack) = &options.stack_code {
@@ -169,9 +175,7 @@ fn land_pattern_family(spec: &ConnectorSeriesSpec, rows: u32) -> &str {
     } else if spec.geometry.land_pattern_family == "smt_dual_row" {
         "smt_dual_row"
     } else {
-        spec.geometry
-            .dual_row_land_pattern_family
-            .as_str()
+        spec.geometry.dual_row_land_pattern_family.as_str()
     }
 }
 
@@ -187,7 +191,6 @@ fn append_alignment_posts(
     let span = housing_length_mm(options.positions_per_row, g.pitch_mm);
     let half = span / 2.0 + g.pitch_mm;
     let y = 0.0;
-    let pad = g.pitch_mm * 2.4;
     let drill = g.pitch_mm * 1.6;
     for (n, x) in [("AP1", -half), ("AP2", half)] {
         fp.pads.push(crate::FootprintPad {
@@ -218,13 +221,16 @@ fn description_for(spec: &ConnectorSeriesSpec) -> String {
 }
 
 /// Build footprint, symbol, and parametric model for a first-slice series.
+///
+/// # Rules
+/// - Rejects unknown series ids and out-of-range options with [`ConnectorFieldError`] lists.
+/// - Runs footprint validation before returning.
 pub fn generate_connector_part(
     series_id: &str,
     options: &ConnectorSeriesOptions,
 ) -> Result<GeneratedConnectorPart, Vec<ConnectorFieldError>> {
-    let spec = series_spec(series_id).map_err(|e| {
-        vec![ConnectorFieldError::new("series_id", e, first_slice_ids())]
-    })?;
+    let spec = series_spec(series_id)
+        .map_err(|e| vec![ConnectorFieldError::new("series_id", e, first_slice_ids())])?;
     validate_options(&spec, options)?;
     let part_number = format_part_number(&spec, options);
     let family = land_pattern_family(&spec, options.rows);
@@ -233,20 +239,20 @@ pub fn generate_connector_part(
         .map_err(|e| vec![ConnectorFieldError::new("geometry", e, vec![])])?;
     append_alignment_posts(&mut footprint, &spec, options);
     footprint.description = description_for(&spec);
-    footprint.validate().map_err(|e| {
-        vec![ConnectorFieldError::new("footprint", e.to_string(), vec![])]
-    })?;
+    footprint
+        .validate()
+        .map_err(|e| vec![ConnectorFieldError::new("footprint", e.to_string(), vec![])])?;
 
     let (tail_mm, mated_stack) = if spec.series_id == "BTH" {
         let code = options.stack_code.as_deref().unwrap_or("");
-        let (stack, gap) = spec.stack_height_mm(code).map_err(|e| {
-            vec![ConnectorFieldError::new("stack_code", e, vec![])]
-        })?;
+        let (stack, gap) = spec
+            .stack_height_mm(code)
+            .map_err(|e| vec![ConnectorFieldError::new("stack_code", e, vec![])])?;
         (gap, Some(stack))
     } else {
-        let tail = spec.lead_tail_mm(&options.lead_code).map_err(|e| {
-            vec![ConnectorFieldError::new("lead_code", e, vec![])]
-        })?;
+        let tail = spec
+            .lead_tail_mm(&options.lead_code)
+            .map_err(|e| vec![ConnectorFieldError::new("lead_code", e, vec![])])?;
         (tail, None)
     };
 
@@ -257,14 +263,12 @@ pub fn generate_connector_part(
         tail_mm,
         mated_stack.unwrap_or(0.0),
     );
-    let model = ConnectorParametricSpec::model_attachment(&parametric).map_err(|e| {
-        vec![ConnectorFieldError::new("model", e, vec![])]
-    })?;
+    let model = ConnectorParametricSpec::model_attachment(&parametric)
+        .map_err(|e| vec![ConnectorFieldError::new("model", e, vec![])])?;
     footprint.model = Some(model.clone());
 
-    let symbol = generic_symbol_for(&footprint).map_err(|e| {
-        vec![ConnectorFieldError::new("symbol", e.to_string(), vec![])]
-    })?;
+    let symbol = generic_symbol_for(&footprint)
+        .map_err(|e| vec![ConnectorFieldError::new("symbol", e.to_string(), vec![])])?;
 
     Ok(GeneratedConnectorPart {
         part_number,

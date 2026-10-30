@@ -1,6 +1,6 @@
 use pcbcraft_library::{
-    body_fits_courtyard, generate_connector_part, pin1_position, ConnectorParametricSpec,
-    ConnectorSeriesOptions, Graphic, PARAMETRIC_MODEL_PATH,
+    ConnectorParametricSpec, ConnectorSeriesOptions, Graphic, PARAMETRIC_MODEL_PATH,
+    body_fits_courtyard, generate_connector_part, pin1_position,
 };
 
 const TOL: f64 = 0.01;
@@ -14,12 +14,13 @@ fn courtyard_half(fp: &pcbcraft_library::FootprintDefinition) -> Option<(f64, f6
         if let Graphic::Rectangle {
             start, end, layer, ..
         } = g
-            && layer == "pcbcraft.courtyard"
         {
-            return Some((
-                start.x.abs().max(end.x.abs()),
-                start.y.abs().max(end.y.abs()),
-            ));
+            if layer == "pcbcraft.courtyard" {
+                return Some((
+                    start.x.abs().max(end.x.abs()),
+                    start.y.abs().max(end.y.abs()),
+                ));
+            }
         }
     }
     None

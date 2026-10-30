@@ -1,4 +1,11 @@
 //! Parametric connector body metadata attached to generated footprints.
+//!
+//! # Rules
+//! - The model path is always [`PARAMETRIC_MODEL_PATH`]; geometry lives in JSON on the model reference.
+//! - Body bounds for checks use z = 0 at the board surface.
+//!
+//! # Dependencies
+//! - crates/library/src/lib.rs [`FootprintDefinition`]
 use crate::FootprintDefinition;
 use crate::connector_series_data::ConnectorSeriesSpec;
 use crate::{Graphic, Model3D};
@@ -51,10 +58,7 @@ impl ConnectorParametricSpec {
         let half_w = self.housing_width_mm / 2.0;
         let min_z = -self.tail_below_board_mm;
         let max_z = self.housing_height_mm.max(self.pin_above_board_mm);
-        (
-            [-half_l, -half_w, min_z],
-            [half_l, half_w, max_z],
-        )
+        ([-half_l, -half_w, min_z], [half_l, half_w, max_z])
     }
 
     /// Housing and pins above the board; the lowest face sits at z = 0.
@@ -63,7 +67,11 @@ impl ConnectorParametricSpec {
         let half_w = self.housing_width_mm / 2.0;
         (
             [-half_l, -half_w, 0.0],
-            [half_l, half_w, self.pin_above_board_mm.max(self.housing_height_mm)],
+            [
+                half_l,
+                half_w,
+                self.pin_above_board_mm.max(self.housing_height_mm),
+            ],
         )
     }
 }
@@ -114,23 +122,23 @@ pub fn body_fits_courtyard(spec: &ConnectorParametricSpec, fp: &FootprintDefinit
     let Some((cx_min, cy_min, cx_max, cy_max)) = courtyard_rect(fp) else {
         return false;
     };
-    body_min[0] >= cx_min
-        && body_max[0] <= cx_max
-        && body_min[1] >= cy_min
-        && body_max[1] <= cy_max
+    body_min[0] >= cx_min && body_max[0] <= cx_max && body_min[1] >= cy_min && body_max[1] <= cy_max
 }
 
 fn courtyard_rect(fp: &FootprintDefinition) -> Option<(f64, f64, f64, f64)> {
     for g in &fp.graphics {
-        if let Graphic::Rectangle { start, end, layer, .. } = g
-            && layer == "pcbcraft.courtyard"
+        if let Graphic::Rectangle {
+            start, end, layer, ..
+        } = g
         {
-            return Some((
-                start.x.min(end.x),
-                start.y.min(end.y),
-                start.x.max(end.x),
-                start.y.max(end.y),
-            ));
+            if layer == "pcbcraft.courtyard" {
+                return Some((
+                    start.x.min(end.x),
+                    start.y.min(end.y),
+                    start.x.max(end.x),
+                    start.y.max(end.y),
+                ));
+            }
         }
     }
     None

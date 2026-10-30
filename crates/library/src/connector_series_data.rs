@@ -1,4 +1,11 @@
 //! Embedded connector series tables used by the first-slice generators.
+//!
+//! # Rules
+//! - Values are hand-entered from public manufacturer series pages; no manufacturer files are stored.
+//! - Only TSW, SSW, and BTH are embedded in this slice.
+//!
+//! # Dependencies
+//! - crates/library/data/connectors/*.toml
 use serde::Deserialize;
 
 const TSW_TOML: &str = include_str!("../data/connectors/tsw.toml");
