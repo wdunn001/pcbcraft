@@ -5,8 +5,8 @@ use crate::{Error, Session, missing};
 use pcbcraft_doc::{Id, Layer, Track};
 use pcbcraft_geom::hull::octagon;
 use pcbcraft_geom::{Point, segment_distance};
-use std::cmp::Ordering;
 use serde_json::{Value, json};
+use std::cmp::Ordering;
 
 struct Fixture {
     s: Session,
@@ -609,22 +609,14 @@ fn path_ok_rejects_hull_crossings_and_points_outside_the_keep_in_box() {
     assert!(path_ok(&clear, &inside));
     let outside = vec![Point::new(-1.0, 5.0), Point::new(5.0, 5.0)];
     assert!(!path_ok(&outside, &inside));
-    let blocked = open_space(
-        (0.0, 0.0),
-        (10.0, 10.0),
-        vec![pad_hull(5.0, 5.0, 0.5, 1)],
-    );
+    let blocked = open_space((0.0, 0.0), (10.0, 10.0), vec![pad_hull(5.0, 5.0, 0.5, 1)]);
     let through = vec![Point::new(1.0, 5.0), Point::new(9.0, 5.0)];
     assert!(!path_ok(&through, &blocked));
 }
 
 #[test]
 fn walkaround_detours_around_a_hull_while_fixing_both_ends() {
-    let space = open_space(
-        (0.0, 0.0),
-        (20.0, 20.0),
-        vec![pad_hull(10.0, 10.0, 1.0, 7)],
-    );
+    let space = open_space((0.0, 0.0), (20.0, 20.0), vec![pad_hull(10.0, 10.0, 1.0, 7)]);
     let line = vec![Point::new(2.0, 10.0), Point::new(18.0, 10.0)];
     let detoured = walkaround(&line, &space, Turn::Shortest).expect("detour within iteration cap");
     assert_eq!(detoured.first(), line.first());

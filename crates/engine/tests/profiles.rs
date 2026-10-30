@@ -204,7 +204,10 @@ fn profile_list_includes_usb2() -> Result<(), Error> {
 fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
     let slugs = pcbcraft_engine::profiles::manifest_slugs();
     assert_eq!(slugs.len(), pcbcraft_engine::profiles::BUILT_INS.len());
-    for (slug, builtin) in slugs.iter().zip(pcbcraft_engine::profiles::BUILT_INS.iter()) {
+    for (slug, builtin) in slugs
+        .iter()
+        .zip(pcbcraft_engine::profiles::BUILT_INS.iter())
+    {
         assert_eq!(*slug, builtin.id);
     }
     let manifest = include_str!("../profiles/manifest.jsonl");
@@ -222,7 +225,10 @@ fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
         })
         .collect();
     for slug in slugs {
-        assert!(manifest_slugs.contains(slug), "manifest.jsonl missing {slug}");
+        assert!(
+            manifest_slugs.contains(slug),
+            "manifest.jsonl missing {slug}"
+        );
     }
 }
 
