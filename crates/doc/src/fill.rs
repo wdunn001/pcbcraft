@@ -443,6 +443,7 @@ fn items(project: &Project, layer: Layer) -> Result<Vec<Item>, String> {
                 at,
                 via.diameter / 2.0,
                 layer,
+                PlatedConnectKind::Via,
             ) {
                 continue;
             }
@@ -552,13 +553,20 @@ fn distance_point_segment(at: Point, start: Point, end: Point) -> f64 {
     at.distance(Point::new(start.x + t * dx, start.y + t * dy))
 }
 
-/// Whether a plated via or through-hole pad is tied to copper on `layer`.
+/// Whether a plated pad or via is tied to copper on `layer`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlatedConnectKind {
+    Pad,
+    Via,
+}
+
 pub fn plated_item_connected_on_layer(
     project: &Project,
     net: Id,
     at: Point,
     contact_radius: f64,
     layer: Layer,
+    kind: PlatedConnectKind,
 ) -> bool {
     let reach = contact_radius + LAYER_CONNECT_EPS;
     for track in project
@@ -577,10 +585,15 @@ pub fn plated_item_connected_on_layer(
         .iter()
         .filter(|z| z.layer == layer && z.net == net && z.filled)
     {
-        if zone.pad_connect == ZoneConnect::None {
+        let settings = zone.pour_settings();
+        let connect = match kind {
+            PlatedConnectKind::Pad => settings.pad_connect,
+            PlatedConnectKind::Via => settings.via_connect,
+        };
+        if connect == ZoneConnect::None {
             continue;
         }
-        if point_in_zone(at, zone) && zone.pad_connect == ZoneConnect::Solid {
+        if point_in_zone(at, zone) {
             return true;
         }
     }
@@ -619,7 +632,14 @@ pub fn pad_exports_on_layer(
         return false;
     }
     let at = footprint.pad_world_position(pad);
-    plated_item_connected_on_layer(project, net, at, pad.contact_radius(), layer)
+    plated_item_connected_on_layer(
+        project,
+        net,
+        at,
+        pad.contact_radius(),
+        layer,
+        PlatedConnectKind::Pad,
+    )
 }
 
 /// Whether a pad has copper on `layer` of this board: a through-hole pad on

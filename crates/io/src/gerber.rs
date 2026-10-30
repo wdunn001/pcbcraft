@@ -15,7 +15,9 @@
 //! from `gerber_files`: y stays down from the top-left corner, and a bottom
 //! side file mirrors x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
-use pcbcraft_doc::fill::{pad_exports_on_layer, plated_item_connected_on_layer};
+use pcbcraft_doc::fill::{
+    pad_exports_on_layer, plated_item_connected_on_layer, PlatedConnectKind,
+};
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -188,7 +190,14 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             continue;
         }
         if p.remove_unused_inner_pads_enabled() && !p.copper_layer_is_end(layer) {
-            if !plated_item_connected_on_layer(p, v.net, v.position, v.diameter / 2.0, layer) {
+            if !plated_item_connected_on_layer(
+                p,
+                v.net,
+                v.position,
+                v.diameter / 2.0,
+                layer,
+                PlatedConnectKind::Via,
+            ) {
                 continue;
             }
         }

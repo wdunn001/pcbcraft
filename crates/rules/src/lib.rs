@@ -287,6 +287,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     v.position,
                     v.diameter / 2.0,
                     layer,
+                    pcbcraft_doc::fill::PlatedConnectKind::Via,
                 ) {
                     continue;
                 }
