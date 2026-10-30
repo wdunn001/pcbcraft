@@ -23,6 +23,7 @@ mod machine_profile;
 mod model_load;
 mod neoden_yy1;
 mod package;
+pub mod plugins;
 mod panel_export;
 mod part_bodies;
 mod plot_read;

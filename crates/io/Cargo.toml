@@ -8,10 +8,14 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+plugin-firmware-target = []
+
 [dependencies]
 pcbcraft-geom.workspace = true
 pcbcraft-doc.workspace = true
 pcbcraft-library.workspace = true
+pcbcraft-plugin-sdk.workspace = true
 pcbcraft-rules.workspace = true
 serde.workspace = true
 serde_json.workspace = true
