@@ -1872,7 +1872,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 30] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1897,6 +1897,7 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "stackup",
     "drill_chart",
     "stats",
+    "compliance_report",
     "layer_plots",
     "panel",
     "raster",
@@ -2101,6 +2102,7 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+        "compliance_report" => ("package", "compliance-report.md"),
         _ => return None,
     })
 }

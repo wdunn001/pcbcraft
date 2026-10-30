@@ -21,10 +21,10 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    bom_csv, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board, gencad_text,
+    gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text,
+    odb_package, pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn,
+    stackup_text, stats_text, step_board, svg, vrml_board, ComplianceReportOptions,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -171,6 +171,9 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
+        "compliance-report.md" => {
+            text_output(compliance_report_markdown(p, &ComplianceReportOptions::default())?)
+        }
         other => Err(format!(
             "package output for {other} is not available yet; see issue #322"
         )),
