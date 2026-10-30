@@ -79,8 +79,16 @@ Locally: `cargo xtask screenshots --out target/screenshots`.
 ## Nightly (`nightly.yml`)
 
 At 05:17 UTC, if main changed in the last day (or on manual dispatch), builds
-the packages below as workflow artifacts kept 14 days, and runs an advisory scan
-so new RustSec advisories surface without a code change.
+the same platform packages as a tagged release (via `build-dist.yml`) as
+workflow artifacts kept 14 days, and runs an advisory scan so new RustSec
+advisories surface without a code change.
+
+On the scheduled run only (not manual dispatch), when main changed, the
+workflow also publishes a GitHub pre-release. The tag is
+`v<workspace-version>-nightly.<YYYYMMDD ET>.<run>.<attempt>` (Eastern date,
+matching other Craft suite nightlies). Assets include every nightly archive plus
+`SHA256SUMS.txt`. Pre-releases are published with `--latest=false`; they never
+replace the latest stable download links from tagged releases.
 
 ## Releases (`release.yml`, `build-dist.yml`)
 
@@ -105,7 +113,7 @@ proves the release packaging works. Packaging logic is in
 ## Security posture
 
 - Every action is pinned to a commit SHA with the version in a comment. Dependabot opens weekly updates for actions and Cargo (egui, eframe and craft-ui are excluded and bumped by hand).
-- The workflow default is `permissions: {}`; each job asks for `contents: read`. Only the release draft job has `contents: write`.
+- The workflow default is `permissions: {}`; each job asks for `contents: read`. The release draft job and the nightly pre-release publish job have `contents: write`.
 - Checkouts do not persist credentials. Untrusted values (tag names, inputs) reach shell steps through `env`, never inline.
 - No secrets are used.
 
