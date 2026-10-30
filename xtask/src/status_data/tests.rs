@@ -507,7 +507,7 @@ fn old_stale_snapshot_fails_the_run() {
     // Use a date that is definitely more than 7 days ago
     let old_date = "2026-10-15T23:00:00Z";
     let age = snapshot_age_days(old_date);
-    
+
     // The age should be Some value >= 7 (since today is Oct 30, 2026)
     assert!(age.is_some(), "snapshot_age_days should return Some for a valid date");
     assert!(age.unwrap() >= 7, "snapshot from Oct 15 should be >= 7 days old");
