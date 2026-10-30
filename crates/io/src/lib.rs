@@ -1679,7 +1679,7 @@ pub struct StepExport {
 /// project folder passed by the export caller.
 pub fn project_step_loader<'a>(
     project: &'a Project,
-    base: Option<&Path>,
+    base: Option<&'a Path>,
 ) -> impl Fn(&str) -> Option<Vec<u8>> + 'a {
     move |path| {
         if path.is_empty() {
@@ -7963,13 +7963,13 @@ mod tests {
         (lo, hi)
     }
 
-    fn fixture_bytes(name: &str) -> Vec<u8> {
+    fn fixture_bytes(name: &str) -> Result<Vec<u8>, String> {
         std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures")
                 .join(name),
         )
-        .unwrap_or_else(|_| panic!("fixture {name}"))
+        .map_err(|_| format!("fixture {name}"))
     }
 
     #[test]
@@ -8006,7 +8006,7 @@ mod tests {
                 model.path = "offset_box.step".into();
             }
         }
-        let bytes = fixture_bytes("offset_box.step");
+        let bytes = fixture_bytes("offset_box.step")?;
         let export = step_board_with_models(&project, &|path| {
             if path.ends_with("offset_box.step") {
                 Some(bytes.clone())

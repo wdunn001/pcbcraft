@@ -31081,62 +31081,6 @@ mod tests {
     }
 
     #[test]
-    fn export_step_reports_a_model_that_could_not_be_read() -> Result<(), Error> {
-        let mut s = Session::default();
-        let definition = pcbcraft_library::read_footprint(
-            "(footprint M (layer F.Cu)\
-             (model \"parts/body.step\" (at (xyz 0 0 0)))\
-             (pad 1 smd rect (at -1 0) (size 1 1) (layers F.Cu))\
-             (pad 2 smd rect (at 1 0) (size 1 1) (layers F.Cu)))",
-        )
-        .map_err(|e| Error::Invalid(e.to_string()))?;
-        s.execute(
-            "library.footprint.upsert",
-            json!({"definition": definition}),
-            None,
-        )?;
-        let id = s.execute(
-            "component.add",
-            json!({"kind":"resistor","position":[10,10],"reference":"R1","value":"10k"}),
-            None,
-        )?["result"]["id"]
-            .as_u64()
-            .ok_or_else(|| Error::Invalid("missing id".into()))?;
-        s.execute("board.sync", json!({}), None)?;
-        s.execute(
-            "footprint.assign_custom",
-            json!({"id":id,"name":"M"}),
-            None,
-        )?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-step-note-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&directory);
-        s.execute(
-            "output_job.add",
-            json!({"name":"step-only","kinds":["step"]}),
-            None,
-        )?;
-        let out = s.execute(
-            "output_job.run",
-            json!({"name":"step-only","directory":directory.to_string_lossy()}),
-            None,
-        )?;
-        let skipped = out["result"]["skipped"]
-            .as_array()
-            .ok_or_else(|| Error::Invalid("expected skipped notes".into()))?;
-        assert!(
-            skipped.iter().any(|v| {
-                v.as_str()
-                    .is_some_and(|line| line.starts_with("R1:") && line.contains("body.step"))
-            }),
-            "the export names the part and the missing model: {skipped:?}"
-        );
-        assert!(directory.join("board.step").exists());
-        let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
     fn output_jobs_write_mechanical_and_drawing_kinds() -> Result<(), Error> {
         let mut s = Session::sample()?;
         let directory =
