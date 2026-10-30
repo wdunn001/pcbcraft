@@ -10,6 +10,7 @@ mod assistant;
 mod board;
 mod board3d;
 mod board_side;
+mod bom_flavours;
 mod builds;
 mod checks;
 mod context_menus;

@@ -19,6 +19,7 @@
 //! # Do not
 //! - Add a File menu item for one format; add a row here instead.
 //! - Put a path, host name or user name in a row.
+use serde::Deserialize;
 
 /// What a format is of: the whole design, something made from it, or pieces brought in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,7 +105,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-    /// The vendor flavours of a bill of materials ([`BOM_FLAVOURS`]).
+    /// The vendor flavours of a bill of materials ([`bom_flavours`]).
     Flavour,
 }
 
@@ -534,52 +535,203 @@ pub static FORMATS: &[FormatSpec] = &[
     ),
 ];
 
+/// One column of a bill of materials flavour.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BomColumn {
+    /// What fills the column: a [`BOM_TOKENS`] entry.
+    pub token: String,
+    /// The header text the file carries.
+    pub header: String,
+}
+
+/// What a recipient says it will not take.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BomLimits {
+    /// Most rows (lines) in one upload.
+    #[serde(default)]
+    pub max_rows: Option<usize>,
+    /// Largest file in bytes.
+    #[serde(default)]
+    pub max_bytes: Option<usize>,
+}
+
+fn yes() -> bool {
+    true
+}
+
 /// One vendor flavour of the bill of materials, as pure data: which columns, what the
-/// headers say, whether identical parts share a row, how references are joined and which
-/// file type it is.
+/// headers say, whether identical parts share a row, how references are joined, which
+/// file types it takes and which part fields it needs.
 ///
-/// Why: a distributor or assembler upload format is a table row, not code; adding one
-/// is adding a row to [`BOM_FLAVOURS`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Why: a distributor or assembler upload format is a record in
+/// `crates/io/data/bom_flavours.json`, not code; adding one is adding a record.
+///
+/// # Rules
+/// - `requires` and `requires_any` hold keys of [`PART_FIELDS`]; a test pins that.
+/// - A flavour with `verified` false says so in its `tip`.
+///
+/// # Dependencies
+/// - crates/io/data/bom_flavours.json
+///
+/// # Do not
+/// - Name a company in the data file; describe the role instead.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BomFlavour {
     /// Stable id.
-    pub id: &'static str,
+    pub id: String,
     /// English label shown under the BOM format.
-    pub label: &'static str,
+    pub label: String,
     /// Tooltip: who asks for this file.
-    pub tip: &'static str,
-    /// `csv`, `tsv` or `json`.
-    pub file_type: &'static str,
-    /// (column token, header text), in file order. Tokens: reference, value, footprint,
-    /// mpn, manufacturer, quantity.
-    pub columns: &'static [(&'static str, &'static str)],
+    pub tip: String,
+    /// False when no primary page gave the column list.
+    #[serde(default = "yes")]
+    pub verified: bool,
+    /// The file type a fresh export starts with.
+    pub file_type: String,
+    /// The file types this flavour can be written as: `csv`, `tsv`, `json`.
+    pub file_types: Vec<String>,
+    /// False writes no header row.
+    #[serde(default = "yes")]
+    pub header: bool,
+    /// Columns in file order.
+    pub columns: Vec<BomColumn>,
     /// True gives one row per kind of part.
     pub group: bool,
     /// Joins the references of a grouped row.
-    pub reference_separator: &'static str,
+    pub reference_separator: String,
+    /// Part fields every listed part must carry.
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// Part fields of which every listed part must carry at least one.
+    #[serde(default)]
+    pub requires_any: Vec<String>,
+    /// Size limits of the receiving site.
+    #[serde(default)]
+    pub limits: BomLimits,
 }
 
-/// Every bill of materials flavour. The first is the default.
-pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
-    id: "generic_csv",
-    label: "Generic CSV",
-    tip: "A plain spreadsheet file with the usual columns. Opens anywhere.",
-    file_type: "csv",
-    columns: &[
-        ("reference", "Reference"),
-        ("value", "Value"),
-        ("footprint", "Footprint"),
-        ("mpn", "MPN"),
-        ("manufacturer", "Manufacturer"),
-        ("quantity", "Quantity"),
-    ],
-    group: true,
-    reference_separator: ", ",
-}];
+/// One standard part field: the key a part carries it under and the column token that
+/// prints it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartField {
+    /// The key in a part's fields.
+    pub key: &'static str,
+    /// The column token.
+    pub token: &'static str,
+    /// Older spelling of the key that is read when the key itself is empty.
+    pub alias: Option<&'static str>,
+    /// Plain words for messages.
+    pub label: &'static str,
+}
+
+/// The part fields a flavour can ask for. A flavour's `requires` names these keys.
+pub const PART_FIELDS: &[PartField] = &[
+    PartField {
+        key: "Manufacturer",
+        token: "manufacturer",
+        alias: None,
+        label: "manufacturer",
+    },
+    PartField {
+        key: "MPN",
+        token: "mpn",
+        alias: None,
+        label: "manufacturer part number",
+    },
+    PartField {
+        key: "Description",
+        token: "description",
+        alias: Some("description"),
+        label: "description",
+    },
+    PartField {
+        key: "Supplier",
+        token: "supplier",
+        alias: None,
+        label: "supplier",
+    },
+    PartField {
+        key: "SPN",
+        token: "spn",
+        alias: None,
+        label: "supplier part number",
+    },
+];
+
+/// Column tokens worked out from the design rather than typed in:
+/// `reference`, `quantity`, `value`, `footprint`, `line` (row number), `mount`
+/// (Surface mount, Thru-hole or Hybrid, from the pads) and `part_key` (the
+/// manufacturer part number, else the supplier part number).
+pub const DERIVED_TOKENS: &[&str] = &[
+    "reference",
+    "quantity",
+    "value",
+    "footprint",
+    "line",
+    "mount",
+    "part_key",
+];
+
+/// The bundled flavour file.
+const BOM_FLAVOURS_JSON: &str = include_str!("../data/bom_flavours.json");
+
+/// Parse a flavour file: a JSON array of [`BomFlavour`].
+pub fn parse_bom_flavours(text: &str) -> Result<Vec<BomFlavour>, String> {
+    serde_json::from_str(text).map_err(|e| format!("bom_flavours.json: {e}"))
+}
+
+/// The plain list used if the bundled file ever fails to parse (a test pins that it
+/// does not).
+fn fallback_flavour() -> BomFlavour {
+    let column = |token: &str, header: &str| BomColumn {
+        token: token.into(),
+        header: header.into(),
+    };
+    BomFlavour {
+        id: "generic_csv".into(),
+        label: "Generic CSV".into(),
+        tip: "A plain spreadsheet file with the usual columns.".into(),
+        verified: true,
+        file_type: "csv".into(),
+        file_types: vec!["csv".into(), "tsv".into(), "json".into()],
+        header: true,
+        columns: vec![
+            column("reference", "Reference"),
+            column("value", "Value"),
+            column("footprint", "Footprint"),
+            column("mpn", "MPN"),
+            column("manufacturer", "Manufacturer"),
+            column("quantity", "Quantity"),
+        ],
+        group: true,
+        reference_separator: ", ".into(),
+        requires: vec![],
+        requires_any: vec![],
+        limits: BomLimits::default(),
+    }
+}
+
+/// Every bill of materials flavour, in file order. The first is the default; the list is
+/// never empty.
+pub fn bom_flavours() -> &'static [BomFlavour] {
+    static ALL: std::sync::OnceLock<Vec<BomFlavour>> = std::sync::OnceLock::new();
+    ALL.get_or_init(|| match parse_bom_flavours(BOM_FLAVOURS_JSON) {
+        Ok(list) if !list.is_empty() => list,
+        _ => vec![fallback_flavour()],
+    })
+}
+
+/// The default flavour: the first one.
+pub fn default_bom_flavour() -> &'static BomFlavour {
+    &bom_flavours()[0]
+}
 
 /// A bill of materials flavour by id.
 pub fn bom_flavour(id: &str) -> Option<&'static BomFlavour> {
-    BOM_FLAVOURS.iter().find(|f| f.id == id)
+    bom_flavours().iter().find(|f| f.id == id)
 }
 
 /// The first format that can go `direction` and whose extension matches `path`.
@@ -726,5 +878,52 @@ mod tests {
                 "Group identical parts"
             ]
         );
+    }
+
+    #[test]
+    fn the_bundled_flavour_file_parses_and_leads_with_the_plain_list() -> Result<(), String> {
+        let all = parse_bom_flavours(BOM_FLAVOURS_JSON)?;
+        assert_eq!(all[0].id, "generic_csv", "the first is the default");
+        assert!(all.len() >= 14, "every flavour with enough detail ships");
+        assert_eq!(bom_flavours().len(), all.len(), "the table is the file");
+        let mut ids: Vec<&str> = all.iter().map(|f| f.id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), all.len(), "ids are unique");
+        Ok(())
+    }
+
+    #[test]
+    fn every_required_field_of_every_flavour_exists_in_the_part_field_model() {
+        let known = |key: &String| PART_FIELDS.iter().any(|f| f.key == key);
+        for f in bom_flavours() {
+            for key in f.requires.iter().chain(&f.requires_any) {
+                assert!(known(key), "{} requires {key}, not a part field", f.id);
+            }
+            for c in &f.columns {
+                assert!(
+                    DERIVED_TOKENS.contains(&c.token.as_str())
+                        || PART_FIELDS.iter().any(|p| p.token == c.token),
+                    "{} has an unknown column token {}",
+                    f.id,
+                    c.token
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_flavour_is_well_formed_and_unverified_ones_say_so() {
+        for f in bom_flavours() {
+            assert!(f.file_types.contains(&f.file_type), "{}: start type", f.id);
+            assert!(!f.columns.is_empty(), "{}: columns", f.id);
+            assert!(!f.tip.is_empty() && !f.label.is_empty(), "{}: words", f.id);
+            assert_eq!(
+                !f.verified,
+                f.tip.starts_with("Unverified:") || f.tip.contains("Unverified:"),
+                "{}: an unverified flavour says so in its tip",
+                f.id
+            );
+        }
     }
 }
