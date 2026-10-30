@@ -382,6 +382,12 @@ impl App {
             (CanvasAct::ClearSelection, _) => self.select(None),
             (CanvasAct::Copy, _) => self.copy_selection(ctx),
             (CanvasAct::StartWire, CanvasMenuKind::Pin(pin)) => {
+                if let Some(at) = self.project.pin_position(&PinRef {
+                    component: pin.component,
+                    pin: pin.pin.clone(),
+                }) {
+                    self.wire_route = vec![at];
+                }
                 self.tool = Tool::Wire(Some(PinRef {
                     component: pin.component,
                     pin: pin.pin.clone(),
