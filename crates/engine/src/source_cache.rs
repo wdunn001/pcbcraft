@@ -29,7 +29,6 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub enum AnswerAge {
     Fresh,
     Stale { retrieved_at: u64 },
-    Expired,
 }
 
 /// One search outcome, with how old the bytes are.
@@ -37,7 +36,7 @@ pub enum AnswerAge {
 pub struct CachedSearch {
     /// Parts returned for the query.
     pub results: Vec<PartResult>,
-    /// Fresh, stale with retrieval time, or expired (nothing on disk).
+    /// Fresh or stale with the retrieval time stored on disk.
     pub age: AnswerAge,
 }
 
@@ -439,7 +438,7 @@ impl PartSourceCache {
             match disk.age {
                 AnswerAge::Fresh => return Ok(disk),
                 AnswerAge::Stale { .. } if self.offline => return Ok(disk),
-                AnswerAge::Stale { .. } | AnswerAge::Expired => {}
+                AnswerAge::Stale { .. } => {}
             }
         }
 
