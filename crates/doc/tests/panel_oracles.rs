@@ -63,6 +63,19 @@ fn panel_layout_with_settings_requires_valid_fields() -> T {
 }
 
 #[test]
+fn panel_layout_from_grid_rejects_zero_columns() {
+    let board = Board::default();
+    let grid = PanelGrid {
+        columns: 0,
+        rows: 1,
+        pitch_x: 1.0,
+        pitch_y: 0.0,
+        rail: 0.0,
+    };
+    assert!(panel_layout_from_grid(&board, &grid).is_err());
+}
+
+#[test]
 fn panel_score_and_tab_helpers_follow_separation_mode() -> T {
     let mut p = Project::default();
     p.panel.enabled = true;
