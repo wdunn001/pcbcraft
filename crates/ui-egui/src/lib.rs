@@ -2855,9 +2855,6 @@ impl App {
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    if ui.ctx().content_rect().width() < 400.0 {
-                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                    }
                     let label = egui::RichText::new(t!("app.name"))
                         .size(15.0)
                         .strong()
@@ -3139,14 +3136,8 @@ impl App {
             self.home_open = false;
         }
     }
-    fn keep_menu_in_window(ui: &mut egui::Ui) {
-        let w = (ui.ctx().content_rect().width() - 8.0).max(64.0);
-        ui.set_max_width(w);
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-    }
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         let file = ui.menu_button(t!("menu.file"), |ui| {
-            Self::keep_menu_in_window(ui);
             if ui
                 .button(t!("menu.file.new"))
                 .on_hover_text(t!("menu.file.new.tip"))
@@ -3207,7 +3198,6 @@ impl App {
     }
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.edit"), |ui| {
-            Self::keep_menu_in_window(ui);
             let (can_undo, can_redo) = self
                 .session
                 .lock()
@@ -3395,7 +3385,6 @@ impl App {
     /// The View menu: pages that are not tabs.
     fn view_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.view"), |ui| {
-            Self::keep_menu_in_window(ui);
             for (tab, label, tip) in [
                 (
                     Tab::Checks,
@@ -3423,7 +3412,6 @@ impl App {
     }
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t!("menu.help"), |ui| {
-            Self::keep_menu_in_window(ui);
             if ui
                 .button(t!("menu.help.shortcuts"))
                 .on_hover_text(t!("menu.help.shortcuts.tip"))

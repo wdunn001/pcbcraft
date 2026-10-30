@@ -8,11 +8,11 @@ clipped | Files | 320 | 1
 escaped | Files | 320 | 19
 escaped | Schematic | 1280 | 3
 clipped | Schematic | 320 | 1
-escaped | Schematic | 320 | 41
+escaped | Schematic | 320 | 42
 clipped | Pcb | 1280 | 2
 escaped | Pcb | 1280 | 5
 clipped | Pcb | 320 | 4
-escaped | Pcb | 320 | 85
+escaped | Pcb | 320 | 86
 escaped | Board3d | 1280 | 3
 clipped | Board3d | 320 | 1
 escaped | Board3d | 320 | 67
@@ -22,7 +22,7 @@ clipped | Rules | 320 | 4
 escaped | Rules | 320 | 81
 escaped | Checks | 1280 | 3
 clipped | Checks | 320 | 1
-escaped | Checks | 320 | 55
+escaped | Checks | 320 | 56
 escaped | Settings | 1280 | 3
 clipped | Settings | 320 | 2
 escaped | Settings | 320 | 98
@@ -32,26 +32,26 @@ clipped | Libraries | 320 | 7
 escaped | Libraries | 320 | 37
 escaped | PlotFiles | 1280 | 3
 clipped | PlotFiles | 320 | 4
-escaped | PlotFiles | 320 | 17
+escaped | PlotFiles | 320 | 18
 clipped | Pcb, lower dock page 2 | 1280 | 2
 escaped | Pcb, lower dock page 2 | 1280 | 7
 clipped | Pcb, lower dock page 2 | 320 | 4
-escaped | Pcb, lower dock page 2 | 320 | 92
+escaped | Pcb, lower dock page 2 | 320 | 93
 escaped | Start page | 1280 | 2
 clipped | Start page | 320 | 2
 escaped | Start page | 320 | 10
 escaped | About dialog | 1280 | 3
 clipped | About dialog | 320 | 1
-escaped | About dialog | 320 | 41
+escaped | About dialog | 320 | 42
 escaped | File menu | 1280 | 3
 clipped | File menu | 320 | 1
-escaped | File menu | 320 | 49
+escaped | File menu | 320 | 50
 escaped | Edit menu | 1280 | 3
 clipped | Edit menu | 320 | 1
-escaped | Edit menu | 320 | 52
+escaped | Edit menu | 320 | 53
 escaped | View menu | 1280 | 3
 clipped | View menu | 320 | 1
-escaped | View menu | 320 | 44
+escaped | View menu | 320 | 45
 escaped | Help menu | 1280 | 3
 clipped | Help menu | 320 | 1
-escaped | Help menu | 320 | 45
+escaped | Help menu | 320 | 46
