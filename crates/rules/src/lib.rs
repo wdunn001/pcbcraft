@@ -77,6 +77,13 @@ fn zone_pieces(
         })
         .collect())
 }
+fn push_on_copper_layers(project: &Project, item: Copper, out: &mut Vec<Copper>) {
+    for layer in project.copper_layers() {
+        let mut copy = item.clone();
+        copy.layer = layer;
+        out.push(copy);
+    }
+}
 fn copper(project: &Project) -> Vec<Copper> {
     let mut result = Vec::new();
     for f in &project.board.footprints {
@@ -116,10 +123,7 @@ fn copper(project: &Project) -> Vec<Copper> {
                     hole: None,
                     cutouts: vec![],
                 };
-                let mut back = item.clone();
-                back.layer = Layer::Back;
-                result.push(back);
-                result.push(item);
+                push_on_copper_layers(project, item, &mut result);
                 continue;
             }
             if let Some(position) = f.pad_position(&pad.number) {
@@ -179,11 +183,10 @@ fn copper(project: &Project) -> Vec<Copper> {
                     cutouts: vec![],
                 };
                 if plated {
-                    let mut back = item.clone();
-                    back.layer = Layer::Back;
-                    result.push(back);
+                    push_on_copper_layers(project, item, &mut result);
+                } else {
+                    result.push(item);
                 }
-                result.push(item);
             }
         }
     }
@@ -297,10 +300,7 @@ fn copper(project: &Project) -> Vec<Copper> {
             hole: None,
             cutouts: vec![],
         };
-        let mut back = item.clone();
-        back.layer = Layer::Back;
-        result.push(back);
-        result.push(item);
+        push_on_copper_layers(project, item, &mut result);
     }
     for z in &project.board.zones {
         if !z.filled {
@@ -1886,7 +1886,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        FabRules, Footprint, Net, NoConnectFlag, Pad, PinRef, Track, Via, component_template,
+        CopperZone, FabRules, Footprint, LayerRecord, Net, NoConnectFlag, Pad, PinRef, Track,
+        Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
     fn fixture() -> Project {
@@ -2581,6 +2582,147 @@ mod tests {
         );
         Ok(())
     }
+    fn four_layer_project() -> Project {
+        let mut p = Project::default();
+        for name in ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"] {
+            p.board.layer_records.push(LayerRecord {
+                name: name.into(),
+                kind: "copper".into(),
+                thickness: 0.035,
+                copper_role: None,
+                ..Default::default()
+            });
+        }
+        p
+    }
+
+    #[test]
+    fn through_via_joins_top_inner_and_bottom_copper() -> Result<(), String> {
+        let mut p = four_layer_project();
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        for (id, x) in [(2, 10.0), (3, 30.0)] {
+            p.board.footprints.push(Footprint {
+                id: id + 10,
+                component: id,
+                position: Point::new(x, 10.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![Pad {
+                    number: "1".into(),
+                    offset: Point::default(),
+                    diameter: 1.0,
+                    net: Some(1),
+                    castellated: None,
+                    geometry: None,
+                }],
+            });
+        }
+        let inner = Layer::from_index(1).map_err(|e| e.to_string())?;
+        p.board.tracks.push(Track {
+            id: 20,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.25,
+            layer: Layer::Front,
+            arc: None,
+        });
+        p.board.vias.push(Via {
+            id: 4,
+            net: 1,
+            position: Point::new(20.0, 10.0),
+            diameter: 1.4,
+            drill: 0.4,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        p.board.tracks.push(Track {
+            id: 21,
+            net: 1,
+            start: Point::new(20.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: inner,
+            arc: None,
+        });
+        p.validate()?;
+        assert!(
+            airwires(&p).is_empty(),
+            "top copper, a through via and an inner track connect both pads"
+        );
+        p.board.vias.clear();
+        assert_eq!(
+            airwires(&p).len(),
+            1,
+            "without the via the inner span stays unrouted"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn inner_track_clearance_finding_on_same_layer_only() -> Result<(), String> {
+        let mut p = four_layer_project();
+        p.board.clearance = 0.2;
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.nets.push(Net {
+            id: 2,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let inner_a = Layer::from_index(1).map_err(|e| e.to_string())?;
+        let inner_b = Layer::from_index(2).map_err(|e| e.to_string())?;
+        let outline = vec![
+            Point::new(0.0, 0.0),
+            Point::new(40.0, 0.0),
+            Point::new(40.0, 20.0),
+            Point::new(0.0, 20.0),
+            Point::new(0.0, 0.0),
+        ];
+        p.board.zones.push(CopperZone {
+            id: 10,
+            net: 1,
+            layer: inner_a,
+            outline: outline.clone(),
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: None,
+        });
+        p.board.tracks.push(Track {
+            id: 11,
+            net: 2,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(30.0, 10.0),
+            width: 0.25,
+            layer: inner_a,
+            arc: None,
+        });
+        p.validate()?;
+        assert!(
+            drc(&p).iter().any(|f| f.code == "clearance" && f.objects.contains(&11)),
+            "inner tracks of different nets on the same layer are checked for clearance"
+        );
+        if let Some(t) = p.board.tracks.iter_mut().find(|t| t.id == 11) {
+            t.layer = inner_b;
+        }
+        p.validate()?;
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "clearance" && f.objects.contains(&11)),
+            "moving the track to another inner layer removes the clearance finding"
+        );
+        Ok(())
+    }
+
     #[test]
     fn routing_connects_islands_but_back_layer_does_not() {
         let mut p = fixture();
