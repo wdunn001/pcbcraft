@@ -3962,6 +3962,7 @@ mod tests {
     fn renamable_rows_are_nets_layers_and_pages_only() {
         let mut project = sample();
         project.sheets.push(pcbcraft_doc::Sheet {
+            interchange_uuid: None,
             id: 9001,
             name: "Power".into(),
             parent: None,

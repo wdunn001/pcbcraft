@@ -93,7 +93,6 @@ fn object_ids_are_distinct_and_uuids_are_kept() -> Result<(), String> {
 }
 
 #[test]
-#[test]
 fn eight_layer_stackup_keeps_order_names_and_dielectrics() -> Result<(), String> {
     let p = read_board_interchange(MODERN_8)?;
     assert_eq!(p.copper_layer_count(), 8);
