@@ -12,6 +12,11 @@ mod courtyard;
 mod drill;
 mod silk;
 mod stub;
+pub mod compliance;
+pub use compliance::{
+    bundled_export_and_trade, export_trade_report, export_trade_report_with_ruleset,
+    ExportTradeReport,
+};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
