@@ -45,7 +45,7 @@
       "id": 2,
       "reference": "R1",
       "value": "1k",
-      "kind": "library",
+      "kind": "resistor",
       "position": {
         "x": 40.0,
         "y": 14.0
@@ -281,7 +281,7 @@
       "id": 3,
       "reference": "C1",
       "value": "100n",
-      "kind": "library",
+      "kind": "capacitor",
       "position": {
         "x": 65.0,
         "y": 26.0
@@ -921,6 +921,5 @@
     "notices": [],
     "symbols": [],
     "footprints": []
-  },
-  "auto_sync": true
+  }
 }
