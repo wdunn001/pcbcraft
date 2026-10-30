@@ -20,6 +20,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("component.place_custom","Place a symbol from the editable project library, optionally turned to a starting rotation",schema(json!({"name":{"type":"string"},"position":point_schema(),"reference":{"type":"string"},"value":{"type":"string"},"rotation":{"type":"number","description":"starting rotation in degrees"}}),&["name","position"])),
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
+        ("library.footprint.attach_starter_model","Attach a bundled starter 3D model to a project-library footprint when one matches its name or an explicit starter id, materializing the file into the user cache and recording the licence notice",schema(json!({"name":{"type":"string"},"id":{"type":"string","description":"starter model id; omit to match by footprint name"}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
@@ -437,6 +438,12 @@ struct Assign {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AttachStarterModel {
+    name: String,
+    id: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LibraryFile {
     format: String,
     version: u32,
@@ -566,6 +573,49 @@ pub(super) fn run(
             def.model = Some(model);
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name, "path": def.model.as_ref().map(|m| m.path.clone())}))
+        }
+        "library.footprint.attach_starter_model" => {
+            let a: AttachStarterModel = parse(params)?;
+            let starter = match a.id.as_deref() {
+                Some(id) => pcbcraft_library::starter_models::by_id(id)
+                    .ok_or_else(|| Error::Invalid("unknown starter model id".into()))?,
+                None => pcbcraft_library::starter_models::for_footprint(&a.name)
+                    .ok_or_else(|| {
+                        Error::Invalid(
+                            "no bundled starter model matches this footprint name".into(),
+                        )
+                    })?,
+            };
+            let cache = pcbcraft_library::cad_cache::default_cache_dir().ok_or_else(|| {
+                Error::Invalid("a user cache directory is required to store starter models".into())
+            })?;
+            let path = pcbcraft_io::materialize(starter, &cache)
+                .map_err(|e| Error::Invalid(e))?;
+            let path_text = path.to_string_lossy().into_owned();
+            let model = build_model(&ModelParams {
+                name: a.name.clone(),
+                path: path_text.clone(),
+                offset: None,
+                scale: None,
+                rotate: None,
+            })?;
+            let notice = starter.notice.to_string();
+            if !notice.is_empty() && !p.library.notices.contains(&notice) {
+                p.library.notices.push(notice);
+            }
+            let def = p
+                .library
+                .footprints
+                .iter_mut()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            def.model = Some(model);
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(json!({
+                "name": a.name,
+                "starter": starter.id,
+                "path": path_text,
+            }))
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;

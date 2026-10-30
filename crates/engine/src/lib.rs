@@ -22970,6 +22970,44 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn attach_starter_model_writes_cache_path_and_notice() -> Result<(), Error> {
+        let Some(_cache) = pcbcraft_library::cad_cache::default_cache_dir() else {
+            return Ok(());
+        };
+        let mut s = Session::default();
+        let path = std::path::Path::new(&library_fixture(
+            "open_library/R_0603_1608Metric.kicad_mod",
+        ));
+        let definition = library::footprint(path)?;
+        s.execute(
+            "library.footprint.upsert",
+            json!({"definition": definition}),
+            None,
+        )?;
+        let out = s.execute(
+            "library.footprint.attach_starter_model",
+            json!({"name":"R_0603_1608Metric"}),
+            None,
+        )?["result"]
+            .clone();
+        assert_eq!(out["starter"], "chip_resistor_0603");
+        let stored = &s.inspect()["project"]["library"]["footprints"][0]["model"];
+        let model_path = stored["path"].as_str().ok_or_else(missing)?;
+        assert!(
+            std::path::Path::new(model_path).is_file(),
+            "starter model path must exist on disk"
+        );
+        assert!(
+            s.project
+                .library
+                .notices
+                .iter()
+                .any(|n| n.contains("chip_resistor_0603")),
+            "licence notice is recorded on the library"
+        );
+        Ok(())
+    }
+    #[test]
     fn specctra_session_files_import_net_assignments() -> Result<(), Error> {
         let mut s = Session::default();
         for (reference, x) in [("R1", 10.0), ("R2", 20.0)] {

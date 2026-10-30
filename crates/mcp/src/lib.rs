@@ -56,6 +56,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbols","description":"Write every project-library symbol to a directory as one library symbol text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
+        json!({"name":"library.starter_models.list","description":"List bundled starter 3D models shipped with the app, with licence titles and matching footprint names","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -110,13 +111,14 @@ enum ToolKind {
 }
 
 fn tool_kind(name: &str) -> ToolKind {
-    const READ_ONLY: [&str; 15] = [
+    const READ_ONLY: [&str; 16] = [
         "inspect_design",
         "list_commands",
         "checks",
         "board_mesh",
         "screenshot",
         "library.catalog",
+        "library.starter_models.list",
         "library.search",
         "library.list",
         "library.inspect_symbol",
@@ -287,6 +289,7 @@ pub(crate) fn invoke_session(
     if [
         "design.recents",
         "library.catalog",
+        "library.starter_models.list",
         "library.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
