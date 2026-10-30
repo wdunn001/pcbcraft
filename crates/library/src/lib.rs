@@ -4,18 +4,40 @@ pub mod cad_cache;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
+mod ipc7351;
+mod package_key;
+mod param_body;
+mod part_import;
+mod part_types;
+mod part_validation;
+mod part_verify;
 pub mod listing;
 pub mod listing_adapters;
 pub mod online_import;
 pub mod open_library;
 mod paths;
+mod pin_kind;
 mod reader;
 mod sexpr;
 pub mod sources;
 mod symbol_check;
 mod validation;
+mod wrl;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use ipc7351::generate_footprint_from_key;
+pub use package_key::{PackageFamily, PackageKey, PITCH_TOLERANCE_MM, SPAN_TOLERANCE_MM};
+pub use param_body::ParamBody;
+pub use part_import::{
+    load_symbol_footprint_files, part_from_library_bundle, read_part_json, PartJson,
+};
+pub use part_types::{
+    DatasheetRef, FootprintSource, Model3dRef, MpnSource, Orderable, Part, PartFamily,
+    PartLimits, PinSpec, Requirement, TriangleMesh, Verification, VerificationChecks, MAX_PARTS,
+};
+pub use part_verify::{verify_part, VerifyContext};
+pub use pin_kind::{pin_kind_from_library_string, PinKind};
+pub use wrl::{read_wrl_file, read_wrl_mesh};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};

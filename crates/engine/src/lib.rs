@@ -3,6 +3,7 @@ mod artifacts;
 mod authoring;
 mod dry_run;
 mod images;
+mod part;
 pub mod library;
 mod online;
 mod outline;
@@ -2314,6 +2315,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(snapmaker::commands())
         .chain(authoring::commands())
         .chain(online::commands())
+        .chain(part::commands())
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
@@ -7236,6 +7238,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = online::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = part::run(p, next, command, params) {
         return result;
     }
     if let Some(result) = tuning::run(p, next, command, params) {
@@ -23306,6 +23311,24 @@ mod tests {
             commands().iter().any(|c| c.id == "library.footprint.check"),
             "MCP clients must see library.footprint.check"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn part_commands_are_registered_and_reject_bad_payloads() -> Result<(), Error> {
+        for id in ["part.add", "part.verify", "part.attach"] {
+            assert!(
+                commands().iter().any(|c| c.id == id),
+                "MCP clients must see {id}"
+            );
+        }
+        let mut s = Session::default();
+        let rev = s.revision;
+        assert!(
+            s.execute("part.add", json!({"part": {"mpn": "only"}}), None).is_err(),
+            "incomplete part payload is refused"
+        );
+        assert_eq!(s.revision, rev);
         Ok(())
     }
 

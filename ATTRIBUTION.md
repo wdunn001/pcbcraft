@@ -20,6 +20,7 @@
 | JetBrains Mono | https://github.com/JetBrains/JetBrainsMono | Regular; SIL OFL 1.1 (crates/ui-egui/assets/fonts/OFL-JetBrainsMono.txt) | Numbers, references and net names font, embedded in `crates/ui-egui/src/fonts.rs` |
 | Open library recorded answers | https://gitlab.com/kicad/libraries/kicad-symbols, https://gitlab.com/kicad/libraries/kicad-footprints and https://gitlab.com/kicad/libraries/kicad-packages3D | Repository revisions 45efbd93, a337146e and 89757151; CC-BY-SA 4.0 + KiCad design-output exception | Unmodified R and C symbols, R_0603 footprint and STEP model, folder listings reduced to a few entries, revision answers reduced to id and date; used only as test fixtures in crates/library/tests/fixtures/open_library; recording script and licence beside them (LICENSE-kicad-libraries.md) |
 | Showcase sensor node | `cargo xtask showcase` (`xtask/src/showcase/`) | Original design by the PCBCraft authors; CC BY-SA 4.0 | `examples/showcase.pcbcraft` and `examples/showcase-with-findings.pcbcraft`; every symbol, footprint and placement is defined in code, no third-party library data |
+| IPC-7351 land pattern density formulas | MIT-licensed open footprint generator scripts (ported numerically into `crates/library/src/footprint_generate.rs`) | MIT | Density tables and pad formulas reimplemented with MIT notice retained in source comments |
 
 KiCad's official PCB_POINT API/source documentation was consulted to distinguish
 non-manufactured reference-point metadata from copper/outline geometry; exact links

@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::Path;
 mod bitmap_trace;
 mod board_mesh;
+mod datasheet_cache;
 mod diff;
 mod drawn;
 mod fab_export;
@@ -24,6 +25,7 @@ mod neoden_yy1;
 mod package;
 mod panel_export;
 mod part_bodies;
+mod part_model;
 mod plot_read;
 mod raster;
 mod step_read;
@@ -112,9 +114,8 @@ pub use package::{
 /// # Dependencies
 /// - crates/io/src/panel_export.rs
 pub use panel_export::{panel_fabrication_files, panel_placement_text};
-/// Re-export of the Layer enum from pcbcraft_doc for use by callers.
-/// # Dependencies
-/// - crates/doc/src/lib.rs
+pub use datasheet_cache::{DatasheetCacheResult, fetch_datasheet_cache};
+pub use part_model::gltf_bounds;
 pub use pcbcraft_doc::Layer;
 /// Plot file reading types and functions for parsing Gerber and Excellon files.
 /// # Dependencies
