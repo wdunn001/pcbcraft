@@ -40,9 +40,9 @@ mod route_drag;
 mod sheet_rows;
 mod showcase;
 mod sources;
+mod sourcing_panel;
 mod stack_view;
 mod sync_notice;
-mod sourcing_panel;
 #[cfg(test)]
 mod target_size;
 mod targets;
