@@ -58,18 +58,18 @@ persistence is follow-up work.
 
 ## Recommended follow-up issues
 
-1. **Firmware target plugin** – move the flight-controller target generator from
+1. **Firmware target plugin**: move the flight-controller target generator from
    the core split (see the dedicated firmware plugin issue) into the first code
    plugin folder using schema 1 bundles.
-2. **Rule set import command** – explicit import from a plugin `rule_set_bundles`
+2. **Rule set import command**: explicit import from a plugin `rule_set_bundles`
    path with licence display and approval.
-3. **Importer descriptors** – data-only import formats registered in the manifest,
+3. **Importer descriptors**: data-only import formats registered in the manifest,
    executed through existing io parsers.
-4. **Plugin approval UX** – desktop and browser surfaces to pick a root, show
+4. **Plugin approval UX**: desktop and browser surfaces to pick a root, show
    licence and hash, and enable templates.
-5. **Golden harness CLI** – `xtask` or script that runs every export template in
+5. **Golden harness CLI**: `xtask` or script that runs every export template in
    a plugin folder against fixture projects (extends the crate test pattern).
-6. **WebAssembly phase** – sandbox spec only if a template cannot stay data-only.
+6. **WebAssembly phase**: sandbox spec only if a template cannot stay data-only.
 
 ## Tests
 
