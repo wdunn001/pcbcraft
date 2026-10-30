@@ -1,4 +1,4 @@
-﻿Comment,Designator,Footprint,Supplier Part #
+Comment,Designator,Footprint,Supplier Part #
 100nF,"C10,C13,C14,C15,C16,C7,C8,C9",project:Chip_0402,S-100nF
 10k,R5,project:Chip_0402,S-10k
 10uF,C1,project:Chip_0603,S-10uF

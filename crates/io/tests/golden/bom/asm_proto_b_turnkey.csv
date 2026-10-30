@@ -1,4 +1,4 @@
-﻿Line#,Quantity Per Part Number,Reference Designator,Part Number,Part Description,Package,Type,Manufacturers Name,Manufacturers Part Number,Distributors Part Number
+Line#,Quantity Per Part Number,Reference Designator,Part Number,Part Description,Package,Type,Manufacturers Name,Manufacturers Part Number,Distributors Part Number
 1,1,C10,MP-100nF,Analog supply filter,project:Chip_0402,Surface mount,Maker,MP-100nF,S-100nF
 2,1,C13,MP-100nF,Flash decoupling,project:Chip_0402,Surface mount,Maker,MP-100nF,S-100nF
 3,3,"C14, C15, C16",MP-100nF,Sensor decoupling,project:Chip_0402,Surface mount,Maker,MP-100nF,S-100nF
