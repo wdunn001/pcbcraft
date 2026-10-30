@@ -40,6 +40,7 @@ mod cam;
 mod cam_drill;
 mod cam_shapes;
 mod snapmaker;
+mod stencil;
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
@@ -130,6 +131,11 @@ pub use plot_read::{
 pub use raster::{
     Raster, RasterDepth, RasterOptions, RasterPixels, RegMarkShape, RegistrationMarks,
     layer_raster, raster_bmp, raster_job_pngs, raster_png, raster_svg, rasterize_shapes,
+};
+pub use stencil::{
+    AreaRatioWarning, StencilManifest, StencilOptions, area_ratio_warnings, paste_gerber_files,
+    stencil_cut_svg, stencil_files, stencil_manifest_text, stencil_options_from_settings,
+    validate_stencil_options,
 };
 pub use snapmaker::{
     SnapmakerSettings, snapmaker_cnc_profile, snapmaker_files, snapmaker_finalize,

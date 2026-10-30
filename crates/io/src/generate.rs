@@ -124,6 +124,24 @@ fn copper_gerber_name(layer: &str) -> Option<&'static str> {
     }
 }
 
+fn stencil_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
+    let options = crate::stencil_options_from_settings(&artifact.settings)?;
+    let files = crate::stencil_files(p, &options)?;
+    if artifact.path == "stencil/" {
+        return Ok(GeneratedOutput::Files(files));
+    }
+    let name = artifact
+        .path
+        .strip_prefix("stencil/")
+        .filter(|n| !n.is_empty() && !n.contains('/'))
+        .ok_or_else(|| "stencil path must be stencil/ or stencil/<file>".to_string())?;
+    let text = files
+        .get(name)
+        .ok_or_else(|| format!("stencil export has no file named {name}"))?
+        .clone();
+    Ok(GeneratedOutput::Text(text))
+}
+
 fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, String> {
     let path = artifact.path.as_str();
     if path == "gerber/" || path.starts_with("gerber/") {
@@ -231,7 +249,7 @@ pub fn generate(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput, Str
         "isolation_gcode" => Err("isolation gcode is not available yet; see issue #329".into()),
         "drill_gcode" => Err("drill gcode is not available yet; see issue #330".into()),
         "outline_gcode" => Err("outline gcode is not available yet; see issue #331".into()),
-        "stencil" => Err("stencil output is not available yet; see issue #325".into()),
+        "stencil" => stencil_from_path(p, artifact),
         "laser_path" => Err("laser path output is not available yet; see issue #358".into()),
         other => Err(format!("unknown artifact kind {other}")),
     }
@@ -354,6 +372,30 @@ mod generate_tests {
             return Err("expected a file map".into());
         };
         assert_eq!(map, gerber_files(&project)?);
+        Ok(())
+    }
+
+    #[test]
+    fn generate_stencil_package_writes_paste_cut_and_manifest() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 1,
+            name: "stencil".into(),
+            kind: "stencil".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "stencil/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Files(map) = out else {
+            return Err("expected a file map".into());
+        };
+        assert!(map.contains_key("paste-top.gbr"));
+        assert!(map.contains_key("manifest.json"));
         Ok(())
     }
 }
