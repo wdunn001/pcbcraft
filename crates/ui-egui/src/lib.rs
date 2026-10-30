@@ -37,6 +37,7 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod sheet_rows;
 mod showcase;
 mod sources;
 mod stack_view;
@@ -1119,6 +1120,8 @@ pub struct App {
     schematic: Camera,
     /// Schematic page on the canvas; 0 is the Main page. See `pages.rs`.
     active_page: Id,
+    /// The net each page's Add power port picker holds.
+    power_pick: std::collections::BTreeMap<Id, Id>,
     pcb: Camera,
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
@@ -1681,6 +1684,7 @@ impl App {
             sync_behind: None,
             renumber_open: false,
             active_page: 0,
+            power_pick: std::collections::BTreeMap::new(),
             page_left: 0.0,
             schematic: Camera {
                 mirror: false,
@@ -1981,6 +1985,14 @@ impl App {
         self.tool = Tool::Select;
         self.drag = None;
         self.load_properties();
+    }
+    /// True while the sheet row `row` (`symbols`, `power`, `drawing` or
+    /// `title`) of page `page` is not hidden in the Layers tree.
+    ///
+    /// # Dependencies
+    /// - `crates/ui-egui/src/layers_tree.rs` `page_row_name` builds the stored name.
+    fn page_row_shown(&self, page: Id, row: &str) -> bool {
+        self.layer_shown(&layers_tree::page_row_name(page, row))
     }
     fn layer_shown(&self, name: &str) -> bool {
         !self
@@ -3133,19 +3145,19 @@ impl App {
                 self.tool_call("save", json!({"path":self.path}));
             }
             if ui
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            if ui
                 .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
                 ui.close();
-            }
-            if ui
-                .button(t!("menu.file.compare"))
-                .on_hover_text(t!("menu.file.compare.tip"))
-                .clicked()
-            {
-                self.compare_open = true;
             }
             ui.separator();
             self.import_submenu(ui);
@@ -6252,135 +6264,150 @@ impl App {
             }
         }
         if self.preferences.aside_lower_tab == 1 && assistant::shown(self) {
-            assistant::pane::show(self, ui);
+            let mut padded = egui::Frame::NONE
+                .inner_margin(theme::aside_margin())
+                .begin(ui);
+            assistant::pane::show(self, &mut padded.content_ui);
+            padded.end(ui);
             return;
         }
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                if matches!(self.tool, Tool::DrawLayer | Tool::Hole | Tool::Fiducial) {
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(16, 12))
-                        .show(ui, |ui| self.draw_tool_options(ui));
-                }
-                if self.selected.is_none() && self.tree.selected_key.is_some() {
-                    self.tree_row_properties(ui);
-                } else if let Some(id) = self
-                    .selected
-                    .filter(|id| datums::is_datum(&self.project, *id))
+                // One padding for the whole aside: the content below adds none of its own.
+                let mut padded = egui::Frame::NONE
+                    .inner_margin(theme::aside_margin())
+                    .begin(ui);
                 {
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(16, 12))
-                        .show(ui, |ui| self.datum_inspector(ui, id));
-                } else if let Some(id) = self.selected {
-                    let c = self.project.component(id).cloned().or_else(|| {
-                        self.project
-                            .footprint(id)
-                            .and_then(|f| self.project.component(f.component))
-                            .cloned()
-                    });
-                    if let Some(c) = c {
-                        self.part_properties(ui, id, &c);
-                    } else {
-                        self.object_general(ui, id);
-                        self.via_span_controls(ui, id);
-                        self.via_covering_controls(ui, id);
-                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
-                            let curved = track.arc.is_some();
-                            let net = track.net;
-                            let mid = (
-                                (track.start.x + track.end.x) / 2.0,
-                                (track.start.y + track.end.y) / 2.0,
-                            );
-                            let near = |a: Point, b: Point| {
-                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
-                            };
-                            let span = |a: Point, b: Point| {
-                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
-                            };
-                            let own_len = span(track.start, track.end);
-                            let mate = self
-                                .project
-                                .board
-                                .tracks
-                                .iter()
-                                .filter(|o| o.id != id && o.net == track.net)
-                                .filter_map(|o| {
-                                    let joined = near(o.start, track.start)
-                                        || near(o.start, track.end)
-                                        || near(o.end, track.start)
-                                        || near(o.end, track.end);
-                                    joined.then(|| (o.id, span(o.start, o.end)))
-                                })
-                                .min_by(|a, b| a.1.total_cmp(&b.1));
-                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
-                            ui_kit::section::section(
-                                ui,
-                                "track",
-                                &t!("props.track"),
-                                &t!("props.track.tip"),
-                                |ui| {
-                                    ui.label(t!("board.inspector.wire_width"));
-                                    ui.add(crate::number_entry::localized_active(
-                                        egui::DragValue::new(&mut self.track_width)
-                                            .range(0.05..=10.0)
-                                            .speed(0.05)
-                                            .suffix(format!(" {}", t!("unit.mm"))),
-                                        3,
-                                    ))
-                                    .named("Wire width")
-                                    .on_hover_text(t!("unit.mm7.tip"));
-                                    if ui
-                                        .button(t!("board.inspector.set_width"))
-                                        .on_hover_text(command_tip("track.set_width"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.set_width",
-                                            json!({"id": id, "width": self.track_width}),
-                                        );
-                                    }
-                                    if ui
-                                        .button(t!("board.inspector.thicken_whole_connection"))
-                                        .on_hover_text(t!(
-                                            "board.inspector.thicken_whole_connection.tip"
+                    let ui = &mut padded.content_ui;
+                    ui.spacing_mut().item_spacing.y = theme::ASIDE_ROW_GAP;
+                    if matches!(self.tool, Tool::DrawLayer | Tool::Hole | Tool::Fiducial) {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.draw_tool_options(ui));
+                    }
+                    if let Some(page) = self.hovered_page_preview() {
+                        self.page_properties(ui, page, true);
+                    } else if self.selected.is_none() && self.tree.selected_key.is_some() {
+                        self.tree_row_properties(ui);
+                    } else if let Some(id) = self
+                        .selected
+                        .filter(|id| datums::is_datum(&self.project, *id))
+                    {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.datum_inspector(ui, id));
+                    } else if let Some(id) = self.selected {
+                        let c = self.project.component(id).cloned().or_else(|| {
+                            self.project
+                                .footprint(id)
+                                .and_then(|f| self.project.component(f.component))
+                                .cloned()
+                        });
+                        if let Some(c) = c {
+                            self.part_properties(ui, id, &c);
+                        } else {
+                            self.object_general(ui, id);
+                            self.via_span_controls(ui, id);
+                            self.via_covering_controls(ui, id);
+                            if let Some(track) =
+                                self.project.board.tracks.iter().find(|t| t.id == id)
+                            {
+                                let curved = track.arc.is_some();
+                                let net = track.net;
+                                let mid = (
+                                    (track.start.x + track.end.x) / 2.0,
+                                    (track.start.y + track.end.y) / 2.0,
+                                );
+                                let near = |a: Point, b: Point| {
+                                    (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
+                                };
+                                let span = |a: Point, b: Point| {
+                                    ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
+                                };
+                                let own_len = span(track.start, track.end);
+                                let mate = self
+                                    .project
+                                    .board
+                                    .tracks
+                                    .iter()
+                                    .filter(|o| o.id != id && o.net == track.net)
+                                    .filter_map(|o| {
+                                        let joined = near(o.start, track.start)
+                                            || near(o.start, track.end)
+                                            || near(o.end, track.start)
+                                            || near(o.end, track.end);
+                                        joined.then(|| (o.id, span(o.start, o.end)))
+                                    })
+                                    .min_by(|a, b| a.1.total_cmp(&b.1));
+                                let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
+                                ui_kit::section::section(
+                                    ui,
+                                    "track",
+                                    &t!("props.track"),
+                                    &t!("props.track.tip"),
+                                    |ui| {
+                                        ui.label(t!("board.inspector.wire_width"));
+                                        ui.add(crate::number_entry::localized_active(
+                                            egui::DragValue::new(&mut self.track_width)
+                                                .range(0.05..=10.0)
+                                                .speed(0.05)
+                                                .suffix(format!(" {}", t!("unit.mm"))),
+                                            3,
                                         ))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.set_width_net",
-                                            json!({"net": net, "width": self.track_width}),
-                                        );
-                                    }
-                                    if ui
-                                        .add_enabled(
-                                            curved,
-                                            egui::Button::new(t!("board.inspector.straighten")),
-                                        )
-                                        .on_hover_text(if curved {
-                                            t!("board.inspector.pull_this_curved_wire_into")
-                                        } else {
-                                            t!("board.inspector.this_wire_is_already_straight")
-                                        })
-                                        .clicked()
-                                    {
-                                        self.run("track.straighten", json!({"id": id}));
-                                    }
-                                    let corner_ready = mate.is_some();
-                                    ui.horizontal(|ui| {
-                                        ui.add_enabled(
-                                            corner_ready,
-                                            crate::number_entry::localized_active(
-                                                egui::DragValue::new(&mut self.chamfer_size)
-                                                    .range(0.05..=1.5)
-                                                    .speed(0.05)
-                                                    .suffix(format!(" {}", t!("unit.mm"))),
-                                                3,
-                                            ),
-                                        )
-                                        .named("Corner size")
-                                        .on_hover_text(t!("unit.mm8.tip"));
+                                        .named("Wire width")
+                                        .on_hover_text(t!("unit.mm7.tip"));
                                         if ui
+                                            .button(t!("board.inspector.set_width"))
+                                            .on_hover_text(command_tip("track.set_width"))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.set_width",
+                                                json!({"id": id, "width": self.track_width}),
+                                            );
+                                        }
+                                        if ui
+                                            .button(t!("board.inspector.thicken_whole_connection"))
+                                            .on_hover_text(t!(
+                                                "board.inspector.thicken_whole_connection.tip"
+                                            ))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.set_width_net",
+                                                json!({"net": net, "width": self.track_width}),
+                                            );
+                                        }
+                                        if ui
+                                            .add_enabled(
+                                                curved,
+                                                egui::Button::new(t!("board.inspector.straighten")),
+                                            )
+                                            .on_hover_text(if curved {
+                                                t!("board.inspector.pull_this_curved_wire_into")
+                                            } else {
+                                                t!("board.inspector.this_wire_is_already_straight")
+                                            })
+                                            .clicked()
+                                        {
+                                            self.run("track.straighten", json!({"id": id}));
+                                        }
+                                        let corner_ready = mate.is_some();
+                                        ui.horizontal(|ui| {
+                                            ui.add_enabled(
+                                                corner_ready,
+                                                crate::number_entry::localized_active(
+                                                    egui::DragValue::new(&mut self.chamfer_size)
+                                                        .range(0.05..=1.5)
+                                                        .speed(0.05)
+                                                        .suffix(format!(" {}", t!("unit.mm"))),
+                                                    3,
+                                                ),
+                                            )
+                                            .named("Corner size")
+                                            .on_hover_text(t!("unit.mm8.tip"));
+                                            if ui
                                             .add_enabled(
                                                 corner_ready,
                                                 egui::Button::new(t!("board.inspector.cut_corner")),
@@ -6399,108 +6426,111 @@ impl App {
                                                 json!({"a": id, "b": other, "size": size}),
                                             );
                                         }
-                                    });
-                                    if ui
-                                        .button(t!("board.inspector.cut_in_half"))
-                                        .on_hover_text(t!("board.inspector.cut_in_half.tip"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.split",
-                                            json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
-                                        );
-                                    }
-                                    self.impedance_section(ui, id, net);
-                                },
-                            );
-                        }
-                        if let Some(zone) = self
-                            .project
-                            .board
-                            .zones
-                            .iter()
-                            .find(|z| z.id == id)
-                            .filter(|z| z.kind.as_deref() != Some("teardrop"))
-                        {
-                            let net = zone.net;
-                            let (mut min_x, mut max_x, mut min_y, mut max_y) =
-                                (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-                            for p in &zone.outline {
-                                min_x = min_x.min(p.x);
-                                max_x = max_x.max(p.x);
-                                min_y = min_y.min(p.y);
-                                max_y = max_y.max(p.y);
+                                        });
+                                        if ui
+                                            .button(t!("board.inspector.cut_in_half"))
+                                            .on_hover_text(t!("board.inspector.cut_in_half.tip"))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "track.split",
+                                                json!({"id": id, "at": {"x": mid.0, "y": mid.1}}),
+                                            );
+                                        }
+                                        self.impedance_section(ui, id, net);
+                                    },
+                                );
                             }
-                            ui_kit::section::section(
-                                ui,
-                                "zone",
-                                &t!("props.zone"),
-                                &t!("props.zone.tip"),
-                                |ui| {
-                                    self.pour_panel(ui, id);
-                                    ui.add_space(10.0);
-                                    ui.label(t!("board.inspector.ground_stitching"));
-                                    ui.add(crate::number_entry::localized_active(
-                                        egui::DragValue::new(&mut self.stitch_spacing)
-                                            .range(0.5..=50.0)
-                                            .speed(0.5)
-                                            .suffix(format!(" {}", t!("unit.mm"))),
-                                        3,
-                                    ))
-                                    .named("Stitch spacing")
-                                    .on_hover_text(t!("unit.mm9.tip"));
-                                    if ui
-                                        .button(t!("board.inspector.fill_with_vias"))
-                                        .on_hover_text(t!("board.inspector.fill_with_vias.tip"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "via.stitch",
-                                            json!({
-                                                "net": net,
-                                                "bounds": {
-                                                    "x": min_x,
-                                                    "y": min_y,
-                                                    "width": max_x - min_x,
-                                                    "height": max_y - min_y,
-                                                },
-                                                "spacing": self.stitch_spacing,
-                                                "diameter": 0.6,
-                                                "drill": 0.3,
-                                            }),
-                                        );
-                                    }
-                                },
-                            );
-                        }
-                    }
-                    if self.project.component(id).is_none() && self.project.footprint(id).is_none()
-                    {
-                        egui::Frame::NONE
-                            .inner_margin(egui::Margin::symmetric(16, 12))
-                            .show(ui, |ui| {
-                                if ui_kit::button::secondary_button(
-                                    ui,
-                                    None,
-                                    &t!("board.inspector.delete_del"),
-                                    &command_tip("object.delete"),
-                                    ui_kit::button::Size::Normal,
-                                    true,
-                                )
-                                .clicked()
-                                {
-                                    self.delete_selection();
+                            if let Some(zone) = self
+                                .project
+                                .board
+                                .zones
+                                .iter()
+                                .find(|z| z.id == id)
+                                .filter(|z| z.kind.as_deref() != Some("teardrop"))
+                            {
+                                let net = zone.net;
+                                let (mut min_x, mut max_x, mut min_y, mut max_y) =
+                                    (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                                for p in &zone.outline {
+                                    min_x = min_x.min(p.x);
+                                    max_x = max_x.max(p.x);
+                                    min_y = min_y.min(p.y);
+                                    max_y = max_y.max(p.y);
                                 }
+                                ui_kit::section::section(
+                                    ui,
+                                    "zone",
+                                    &t!("props.zone"),
+                                    &t!("props.zone.tip"),
+                                    |ui| {
+                                        self.pour_panel(ui, id);
+                                        ui.add_space(10.0);
+                                        ui.label(t!("board.inspector.ground_stitching"));
+                                        ui.add(crate::number_entry::localized_active(
+                                            egui::DragValue::new(&mut self.stitch_spacing)
+                                                .range(0.5..=50.0)
+                                                .speed(0.5)
+                                                .suffix(format!(" {}", t!("unit.mm"))),
+                                            3,
+                                        ))
+                                        .named("Stitch spacing")
+                                        .on_hover_text(t!("unit.mm9.tip"));
+                                        if ui
+                                            .button(t!("board.inspector.fill_with_vias"))
+                                            .on_hover_text(t!("board.inspector.fill_with_vias.tip"))
+                                            .clicked()
+                                        {
+                                            self.run(
+                                                "via.stitch",
+                                                json!({
+                                                    "net": net,
+                                                    "bounds": {
+                                                        "x": min_x,
+                                                        "y": min_y,
+                                                        "width": max_x - min_x,
+                                                        "height": max_y - min_y,
+                                                    },
+                                                    "spacing": self.stitch_spacing,
+                                                    "diameter": 0.6,
+                                                    "drill": 0.3,
+                                                }),
+                                            );
+                                        }
+                                    },
+                                );
+                            }
+                        }
+                        if self.project.component(id).is_none()
+                            && self.project.footprint(id).is_none()
+                        {
+                            egui::Frame::NONE
+                                .inner_margin(egui::Margin::ZERO)
+                                .show(ui, |ui| {
+                                    if ui_kit::button::secondary_button(
+                                        ui,
+                                        None,
+                                        &t!("board.inspector.delete_del"),
+                                        &command_tip("object.delete"),
+                                        ui_kit::button::Size::Normal,
+                                        true,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.delete_selection();
+                                    }
+                                });
+                        }
+                    } else {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| {
+                                ui.heading(t!("board.inspector.nothing_selected"));
+                                ui.label(t!("board.inspector.select_an_item_on_the"));
                             });
                     }
-                } else {
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(16, 12))
-                        .show(ui, |ui| {
-                            ui.heading(t!("board.inspector.nothing_selected"));
-                            ui.label(t!("board.inspector.select_an_item_on_the"));
-                        });
                 }
+                padded.end(ui);
             });
     }
     fn footer(&mut self, ui: &mut egui::Ui) {
@@ -6851,6 +6881,17 @@ impl App {
         self.frames = self.frames.saturating_add(1);
         if self.frames == 3 && self.capture_sheet {
             self.open_sheet(bottom_sheet::SheetTab::Findings);
+        }
+        if self.frames == 3
+            && let Some(row) = self
+                .capture_select
+                .as_deref()
+                .and_then(|s| s.strip_prefix("row:"))
+                .map(str::to_owned)
+        {
+            // `--select row:title` (or symbols, power, drawing) opens that page row.
+            self.capture_select = None;
+            self.select_sheet_row(0, &row);
         }
         if self.frames == 3
             && let Some(reference) = self.capture_select.take()

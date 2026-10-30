@@ -38,8 +38,6 @@ enum Act {
     Hole,
     Fiducial,
     Measure,
-    /// A pick filter chip: the label of the flag it flips.
-    Pick(&'static str),
 }
 
 /// One entry of the bar.
@@ -71,11 +69,7 @@ fn label_width(ui: &egui::Ui, text: &str) -> f32 {
 
 impl Item {
     fn width(&self, ui: &egui::Ui) -> f32 {
-        let icon = if matches!(self.act, Act::Pick(_)) {
-            0.0
-        } else {
-            16.0 + ICON_GAP
-        };
+        let icon = 16.0 + ICON_GAP;
         let gap = if self.divider {
             2.0 * GROUP_GAP + 1.0
         } else {
@@ -89,7 +83,6 @@ impl App {
     /// The toolbar button look: copper tint when active, raised on hover.
     fn toolbar_button(&self, ui: &mut egui::Ui, item: &Item) -> egui::Response {
         let t = theme::tokens(ui.ctx());
-        let pick = matches!(item.act, Act::Pick(_));
         let size = Vec2::new(
             item.width(ui)
                 - if item.divider {
@@ -118,11 +111,9 @@ impl App {
             t.text
         };
         let mut x = rect.min.x + PAD;
-        if !pick {
-            let r = Rect::from_min_size(pos2(x, rect.center().y - 8.0), Vec2::splat(16.0));
-            crate::icons::icon_at(ui, r, item.icon, ink);
-            x += 16.0 + ICON_GAP;
-        }
+        let r = Rect::from_min_size(pos2(x, rect.center().y - 8.0), Vec2::splat(16.0));
+        crate::icons::icon_at(ui, r, item.icon, ink);
+        x += 16.0 + ICON_GAP;
         let font = if item.armed {
             Role::Strong.font()
         } else {
@@ -367,38 +358,6 @@ impl App {
             Act::Measure,
             true,
         );
-        let f = self.edit.filter;
-        for (i, (label, flag, tip)) in [
-            (
-                t!("toolbar.pick_parts"),
-                f.parts,
-                t!("toolbar.pick_parts.tip"),
-            ),
-            (
-                t!("toolbar.pick_copper"),
-                f.copper,
-                t!("toolbar.pick_copper.tip"),
-            ),
-            (
-                t!("toolbar.pick_graphics"),
-                f.graphics,
-                t!("toolbar.pick_graphics.tip"),
-            ),
-            (t!("toolbar.pick_text"), f.text, t!("toolbar.pick_text.tip")),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            push(
-                "pick",
-                "select",
-                label,
-                tip,
-                flag,
-                Act::Pick(["Parts", "Copper", "Graphics", "Text"][i]),
-                i == 0,
-            );
-        }
         out
     }
 
@@ -431,16 +390,6 @@ impl App {
             Act::Hole => self.tool = Tool::Hole,
             Act::Fiducial => self.tool = Tool::Fiducial,
             Act::Measure => self.arm_measure(),
-            Act::Pick(which) => {
-                let f = &mut self.edit.filter;
-                let flag = match which {
-                    "Parts" => &mut f.parts,
-                    "Copper" => &mut f.copper,
-                    "Graphics" => &mut f.graphics,
-                    _ => &mut f.text,
-                };
-                *flag = !*flag;
-            }
         }
     }
 
@@ -490,10 +439,7 @@ impl App {
                     Self::toolbar_divider(ui, &t);
                 }
                 let r = self.toolbar_button(ui, item);
-                // Pick chips carry no icon; recording them would rename the last chip "icon:pick".
-                if !matches!(item.act, Act::Pick(_)) {
-                    self.record_icon(item.id, r.rect);
-                }
+                self.record_icon(item.id, r.rect);
                 if r.clicked() {
                     action = Some(item.act);
                 }
@@ -524,24 +470,14 @@ impl App {
                 egui::Popup::menu(&resp).show(|ui| {
                     ui.set_min_width(200.0);
                     for item in rest {
-                        let label = format!(
-                            "{}{}",
-                            if matches!(item.act, Act::Pick(_)) {
-                                t!("toolbar.pick_prefix")
-                            } else {
-                                String::new()
-                            },
-                            item.label
-                        );
+                        let label = item.label.clone();
                         if ui
                             .selectable_label(item.armed, fonts::text(Role::Body, label))
                             .on_hover_text(&item.tip)
                             .clicked()
                         {
                             action = Some(item.act);
-                            if !matches!(item.act, Act::Pick(_)) {
-                                ui.close();
-                            }
+                            ui.close();
                         }
                     }
                 });

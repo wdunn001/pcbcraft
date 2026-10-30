@@ -49,7 +49,7 @@ pub struct ContentFormat {
     pub status: Status,
 }
 
-const NAMING: &[(&str, &[&str])] = &[("naming", &["ucamco", "protel"])];
+const NAMING: &[(&str, &[&str])] = &[("naming", &["ucamco", "legacy_ext"])];
 const NONE: &[(&str, &[&str])] = &[];
 const fn ready(id: &'static str, label: &'static str) -> ContentFormat {
     ContentFormat {
@@ -326,8 +326,8 @@ pub fn expand(
     Ok(out)
 }
 
-/// Protel-style extension for a Gerber layer name such as `F.Cu`.
-fn protel_ext(layer: &str) -> &'static str {
+/// Legacy layer suffix for a Gerber layer name such as `F.Cu` (`.GTL` style).
+fn legacy_layer_ext(layer: &str) -> &'static str {
     match layer {
         "F.Cu" => "GTL",
         "B.Cu" => "GBL",
@@ -423,7 +423,7 @@ fn render_content(
     let name = |side: Option<&str>, layer: Option<&str>, ext: Option<&str>| {
         expand(&c.name, t, side, layer, ext)
     };
-    let protel = c.options.get("naming").is_some_and(|v| v == "protel");
+    let legacy_ext = c.options.get("naming").is_some_and(|v| v == "legacy_ext");
     let one = |ext: &str, text: String| -> Result<Rendered, String> {
         Ok(vec![text_entry(
             name(None, None, Some(ext))?,
@@ -442,7 +442,11 @@ fn render_content(
                 else {
                     continue;
                 };
-                let ext = if protel { protel_ext(layer) } else { "gbr" };
+                let ext = if legacy_ext {
+                    legacy_layer_ext(layer)
+                } else {
+                    "gbr"
+                };
                 out.push(text_entry(
                     name(Some(side_of(layer)), Some(layer), Some(ext))?,
                     &c.kind,
@@ -465,7 +469,7 @@ fn render_content(
                 else {
                     continue;
                 };
-                let ext = if protel { "TXT" } else { "drl" };
+                let ext = if legacy_ext { "TXT" } else { "drl" };
                 out.push(text_entry(
                     name(None, Some(layer), Some(ext))?,
                     &c.kind,

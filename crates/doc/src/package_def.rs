@@ -45,7 +45,7 @@ pub struct PackageContent {
     pub kind: String,
     /// The writer format id, for example `gerber_layers` or `bom_csv`.
     pub format: String,
-    /// Writer options as text, for example `naming` = `protel`.
+    /// Writer options as text, for example `naming` = `legacy_ext`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub options: BTreeMap<String, String>,
     /// File name template. One content may write several files (one per layer).

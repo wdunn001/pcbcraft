@@ -2,7 +2,7 @@
   {
     "id": "fab_prototype",
     "name": "Prototype fab (Gerber + drill)",
-    "audience": "Online prototype board makers that take a ZIP of Gerber layers with Protel-style extensions and drill files, no folders.",
+    "audience": "Online prototype board makers that take a ZIP of Gerber layers with legacy layer suffixes (.GTL style) and drill files, no folders.",
     "container": "zip",
     "archive": "{project}-fab-{rev}.zip",
     "files": [
@@ -11,7 +11,7 @@
         "format": "gerber_layers",
         "name": "{project}.{ext}",
         "options": {
-          "naming": "protel"
+          "naming": "legacy_ext"
         }
       },
       {
@@ -19,7 +19,7 @@
         "format": "gerber_drill",
         "name": "{project}-{layer}.{ext}",
         "options": {
-          "naming": "protel"
+          "naming": "legacy_ext"
         }
       },
       {

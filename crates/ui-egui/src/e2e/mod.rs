@@ -31,6 +31,7 @@ mod route_drag;
 mod rules;
 mod schematic_pages;
 mod settings;
+mod sheet_rows;
 mod shell;
 mod showcase;
 mod toolbar;

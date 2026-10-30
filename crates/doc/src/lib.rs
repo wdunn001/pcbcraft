@@ -191,6 +191,62 @@ pub struct Sheet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<Point>,
 }
+/// The settings of one schematic page that are not drawn objects: its title
+/// block fields, whether the title block shows, and the defaults new graphics
+/// on the page start with. A page with no record uses the defaults of
+/// [`PageSettings::new`] and the project metadata for its title block.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PageSettings {
+    /// The page these settings belong to; 0 is the Main page.
+    pub sheet: Id,
+    /// Empty falls back to the project metadata `title`, then the project name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// The version of this sheet, such as `B` or `2.1`; printed in the title block.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub revision: String,
+    /// Empty falls back to the project metadata `date`, then today.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub date: String,
+    /// A standard paper size such as `A4`; empty picks the smallest that fits.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub size: String,
+    /// The company or person the design belongs to.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub company: String,
+    /// Who drew this sheet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub drawn_by: String,
+    /// True when the page draws no title block.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub title_hidden: bool,
+    /// Stroke width in millimetres new graphics on this page start with.
+    #[serde(default = "default_page_line_width")]
+    pub line_width: f64,
+    /// Stroke colour `#rrggbb` new graphics start with; empty is the theme ink.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub line_color: String,
+}
+fn default_page_line_width() -> f64 {
+    0.25
+}
+impl PageSettings {
+    /// Settings with every field at its default for page `sheet`.
+    pub fn new(sheet: Id) -> Self {
+        Self {
+            sheet,
+            title: String::new(),
+            revision: String::new(),
+            date: String::new(),
+            size: String::new(),
+            company: String::new(),
+            drawn_by: String::new(),
+            title_hidden: false,
+            line_width: default_page_line_width(),
+            line_color: String::new(),
+        }
+    }
+}
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -662,6 +718,9 @@ pub struct Graphic {
     /// artwork only, no mask meaning).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sublayer: String,
+    /// Stroke colour as `#rrggbb`; empty draws in the theme's default ink.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
 }
 /// Fabrication sublayer names a board graphic may carry.
 pub const GRAPHIC_SUBLAYERS: [&str; 4] = ["F.SilkS", "B.SilkS", "F.Mask", "B.Mask"];
@@ -3156,6 +3215,10 @@ pub struct Project {
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
+    /// Per-page title block fields and drawing defaults; a page without a
+    /// record uses [`PageSettings::new`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub page_settings: Vec<PageSettings>,
     /// Named hierarchy ports, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<Port>,
@@ -3355,6 +3418,7 @@ impl Default for Project {
             net_classes: vec![],
             class_pairs: vec![],
             sheets: vec![],
+            page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
@@ -4028,7 +4092,9 @@ impl Project {
         let to = self.component(wire.to.component)?.sheet;
         if from == to { Some(from) } else { None }
     }
-    fn schematic_label_page(&self, label: &Label) -> Id {
+    /// The page a label shows on: the page of the nearest part pin or port on its net,
+    /// the Main page when none is found.
+    pub fn schematic_label_page(&self, label: &Label) -> Id {
         if label.kind == "junction" {
             for wire in &self.wires {
                 if wire.net != label.net {
@@ -4098,6 +4164,14 @@ impl Project {
             }
         }
         best.1
+    }
+    /// The settings of page `sheet`, or the defaults when it has no record.
+    pub fn page_settings_of(&self, sheet: Id) -> PageSettings {
+        self.page_settings
+            .iter()
+            .find(|s| s.sheet == sheet)
+            .cloned()
+            .unwrap_or_else(|| PageSettings::new(sheet))
     }
     /// True when a schematic object should appear on the given page.
     pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
