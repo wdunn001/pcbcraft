@@ -1,8 +1,9 @@
 //! Initial electrical and geometric checks, with object-addressable diagnostics.
 use pcbcraft_doc::{
-    ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
-    PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, ViaKind, panel_layout, panel_score_lines,
+    ArtKind, ArtShape, Board, Component, FabRules, Footprint, Id, Layer,
+    PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT, PANEL_SCORE_COMPONENT_MIN_MM,
+    PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad, PanelSeparation, Project, Via,
+    ViaKind, panel_layout, panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
@@ -666,6 +667,101 @@ pub fn airwires(project: &Project) -> Vec<Airwire> {
     airwires_from(&copper(project))
 }
 
+const ESD_DEVICE_FAR_CODE: &str = "esd_device_far_from_connector";
+
+fn esd_check_enabled(project: &Project) -> bool {
+    matches!(
+        project
+            .rule_severity
+            .get(ESD_DEVICE_FAR_CODE)
+            .map(String::as_str),
+        Some("error") | Some("warning")
+    )
+}
+
+fn word_tvs(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| w == "tvs")
+}
+
+pub fn is_tvs(component: &Component) -> bool {
+    if component.kind == "tvs" {
+        return true;
+    }
+    if word_tvs(&component.value) {
+        return true;
+    }
+    component.fields.iter().any(|f| word_tvs(&f.value))
+}
+
+fn component_footprint<'a>(project: &'a Project, component: Id) -> Option<&'a Footprint> {
+    project
+        .board
+        .footprints
+        .iter()
+        .find(|f| f.component == component)
+}
+
+fn esd_device_far_findings(project: &Project) -> Vec<Finding> {
+    if !esd_check_enabled(project) || project.board.footprints.is_empty() {
+        return vec![];
+    }
+    let limit = project.esd_max_distance_mm;
+    let mut result = vec![];
+    for connector in project
+        .components
+        .iter()
+        .filter(|c| c.kind == "connector")
+    {
+        let Some(conn_fp) = component_footprint(project, connector.id) else {
+            continue;
+        };
+        for pin in &connector.pins {
+            let Some(net) = pin.net else {
+                continue;
+            };
+            if !project.components.iter().any(|c| {
+                is_tvs(c) && c.pins.iter().any(|p| p.net == Some(net))
+            }) {
+                continue;
+            }
+            let Some(conn_pad) = conn_fp.pad_position(&pin.number) else {
+                continue;
+            };
+            for tvs in project.components.iter().filter(|c| is_tvs(c)) {
+                let Some(tvs_fp) = component_footprint(project, tvs.id) else {
+                    continue;
+                };
+                for tvs_pin in tvs.pins.iter().filter(|p| p.net == Some(net)) {
+                    let Some(tvs_pad) = tvs_fp.pad_position(&tvs_pin.number) else {
+                        continue;
+                    };
+                    let distance = conn_pad.distance(tvs_pad);
+                    if distance > limit + 1e-9 {
+                        result.push(Finding {
+                            code: ESD_DEVICE_FAR_CODE,
+                            severity: project.rule_severity(ESD_DEVICE_FAR_CODE, "off"),
+                            message: format!(
+                                "{} is {:.1} mm from {} pin {} on {}; limit is {:.1} mm. \
+                                 Move the protection part next to the connector pad.",
+                                tvs.reference,
+                                distance,
+                                connector.reference,
+                                pin.number,
+                                project.net_name(net),
+                                limit,
+                            ),
+                            objects: vec![connector.id, tvs.id],
+                        });
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
 pub fn erc(project: &Project) -> Vec<Finding> {
     let mut result = vec![];
     for c in &project.components {
@@ -795,6 +891,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    result.extend(esd_device_far_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)
@@ -1942,6 +2039,117 @@ mod tests {
             hole: None,
             cutouts: vec![],
         }
+    }
+    fn esd_placed_fixture(
+        connector_x: f64,
+        tvs_x: f64,
+        enable: bool,
+    ) -> Result<Project, String> {
+        let mut p = Project::default();
+        p.esd_max_distance_mm = 10.0;
+        if enable {
+            p.rule_severity.insert(
+                "esd_device_far_from_connector".into(),
+                "warning".into(),
+            );
+        }
+        p.nets.push(Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        let mut connector = component_template("connector", 2, "J1".into(), Point::new(connector_x, 0.0))
+            .ok_or("connector template missing")?;
+        connector.pins[0].net = Some(1);
+        p.components.push(connector);
+        let mut tvs = component_template("tvs", 3, "D1".into(), Point::new(tvs_x, 0.0))
+            .ok_or("tvs template missing")?;
+        tvs.pins[0].net = Some(1);
+        p.components.push(tvs);
+        for (component, x) in [(2_u64, connector_x), (3, tvs_x)] {
+            p.board.footprints.push(Footprint {
+                id: component + 10,
+                component,
+                position: Point::new(x, 0.0),
+                rotation: 0.0,
+                locked: None,
+                side: None,
+                pads: vec![
+                    Pad {
+                        number: "1".into(),
+                        offset: Point::default(),
+                        diameter: 1.0,
+                        net: Some(1),
+                        castellated: None,
+                        geometry: None,
+                    },
+                    Pad {
+                        number: "2".into(),
+                        offset: Point::new(2.0, 0.0),
+                        diameter: 1.0,
+                        net: None,
+                        castellated: None,
+                        geometry: None,
+                    },
+                ],
+            });
+        }
+        Ok(p)
+    }
+    #[test]
+    fn is_tvs_matches_kind_and_value_word() -> Result<(), String> {
+        let mut by_kind = component_template("tvs", 1, "D1".into(), Point::default())
+            .ok_or("tvs template missing")?;
+        assert!(is_tvs(&by_kind));
+        by_kind.kind = "resistor".into();
+        by_kind.value = "SM712 TVS".into();
+        assert!(is_tvs(&by_kind));
+        by_kind.value = "stvsomething".into();
+        assert!(!is_tvs(&by_kind));
+        by_kind.value = "1k".into();
+        by_kind.fields.push(pcbcraft_doc::ComponentField {
+            key: "Note".into(),
+            value: "Use a TVS here".into(),
+        });
+        assert!(is_tvs(&by_kind));
+        Ok(())
+    }
+    #[test]
+    fn erc_reports_esd_device_far_from_connector_when_placed() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.validate()?;
+        assert!(erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
+    }
+    #[test]
+    fn erc_clears_esd_device_when_close() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 3.0, true)?;
+        p.validate()?;
+        assert!(!erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_off_by_default() -> Result<(), String> {
+        let p = esd_placed_fixture(0.0, 25.0, false)?;
+        p.validate()?;
+        assert!(!erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
+    }
+    #[test]
+    fn erc_esd_ignores_schematic_only_designs() -> Result<(), String> {
+        let mut p = esd_placed_fixture(0.0, 25.0, true)?;
+        p.board.footprints.clear();
+        p.validate()?;
+        assert!(!erc(&p)
+            .iter()
+            .any(|f| f.code == "esd_device_far_from_connector"));
+        Ok(())
     }
     #[test]
     fn erc_suppresses_unassigned_pin_warnings_for_no_connect_flags() -> Result<(), String> {

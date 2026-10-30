@@ -3268,6 +3268,13 @@ pub struct Project {
     /// moves everything that depends on it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bindings: Vec<Binding>,
+    /// Maximum board distance from a connector signal pad to a protection
+    /// device pad on the same net.
+    #[serde(
+        default = "default_esd_max_distance_mm",
+        skip_serializing_if = "is_default_esd_max_mm"
+    )]
+    pub esd_max_distance_mm: f64,
     /// Per-check-code severity overrides: "error", "warning" or "off" to
     /// silence a check whose findings this design accepts as normal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -3316,6 +3323,14 @@ pub struct Project {
 
 fn default_auto_sync() -> bool {
     true
+}
+
+fn default_esd_max_distance_mm() -> f64 {
+    10.0
+}
+
+fn is_default_esd_max_mm(v: &f64) -> bool {
+    v.is_finite() && (*v - default_esd_max_distance_mm()).abs() < 1e-9
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -3424,6 +3439,7 @@ impl Default for Project {
             meta: Default::default(),
             parameters: Default::default(),
             bindings: vec![],
+            esd_max_distance_mm: default_esd_max_distance_mm(),
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
@@ -3498,6 +3514,12 @@ pub const TEMPLATES: &[Template] = &[
         label: "2-pin connector",
         prefix: "J",
         value: "Power",
+    },
+    Template {
+        kind: "tvs",
+        label: "Protection diode",
+        prefix: "D",
+        value: "TVS",
     },
 ];
 pub fn component_template(
@@ -4492,6 +4514,12 @@ impl Project {
         }
         if !Self::UNITS.contains(&self.unit.as_str()) {
             return Err("project unit must be mm, mil or inch".into());
+        }
+        if !self.esd_max_distance_mm.is_finite()
+            || self.esd_max_distance_mm < 0.5
+            || self.esd_max_distance_mm > 100.0
+        {
+            return Err("esd distance must be 0.5 to 100 mm".into());
         }
         if self.panel.enabled {
             self.panel.validate_fields()?;
@@ -5801,6 +5829,19 @@ fn orthogonal_path(a: Point, b: Point, da: Point, db: Point) -> Vec<Point> {
         end,
         b,
     ]
+}
+
+#[cfg(test)]
+mod esd_settings_tests {
+    use super::*;
+
+    #[test]
+    fn esd_distance_default_is_ten_millimetres() -> Result<(), String> {
+        let p = Project::default();
+        assert!((p.esd_max_distance_mm - 10.0).abs() < 1e-9);
+        p.validate()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

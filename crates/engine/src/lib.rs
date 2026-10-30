@@ -1760,6 +1760,14 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "rules.esd_max_distance_mm",
+            "Set the maximum board distance in millimetres from a connector signal pad to a protection device pad on the same net",
+            schema(
+                json!({"max_mm":{"type":"number","minimum":0.5,"maximum":100,"description":"pad-centre limit in millimetres"}}),
+                &["max_mm"],
+            ),
+        ),
+        (
             "erc.matrix_set",
             "Set one cell of the pin-type connection matrix used by ERC",
             schema(
@@ -4445,6 +4453,11 @@ struct RuleSeverityParams {
     code: String,
     #[serde(default)]
     severity: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleEsdMaxMmParams {
+    max_mm: f64,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -14440,6 +14453,16 @@ fn run_command(
                 }
             };
             Ok(json!({"code": a.code, "set": set}))
+        }
+        "rules.esd_max_distance_mm" => {
+            let a: RuleEsdMaxMmParams = parse(params)?;
+            if !a.max_mm.is_finite() || a.max_mm < 0.5 || a.max_mm > 100.0 {
+                return Err(Error::Invalid(
+                    "esd distance must be 0.5 to 100 mm".into(),
+                ));
+            }
+            p.esd_max_distance_mm = a.max_mm;
+            Ok(json!({"esd_max_distance_mm": a.max_mm}))
         }
         "rules.exclude" => {
             let a: RuleExcludeParams = parse(params)?;
@@ -24922,6 +24945,36 @@ mod tests {
             serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
         loaded.validate()?;
         assert_eq!(loaded, s.project);
+        Ok(())
+    }
+    #[test]
+    fn esd_distance_command_round_trips_and_rejects_bad_values() -> Result<(), Error> {
+        let mut s = Session::default();
+        assert!(
+            (s.project.esd_max_distance_mm - 10.0).abs() < 1e-9,
+            "projects start with a 10 mm esd limit"
+        );
+        s.execute("rules.esd_max_distance_mm", json!({"max_mm": 5.0}), None)?;
+        assert!((s.project.esd_max_distance_mm - 5.0).abs() < 1e-9);
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let loaded: pcbcraft_doc::Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        loaded.validate()?;
+        assert!((loaded.esd_max_distance_mm - 5.0).abs() < 1e-9);
+        let before = s.inspect();
+        for params in [
+            json!({"max_mm": 0.0}),
+            json!({"max_mm": 100.1}),
+            json!({"max_mm": "wide"}),
+            json!({}),
+        ] {
+            assert!(
+                s.execute("rules.esd_max_distance_mm", params, None).is_err(),
+                "bad esd distance leaves the project unchanged"
+            );
+        }
+        assert_eq!(s.inspect(), before);
+        assert!((s.project.esd_max_distance_mm - 5.0).abs() < 1e-9);
         Ok(())
     }
     #[test]
