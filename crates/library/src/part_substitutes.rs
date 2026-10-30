@@ -269,7 +269,8 @@ pub fn write_sidecar(path: &Path, substitutes: &PartSubstitutes) -> Result<(), S
     substitutes.validate()?;
     if substitutes.is_empty() {
         match std::fs::remove_file(path) {
-            Ok(()) | Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(format!("{}: {e}", path.display())),
         }
     } else {
