@@ -44,10 +44,7 @@ pub trait PortalStore: Send + Sync {
     fn record_file(&self, row: &FileRow) -> Result<(), PortalError>;
 
     fn begin_upload(&self, request: &UploadInitRequest) -> Result<UploadInitResponse, PortalError>;
-    fn complete_upload(
-        &self,
-        request: &UploadCompleteRequest,
-    ) -> Result<VersionRow, PortalError>;
+    fn complete_upload(&self, request: &UploadCompleteRequest) -> Result<VersionRow, PortalError>;
 
     fn list_queue(&self, limit: u32) -> Result<Vec<QueueItem>, PortalError>;
     fn insert_report(&self, request: &ReportCreateRequest) -> Result<ReportView, PortalError>;

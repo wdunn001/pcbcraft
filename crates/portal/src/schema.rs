@@ -137,12 +137,16 @@ pub struct DecisionLogRow {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum DecisionSubject {
-    Upload { upload_id: String },
+    Upload {
+        upload_id: String,
+    },
     Publication {
         publication_id: String,
         version_label: String,
     },
-    Report { report_id: String },
+    Report {
+        report_id: String,
+    },
 }
 
 /// Legal takedown workflow state.

@@ -318,9 +318,7 @@ fn layers() -> Result<(), String> {
     let layer = |name: &str| -> Option<u8> {
         match name {
             "pcbcraft-geom" | "pcbcraft-text" | "pcbcraft-calc" => Some(0),
-            "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-portal" | "pcbcraft-sim" => {
-                Some(1)
-            }
+            "pcbcraft-doc" | "pcbcraft-library" | "pcbcraft-portal" | "pcbcraft-sim" => Some(1),
             "pcbcraft-rules" | "pcbcraft-io" => Some(2),
             "pcbcraft-engine" => Some(3),
             "pcbcraft-mcp" | "pcbcraft-ui-egui" => Some(4),

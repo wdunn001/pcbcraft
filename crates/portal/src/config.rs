@@ -19,7 +19,9 @@ pub struct PortalConfig {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "driver", rename_all = "kebab-case")]
 pub enum ObjectStoreConfig {
-    LocalFolder { root: String },
+    LocalFolder {
+        root: String,
+    },
     S3Compatible {
         bucket: String,
         region: String,
