@@ -14861,6 +14861,13 @@ fn run_command(
             let a: LayerLineParams = parse(params)?;
             art_range(a.x1, a.y1)?;
             art_range(a.x2, a.y2)?;
+            let start = Point { x: a.x1, y: a.y1 };
+            let end = Point { x: a.x2, y: a.y2 };
+            if start.distance(end) < pcbcraft_doc::ART_STROKE_MIN_MM {
+                return Err(Error::Invalid(
+                    "a layer line needs two endpoints at least 0.001 mm apart".into(),
+                ));
+            }
             let Some(layer) = p.board.user_layers.iter_mut().find(|l| l.id == a.layer) else {
                 return Err(Error::Invalid("unknown drawn layer".into()));
             };
@@ -14869,10 +14876,7 @@ fn run_command(
                     "a drawn layer carries at most 512 figures".into(),
                 ));
             }
-            layer.shapes.push(pcbcraft_doc::ArtShape::Line {
-                start: Point { x: a.x1, y: a.y1 },
-                end: Point { x: a.x2, y: a.y2 },
-            });
+            layer.shapes.push(pcbcraft_doc::ArtShape::Line { start, end });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
         "board.layer_rect_add" => {
@@ -14933,6 +14937,16 @@ fn run_command(
             for pt in &a.points {
                 art_range(pt[0], pt[1])?;
             }
+            let points: Vec<Point> = a
+                .points
+                .iter()
+                .map(|pt| Point { x: pt[0], y: pt[1] })
+                .collect();
+            if !pcbcraft_doc::art_vertices_distinct(&points) {
+                return Err(Error::Invalid(
+                    "layer outline corners must be distinct".into(),
+                ));
+            }
             let Some(layer) = p.board.user_layers.iter_mut().find(|l| l.id == a.layer) else {
                 return Err(Error::Invalid("unknown drawn layer".into()));
             };
@@ -14941,13 +14955,7 @@ fn run_command(
                     "a drawn layer carries at most 512 figures".into(),
                 ));
             }
-            layer.shapes.push(pcbcraft_doc::ArtShape::Poly {
-                points: a
-                    .points
-                    .iter()
-                    .map(|pt| Point { x: pt[0], y: pt[1] })
-                    .collect(),
-            });
+            layer.shapes.push(pcbcraft_doc::ArtShape::Poly { points });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
         "board.layer_text_add" => {
@@ -22439,6 +22447,24 @@ mod tests {
             json!({"layer":cut, "x":20.0, "y":36.0, "text":"MADE AT HOME", "size":1.2}),
             None,
         )?;
+        assert!(
+            s.execute(
+                "board.layer_line_add",
+                json!({"layer":cut, "x1":1.0, "y1":1.0, "x2":1.0, "y2":1.0}),
+                None
+            )
+            .is_err(),
+            "a zero-length line is refused"
+        );
+        assert!(
+            s.execute(
+                "board.layer_poly_add",
+                json!({"layer":cut, "points":[[0.0,0.0],[0.0,0.0],[1.0,0.0]]}),
+                None
+            )
+            .is_err(),
+            "duplicate outline corners are refused"
+        );
         assert!(
             s.execute(
                 "board.layer_line_add",
