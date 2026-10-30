@@ -9743,6 +9743,7 @@ mod tests {
             files.keys().collect::<Vec<_>>(),
             vec![
                 "README-fabrication.txt",
+                "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
@@ -9750,6 +9751,7 @@ mod tests {
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
+                "pcb-F.Cmp.gbr",
                 "pcb-F.Cu.gbr",
                 "pcb-F.Mask.gbr",
                 "pcb-F.Paste.gbr",

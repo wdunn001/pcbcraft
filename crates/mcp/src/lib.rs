@@ -1839,6 +1839,8 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
         for name in [
             "pcb-F.Cu.gbr",
             "pcb-B.Cu.gbr",
+            "pcb-F.Cmp.gbr",
+            "pcb-B.Cmp.gbr",
             "pcb-F.Mask.gbr",
             "pcb-B.Mask.gbr",
             "pcb-F.Paste.gbr",

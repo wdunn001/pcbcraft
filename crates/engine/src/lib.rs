@@ -34616,6 +34616,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             out["files"],
             json!([
                 "README-fabrication.txt",
+                "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
@@ -34623,6 +34624,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
+                "pcb-F.Cmp.gbr",
                 "pcb-F.Cu.gbr",
                 "pcb-F.Mask.gbr",
                 "pcb-F.Paste.gbr",
@@ -34736,6 +34738,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
         let expected = [
             "README-fabrication.txt",
             "bom.csv",
+            "pcb-B.Cmp.gbr",
             "pcb-B.Cu.gbr",
             "pcb-B.Mask.gbr",
             "pcb-B.Paste.gbr",
@@ -34743,6 +34746,7 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             "pcb-Drill.drl",
             "pcb-DrillMap.gbr",
             "pcb-Edge.gbr",
+            "pcb-F.Cmp.gbr",
             "pcb-F.Cu.gbr",
             "pcb-F.Mask.gbr",
             "pcb-F.Paste.gbr",
