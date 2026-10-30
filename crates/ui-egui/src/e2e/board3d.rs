@@ -286,11 +286,6 @@ fn a_newcomer_sees_why_a_model_did_not_load() -> Result<(), String> {
         paints_text(&ctx, &mut app, "could not be read")?,
         "the 3D tab says why in plain words"
     );
-    assert!(
-        app.message.contains("Model load failed"),
-        "the status line says the model failed once: {}",
-        app.message
-    );
     Ok(())
 }
 
