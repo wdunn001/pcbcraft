@@ -307,7 +307,7 @@ mod tests {
     #[test]
     fn sidecar_roundtrip_and_empty_removes_file() -> Result<(), String> {
         let dir = tempdir().map_err(|e| e.to_string())?;
-        let symbol = dir.path().join("parts.kicad_sym");
+        let symbol = dir.path().join("parts.libsym");
         let sidecar = sidecar_path_for_symbol(&symbol);
         let mut subs = PartSubstitutes::default();
         subs.set_second_source("Acme", Some("123"), None)?;

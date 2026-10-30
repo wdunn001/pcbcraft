@@ -577,6 +577,13 @@ pub(super) fn run(
                 if before == p.library.footprints.len() {
                     return Err(missing());
                 }
+                for subs in p.library.part_substitutes.values_mut() {
+                    for alt in &mut subs.alternates {
+                        if alt.footprint == a.name {
+                            alt.footprint.clear();
+                        }
+                    }
+                }
             }
             Ok(json!({"name":a.name}))
         }
@@ -2271,6 +2278,13 @@ pub(super) fn run(
                     )));
                 }
                 p.library.footprints[found].name = a.new_name.clone();
+                for subs in p.library.part_substitutes.values_mut() {
+                    for alt in &mut subs.alternates {
+                        if alt.footprint == a.name {
+                            alt.footprint = a.new_name.clone();
+                        }
+                    }
+                }
             }
             p.library.validate()?;
             p.validate()?;
