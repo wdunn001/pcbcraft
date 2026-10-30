@@ -384,6 +384,79 @@ fn a_newcomer_finds_a_real_part_by_number_and_places_it() -> Result<(), String> 
     Ok(())
 }
 
+#[test]
+fn a_newcomer_finds_a_chip_package_by_name_and_places_it_on_the_board() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    app.region().left_tab = "library".to_owned();
+    let ctx = egui::Context::default();
+    let none = egui::Modifiers::NONE;
+    frame(&ctx, &mut app, vec![], none);
+    app.change_tab(Tab::Schematic);
+    // The open library answers from its recordings: no network in a story.
+    use_recorded_library(&mut app, "chip-package")?;
+    app.dock.view = library_dock::ViewKind::Footprints;
+    // Typed the way people type it: dash, capitals, no size.
+    app.part_search = "LQFP-64".into();
+    assert!(
+        waits_for_text(&ctx, &mut app, "LQFP-64")?,
+        "the footprint list shows the 64-pin package: {}",
+        app.message
+    );
+    let source = app
+        .part_sources
+        .open()
+        .ok_or("the open library should be on")?;
+    let found = source
+        .search_cards(
+            pcbcraft_library::open_library::CardScope::Footprints,
+            "lqfp64",
+        )
+        .map_err(|e| e.to_string())?;
+    let part = found
+        .iter()
+        .find(|p| p.mpn == "LQFP-64_10x10mm_P0.5mm")
+        .ok_or("the library should know the package")?;
+    app.place_online_for_test(&ctx, part, "board", Point::new(30.0, 30.0));
+    for _ in 0..100 {
+        frame(&ctx, &mut app, vec![], none);
+        if !shared
+            .lock()
+            .map_err(|_| "session")?
+            .project
+            .board
+            .footprints
+            .is_empty()
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let session = shared.lock().map_err(|_| "session")?;
+    let placed = session
+        .project
+        .board
+        .footprints
+        .first()
+        .ok_or_else(|| format!("picking the package puts it on the board: {}", app.message))?;
+    assert_eq!(placed.pads.len(), 64, "all 64 pads arrive");
+    assert_eq!(placed.position, Point::new(30.0, 30.0));
+    let component = session
+        .project
+        .components
+        .iter()
+        .find(|c| c.id == placed.component)
+        .ok_or("the board part has a schematic part")?;
+    let fp = component
+        .library_footprint
+        .as_ref()
+        .ok_or("the part carries the package")?;
+    assert_eq!(fp.definition.name, "LQFP-64_10x10mm_P0.5mm");
+    assert_eq!(component.pins.len(), 64, "one schematic pin per pad");
+    Ok(())
+}
+
 /// A footprint whose two pads sit on top of each other, saved into the
 /// project library the way an import would.
 fn app_with_overlapping_pads() -> Result<(App, egui::Context), String> {

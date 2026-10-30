@@ -15,7 +15,7 @@
 use super::*;
 use pcbcraft_library::cad::CadSource;
 use pcbcraft_library::cad_cache::{CadCache, default_cache_dir};
-use pcbcraft_library::open_library::{FetchError, Fetcher, OpenLibrarySource};
+use pcbcraft_library::open_library::{CardScope, FetchError, Fetcher, OpenLibrarySource};
 use pcbcraft_library::sources::{PartResult, PartSource};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +39,7 @@ impl Fetcher for CacheOnly {
 /// An online search running on a worker.
 struct Search {
     query: String,
+    scope: CardScope,
     rx: Receiver<Result<Value, String>>,
 }
 
@@ -50,6 +51,8 @@ pub(super) struct PartSources {
     /// The search in flight, and the last answer with the query it was for.
     search: Option<Search>,
     answer: Option<(String, Result<Vec<PartResult>, String>)>,
+    /// What the last answer was asked for, so switching Symbols and Footprints asks again.
+    answer_scope: Option<CardScope>,
     notice: String,
 }
 
@@ -121,6 +124,11 @@ impl App {
                 return Vec::new();
             }
             let query = self.part_search.trim().to_owned();
+            let scope = match self.dock.view {
+                library_dock::ViewKind::Symbols => CardScope::Symbols,
+                library_dock::ViewKind::Footprints => CardScope::Footprints,
+                library_dock::ViewKind::Both => CardScope::Both,
+            };
             if query.chars().count() < 2 {
                 note(ui, "Type a part number or keyword to search the sources.");
                 return Vec::new();
@@ -136,6 +144,7 @@ impl App {
                             serde_json::from_value::<Vec<PartResult>>(v).map_err(|e| e.to_string())
                         });
                         self.part_sources.answer = Some((search.query, parts));
+                        self.part_sources.answer_scope = Some(search.scope);
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => {
                         self.part_sources.search = Some(search);
@@ -143,19 +152,25 @@ impl App {
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {}
                 }
             }
-            let answered = self
-                .part_sources
-                .answer
-                .as_ref()
-                .is_some_and(|(q, _)| *q == query);
+            let answered = self.part_sources.answer_scope == Some(scope)
+                && self
+                    .part_sources
+                    .answer
+                    .as_ref()
+                    .is_some_and(|(q, _)| *q == query);
             if !answered && self.part_sources.search.is_none() {
                 let (worker, asked) = (source.clone(), query.clone());
                 let reply = library_dock::spawn_read(ui.ctx(), move || {
-                    PartSource::search(worker.as_ref(), &asked)
+                    worker
+                        .search_cards(scope, &asked)
                         .map_err(|e| e.to_string())
                         .and_then(|p| serde_json::to_value(p).map_err(|e| e.to_string()))
                 });
-                self.part_sources.search = Some(Search { query, rx: reply });
+                self.part_sources.search = Some(Search {
+                    query,
+                    scope,
+                    rx: reply,
+                });
             }
             if self.part_sources.search.is_some() {
                 note(ui, "Searching the open library...");
@@ -194,6 +209,7 @@ impl App {
         self.part_sources.source = Some(Arc::new(OpenLibrarySource::new(fetcher, cache)));
         self.part_sources.search = None;
         self.part_sources.answer = None;
+        self.part_sources.answer_scope = None;
     }
     /// Hand the open source a live transport and its offline switch; the
     /// Online source is then on from the start. Called by the desktop app.
@@ -209,10 +225,14 @@ impl App {
     /// True when no online search is wanted or the one wanted has answered;
     /// a `--capture` image waits for it.
     pub(super) fn online_settled(&self) -> bool {
+        if self.dock_capture_placing() && self.frames < 900 {
+            return false;
+        }
         let query = self.part_search.trim();
         self.part_sources.source.is_none()
             || query.chars().count() < 2
             || (self.part_sources.search.is_none()
+                && self.part_sources.answer_scope.is_some()
                 && self.part_sources.answer.as_ref().is_some_and(|(q, parts)| {
                     q == query
                         && (parts.as_ref().is_ok_and(Vec::is_empty)

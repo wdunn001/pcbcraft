@@ -123,6 +123,9 @@ pub(crate) struct Dock {
     /// Which drawing the cards show; follows the tab until the person picks.
     pub(crate) view: ViewKind,
     view_tab: Option<Tab>,
+    /// A `--capture` image asks for the first online card to be placed once it is listed;
+    /// holds the frame the placement was started on.
+    pub(crate) capture_place: Option<Option<u32>>,
     /// Only starred parts.
     pub(crate) favourites_only: bool,
     /// Kind toggles switched on (`passive`, `ic`, `connector`, `mechanical`).
@@ -197,6 +200,7 @@ impl Default for Dock {
             hide_online: false,
             view: ViewKind::Symbols,
             view_tab: None,
+            capture_place: None,
             favourites_only: false,
             kinds: BTreeSet::new(),
             tag: None,
@@ -251,6 +255,7 @@ impl Card {
 }
 
 /// What a card's menu or buttons asked for.
+#[derive(Clone, Debug)]
 enum CardAction {
     Place(&'static str),
     Import,
@@ -476,6 +481,21 @@ impl App {
                 Card::Installed(i) => !i.package.trim().is_empty(),
                 Card::Online(..) => true,
             });
+        }
+        if self.dock.capture_place == Some(None)
+            && self.dock.pending.is_none()
+            && let Some(card) = cards
+                .iter()
+                .find(|c| matches!(c, Card::Online(..)))
+                .cloned()
+        {
+            let (target, at) = if self.tab == Tab::Pcb {
+                ("board", self.pcb.center)
+            } else {
+                ("schematic", self.schematic.center)
+            };
+            self.dock_place(ui.ctx(), &card, target, at);
+            self.dock.capture_place = Some(Some(self.frames));
         }
         self.dock_sets(ui, &sets);
         if want_installed && !self.dock.inflight.is_empty() {
@@ -1035,12 +1055,22 @@ impl App {
                         }
                     })
                     .filter(|t| !t.is_empty());
-                let mut meta = if p.distributor.is_empty() && p.price_breaks.is_empty() {
+                let alone = p
+                    .sku
+                    .strip_prefix(pcbcraft_library::open_library::FOOTPRINT_SKU_PREFIX);
+                let mut meta = if let Some(rest) = alone {
+                    rest.split('/').next().unwrap_or_default().to_owned()
+                } else if p.distributor.is_empty() && p.price_breaks.is_empty() {
                     p.sku.clone()
                 } else {
                     sources::stock_line(p)
                 };
-                if let Some((d, _)) = def {
+                if let (Some(_), Some((_, Some(fp)))) = (alone, def) {
+                    meta = format!(
+                        "{meta} \u{b7} {}",
+                        t!("library.dock.pads", count = fp.pads.len())
+                    );
+                } else if let Some((d, _)) = def {
                     let extra = if d.footprint.trim().is_empty() {
                         t!("library.dock.pins", count = d.pins.len())
                     } else {
@@ -1234,6 +1264,7 @@ impl App {
                     .min((picture.height() - 12.0) / extent.y as f32)
                     .clamp(0.01, 40.0),
                 mirror: false,
+                turns: 0,
             };
             library::paint_library_paths(&painter, picture, camera, paths, accent);
         } else if want_symbol
@@ -1245,6 +1276,7 @@ impl App {
                 center: Point::new(0.0, 0.0),
                 zoom: 3.6,
                 mirror: false,
+                turns: 0,
             };
             for view in part.schematic_views() {
                 self.symbol(
@@ -1315,6 +1347,7 @@ impl App {
                                 .min((spot.height() - 12.0) / extent.y as f32)
                                 .clamp(0.01, 40.0),
                             mirror: false,
+                            turns: 0,
                         };
                         library::paint_library_paths(&painter, spot, camera, &paths, accent);
                     } else {
@@ -1451,64 +1484,82 @@ impl App {
                 action = Some(CardAction::Import);
             }
         }
-        response.context_menu(|ui| {
-            if App::canvas_menu_button(
-                ui,
-                &t!("library.dock.place_schematic"),
-                &t!("library.dock.place_schematic.tip"),
-            ) {
-                action = Some(CardAction::Place("schematic"));
-                ui.close();
-            }
-            if self.tab == Tab::Pcb
-                && App::canvas_menu_button(
-                    ui,
-                    &t!("library.dock.place_board"),
-                    &t!("library.dock.place_board.tip"),
+        if let Some(picked) = crate::ui_kit::menu::context(&response, "library-card", || {
+            use crate::ui_kit::menu::{Item, Menu};
+            use crate::ui_kit::menu_icons as glyph;
+            let mut place = vec![
+                Item::new(
+                    CardAction::Place("schematic"),
+                    t!("library.dock.place_schematic"),
+                    t!("library.dock.place_schematic.tip"),
                 )
-            {
-                action = Some(CardAction::Place("board"));
-                ui.close();
+                .icon(glyph::PLACE)
+                .into(),
+            ];
+            if self.tab == Tab::Pcb {
+                place.push(
+                    Item::new(
+                        CardAction::Place("board"),
+                        t!("library.dock.place_board"),
+                        t!("library.dock.place_board.tip"),
+                    )
+                    .icon(glyph::PLACE)
+                    .into(),
+                );
             }
-            if matches!(card, Card::Installed(_))
-                && App::canvas_menu_button(
-                    ui,
-                    &t!("library.dock.add_to_project"),
-                    &t!("library.dock.add_to_project.tip"),
-                )
-            {
-                action = Some(CardAction::Import);
-                ui.close();
+            let mut edit = Vec::new();
+            if matches!(card, Card::Installed(_)) {
+                edit.push(
+                    Item::new(
+                        CardAction::Import,
+                        t!("library.dock.add_to_project"),
+                        t!("library.dock.add_to_project.tip"),
+                    )
+                    .icon(glyph::IMPORT)
+                    .into(),
+                );
             }
             let (star, tip) = if starred {
                 (t!("library.dock.unstar"), t!("library.dock.unstar.tip"))
             } else {
                 (t!("library.dock.star"), t!("library.dock.star.tip"))
             };
-            if App::canvas_menu_button(ui, &star, &tip) {
-                action = Some(CardAction::Favourite);
-                ui.close();
-            }
+            edit.push(
+                Item::new(CardAction::Favourite, star, tip)
+                    .icon(if starred {
+                        glyph::STAR_FILLED
+                    } else {
+                        glyph::STAR
+                    })
+                    .into(),
+            );
+            let mut about = Vec::new();
             if let Card::Online(p, _) = card
                 && !p.datasheet_url.is_empty()
-                && App::canvas_menu_button(
-                    ui,
-                    &t!("library.dock.datasheet"),
-                    &t!("library.dock.datasheet.tip"),
-                )
             {
-                action = Some(CardAction::Datasheet(p.datasheet_url.clone()));
-                ui.close();
+                about.push(
+                    Item::new(
+                        CardAction::Datasheet(p.datasheet_url.clone()),
+                        t!("library.dock.datasheet"),
+                        t!("library.dock.datasheet.tip"),
+                    )
+                    .icon(glyph::DATASHEET)
+                    .into(),
+                );
             }
-            if App::canvas_menu_button(
-                ui,
-                &t!("library.dock.show_source"),
-                &t!("library.dock.show_source.tip"),
-            ) {
-                action = Some(CardAction::Source);
-                ui.close();
-            }
-        });
+            about.push(
+                Item::new(
+                    CardAction::Source,
+                    t!("library.dock.show_source"),
+                    t!("library.dock.show_source.tip"),
+                )
+                .icon(glyph::INFO)
+                .into(),
+            );
+            Menu::new().group(place).group(edit).group(about).entries()
+        }) {
+            action = Some(picked);
+        }
         if response.drag_started() {
             self.dock.dragged = Some(card.clone());
         }
@@ -1804,6 +1855,22 @@ impl App {
             name: part.mpn.clone(),
             rx: reply,
         });
+    }
+
+    /// Ask a `--capture` image to place the first online card once it is listed,
+    /// the way a person picking it would.
+    pub fn with_capture_place(mut self, on: bool) -> Self {
+        self.dock.capture_place = on.then_some(None);
+        self
+    }
+
+    /// True while a requested capture placement has not been drawn yet.
+    pub(crate) fn dock_capture_placing(&self) -> bool {
+        match self.dock.capture_place {
+            None => false,
+            Some(None) => true,
+            Some(Some(at)) => self.dock.pending.is_some() || self.frames < at + 30,
+        }
     }
 
     /// True when enough online cards have been read for a capture image, or

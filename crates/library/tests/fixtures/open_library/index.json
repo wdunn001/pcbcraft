@@ -1,7 +1,9 @@
 {
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/commits/a337146e090931ad1176e20ed0b7100990fac5fa": "footprints-commit.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/commits/master": "footprints-commit.json",
+ "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/files/Package_QFP.pretty%2FLQFP-64_10x10mm_P0.5mm.kicad_mod/raw?ref=a337146e090931ad1176e20ed0b7100990fac5fa": "LQFP-64_10x10mm_P0.5mm.kicad_mod",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/files/Resistor_SMD.pretty%2FR_0603_1608Metric.kicad_mod/raw?ref=a337146e090931ad1176e20ed0b7100990fac5fa": "R_0603_1608Metric.kicad_mod",
+ "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/tree?path=Package_QFP.pretty&ref=a337146e090931ad1176e20ed0b7100990fac5fa&per_page=100&page=1": "footprints-Package_QFP.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/tree?path=Resistor_SMD.pretty&ref=a337146e090931ad1176e20ed0b7100990fac5fa&per_page=100&page=1": "footprints-Resistor_SMD.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/tree?ref=a337146e090931ad1176e20ed0b7100990fac5fa&per_page=100&page=1": "footprints-root-1.json",
  "https://gitlab.com/api/v4/projects/kicad%2Flibraries%2Fkicad-footprints/repository/tree?ref=a337146e090931ad1176e20ed0b7100990fac5fa&per_page=100&page=2": "footprints-root-2.json",

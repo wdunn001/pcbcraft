@@ -187,7 +187,7 @@ fn a_newcomer_hides_a_layer_from_its_right_click_menu() -> Result<(), String> {
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     let row = text_at(&ctx, &mut app, "Copper").ok_or("the Copper row is not on screen")?;
     right_click(&ctx, &mut app, row);
-    authoring::tests::tap(&ctx, &mut app, "Hide  Space")?;
+    authoring::tests::tap(&ctx, &mut app, "Hide")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     assert!(
         app.preferences
@@ -221,7 +221,7 @@ fn a_newcomer_draws_silkscreen_by_picking_the_silkscreen_layer() -> Result<(), S
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Layer: Top silkscreen")?,
+        paints_text(&ctx, &mut app, "Layer 1 of 2 · Top silkscreen")?,
         "the status bar names the target"
     );
     // Line, Box and Circle on the silkscreen make silkscreen graphics.

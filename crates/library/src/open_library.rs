@@ -8,6 +8,9 @@
 //! - One request per folder page or file, only when the cache cannot answer; reads stay pinned to one repository revision.
 //! - Offline, saved listings and files still answer, however old.
 //! - The upstream project names live in [`OpenLibraryConfig::default`] only.
+//! - A footprint search reads folder listings, never files: names are matched with case, `-`, `_`, `.` and spaces ignored,
+//!   so `lqfp64` finds `LQFP-64_10x10mm_P0.5mm`. Each folder listing is saved and reused until it is a day old.
+//! - A footprint search that finds nothing in the folders its words point at reads at most [`MAX_EXTRA_FOLDERS`] more folders.
 //!
 //! # Dependencies
 //! - crates/library/src/cad.rs
@@ -31,6 +34,10 @@ pub const SOURCE_NAME: &str = "Open library";
 pub const MAX_LIBRARIES_PER_SEARCH: usize = 8;
 /// Folder listings are asked again after this many seconds (24 hours).
 pub const LISTING_TTL_SECS: u64 = 24 * 60 * 60;
+/// Folders a footprint search may read beyond the ones its words point at.
+pub const MAX_EXTRA_FOLDERS: usize = 24;
+/// Start of a footprint card's `sku`; the rest is `Library/Name`.
+pub const FOOTPRINT_SKU_PREFIX: &str = "footprint:";
 const PAGE_SIZE: usize = 100;
 const MAX_PAGES: u32 = 50;
 const LICENSE_NAME: &str = "CC-BY-SA 4.0";
@@ -136,6 +143,66 @@ const SYMBOL_ALIASES: &[(&str, &str, &str)] = &[
     ("crystal", "Device", "Crystal"),
     ("fuse", "Device", "Fuse"),
 ];
+
+/// Package family words to the footprint libraries that hold them.
+const FOOTPRINT_FAMILIES: &[(&[&str], &[&str])] = &[
+    (
+        &["lqfp", "tqfp", "pqfp", "hqfp", "vqfp", "mqfp", "qfp"],
+        &["Package_QFP"],
+    ),
+    (
+        &[
+            "qfn", "vqfn", "wqfn", "uqfn", "tqfn", "dfn", "wdfn", "udfn", "tdfn",
+        ],
+        &["Package_DFN_QFN"],
+    ),
+    (
+        &[
+            "soic", "sop", "ssop", "tssop", "msop", "tsop", "vssop", "so",
+        ],
+        &["Package_SO"],
+    ),
+    (
+        &["sot", "to"],
+        &["Package_TO_SOT_SMD", "Package_TO_SOT_THT"],
+    ),
+    (
+        &["bga", "fbga", "lfbga", "tfbga", "ucsp", "csp", "wlcsp"],
+        &["Package_BGA", "Package_CSP"],
+    ),
+    (&["dip", "pdip", "cdip"], &["Package_DIP"]),
+    (&["sip"], &["Package_SIP"]),
+    (&["lga"], &["Package_LGA"]),
+    (&["plcc", "lcc"], &["Package_LCC"]),
+    (&["sod", "sma", "smb", "smc"], &["Diode_SMD"]),
+];
+
+/// Which kind of card a search returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardScope {
+    /// Symbols only.
+    Symbols,
+    /// Footprints only.
+    Footprints,
+    /// Symbols, then footprints.
+    Both,
+}
+
+/// Letters and digits only, lower case: `LQFP-64_10x10` and `lqfp 64 10x10` read the same.
+fn squash(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// The leading letters of a squashed word: `lqfp` for `lqfp64`.
+fn letters_of(squashed: &str) -> &str {
+    let end = squashed
+        .find(|c: char| !c.is_alphabetic())
+        .unwrap_or(squashed.len());
+    &squashed[..end]
+}
 
 struct Layout {
     suffix: &'static str,
@@ -563,7 +630,175 @@ impl OpenLibrarySource {
         })
     }
 
+    /// Footprint names that hold every word of the query, best match first.
+    ///
+    /// # Rules
+    /// - Reads folder listings only; the files stay on the host until one is placed.
+    /// - Words that name a library limit the search to it; otherwise the folders of the
+    ///   package family come first and, when they hold nothing, more folders are read.
+    /// - One folder that cannot be listed does not hide the others.
+    fn search_footprints(&self, query: &str) -> Result<Vec<CadRef>, SourceError> {
+        let kind = CadKind::Footprint;
+        let query = check_query(query)?;
+        let all = self.libraries(kind)?;
+        let mut chosen: Vec<String> = Vec::new();
+        let mut words: Vec<String> = Vec::new();
+        for token in query.split_whitespace() {
+            let squashed = squash(token);
+            if squashed.is_empty() {
+                continue;
+            }
+            let named: Vec<&String> = all
+                .iter()
+                .filter(|l| {
+                    let lib = squash(l);
+                    lib == squashed || (squashed.len() >= 3 && lib.starts_with(&squashed))
+                })
+                .collect();
+            if named.is_empty() {
+                words.push(squashed);
+            } else {
+                for m in named {
+                    if !chosen.contains(m) {
+                        chosen.push(m.clone());
+                    }
+                }
+            }
+        }
+        let mut near: Vec<String> = Vec::new();
+        let mut rest: Vec<String> = Vec::new();
+        if chosen.is_empty() {
+            let add = |list: &mut Vec<String>, lib: &str| {
+                if all.iter().any(|l| l == lib) && !list.iter().any(|l| l == lib) {
+                    list.push(lib.to_owned());
+                }
+            };
+            for w in &words {
+                let family = letters_of(w);
+                for (names, libs) in FOOTPRINT_FAMILIES {
+                    if names.contains(&family) {
+                        libs.iter().for_each(|l| add(&mut near, l));
+                    }
+                }
+            }
+            for w in &words {
+                let family = letters_of(w);
+                if family.len() >= 3 {
+                    for lib in all.iter().filter(|l| squash(l).contains(family)) {
+                        add(&mut near, lib);
+                    }
+                }
+            }
+            for lib in default_libraries(kind) {
+                add(&mut rest, lib);
+            }
+            for lib in all.iter().filter(|l| l.starts_with("Package_")) {
+                add(&mut rest, lib);
+            }
+            for lib in &all {
+                add(&mut rest, lib);
+            }
+            rest.retain(|l| !near.contains(l));
+            near.truncate(MAX_LIBRARIES_PER_SEARCH);
+        } else {
+            chosen.truncate(MAX_LIBRARIES_PER_SEARCH);
+            near = chosen;
+        }
+        let joined: String = words.concat();
+        let mut hits: Vec<(u8, CadRef)> = Vec::new();
+        let mut first_error: Option<SourceError> = None;
+        let mut scan = |libs: &[String], hits: &mut Vec<(u8, CadRef)>| {
+            for lib in libs {
+                match self.entries(kind, lib) {
+                    Ok((entries, _)) => {
+                        for e in entries {
+                            let name = squash(&e.name);
+                            if words.iter().all(|w| name.contains(w.as_str())) {
+                                let rank = if name == joined {
+                                    0
+                                } else if name.starts_with(&joined) {
+                                    1
+                                } else if name.contains(&joined) {
+                                    2
+                                } else {
+                                    3
+                                };
+                                hits.push((rank, e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        first_error.get_or_insert(e);
+                    }
+                }
+            }
+        };
+        scan(&near, &mut hits);
+        if hits.is_empty() {
+            rest.truncate(MAX_EXTRA_FOLDERS);
+            scan(&rest, &mut hits);
+        }
+        // Best match first; among equals the plainer name (fewer `_`/`-` parts, so no
+        // exposed-pad or thermal-via variant) and then the name in plain order.
+        let parts = |r: &CadRef| r.name.split(['_', '-']).count();
+        hits.sort_by(|a, b| {
+            (a.0, parts(&a.1), &a.1.name, &a.1.library).cmp(&(
+                b.0,
+                parts(&b.1),
+                &b.1.name,
+                &b.1.library,
+            ))
+        });
+        hits.truncate(MAX_RESULTS);
+        match (hits.is_empty(), first_error) {
+            (true, Some(e)) => Err(e),
+            _ => Ok(hits.into_iter().map(|(_, r)| r).collect()),
+        }
+    }
+
+    /// Cards for a search, symbols and/or footprints.
+    ///
+    /// # Rules
+    /// - Footprint cards carry the sku `footprint:Library/Name`, so a symbol and a footprint of the same name stay apart.
+    /// - With both kinds asked for, one kind failing leaves the other's cards.
+    pub fn search_cards(
+        &self,
+        scope: CardScope,
+        query: &str,
+    ) -> Result<Vec<PartResult>, SourceError> {
+        let mut out = Vec::new();
+        let mut failure = None;
+        for kind in [CadKind::Symbol, CadKind::Footprint] {
+            let wanted = match scope {
+                CardScope::Symbols => kind == CadKind::Symbol,
+                CardScope::Footprints => kind == CadKind::Footprint,
+                CardScope::Both => true,
+            };
+            if !wanted {
+                continue;
+            }
+            let found = self.search_refs(kind, query).and_then(|refs| {
+                let commit = self.commit(kind)?;
+                Ok(refs
+                    .iter()
+                    .map(|r| self.card(r, &commit))
+                    .collect::<Vec<_>>())
+            });
+            match found {
+                Ok(cards) => out.extend(cards),
+                Err(e) => failure = failure.or(Some(e)),
+            }
+        }
+        match (out.is_empty(), failure) {
+            (true, Some(e)) => Err(e),
+            _ => Ok(out),
+        }
+    }
+
     fn search_refs(&self, kind: CadKind, query: &str) -> Result<Vec<CadRef>, SourceError> {
+        if kind == CadKind::Footprint {
+            return self.search_footprints(query);
+        }
         let SearchPlan {
             libraries,
             words,
@@ -627,7 +862,10 @@ impl OpenLibrarySource {
             ),
             kind: String::new(),
             distributor: String::new(),
-            sku: format!("{}/{}", r.library, r.name),
+            sku: match r.kind {
+                CadKind::Footprint => format!("{FOOTPRINT_SKU_PREFIX}{}/{}", r.library, r.name),
+                _ => format!("{}/{}", r.library, r.name),
+            },
             stock: 0,
             price_breaks: Vec::new(),
             lifecycle: String::new(),

@@ -173,7 +173,7 @@ fn a_newcomer_turns_chamfer_corners_off_for_right_angles() -> Result<(), String>
         scrolled_to_at(&ctx, &mut app, "Chamfer corners", 700.0)?,
         "the setting is on screen"
     );
-    authoring::tests::tap(&ctx, &mut app, "Chamfer corners")?;
+    tap_id(&ctx, &mut app, "checkbox:Chamfer corners")?;
     assert!(!app.preferences.chamfer_corners, "one tap switches it off");
     drag_pair(&mut app, from, to)?;
     let tracks = &app.project.board.tracks;

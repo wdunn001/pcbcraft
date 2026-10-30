@@ -5,6 +5,18 @@ use serde_json::Value;
 use std::sync::Arc;
 
 /// One part of a message to the agent.
+///
+/// # Dependencies
+/// - none yet
+///
+/// # Rules
+/// - This enum represents a part of a message sent to the agent.
+/// - `Text` is plain text content.
+/// - `Picture` is an image sent to the agent (PNG format).
+/// - `Document` is a PDF document sent to the agent.
+///
+/// # Do not
+/// - Add new variants without updating the `tool_list` and `tool_names` logic.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PromptPart {
     Text(String),
@@ -24,6 +36,19 @@ pub enum PromptPart {
 }
 
 /// What a backend reports to the pane.
+///
+/// # Dependencies
+/// - none yet
+///
+/// # Rules
+/// - This enum represents events reported by the backend to the UI pane.
+/// - `Documents` indicates if the agent accepts document inputs.
+/// - `Ready` signals the agent is prepared to receive messages.
+/// - `Text` streams text output from the agent.
+/// - `Tool` reports tool calls made by the agent.
+///
+/// # Do not
+/// - Add new variants without updating the event handling logic.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     /// Whether the agent takes documents (PDFs) in a message; sent before [`Event::Ready`].
