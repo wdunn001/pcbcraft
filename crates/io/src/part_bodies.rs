@@ -61,10 +61,7 @@ fn is_courtyard(layer: &str) -> bool {
 }
 
 /// Package geometry and part number strings for a placed footprint.
-pub fn footprint_idf_names(
-    project: &Project,
-    fp: &Footprint,
-) -> Result<(String, String), String> {
+pub fn footprint_idf_names(project: &Project, fp: &Footprint) -> Result<(String, String), String> {
     let component = project
         .component(fp.component)
         .ok_or("footprint references an unknown component")?;
