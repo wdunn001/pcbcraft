@@ -2712,10 +2712,16 @@ fn render_kind(
             pcbcraft_io::ipc2581_text(p)?.into_bytes(),
         )),
         "dsn" => out.push(("pcb.dsn".into(), pcbcraft_io::specctra_dsn(p)?.into_bytes())),
-        "ipc356" => out.push((
-            "test.brd".into(),
-            pcbcraft_io::ipc356_netlist(p)?.into_bytes(),
-        )),
+        "ipc356" => {
+            out.push((
+                "test.brd".into(),
+                pcbcraft_io::ipc356_netlist(p)?.into_bytes(),
+            ));
+            out.push((
+                "testpoints.csv".into(),
+                pcbcraft_io::testpoints_csv(p)?.into_bytes(),
+            ));
+        }
         "gencad" => out.push((
             "board.gencad".into(),
             pcbcraft_io::gencad_text(p)?.into_bytes(),
@@ -31075,6 +31081,7 @@ mod tests {
         for name in [
             "pcb.dsn",
             "test.brd",
+            "testpoints.csv",
             "board.gencad",
             "netlist.csv",
             "plot-report.csv",
