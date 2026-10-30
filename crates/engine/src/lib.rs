@@ -5,6 +5,8 @@ mod dry_run;
 mod images;
 pub mod library;
 mod online;
+#[cfg(feature = "vendor-handoff")]
+mod vendor_handoff;
 mod outline;
 pub mod profiles;
 pub mod recents;
@@ -2317,7 +2319,19 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(vendor_handoff_commands())
         .collect()
+}
+
+fn vendor_handoff_commands() -> impl Iterator<Item = CommandSpec> {
+    #[cfg(feature = "vendor-handoff")]
+    {
+        vendor_handoff::commands()
+    }
+    #[cfg(not(feature = "vendor-handoff"))]
+    {
+        [].into_iter()
+    }
 }
 
 #[derive(Clone)]
@@ -7245,6 +7259,10 @@ fn run_command(
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {
+        return result;
+    }
+    #[cfg(feature = "vendor-handoff")]
+    if let Some(result) = vendor_handoff::run(p, command, params) {
         return result;
     }
     match command {
@@ -36369,6 +36387,21 @@ mod tests {
                 .as_f64()
                 .is_some_and(|v| v > 0.0)
         );
+        Ok(())
+    }
+
+    #[cfg(not(feature = "vendor-handoff"))]
+    #[test]
+    fn vendor_handoff_commands_missing_without_feature() -> Result<(), String> {
+        let ids: Vec<_> = commands().into_iter().map(|c| c.id.to_string()).collect();
+        for id in [
+            "vendor_handoff.capabilities",
+            "vendor_handoff.adapters.list",
+        ] {
+            if ids.iter().any(|listed| listed == id) {
+                return Err(format!("{id} must not register without vendor-handoff"));
+            }
+        }
         Ok(())
     }
 }

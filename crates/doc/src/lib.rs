@@ -13,6 +13,12 @@ pub use panel::{
 };
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
+mod vendor_handoff;
+pub use vendor_handoff::{
+    VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor, VendorAdapterMode,
+    VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings, VendorQuoteFileEntry,
+    VendorQuoteHandoffManifest, VendorQuoteSettings, MarketplaceSettings, fixture_upload_adapter,
+};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};

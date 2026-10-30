@@ -20,6 +20,10 @@ base64.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 
+[features]
+default = []
+vendor-handoff = []
+
 [dev-dependencies]
 base64.workspace = true
 tempfile.workspace = true
