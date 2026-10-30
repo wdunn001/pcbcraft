@@ -1,10 +1,21 @@
-//! Connector manufacturer part-number build and parse from embedded series tables.
+//! Build and parse connector part numbers from embedded per-series tables.
+//!
+//! # Rules
+//! - Series tables are hand-entered from public manufacturer pages; no vendor files ship in the repo.
+//! - Every input is bounded by [`SeriesLimits`]; unknown field tokens and overlong strings are rejected.
+//!
+//! # Dependencies
+//! - crates/library/data/connectors/*.toml
+//! - crates/library/src/lib.rs
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 const SEP: char = '-';
 
-/// Bounds checked when reading a part number string or field token.
+/// Per-series bounds for part-number strings and position counts.
+///
+/// # Rules
+/// - `max_input_len` caps the full MPN string; position counts stay within the min/max pair.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SeriesLimits {
@@ -61,7 +72,11 @@ pub enum Constraint {
     },
 }
 
-/// Data file describing one connector series part-number layout.
+/// One connector series part-number layout loaded from a TOML table.
+///
+/// # Rules
+/// - Fields appear in hyphen order; optional segments may be omitted on build and parse.
+/// - [`Constraint`] entries run after all segments are present.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SeriesSpec {
@@ -124,6 +139,9 @@ pub fn load_embedded_series(text: &str) -> SeriesSpec {
 }
 
 /// Build a part number from a series spec and per-field option codes.
+///
+/// # Rules
+/// - Missing required fields and unknown codes return [`FieldError`] values listing valid codes.
 pub fn build(spec: &SeriesSpec, options: &BuildOptions) -> Result<PartNumber, Vec<FieldError>> {
     let mut values = BTreeMap::new();
     let mut errors = Vec::new();
@@ -169,6 +187,9 @@ pub fn build(spec: &SeriesSpec, options: &BuildOptions) -> Result<PartNumber, Ve
 }
 
 /// Parse a part number against a set of series specs.
+///
+/// # Rules
+/// - The longest matching [`SeriesSpec::prefix`] wins; trailing text is an error when otherwise valid.
 pub fn parse(spec_set: &[SeriesSpec], text: &str) -> Result<ParsedPart, Vec<FieldError>> {
     let (part, errors) = parse_partial(spec_set, text);
     if errors.is_empty() {
@@ -232,10 +253,7 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
         match &field.kind {
             FieldKind::Literal { text } => {
                 if !rest.starts_with(text) {
-                    errors.push(FieldError::unknown_field(
-                        &field.id,
-                        vec![text.clone()],
-                    ));
+                    errors.push(FieldError::unknown_field(&field.id, vec![text.clone()]));
                     break;
                 }
                 values.insert(field.id.clone(), text.clone());
@@ -246,10 +264,7 @@ pub fn parse_partial(spec_set: &[SeriesSpec], text: &str) -> (ParsedPart, Vec<Fi
                 let (token, next) = match next_token(rest) {
                     Some(v) => v,
                     None => {
-                        errors.push(FieldError::unknown_field(
-                            &field.id,
-                            vec!["NNN".into()],
-                        ));
+                        errors.push(FieldError::unknown_field(&field.id, vec!["NNN".into()]));
                         break;
                     }
                 };
@@ -343,16 +358,21 @@ fn valid_codes(kind: &FieldKind) -> Vec<String> {
     }
 }
 
-fn validate_field_token(
-    spec: &SeriesSpec,
-    field: &FieldSpec,
-    raw: &str,
-) -> Result<(), FieldError> {
+fn validate_field_token(spec: &SeriesSpec, field: &FieldSpec, raw: &str) -> Result<(), FieldError> {
     if raw.is_empty() || raw.len() > 8 {
-        return Err(FieldError::unknown_field(&field.id, valid_codes(&field.kind)));
+        return Err(FieldError::unknown_field(
+            &field.id,
+            valid_codes(&field.kind),
+        ));
     }
-    if raw.chars().any(|c| !(c.is_ascii_alphanumeric() || c == '_')) {
-        return Err(FieldError::unknown_field(&field.id, valid_codes(&field.kind)));
+    if raw
+        .chars()
+        .any(|c| !(c.is_ascii_alphanumeric() || c == '_'))
+    {
+        return Err(FieldError::unknown_field(
+            &field.id,
+            valid_codes(&field.kind),
+        ));
     }
     match &field.kind {
         FieldKind::Literal { text } => {
@@ -460,10 +480,7 @@ fn next_token(input: &str) -> Option<(String, &str)> {
     if tail.is_empty() {
         return None;
     }
-    let end = tail
-        .find(SEP)
-        .map(|i| start + i)
-        .unwrap_or(input.len());
+    let end = tail.find(SEP).map(|i| start + i).unwrap_or(input.len());
     let token = input[start..end].trim();
     if token.is_empty() {
         return None;
@@ -624,39 +641,33 @@ mod tests {
     }
 
     fn random_valid_options(spec: &SeriesSpec, rng: &mut Lcg) -> BuildOptions {
-        let mut map = BTreeMap::new();
-        for field in &spec.fields {
-            match &field.kind {
-                FieldKind::Literal { .. } => {}
-                FieldKind::PitchPositions => {
-                    let positions = (rng.next() % spec.limits.max_positions_per_row) + 1;
-                    let pitch = if rng.next() % 2 == 0 { 1 } else { 2 };
-                    map.insert(
-                        field.id.clone(),
-                        format!("{pitch}{positions:02}"),
-                    );
-                }
-                FieldKind::Enum { values } => {
-                    let idx = (rng.next() as usize) % values.len();
-                    map.insert(field.id.clone(), values[idx].code.clone());
-                }
-                FieldKind::OptionalEnum { values } => {
-                    if rng.next() % 3 == 0 {
+        for _ in 0..128 {
+            let mut map = BTreeMap::new();
+            for field in &spec.fields {
+                match &field.kind {
+                    FieldKind::Literal { .. } => {}
+                    FieldKind::PitchPositions => {
+                        let positions =
+                            (rng.next() % spec.limits.max_positions_per_row) + 1;
+                        let pitch = if rng.next() % 2 == 0 { 1 } else { 2 };
+                        map.insert(field.id.clone(), format!("{pitch}{positions:02}"));
+                    }
+                    FieldKind::Enum { values } => {
                         let idx = (rng.next() as usize) % values.len();
                         map.insert(field.id.clone(), values[idx].code.clone());
                     }
+                    FieldKind::OptionalEnum { values } => {
+                        if rng.next() % 3 == 0 {
+                            let idx = (rng.next() as usize) % values.len();
+                            map.insert(field.id.clone(), values[idx].code.clone());
+                        }
+                    }
                 }
             }
-        }
-        // Retry until constraints pass.
-        for _ in 0..32 {
             if build(spec, &BuildOptions(map.clone())).is_ok() {
                 return BuildOptions(map);
             }
-            if let Some(row) = map.get_mut("row") {
-                *row = if *row == "S" { "D".into() } else { "S".into() };
-            }
         }
-        BuildOptions(map)
+        panic!("could not sample a valid configuration for {}", spec.id);
     }
 }
