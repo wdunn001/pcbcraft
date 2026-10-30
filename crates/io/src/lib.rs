@@ -9559,12 +9559,8 @@ mod tests {
             .find(&needle)
             .ok_or_else(|| format!("missing {name}"))?;
         let rest = &line[start + needle.len()..];
-        let end = rest
-            .find('"')
-            .ok_or_else(|| format!("unclosed {name}"))?;
-        rest[..end]
-            .parse()
-            .map_err(|_| format!("invalid {name}"))
+        let end = rest.find('"').ok_or_else(|| format!("unclosed {name}"))?;
+        rest[..end].parse().map_err(|_| format!("invalid {name}"))
     }
 
     fn ipc2581_exported_track_length_mm(text: &str) -> Result<f64, String> {
@@ -9600,9 +9596,7 @@ mod tests {
             }
             return Ok(Point::new(sx, sy).distance(Point::new(ex, ey)));
         }
-        let start = text
-            .find("<TRACK_POLYLINE ")
-            .ok_or("no track in export")?;
+        let start = text.find("<TRACK_POLYLINE ").ok_or("no track in export")?;
         let end = text[start..]
             .find("</TRACK_POLYLINE>")
             .ok_or("polyline track is unclosed")?
@@ -9620,10 +9614,7 @@ mod tests {
         if vertices.len() < 2 {
             return Err("polyline track needs at least two vertices".into());
         }
-        Ok(vertices
-            .windows(2)
-            .map(|w| w[0].distance(w[1]))
-            .sum())
+        Ok(vertices.windows(2).map(|w| w[0].distance(w[1])).sum())
     }
 
     #[test]
@@ -9663,8 +9654,8 @@ mod tests {
     }
 
     #[test]
-    fn a_newcomer_exports_a_curved_board_and_finds_the_arc_in_the_assembly_file(
-    ) -> Result<(), String> {
+    fn a_newcomer_exports_a_curved_board_and_finds_the_arc_in_the_assembly_file()
+    -> Result<(), String> {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 1,
@@ -10260,9 +10251,7 @@ mod tests {
             dxf.contains("0\nARC") && dxf.contains("40\n7.250"),
             "the DXF drawing carries an ARC entity"
         );
-        let arc = project.board.tracks[0]
-            .curve()
-            .ok_or("track has no arc")?;
+        let arc = project.board.tracks[0].curve().ok_or("track has no arc")?;
         let ipc = ipc2581_text(&project)?;
         assert!(
             ipc.contains(&format!("center_x=\"{:.3}\"", arc.center.x))
