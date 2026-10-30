@@ -35,7 +35,9 @@ pub enum AnswerAge {
 /// One search outcome, with how old the bytes are.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CachedSearch {
+    /// Parts returned for the query.
     pub results: Vec<PartResult>,
+    /// Fresh, stale with retrieval time, or expired (nothing on disk).
     pub age: AnswerAge,
 }
 
@@ -61,14 +63,11 @@ fn cache_key(source: &str, query: &str) -> String {
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SourceError> {
     let n = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let tmp = path.with_file_name(format!(
-        ".tmp-{}-{n}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    ));
+    let stamp = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => 0,
+    };
+    let tmp = path.with_file_name(format!(".tmp-{}-{n}-{stamp}", std::process::id()));
     {
         let mut f = fs::File::create(&tmp).map_err(|e| {
             SourceError::Unavailable(format!("response cache write failed: {e}"))
@@ -84,7 +83,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SourceError> {
     })
 }
 
-#[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct StoredResponse {
     stored_at: u64,
     results: Vec<PartResult>,
@@ -307,6 +306,15 @@ impl SourcePacer {
 }
 
 /// Memory, disk and pacing for part source searches.
+///
+/// # Rules
+/// - Disk rows live under `{cache root}/responses/{source id}/`.
+/// - Offline mode serves stale rows; online mode re-asks after the source window.
+/// - `search` uses `now` as seconds since the Unix epoch (tests pass a fake clock).
+///
+/// # Dependencies
+/// - crates/library/src/sources.rs `PartSource`, `ResponseCache`
+/// - crates/library/src/cad_cache.rs `default_cache_dir`, `content_hash`
 pub struct PartSourceCache {
     memory: ResponseCache,
     disk: DiskLayer,
@@ -315,6 +323,7 @@ pub struct PartSourceCache {
 }
 
 impl PartSourceCache {
+    /// Cache with no disk root; answers stay in memory only.
     pub fn in_memory() -> Self {
         Self {
             memory: ResponseCache::default(),
@@ -324,6 +333,7 @@ impl PartSourceCache {
         }
     }
 
+    /// Open or create the response cache under `root`.
     pub fn open(root: &Path) -> Self {
         Self {
             memory: ResponseCache::default(),
@@ -333,19 +343,23 @@ impl PartSourceCache {
         }
     }
 
+    /// Set the fallback requests-per-second when a source returns zero.
     pub fn with_default_rate(mut self, requests_per_sec: f64) -> Self {
         self.pacer = SourcePacer::new(requests_per_sec);
         self
     }
 
+    /// When true, stale disk answers are returned instead of calling the source.
     pub fn set_offline(&mut self, offline: bool) {
         self.offline = offline;
     }
 
+    /// Whether offline mode is active.
     pub fn is_offline(&self) -> bool {
         self.offline
     }
 
+    /// Seconds left in a source-requested rate-limit pause, if any.
     pub fn pause_remaining(&self, source: &dyn PartSource, now: u64) -> Option<u64> {
         self.pacer.pause_remaining(source.id(), now)
     }
@@ -377,6 +391,7 @@ impl PartSourceCache {
         Ok(())
     }
 
+    /// Remove every cached answer from memory and disk.
     pub fn purge(&mut self) -> Result<(), SourceError> {
         self.memory.purge();
         self.disk.purge()
