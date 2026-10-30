@@ -36312,6 +36312,46 @@ mod tests {
         Ok(())
     }
     #[test]
+    #[test]
+    fn a_newcomer_saves_a_four_layer_board_and_the_file_names_the_bottom_layer(
+    ) -> Result<(), Error> {
+        let mut s = Session::default();
+        let net = s.execute("net.create", json!({"name":"SIG"}), None)?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "track.add",
+            json!({"net":net,"start":{"x":1.0,"y":1.0},"end":{"x":5.0,"y":1.0},"width":0.2,"layer":"B.Cu"}),
+            None,
+        )?;
+        s.execute("board.stackup_add_pair", json!({"after":"F.Cu"}), None)?;
+        assert_eq!(s.project.copper_layer_count(), 4);
+        let dir = tempfile::tempdir().map_err(|e| Error::Invalid(e.to_string()))?;
+        let path = dir.path().join("four-layer.pcbcraft");
+        pcbcraft_io::save(&s.project, &path).map_err(Error::Invalid)?;
+        let first = std::fs::read(&path).map_err(|e| Error::Invalid(e.to_string()))?;
+        let text = String::from_utf8(first.clone()).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert!(
+            text.contains("\"layer\": \"B.Cu\""),
+            "saved file must name bottom copper from the stackup"
+        );
+        assert!(
+            !text.contains("In3.Cu"),
+            "saved file must not use index-derived bottom names"
+        );
+        let loaded = pcbcraft_io::load(&path).map_err(Error::Invalid)?;
+        assert_eq!(
+            loaded.board.tracks[0].layer.index(),
+            3,
+            "legacy and stackup names must load to the same layer"
+        );
+        let again = dir.path().join("four-layer-again.pcbcraft");
+        pcbcraft_io::save(&loaded, &again).map_err(Error::Invalid)?;
+        let second = std::fs::read(&again).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(first, second, "a second save must be byte-identical");
+        Ok(())
+    }
+
     fn via_set_span_updates_range() -> Result<(), Error> {
         let (mut s, net) = six_layer_session()?;
         let id = s.execute(
