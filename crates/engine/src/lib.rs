@@ -15672,10 +15672,14 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 .copper_layers()
                 .into_iter()
                 .map(|layer| {
+                    let role = match p.copper_layer_plane_role(layer) {
+                        Some(r) => r,
+                        None => "signal",
+                    };
                     json!({
                         "layer": p.layer_name(layer),
                         "index": layer.index(),
-                        "role": p.copper_layer_plane_role(layer).unwrap_or("signal"),
+                        "role": role,
                     })
                 })
                 .collect();
