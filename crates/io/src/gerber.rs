@@ -15,6 +15,7 @@
 //! from `gerber_files`: y stays down from the top-left corner, and a bottom
 //! side file mirrors x about the board origin.
 use crate::board_mesh::{graphic_layer, map_ring, pad_sides, thin_polyline};
+use pcbcraft_doc::fill::{pad_exports_on_layer, plated_item_connected_on_layer};
 use pcbcraft_doc::{Footprint, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::PadShape;
@@ -124,11 +125,14 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
     }
     for f in &p.board.footprints {
         for pad in &f.pads {
-            let plated = pad
+            if pad
                 .geometry
                 .as_ref()
-                .is_some_and(|g| g.pad_type == "thru_hole");
-            if layer == Layer::Back && !plated {
+                .is_some_and(|g| g.pad_type == "unplated")
+            {
+                continue;
+            }
+            if !pad_exports_on_layer(p, f, pad, layer) {
                 continue;
             }
             let Some(center) = f.pad_position(&pad.number) else {
@@ -179,11 +183,26 @@ pub fn gerber_copper(p: &Project, layer: Layer) -> Result<String, String> {
             body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
         }
     }
+    for v in &p.board.vias {
+        if !p.via_span_layers(v).contains(&layer) {
+            continue;
+        }
+        if p.remove_unused_inner_pads_enabled() && !p.copper_layer_is_end(layer) {
+            if !plated_item_connected_on_layer(p, v.net, v.position, v.diameter / 2.0, layer) {
+                continue;
+            }
+        }
+        let code = define(Aperture::Standard(format!("C,{}", decimal(v.diameter))));
+        select(&mut body, code);
+        let at = to_gerber(v.position);
+        body.push_str(&format!("X{}Y{}D03*\n", coordinate(at.x), coordinate(at.y)));
+    }
     let idx = layer.index();
     let index = idx + 1;
+    let last = p.copper_layer_count().saturating_sub(1);
     let side = match idx {
         0 => "Top",
-        1 => "Bot",
+        i if i >= last => "Bot",
         _ => "Inr",
     };
     Ok(format!(

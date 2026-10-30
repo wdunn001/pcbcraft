@@ -179,11 +179,21 @@ fn copper(project: &Project) -> Vec<Copper> {
                     cutouts: vec![],
                 };
                 if plated {
-                    let mut back = item.clone();
-                    back.layer = Layer::Back;
-                    result.push(back);
+                    let last = project.copper_layer_count().saturating_sub(1);
+                    for i in 0..=last {
+                        let Ok(layer) = Layer::from_index(i) else {
+                            continue;
+                        };
+                        if !pcbcraft_doc::fill::pad_exports_on_layer(project, f, pad, layer) {
+                            continue;
+                        }
+                        let mut layer_item = item.clone();
+                        layer_item.layer = layer;
+                        result.push(layer_item);
+                    }
+                } else {
+                    result.push(item);
                 }
-                result.push(item);
             }
         }
     }
@@ -270,6 +280,17 @@ fn copper(project: &Project) -> Vec<Copper> {
         };
         // One pad per copper layer in the via's span; it conducts nowhere else.
         for layer in project.via_span_layers(v) {
+            if project.remove_unused_inner_pads_enabled() && !project.copper_layer_is_end(layer) {
+                if !pcbcraft_doc::fill::plated_item_connected_on_layer(
+                    project,
+                    v.net,
+                    v.position,
+                    v.diameter / 2.0,
+                    layer,
+                ) {
+                    continue;
+                }
+            }
             let mut pad = item.clone();
             pad.layer = layer;
             result.push(pad);

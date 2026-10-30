@@ -57,6 +57,10 @@ pub struct FabRules {
     pub source_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrieved: Option<String>,
+    /// When unset, inner unused pad removal follows the board layer count (on
+    /// from six copper layers up). End layers always keep their pads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_unused_inner_pads: Option<bool>,
 }
 
 impl FabRules {
@@ -101,6 +105,11 @@ impl FabRules {
 
     pub fn drill_tool(&self, finished_drill: f64) -> f64 {
         finished_drill + self.plating_allowance.unwrap_or(0.0)
+    }
+
+    /// Default for `remove_unused_inner_pads` when the profile omits the field.
+    pub fn remove_unused_inner_pads_default(copper_layers: u8) -> bool {
+        copper_layers >= 6
     }
 }
 
