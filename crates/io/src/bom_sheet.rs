@@ -50,8 +50,8 @@ pub fn bom_sheet_rows(p: &Project, params: &BomSheetParams) -> Result<Vec<BomShe
                 .ok_or_else(|| format!("no variant named {name}"))?,
         ),
     };
-    let mut groups: BTreeMap<(String, String, String, Vec<String>, String), Vec<String>> =
-        BTreeMap::new();
+    type BomGroupKey = (String, String, String, Vec<String>, String);
+    let mut groups: BTreeMap<BomGroupKey, Vec<String>> = BTreeMap::new();
     for c in &p.components {
         if !c.in_bom()
             || (!params.ids.is_empty() && !params.ids.contains(&c.id))
