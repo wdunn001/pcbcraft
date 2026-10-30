@@ -371,6 +371,27 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "project.compliance.set",
+            "Choose compliance rule sets, organisation role and target markets for this design",
+            schema(
+                json!({"rule_sets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":64}},"org_role":{"type":["string","null"],"enum":["maker_seller","integrator","buyer",null]},"target_markets":{"type":"array","maxItems":16,"items":{"type":"string","maxLength":256}}}),
+                &[],
+            ),
+        ),
+        (
+            "compliance.finding.mute",
+            "Mute one compliance finding for a rule and component or manufacturer, storing a reason on the project",
+            schema(
+                json!({"rule":{"type":"string","maxLength":64},"component":{"type":["integer","null"]},"manufacturer":{"type":["string","null"],"maxLength":128},"reason":{"type":"string","maxLength":512}}),
+                &["rule", "reason"],
+            ),
+        ),
+        (
+            "compliance.check",
+            "Run bundled compliance rule sets against the bill of materials and return findings with rule, evidence and citation",
+            schema(json!({}), &[]),
+        ),
+        (
             "component.find",
             "Find components by reference wildcard, exact value or kind; * matches any run of characters and ? matches one",
             schema(
@@ -2551,7 +2572,9 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        let compliance = serde_json::to_value(pcbcraft_rules::compliance_check(&self.project))
+            .unwrap_or_else(|_| json!([]));
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"compliance":compliance,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -5191,6 +5214,23 @@ struct ManufacturerSetParams {
     parent: Option<String>,
     #[serde(default)]
     supplier_responsibility_on_file: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectComplianceSetParams {
+    #[serde(default)]
+    rule_sets: Option<Vec<String>>,
+    org_role: Option<String>,
+    #[serde(default)]
+    target_markets: Option<Vec<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ComplianceFindingMuteParams {
+    rule: String,
+    component: Option<Id>,
+    manufacturer: Option<String>,
+    reason: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -8219,6 +8259,64 @@ fn run_command(
             let replaced = p.upsert_manufacturer(record).map_err(Error::Invalid)?;
             Ok(json!({"replaced": replaced, "count": p.manufacturers.len()}))
         }
+        "project.compliance.set" => {
+            let a: ProjectComplianceSetParams = parse(params)?;
+            if let Some(rule_sets) = a.rule_sets {
+                p.compliance_settings.rule_sets = rule_sets;
+            }
+            if let Some(role) = a.org_role {
+                p.compliance_settings.org_role = match role.as_str() {
+                    "maker_seller" => Some(pcbcraft_doc::ComplianceOrgRole::MakerSeller),
+                    "integrator" => Some(pcbcraft_doc::ComplianceOrgRole::Integrator),
+                    "buyer" => Some(pcbcraft_doc::ComplianceOrgRole::Buyer),
+                    "" => None,
+                    other => {
+                        return Err(Error::Invalid(format!(
+                            "org_role must be maker_seller, integrator or buyer, not {other}"
+                        )));
+                    }
+                };
+            }
+            if let Some(markets) = a.target_markets {
+                p.compliance_settings.target_markets = markets;
+            }
+            p.compliance_settings.validate().map_err(Error::Invalid)?;
+            Ok(json!({"rule_sets": p.compliance_settings.rule_sets}))
+        }
+        "compliance.finding.mute" => {
+            let a: ComplianceFindingMuteParams = parse(params)?;
+            if a.component.is_none() && a.manufacturer.as_deref().is_none_or(str::trim_is_empty) {
+                return Err(Error::Invalid(
+                    "mute a finding by component id or manufacturer name".into(),
+                ));
+            }
+            if let Some(id) = a.component
+                && !object_exists(p, id)
+            {
+                return Err(Error::Invalid(format!("no design object with id {id}")));
+            }
+            let mute = pcbcraft_doc::ComplianceFindingMute {
+                rule: a.rule,
+                component: a.component,
+                manufacturer: a
+                    .manufacturer
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty()),
+                reason: a.reason,
+            };
+            mute.validate().map_err(Error::Invalid)?;
+            if p.compliance_mutes.len() >= pcbcraft_doc::MAX_COMPLIANCE_MUTES {
+                return Err(Error::Invalid(format!(
+                    "a project stores at most {} compliance mutes",
+                    pcbcraft_doc::MAX_COMPLIANCE_MUTES
+                )));
+            }
+            p.compliance_mutes.push(mute);
+            Ok(json!({"count": p.compliance_mutes.len()}))
+        }
+        "compliance.check" => Ok(json!({
+            "findings": pcbcraft_rules::compliance_check(p),
+        })),
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
             let bounded = |name: &str, v: &str, max: usize| -> Result<(), Error> {
@@ -23363,6 +23461,10 @@ mod tests {
             commands().iter().any(|c| c.id == "library.footprint.check"),
             "MCP clients must see library.footprint.check"
         );
+        assert!(
+            commands().iter().any(|c| c.id == "compliance.check"),
+            "MCP clients must see compliance.check"
+        );
         Ok(())
     }
 
@@ -25529,6 +25631,49 @@ mod tests {
         assert!(s.project.manufacturers.is_empty());
         s.undo()?;
         assert!(s.project.component(r1).ok_or_else(missing)?.compliance.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn compliance_settings_mute_and_check_round_trip() -> Result<(), Error> {
+        let mut s = Session::default();
+        let r1 = s.execute(
+            "component.add",
+            json!({"kind":"resistor","position":{"x":10.0,"y":10.0},"reference":"R1"}),
+            None,
+        )?["result"]["id"]
+            .as_u64()
+            .ok_or_else(missing)?;
+        s.execute(
+            "project.compliance.set",
+            json!({"rule_sets":["synthetic_demo"],"org_role":"integrator","target_markets":["demo"]}),
+            None,
+        )?;
+        assert_eq!(
+            s.project.compliance_settings.org_role,
+            Some(pcbcraft_doc::ComplianceOrgRole::Integrator)
+        );
+        let before = s.checks()["compliance"]
+            .as_array()
+            .map_or(0, Vec::len);
+        assert!(before > 0);
+        s.execute(
+            "compliance.finding.mute",
+            json!({"rule":"demo.declaration_required","component":r1,"reason":"accepted for prototype"}),
+            None,
+        )?;
+        let after = s.checks()["compliance"].as_array().ok_or_else(missing)?;
+        assert!(
+            after.len() < before,
+            "muted finding drops out of the compliance report"
+        );
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let back: pcbcraft_doc::Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        assert_eq!(back.compliance_mutes.len(), 1);
+        assert_eq!(back.compliance_mutes[0].reason, "accepted for prototype");
+        let run = s.execute("compliance.check", json!({}), None)?;
+        assert!(run["findings"].as_array().is_some());
         Ok(())
     }
 

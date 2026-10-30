@@ -28,16 +28,23 @@ pub use material::{MATERIALS, Material, material};
 mod net_members;
 mod sourcing;
 mod compliance;
+mod compliance_list;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
 pub use sourcing::{
     MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
     SupplierPart, lifecycle_text,
 };
 pub use compliance::{
-    Compliance, CountryOfOrigin, DeclaredSubstance, Declaration, DeclarationSource,
-    DeclarationSourceKind, DeclarationStatus, ManufacturerRecord, PartRole,
-    MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS, MAX_SUBSTANCES,
-    apply_listing_declarations, normalize_manufacturer_name, part_role_text,
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
+    CountryOfOrigin, DeclaredSubstance, Declaration, DeclarationSource, DeclarationSourceKind,
+    DeclarationStatus, ManufacturerRecord, PartRole, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MUTES,
+    MAX_COMPLIANCE_RULE_SETS, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS,
+    MAX_SUBSTANCES, apply_listing_declarations, date_le, normalize_manufacturer_name,
+    part_role_text, valid_date,
+};
+pub use compliance_list::{
+    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
+    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
 };
 pub mod fill;
 pub use fill::{
@@ -3242,6 +3249,12 @@ pub struct Project {
     /// Manufacturer names and aliases for compliance matching.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manufacturers: Vec<ManufacturerRecord>,
+    /// Compliance rule sets, role and target markets for this design.
+    #[serde(default, skip_serializing_if = "ComplianceProjectSettings::is_empty")]
+    pub compliance_settings: ComplianceProjectSettings,
+    /// Compliance findings the designer muted with a stored reason.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compliance_mutes: Vec<ComplianceFindingMute>,
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
@@ -3433,6 +3446,8 @@ impl Default for Project {
             ports: vec![],
             bom_fields: vec![],
             manufacturers: vec![],
+            compliance_settings: Default::default(),
+            compliance_mutes: vec![],
             output_jobs: vec![],
             artifacts: vec![],
             panel: PanelSettings::default(),
@@ -4439,6 +4454,8 @@ impl Project {
         self.library.validate()?;
         self.validate_parameters()?;
         self.validate_manufacturers()?;
+        self.compliance_settings.validate()?;
+        self.validate_compliance_mutes()?;
         if self
             .components
             .iter()
