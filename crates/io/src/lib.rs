@@ -10,6 +10,7 @@ mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
+mod enclosure;
 mod fab_export;
 pub mod formats;
 mod generate;
@@ -62,6 +63,7 @@ pub use diff::{DesignChange, DesignDiff, project_diff};
 /// Functions for generating layer plots from drawn graphics.
 /// # Dependencies
 /// - crates/io/src/drawn.rs
+pub use enclosure::{EnclosureScan, PlanarFace, ScannedDatum, ScanBounds, read_enclosure_step};
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,

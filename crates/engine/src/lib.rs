@@ -611,6 +611,32 @@ pub fn commands() -> Vec<CommandSpec> {
             ),
         ),
         (
+            "enclosure.import",
+            "Import an enclosure STEP file for its bounding box and named datums, optionally with a glTF or OBJ mesh path for the picture; one undo step",
+            schema(
+                json!({"path":{"type":"string","minLength":1,"maxLength":1024},"mesh_path":{"type":"string","minLength":1,"maxLength":1024},"transform":{"type":"array","minItems":16,"maxItems":16,"items":{"type":"number"}}}),
+                &["path"],
+            ),
+        ),
+        (
+            "enclosure.remove",
+            "Remove the imported enclosure and the datums it created",
+            schema(json!({}), &[]),
+        ),
+        (
+            "enclosure.set_transform",
+            "Set the row-major 4x4 transform applied to the enclosure body in millimetres",
+            schema(
+                json!({"transform":{"type":"array","minItems":16,"maxItems":16,"items":{"type":"number"}}}),
+                &["transform"],
+            ),
+        ),
+        (
+            "enclosure.show",
+            "Read the enclosure reference record and any scan notice from the last import",
+            schema(json!({}), &[]),
+        ),
+        (
             "svg.import",
             "Import an SVG drawing from disk as board graphics (lines, polylines, polygons, rectangles, circles, simple paths and text, in millimetres with the page flipping y up); with use_outline a closed polygon also traces the board outline and the whole drawing shifts to the first quadrant",
             schema(
@@ -3978,6 +4004,20 @@ struct DxfImportParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EnclosureImportParams {
+    path: String,
+    #[serde(default)]
+    mesh_path: Option<String>,
+    #[serde(default)]
+    transform: Option<[f64; 16]>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnclosureTransformParams {
+    transform: [f64; 16],
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SvgImportParams {
     path: String,
     #[serde(default)]
@@ -4087,6 +4127,33 @@ fn check_datum_name(p: &Project, name: &str, own: Option<Id>) -> Result<(), Erro
     }
     Ok(())
 }
+fn clear_enclosure_import(p: &mut Project) {
+    if let Some(enclosure) = p.board.enclosure.take() {
+        p.board
+            .datums
+            .retain(|d| !enclosure.linked_datums.contains(&d.id));
+    }
+}
+
+fn parse_enclosure_transform(raw: Option<[f64; 16]>) -> Result<[f64; 16], Error> {
+    let transform = raw.unwrap_or([
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]);
+    if !pcbcraft_doc::EnclosureRef::transform_valid(&transform) {
+        return Err(Error::Invalid(
+            "the enclosure transform must use finite numbers".into(),
+        ));
+    }
+    Ok(transform)
+}
+
+fn mesh_path_allowed(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.ends_with(".gltf")
+        || lower.ends_with(".glb")
+        || lower.ends_with(".obj")
+}
+
 fn check_datum_position(p: &Project, position: Point) -> Result<(), Error> {
     if !position.valid() {
         return Err(Error::Invalid("datum position is out of range".into()));
@@ -9587,6 +9654,104 @@ fn run_command(
             Ok(json!({
                 "graphics": added,
                 "outline": p.board.outline.as_ref().map(|o| o.len()),
+            }))
+        }
+        "enclosure.import" => {
+            let a: EnclosureImportParams = parse(params)?;
+            if a.path.is_empty() || a.path.len() > 1024 {
+                return Err(Error::Invalid(
+                    "the enclosure path must be 1 to 1024 bytes".into(),
+                ));
+            }
+            if let Some(mesh) = &a.mesh_path {
+                if mesh.is_empty() || mesh.len() > 1024 || !mesh_path_allowed(mesh) {
+                    return Err(Error::Invalid(
+                        "the mesh path must end with .gltf, .glb or .obj".into(),
+                    ));
+                }
+            }
+            let transform = parse_enclosure_transform(a.transform)?;
+            let bytes = std::fs::read(&a.path).map_err(|e| Error::Invalid(e.to_string()))?;
+            let scan =
+                pcbcraft_io::read_enclosure_step(&bytes).map_err(Error::Invalid)?;
+            clear_enclosure_import(p);
+            let mut linked_datums = Vec::new();
+            for datum in &scan.datums {
+                if p.board.datums.len() >= pcbcraft_doc::Datum::MAX {
+                    return Err(Error::Invalid("a board carries at most 64 datums".into()));
+                }
+                check_datum_name(p, &datum.name, None)?;
+                let world = pcbcraft_io::apply_matrix(&transform, datum.position);
+                let position = Point::new(world[0], world[1]);
+                check_datum_position(p, position)?;
+                let id = allocate(next)?;
+                p.board.datums.push(pcbcraft_doc::Datum {
+                    id,
+                    name: datum.name.clone(),
+                    position,
+                    hole: None,
+                });
+                linked_datums.push(id);
+            }
+            let bounds = pcbcraft_doc::EnclosureBounds {
+                min: scan.bounds.min,
+                max: scan.bounds.max,
+            };
+            let notice = scan.notice.clone();
+            p.board.enclosure = Some(pcbcraft_doc::EnclosureRef {
+                path: a.path,
+                transform,
+                source_format: pcbcraft_doc::EnclosureSourceFormat::Step,
+                bounds,
+                mesh_path: a.mesh_path,
+                linked_datums,
+                notice,
+            });
+            p.validate().map_err(Error::Invalid)?;
+            Ok(json!({
+                "bounds": scan.bounds,
+                "datums": scan.datums.len(),
+                "planar_faces": scan.planar_faces.len(),
+                "hidden_face_count": scan.hidden_face_count,
+                "notice": scan.notice,
+            }))
+        }
+        "enclosure.remove" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "enclosure.remove takes an empty object".into(),
+                ));
+            }
+            if p.board.enclosure.is_none() {
+                return Err(Error::Invalid("there is no enclosure to remove".into()));
+            }
+            clear_enclosure_import(p);
+            Ok(json!({"removed": true}))
+        }
+        "enclosure.set_transform" => {
+            let a: EnclosureTransformParams = parse(params)?;
+            let transform = parse_enclosure_transform(Some(a.transform))?;
+            let enclosure = p
+                .board
+                .enclosure
+                .as_mut()
+                .ok_or_else(|| Error::Invalid("there is no enclosure to move".into()))?;
+            enclosure.transform = transform;
+            p.validate().map_err(Error::Invalid)?;
+            Ok(json!({"transform": transform}))
+        }
+        "enclosure.show" => {
+            if params.as_object().is_none_or(|m| !m.is_empty()) {
+                return Err(Error::Invalid(
+                    "enclosure.show takes an empty object".into(),
+                ));
+            }
+            let Some(enclosure) = &p.board.enclosure else {
+                return Ok(json!({"enclosure": null}));
+            };
+            Ok(json!({
+                "enclosure": enclosure,
+                "notice": enclosure.notice,
             }))
         }
         "svg.import" => {
@@ -36199,6 +36364,69 @@ mod tests {
         assert!(b > a);
         Ok(())
     }
+
+    fn enclosure_fixture_with_datum() -> Result<std::path::PathBuf, Error> {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../io/tests/fixtures/box.step");
+        let mut text =
+            std::fs::read_to_string(&src).map_err(|e| Error::Invalid(e.to_string()))?;
+        let insert = "#200=CARTESIAN_POINT('Mount_A',(5.0,5.0,0.0));\n";
+        if let Some(index) = text.find("ENDSEC;") {
+            text.insert_str(index, insert);
+        } else {
+            text.push_str(insert);
+        }
+        let path = std::env::temp_dir().join(format!(
+            "pcbcraft-enclosure-import-{}.step",
+            std::process::id()
+        ));
+        std::fs::write(&path, text).map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(path)
+    }
+
+    #[test]
+    fn enclosure_import_is_one_undo_step() -> Result<(), Error> {
+        let path = enclosure_fixture_with_datum()?;
+        let mut s = Session::default();
+        s.execute("enclosure.import", json!({"path": path.to_string_lossy()}), None)?;
+        assert!(s.project.board.enclosure.is_some());
+        assert_eq!(s.project.board.datums.len(), 1);
+        s.undo()?;
+        assert!(s.project.board.enclosure.is_none());
+        assert!(s.project.board.datums.is_empty());
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn enclosure_import_refuses_a_bad_transform() -> Result<(), Error> {
+        let path = enclosure_fixture_with_datum()?;
+        let mut s = Session::default();
+        let bad = json!({
+            "path": path.to_string_lossy(),
+            "transform": [1.0, f64::NAN, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        });
+        assert!(s.execute("enclosure.import", bad, None).is_err());
+        assert!(s.project.board.enclosure.is_none());
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
+    #[test]
+    fn enclosure_record_round_trips_through_save() -> Result<(), Error> {
+        let path = enclosure_fixture_with_datum()?;
+        let mut s = Session::default();
+        s.execute("enclosure.import", json!({"path": path.to_string_lossy()}), None)?;
+        let text = serde_json::to_string(&s.project).map_err(|e| Error::Invalid(e.to_string()))?;
+        let project: Project =
+            serde_json::from_str(&text).map_err(|e| Error::Invalid(e.to_string()))?;
+        project.validate().map_err(Error::Invalid)?;
+        assert!(project.board.enclosure.is_some());
+        assert_eq!(project.board.datums.len(), 1);
+        let _ = std::fs::remove_file(path);
+        Ok(())
+    }
+
     #[test]
     fn datums_write_into_the_mechanical_outputs_of_a_job() -> Result<(), Error> {
         let mut s = Session::sample()?;

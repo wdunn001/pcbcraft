@@ -2189,6 +2189,65 @@ impl Datum {
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     }
 }
+/// How the enclosure reference body was imported.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EnclosureSourceFormat {
+    Step,
+    Gltf,
+    Obj,
+}
+/// Cached axis-aligned bounds of an enclosure body in millimetres.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct EnclosureBounds {
+    pub min: [f64; 3],
+    pub max: [f64; 3],
+}
+impl EnclosureBounds {
+    pub fn valid(&self) -> bool {
+        self.min.iter().chain(self.max.iter()).all(|v| v.is_finite())
+            && self.min[0] <= self.max[0]
+            && self.min[1] <= self.max[1]
+            && self.min[2] <= self.max[2]
+    }
+}
+fn enclosure_identity_transform() -> [f64; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+/// Reference to an imported enclosure body shown in the 3D tab.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct EnclosureRef {
+    pub path: String,
+    #[serde(default = "enclosure_identity_transform")]
+    pub transform: [f64; 16],
+    pub source_format: EnclosureSourceFormat,
+    pub bounds: EnclosureBounds,
+    /// Optional mesh file drawn for the picture when the STEP holds curved faces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_path: Option<String>,
+    /// Board datums created when this enclosure was imported.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub linked_datums: Vec<Id>,
+    /// Plain sentence when curved faces were skipped during import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
+}
+impl EnclosureRef {
+    pub fn transform_valid(m: &[f64; 16]) -> bool {
+        m.iter().all(|v| v.is_finite())
+    }
+    pub fn valid(&self) -> bool {
+        !self.path.trim().is_empty()
+            && self.path.len() <= 1024
+            && Self::transform_valid(&self.transform)
+            && self.bounds.valid()
+            && self.mesh_path.as_ref().is_none_or(|p| {
+                !p.trim().is_empty() && p.len() <= 1024
+            })
+    }
+}
 /// An optical assembly mark: a bare copper circle, usually 1 mm, that the
 /// pick-and-place camera uses to locate and orient the board.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2828,6 +2887,9 @@ pub struct Board {
     /// Named mounting datums an enclosure tool can consume.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub datums: Vec<Datum>,
+    /// Imported enclosure reference body for the 3D tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enclosure: Option<EnclosureRef>,
     /// Layers the designer draws for machines: cuts, perforations, custom
     /// silk and mask art, plotted alongside the copper.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -4717,6 +4779,19 @@ impl Project {
             }
             if !self.board_contains(self.datum_position(d)) {
                 return Err("a datum must lie inside the board".into());
+            }
+        }
+        if let Some(enclosure) = &self.board.enclosure {
+            if !enclosure.valid() {
+                return Err(
+                    "the enclosure record needs a path, a finite transform and a valid bounding box"
+                        .into(),
+                );
+            }
+            for id in &enclosure.linked_datums {
+                if !self.board.datums.iter().any(|d| d.id == *id) {
+                    return Err("the enclosure record names a datum that is missing".into());
+                }
             }
         }
         if self.board.fiducials.len() > 128 {
