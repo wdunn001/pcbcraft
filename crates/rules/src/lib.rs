@@ -3539,8 +3539,47 @@ mod tests {
             drc(&p).iter().any(|f| f.code == "silk_line"),
             "thin silk stroke should fail silk_line"
         );
+        p.board.rules = None;
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "silk_line"),
+            "absent rules emit no silk_line findings"
+        );
         Ok(())
     }
+
+    #[test]
+    fn mask_dam_reports_narrow_bridge_between_openings() -> Result<(), String> {
+        let mut p = fixture();
+        p.board.rules = Some(FabRules {
+            mask_dam: Some(0.15),
+            ..FabRules::default()
+        });
+        p.board.vias.push(Via {
+            id: 60,
+            net: 1,
+            position: Point::new(10.0, 12.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        p.board.vias.push(Via {
+            id: 61,
+            net: 1,
+            position: Point::new(10.5, 12.0),
+            diameter: 0.8,
+            drill: 0.4,
+        });
+        let hit = drc(&p)
+            .into_iter()
+            .find(|f| f.code == "mask_dam")
+            .ok_or("narrow mask bridge should fail mask_dam")?;
+        assert!(
+            hit.message.contains("0.150"),
+            "message names the limit: {}",
+            hit.message
+        );
+        Ok(())
+    }
+
     #[test]
     fn annular_ring_uses_separate_via_and_pth_limits() -> Result<(), String> {
         let mut p = fixture();
