@@ -3197,6 +3197,24 @@ pub fn report_text(p: &Project) -> Result<String, String> {
 ///
 /// # Do not
 /// Do not print a limit the board does not record.
+fn smallest_track_gap(p: &Project) -> Option<f64> {
+    let mut best = f64::INFINITY;
+    for (i, a) in p.board.tracks.iter().enumerate() {
+        for b in p.board.tracks.iter().skip(i + 1) {
+            if a.layer != b.layer || a.net == b.net {
+                continue;
+            }
+            let gap = pcbcraft_geom::segment_distance(a.start, a.end, b.start, b.end)
+                - a.width / 2.0
+                - b.width / 2.0;
+            if gap.is_finite() {
+                best = best.min(gap);
+            }
+        }
+    }
+    best.is_finite().then_some(best)
+}
+
 pub fn manufacturability_lines(p: &Project) -> Vec<String> {
     let rules = p.board.rules.as_ref();
     let allowance = rules.and_then(|r| r.plating_allowance).unwrap_or(0.0);
@@ -3238,8 +3256,36 @@ pub fn manufacturability_lines(p: &Project) -> Vec<String> {
             "Board size: {:.3} x {:.3} mm",
             p.board.width, p.board.height
         ),
+        format!("Board thickness: {:.3} mm", p.board.thickness),
+        format!("Copper layers: {}", p.copper_layer_count()),
+        format!(
+            "Surface finish: {}",
+            if p.board.finish.trim().is_empty() {
+                "not recorded"
+            } else {
+                p.board.finish.trim()
+            }
+        ),
         format!("Holes: {plated} plated, {unplated} unplated, {slots} slots"),
     ];
+    let mut blind = false;
+    let mut buried = false;
+    for via in &p.board.vias {
+        match p.via_kind(via) {
+            pcbcraft_doc::ViaKind::Blind => blind = true,
+            pcbcraft_doc::ViaKind::Buried => buried = true,
+            _ => {}
+        }
+    }
+    lines.push(format!(
+        "Blind or buried vias: {}",
+        match (blind, buried) {
+            (true, true) => "blind and buried spans present",
+            (true, false) => "blind spans present",
+            (false, true) => "buried spans present",
+            _ => "none",
+        }
+    ));
     match smallest {
         Some(d) => lines.push(format!("Smallest finished drill: {d:.3} mm")),
         None => lines.push("Smallest finished drill: no holes".into()),
@@ -3267,6 +3313,10 @@ pub fn manufacturability_lines(p: &Project) -> Vec<String> {
     lines.push(match track {
         Some(w) => format!("Smallest track width: {w:.3} mm"),
         None => "Smallest track width: no tracks".into(),
+    });
+    lines.push(match smallest_track_gap(p) {
+        Some(g) => format!("Smallest track gap: {g:.3} mm"),
+        None => "Smallest track gap: no unlike-net tracks on one layer".into(),
     });
     lines
 }
@@ -7090,7 +7140,11 @@ mod tests {
             .ok_or("no manufacturability block")?;
         for line in [
             "Board size: 50.000 x 30.000 mm",
+            "Board thickness: 1.600 mm",
+            "Copper layers: 2",
+            "Surface finish: HASL",
             "Holes: 1 plated, 1 unplated, 0 slots",
+            "Blind or buried vias: none",
             "Smallest finished drill: 0.400 mm",
             "Fabrication preset: Test House Standard",
             "Limits source: https://example.com/capabilities",
@@ -7098,6 +7152,7 @@ mod tests {
             "Smallest via annular ring: 0.150 mm",
             "Smallest plated pad annular ring: none on this board",
             "Smallest track width: 0.150 mm",
+            "Smallest track gap: no unlike-net tracks on one layer",
         ] {
             assert!(
                 block.lines().any(|l| l == line),
@@ -7114,6 +7169,8 @@ mod tests {
             .nth(1)
             .ok_or("no manufacturability block")?;
         assert!(block.contains("Board size: 50.000 x 30.000 mm"));
+        assert!(block.contains("Board thickness: 1.600 mm"));
+        assert!(block.contains("Copper layers: 2"));
         assert!(block.contains("Holes: 1 plated, 1 unplated, 0 slots"));
         assert!(block.contains("Smallest finished drill: 0.400 mm"));
         assert!(!block.contains("annular ring"));
