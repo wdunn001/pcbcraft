@@ -2317,6 +2317,7 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 pub fn assert_gerber_md5_valid(text: &str) -> Result<(), String> {
     gerber_fidelity::verify_gerber_md5(text)
 }
+
 /// The same fabrication files as `gerber_files`, with the creation date the
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
@@ -2484,13 +2485,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     for layer in p.copper_layers() {
         copper.insert(layer, LayerFile::new(scale));
     }
-    let mirror = |x: f64, y: f64, flip: bool| -> (f64, f64) {
-        if flip {
-            (-x, y)
-        } else {
-            (x, y)
-        }
-    };
+    let mirror = |x: f64, y: f64, flip: bool| -> (f64, f64) { if flip { (-x, y) } else { (x, y) } };
     for z in &p.board.zones {
         if !z.filled {
             continue;
@@ -2508,8 +2503,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         // track or pad is drawn, because LPC would clear those too.
         for piece in &fill.pieces {
             for (index, ring) in piece.iter().enumerate() {
-                let points: Vec<(f64, f64)> =
-                    ring.iter().map(|q| mirror(q.x, q.y, flip)).collect();
+                let points: Vec<(f64, f64)> = ring.iter().map(|q| mirror(q.x, q.y, flip)).collect();
                 if index > 0 {
                     file.body.push_str("%LPC*%\n");
                 }

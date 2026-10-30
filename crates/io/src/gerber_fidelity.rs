@@ -241,7 +241,7 @@ fn mask_kind(rec: &pcbcraft_doc::LayerRecord) -> &str {
 
 /// Extra mask-layer Gerber files from the recorded stack (variants and outward index).
 pub fn mask_stack_gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
-    use crate::gerber::{gerber_mask_for_stack_row, DEFAULT_MASK_MARGIN};
+    use crate::gerber::{DEFAULT_MASK_MARGIN, gerber_mask_for_stack_row};
     p.validate()?;
     let mut rows: Vec<(usize, &pcbcraft_doc::LayerRecord)> = p
         .board

@@ -823,12 +823,7 @@ pub fn gerber_mask_for_stack_row(
         let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
         sheet.flash(code, mirror(v.position, layer))?;
     }
-    Ok(sheet.finish(
-        file_function,
-        "Negative",
-        "mask layer from stack",
-        &[],
-    ))
+    Ok(sheet.finish(file_function, "Negative", "mask layer from stack", &[]))
 }
 
 /// Viafill layer for filled vias.
