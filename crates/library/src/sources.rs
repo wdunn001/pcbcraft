@@ -130,6 +130,10 @@ pub trait PartSource: Send + Sync {
     fn cache_secs(&self) -> u64 {
         DEFAULT_CACHE_SECS
     }
+    /// Most searches per second this source allows. Pacing stays below this.
+    fn requests_per_sec(&self) -> f64 {
+        4.0
+    }
 }
 
 /// Reject queries a source should never see.
@@ -164,6 +168,49 @@ impl ResponseCache {
     fn key(source: &str, query: &str) -> String {
         format!("{source}\u{1f}search\u{1f}{}", query.trim().to_lowercase())
     }
+    /// Return a still-fresh memory entry without asking the source.
+    pub fn get_if_fresh(
+        &self,
+        source: &dyn PartSource,
+        query: &str,
+        now: u64,
+    ) -> Option<Vec<PartResult>> {
+        let query = check_query(query).ok()?;
+        let key = Self::key(source.id(), query);
+        let entry = self.entries.get(&key)?;
+        (now.saturating_sub(entry.stored_at) < source.cache_secs())
+            .then(|| entry.results.clone())
+    }
+
+    /// Store an answer the caller already fetched.
+    pub fn remember(
+        &mut self,
+        source: &dyn PartSource,
+        query: &str,
+        now: u64,
+        results: Vec<PartResult>,
+    ) -> Result<(), SourceError> {
+        let query = check_query(query)?;
+        let key = Self::key(source.id(), query);
+        if self.entries.len() >= MAX_CACHE_ENTRIES
+            && let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.stored_at)
+                .map(|(k, _)| k.clone())
+        {
+            self.entries.remove(&oldest);
+        }
+        self.entries.insert(
+            key,
+            CacheEntry {
+                stored_at: now,
+                results,
+            },
+        );
+        Ok(())
+    }
+
     /// Answer from the cache while the entry is younger than the source's
     /// window, otherwise ask the source and store the answer. `now` is
     /// seconds since the Unix epoch.
@@ -174,13 +221,11 @@ impl ResponseCache {
         now: u64,
     ) -> Result<Vec<PartResult>, SourceError> {
         let query = check_query(query)?;
-        let key = Self::key(source.id(), query);
-        if let Some(entry) = self.entries.get(&key)
-            && now.saturating_sub(entry.stored_at) < source.cache_secs()
-        {
-            return Ok(entry.results.clone());
+        if let Some(hit) = self.get_if_fresh(source, query, now) {
+            return Ok(hit);
         }
         self.misses += 1;
+        let key = Self::key(source.id(), query);
         let mut results = source.search(query)?;
         results.truncate(MAX_RESULTS);
         if self.entries.len() >= MAX_CACHE_ENTRIES

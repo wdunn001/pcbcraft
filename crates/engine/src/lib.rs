@@ -19,6 +19,7 @@ mod outline;
 pub mod profiles;
 pub mod recents;
 pub mod scope;
+pub mod source_cache;
 pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};
 mod route;
