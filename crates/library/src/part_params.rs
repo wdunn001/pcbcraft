@@ -316,7 +316,8 @@ fn parse_payload(
             (u == Unit::Volt).then_some((ParamPayload::Number { value: v }, Some(Unit::Volt)))
         }
         ToleranceRange => {
-            let (lo, hi) = tolerance_from(trimmed, category).or_else(|| parse_tolerance(trimmed))?;
+            let (lo, hi) =
+                tolerance_from(trimmed, category).or_else(|| parse_tolerance(trimmed))?;
             Some((
                 ParamPayload::Range {
                     low: f64::from(lo),
@@ -631,14 +632,8 @@ mod tests {
     fn heuristics_parse_ac_rated_voltage_and_package() {
         let aliases = ParamAliasFile::new();
         let mut attrs = BTreeMap::from([
-            (
-                "Voltage - Rated AC".into(),
-                "250 VAC".into(),
-            ),
-            (
-                "Package / Case".into(),
-                "0603 (1608 Metric)".into(),
-            ),
+            ("Voltage - Rated AC".into(), "250 VAC".into()),
+            ("Package / Case".into(), "0603 (1608 Metric)".into()),
         ]);
         let out = params_from_attributes(
             "Sample parts",
@@ -719,27 +714,13 @@ mod tests {
         )
         .expect("alias json");
         let ppm = BTreeMap::from([("Temp Coeff".into(), "±30 ppm/°C".into())]);
-        let parsed = params_from_attributes(
-            "fixture",
-            "Resistors",
-            "resistor",
-            &ppm,
-            &aliases,
-            0,
-        );
+        let parsed = params_from_attributes("fixture", "Resistors", "resistor", &ppm, &aliases, 0);
         assert!(parsed.params.iter().any(|p| {
             p.key == ParamKey::TemperatureCoefficient
                 && matches!(p.payload, ParamPayload::Number { value } if (value - 30.0).abs() < 1e-6)
         }));
         let raw = BTreeMap::from([("Temp Coeff".into(), "C0G".into())]);
-        let text = params_from_attributes(
-            "fixture",
-            "Resistors",
-            "resistor",
-            &raw,
-            &aliases,
-            0,
-        );
+        let text = params_from_attributes("fixture", "Resistors", "resistor", &raw, &aliases, 0);
         assert!(text.params.iter().any(|p| {
             p.key == ParamKey::TemperatureCoefficient
                 && matches!(&p.payload, ParamPayload::Text { value } if value == "C0G")
