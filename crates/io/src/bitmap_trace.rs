@@ -306,7 +306,11 @@ fn ring_area(r: &[(f64, f64)]) -> f64 {
 
 /// Drop collinear points, then thin the ring with a closed Douglas-Peucker
 /// pass, widening the tolerance until the vertex cap holds.
-fn simplify_ring(ring: Vec<(f64, f64)>, tolerance: f64, max_vertices: usize) -> Vec<(f64, f64)> {
+pub(crate) fn simplify_ring(
+    ring: Vec<(f64, f64)>,
+    tolerance: f64,
+    max_vertices: usize,
+) -> Vec<(f64, f64)> {
     let n = ring.len();
     let mut corners: Vec<(f64, f64)> = Vec::new();
     for i in 0..n {

@@ -9,7 +9,7 @@ use crate::{MAX_FILE_BYTES, read_text};
 /// Total extracted bytes allowed when reading a plot zip (same budget as one file).
 pub const MAX_PLOT_ZIP_BYTES: u64 = MAX_FILE_BYTES;
 
-const MAX_OPS: usize = 100_000;
+const MAX_OPS: usize = 1_000_000;
 const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
 
@@ -487,7 +487,9 @@ pub fn parse_gerber_layer(text: &str, source_name: &str) -> Result<PlotLayer, St
         );
         ops += 1;
         if ops > MAX_OPS {
-            return Err("plot layer exceeds the object limit".into());
+            return Err(format!(
+                "plot layer {source_name} exceeds the object limit"
+            ));
         }
         match op {
             3 => flashes.push(PlotFlash {

@@ -22,7 +22,7 @@ use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintRules;
 use std::collections::BTreeMap;
 
-const MAX_OPS: usize = 100_000;
+const MAX_OPS: usize = 1_000_000;
 const MAX_APERTURES: usize = 64;
 const MAX_HITS: usize = 50_000;
 const MAX_TOOLS: usize = 64;
@@ -753,29 +753,6 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     let mut mask_back = GerberLayer::new(scale);
     let mut paste_front = GerberLayer::new(scale);
     let mut paste_back = GerberLayer::new(scale);
-
-    for z in &p.board.zones {
-        if !z.filled {
-            continue;
-        }
-        let is_back = z.layer == Layer::Back;
-        let file = if is_back { &mut back } else { &mut front };
-        let code = file.code(Ap::Circle(1))?;
-        let outline: Vec<(f64, f64)> = z
-            .outline
-            .iter()
-            .map(|q| mirror(q.x, q.y, is_back))
-            .collect();
-        file.push_attrs(net_name(p, z.net), None);
-        file.fill(code, &outline)?;
-        for cutout in &z.cutouts {
-            if cutout.len() < 3 {
-                continue;
-            }
-            let ring: Vec<(f64, f64)> = cutout.iter().map(|q| mirror(q.x, q.y, is_back)).collect();
-            file.clear_fill(code, &ring)?;
-        }
-    }
 
     for t in &p.board.tracks {
         let is_back = t.layer == Layer::Back;
