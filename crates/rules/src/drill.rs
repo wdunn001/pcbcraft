@@ -137,12 +137,8 @@ fn tighter_hole_to_hole(
 }
 
 fn hole_to_hole_limit(rules: &FabRules, a: DrillKind, b: DrillKind) -> Option<(f64, &'static str)> {
-    let via = rules
-        .hole_to_hole_via
-        .map(|min| (min, "hole_to_hole_via"));
-    let pad = rules
-        .hole_to_hole_pad
-        .map(|min| (min, "hole_to_hole_pad"));
+    let via = rules.hole_to_hole_via.map(|min| (min, "hole_to_hole_via"));
+    let pad = rules.hole_to_hole_pad.map(|min| (min, "hole_to_hole_pad"));
     match (a, b) {
         (DrillKind::Via, DrillKind::Via) => via,
         (DrillKind::Pad, _) | (_, DrillKind::Pad) => pad,
@@ -265,10 +261,7 @@ mod tests {
     }
 
     fn spacing(p: &Project, code: &str) -> Vec<Finding> {
-        drc(p)
-            .into_iter()
-            .filter(|f| f.code == code)
-            .collect()
+        drc(p).into_iter().filter(|f| f.code == code).collect()
     }
 
     #[test]
@@ -338,7 +331,13 @@ mod tests {
             ..FabRules::default()
         });
         let findings = drc(&p);
-        assert_eq!(findings.iter().filter(|f| f.code == "drill_overlap").count(), 1);
+        assert_eq!(
+            findings
+                .iter()
+                .filter(|f| f.code == "drill_overlap")
+                .count(),
+            1
+        );
         assert!(findings.iter().all(|f| f.code != "hole_to_hole_via"));
     }
 
