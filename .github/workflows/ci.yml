@@ -3,10 +3,8 @@
 name: CI
 
 on:
-  # Work reaches main through pull requests on the fork, so branches are
-  # checked by their pull request run. Main keeps a run per commit.
   push:
-    branches: ["main"]
+    branches: ["**"]
   pull_request:
   merge_group:
   workflow_dispatch:
@@ -37,7 +35,7 @@ jobs:
       github.event_name != 'push'
       || github.ref == 'refs/heads/main'
       || github.repository != 'tangency-labs/pcbcraft'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     outputs:
@@ -78,7 +76,7 @@ jobs:
   policy:
     name: Format and policy
     needs: changes
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -126,7 +124,7 @@ jobs:
   docs-check:
     name: Documentation standard
     needs: changes
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -224,7 +222,7 @@ jobs:
     name: UI strings are in the catalog
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -249,7 +247,7 @@ jobs:
     name: WebAssembly
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -301,7 +299,7 @@ jobs:
   deny:
     name: Licenses and advisories
     needs: changes
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -324,7 +322,7 @@ jobs:
     name: UI screenshots (${{ matrix.side }})
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     strategy:
@@ -387,7 +385,7 @@ jobs:
     name: UI screenshot sheet
     needs: screenshots
     if: ${{ !cancelled() && needs.screenshots.result != 'skipped' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions:
       contents: read
     steps:
@@ -468,7 +466,7 @@ jobs:
     # The single check to mark as required in branch protection.
     needs: [changes, policy, lint, docs-check, strings, test, e2e, wasm, msrv, deny, screenshots, build]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository == 'wdunn001/pcbcraft' && fromJSON('["self-hosted","pcbcraft"]') || 'ubuntu-24.04' }}
     permissions: {}
     steps:
       - env:

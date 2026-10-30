@@ -221,7 +221,7 @@ fn a_newcomer_draws_silkscreen_by_picking_the_silkscreen_layer() -> Result<(), S
         app.message
     );
     assert!(
-        paints_text(&ctx, &mut app, "Layer: Top silkscreen")?,
+        paints_text(&ctx, &mut app, "Layer 1 of 2 · Top silkscreen")?,
         "the status bar names the target"
     );
     // Line, Box and Circle on the silkscreen make silkscreen graphics.
