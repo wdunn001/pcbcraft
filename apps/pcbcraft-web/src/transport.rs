@@ -538,7 +538,7 @@ impl Parts {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_library::cad::{CadKind, CadSource};
+    use pcbcraft_library::cad::{CadKind, CadRef, CadSource};
     use pcbcraft_library::cad_cache::CadCache;
     use pcbcraft_library::open_library::OpenLibrarySource;
     use pcbcraft_library::sources::PartSource;
@@ -558,8 +558,8 @@ mod tests {
         assert!(libs.contains(&"Device".to_owned()));
         let cards = PartSource::search(&source, "resistor").map_err(|e| format!("{e:?}"))?;
         assert!(cards.iter().any(|c| c.mpn == "R"));
-        let first = cards.first().ok_or("no cards")?;
-        let file = source.fetch(first).map_err(|e| format!("{e:?}"))?;
+        let r = CadRef::new(CadKind::Symbol, "Device", "R").map_err(|e| format!("{e:?}"))?;
+        let file = source.fetch_symbol(&r).map_err(|e| format!("{e:?}"))?;
         assert!(!file.bytes.is_empty());
         set_cross_origin_status_for_test(CrossOriginStatus::Unknown);
         Ok(())
