@@ -13627,7 +13627,9 @@ fn run_command(
                     .collect::<Vec<_>>(),
                 "board_area": p.board.outline.as_ref().map_or_else(
                     || p.board.width * p.board.height,
-                    |o| pcbcraft_doc::outline_area(o),
+                    |_| pcbcraft_doc::outline_area(
+                        &p.board.edge_ring(pcbcraft_doc::VALIDATION_CHORD_ERROR),
+                    ),
                 ),
                 "finish": p.board.finish,
                 "unit": p.unit.as_str()

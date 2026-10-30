@@ -2,7 +2,8 @@
 use pcbcraft_doc::{
     ArtKind, ArtShape, Board, FabRules, Id, Layer, PANEL_ASSEMBLER_MAX_MM, PANEL_FIDUCIAL_COUNT,
     PANEL_SCORE_COMPONENT_MIN_MM, PANEL_SCORE_COPPER_MIN_MM, PANEL_TAB_CHANNEL_MIN_MM, Pad,
-    PanelSeparation, Project, Via, ViaKind, panel_layout, panel_score_lines,
+    PanelSeparation, Project, VALIDATION_CHORD_ERROR, Via, ViaKind, panel_layout,
+    panel_score_lines,
 };
 use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_distance};
 use serde::Serialize;
@@ -820,7 +821,7 @@ fn point_in_polygon(p: Point, polygon: &[Point]) -> bool {
 /// both ends are inside, measured to the traced outline when one is set and
 /// to the plain rectangle otherwise.
 fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
-    let Some(polygon) = &board.outline else {
+    if board.outline.is_none() {
         return [
             a.x,
             b.x,
@@ -833,17 +834,22 @@ fn board_edge_distance(board: &Board, a: Point, b: Point) -> f64 {
         ]
         .into_iter()
         .fold(f64::INFINITY, f64::min);
-    };
-    let distance = polygon
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let q = polygon[(i + 1) % polygon.len()];
-            segment_distance(a, b, *p, q)
+    }
+    let ring = board.edge_ring(VALIDATION_CHORD_ERROR);
+    let distance = (0..ring.len())
+        .map(|i| {
+            let p = ring[i];
+            let q = ring[(i + 1) % ring.len()];
+            segment_distance(a, b, p, q)
         })
         .fold(f64::INFINITY, f64::min);
-    if point_in_polygon(a, polygon) && point_in_polygon(b, polygon) {
-        distance
+    let arc_slack = if board.outline_arcs.iter().any(Option::is_some) {
+        VALIDATION_CHORD_ERROR
+    } else {
+        0.0
+    };
+    if point_in_polygon(a, &ring) && point_in_polygon(b, &ring) {
+        distance - arc_slack
     } else {
         -distance
     }
@@ -3363,6 +3369,49 @@ mod tests {
             !codes(&p).contains(&"mask_covers_pad"),
             "a bare mask stroke has no area to cover an opening"
         );
+    }
+    #[test]
+    fn edge_clearance_measures_the_arc_not_the_chord() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.clearance = 0.5;
+        let a = Point::new(40.0, 0.0);
+        let b = Point::new(40.0, 30.0);
+        let chord = a.distance(b);
+        let radius = 20.0;
+        let sagitta = radius - (radius * radius - chord * chord / 4.0).sqrt();
+        let mid = Point::new(40.0 - sagitta, (a.y + b.y) / 2.0);
+        p.board.outline = Some(vec![
+            Point::new(0.0, 0.0),
+            Point::new(40.0, 0.0),
+            Point::new(40.0, 30.0),
+            Point::new(0.0, 30.0),
+        ]);
+        p.board.outline_arcs = vec![None, Some(mid), None, None];
+        p.nets.push(Net {
+            id: 1,
+            name: "gnd".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 2,
+            net: 1,
+            start: Point::new(39.0, 15.0),
+            end: Point::new(39.2, 15.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        assert!(
+            drc(&p).iter().any(|f| f.code == "board_edge"),
+            "copper in the chord pocket but beyond the arc must fail"
+        );
+        p.board.tracks[0].start = Point::new(25.0, 15.0);
+        p.board.tracks[0].end = Point::new(25.2, 15.0);
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "board_edge"),
+            "copper well inside the arc is clean"
+        );
+        Ok(())
     }
     #[test]
     fn cut_on_the_traced_board_edge_is_not_off_board() {
