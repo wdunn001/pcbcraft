@@ -12,6 +12,7 @@ mod courtyard;
 mod drill;
 mod silk;
 mod stub;
+pub mod testpoint;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -1577,6 +1578,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         }),
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(testpoint::coverage_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

@@ -332,6 +332,26 @@ fn a_newcomer_saves_the_project_and_exports_a_bom() -> Result<(), String> {
 }
 
 #[test]
+fn a_newcomer_gets_a_bring_up_checklist_for_the_board() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let (ctx, mut app) = board(dir.path());
+    file_export(&ctx, &mut app, "More…")?;
+    authoring::tests::tap(&ctx, &mut app, "Bring-up test plan")?;
+    authoring::tests::tap(&ctx, &mut app, "Export")?;
+    let md = std::fs::read_to_string(dir.path().join("bring-up-plan.md")).map_err(|e| e.to_string())?;
+    assert!(
+        md.contains("Bring-up plan") && md.contains("Power rails"),
+        "the markdown checklist covers rails: {md}"
+    );
+    let csv = std::fs::read_to_string(dir.path().join("bring-up-plan.csv")).map_err(|e| e.to_string())?;
+    assert!(
+        csv.contains("SECTION") && csv.contains("rail"),
+        "the csv mirrors the plan: {csv}"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_newcomer_sees_no_format_in_the_file_menu() -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
     let (ctx, mut app) = board(dir.path());

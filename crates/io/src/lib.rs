@@ -6,6 +6,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
+mod bring_up;
 mod bitmap_trace;
 mod board_mesh;
 mod diff;
@@ -63,6 +64,7 @@ pub use diff::{DesignChange, DesignDiff, project_diff};
 /// # Dependencies
 /// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use bring_up::{bring_up_export_files, bring_up_plan_csv, bring_up_plan_markdown};
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,
 };

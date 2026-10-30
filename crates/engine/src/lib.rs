@@ -2716,6 +2716,11 @@ fn render_kind(
             "test.brd".into(),
             pcbcraft_io::ipc356_netlist(p)?.into_bytes(),
         )),
+        "bring_up" => {
+            for (name, text) in pcbcraft_io::bring_up_export_files(p)? {
+                out.push((name, text.into_bytes()));
+            }
+        }
         "gencad" => out.push((
             "board.gencad".into(),
             pcbcraft_io::gencad_text(p)?.into_bytes(),
@@ -31084,6 +31089,30 @@ mod tests {
                 directory.join(name).exists(),
                 "{name} should have been written"
             );
+        }
+        let _ = std::fs::remove_dir_all(&directory);
+        Ok(())
+    }
+
+    #[test]
+    fn output_job_writes_bring_up_plan_files() -> Result<(), Error> {
+        let mut s = Session::sample()?;
+        let directory =
+            std::env::temp_dir().join(format!("pcbcraft-bring-up-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&directory);
+        s.execute(
+            "output_job.add",
+            json!({"name":"bringup","kinds":["bring_up"]}),
+            None,
+        )?;
+        s.execute(
+            "output_job.run",
+            json!({"name":"bringup","directory":directory.to_string_lossy()}),
+            None,
+        )?;
+        for name in ["bring-up-plan.md", "bring-up-plan.csv"] {
+            let text = std::fs::read_to_string(directory.join(name)).map_err(Error::Invalid)?;
+            assert!(!text.is_empty(), "{name} should not be empty");
         }
         let _ = std::fs::remove_dir_all(&directory);
         Ok(())

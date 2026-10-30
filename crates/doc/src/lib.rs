@@ -1853,7 +1853,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 30] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1868,6 +1868,7 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "ipc2581",
     "dsn",
     "ipc356",
+    "bring_up",
     "gencad",
     "hyperlynx",
     "plot",
@@ -2074,6 +2075,7 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "step" => ("package", "board.step"),
         "dsn" => ("package", "pcb.dsn"),
         "ipc356" => ("package", "test.brd"),
+        "bring_up" => ("package", "bring-up-plan.md"),
         "gencad" => ("package", "board.gencad"),
         "hyperlynx" => ("package", "netlist.csv"),
         "plot" => ("package", "plot-report.csv"),
