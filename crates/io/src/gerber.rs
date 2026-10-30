@@ -1011,6 +1011,7 @@ mod tests {
             width: 0.15,
             text: String::new(),
             sublayer: String::new(),
+            color: String::new(),
         });
         project.validate()?;
         Ok(project)
