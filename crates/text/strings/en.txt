@@ -1636,6 +1636,7 @@ schematic.pages.rename = Rename page
 schematic.pages.rename.tip = Type a new name for the page you are looking at.
 schematic.pages.remove = Remove page
 schematic.pages.remove.tip = Remove the page you are looking at. Its parts move to the Main page.
+schematic.pages.main.tip = The Main page is always there: it cannot be renamed or removed.
 schematic.pages.name_field = Page name
 schematic.pages.name_field.tip = Type the page name, then press Use name.
 schematic.pages.use_name = Use name
@@ -2014,6 +2015,7 @@ sheet.hide = Hide
 sheet.hide.tip = You have looked at this and it is fine: hide just this finding. Hidden findings can be brought back below.
 sheet.mute = Mute
 sheet.mute.tip = This corner of the board is the way you want it: the check leaves everything in a box around these items alone. Clear the box below.
+sheet.menu.no_objects.tip = This finding does not point at an object on the drawing, so there is nothing to act on.
 sheet.output_summary = Last run: {errors} errors, {warnings} warnings, {notes} notes.
 sheet.console_revision = Design version {revision}
 
