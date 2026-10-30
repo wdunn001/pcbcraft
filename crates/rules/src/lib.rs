@@ -1979,8 +1979,8 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
 mod tests {
     use super::*;
     use pcbcraft_doc::{
-        Component, FabRules, Footprint, Label, LibraryFootprint, LibrarySymbol, Net,
-        NoConnectFlag, Pad, Pin, PinRef, Track, Via, component_template,
+        Component, FabRules, Footprint, Label, LibraryFootprint, LibrarySymbol, Net, NoConnectFlag,
+        Pad, Pin, PinRef, Track, Via, component_template,
     };
     use pcbcraft_library::{Drill, FootprintDefinition, FootprintPad, SymbolDefinition};
 
@@ -2013,6 +2013,8 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 unit: p.unit,
                 body_style: 0,
+                graphical_style: "line".into(),
+                visible: true,
             })
             .collect();
         let component = Component {
@@ -2290,7 +2292,9 @@ mod tests {
             &pad,
             vdd,
         ));
-        p.board.footprints.push(simple_footprint(302, cap_id, Point::new(10.0, 0.0), vdd));
+        p.board
+            .footprints
+            .push(simple_footprint(302, cap_id, Point::new(10.0, 0.0), vdd));
         p.validate()?;
         assert!(erc(&p).iter().any(|f| f.code == "missing_decoupling"));
         p.board.footprints[1].position = Point::new(2.0, 0.0);

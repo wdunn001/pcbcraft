@@ -31,10 +31,10 @@ impl Query<'_> {
 }
 
 fn pin_net(project: &Project, start: &PinRef) -> Option<Id> {
-    project
-        .component(start.component)
-        .and_then(|c| project.pin(start))
-        .and_then(|p| p.net)
+    if project.component(start.component).is_none() {
+        return None;
+    }
+    project.pin(start).and_then(|p| p.net)
 }
 
 fn component_on_net(project: &Project, component: Id, net: Id) -> bool {
@@ -250,6 +250,8 @@ mod tests {
                 electrical_type: p.electrical_type.clone(),
                 unit: p.unit,
                 body_style: 0,
+                graphical_style: "line".into(),
+                visible: true,
             })
             .collect();
         Component {
