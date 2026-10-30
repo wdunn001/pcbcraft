@@ -16,22 +16,14 @@ export interface NavItem {
 
 /** Header navigation, in order. Same on every page. */
 export const NAV: NavItem[] = [
-  { label: 'Features', path: 'features/' },
-  { label: 'Showcase', path: 'showcase/' },
-  { label: 'Download', path: 'download/' },
-  { label: 'Try it', path: 'demo/' },
-  { label: 'Docs', path: 'docs/' },
-  { label: 'Changelog', path: 'changelog/' },
+  { label: 'What it does', path: '#features' },
+  { label: 'Get PCBCraft', path: '#get' },
 ];
 
-/** Secondary pages, shown in the header's More menu. */
-export const MORE: NavItem[] = [
-  { label: 'About', path: 'about/' },
-  { label: 'Brand', path: 'brand/' },
-  { label: 'License', path: 'license/' },
-];
+/** Secondary pages, shown in the header's More menu. Empty until those pages are ready. */
+export const MORE: NavItem[] = [];
 
-export const REPO_URL = 'https://github.com/tangency-labs/pcbcraft';
+export const REPO_URL = 'https://github.com/wdunn001/pcbcraft';
 
 export interface FooterColumn {
   title: string;
@@ -42,30 +34,11 @@ export interface FooterColumn {
 export function footerColumns(): FooterColumn[] {
   return [
     {
-      title: 'Product',
-      links: [
-        { label: 'Features', href: url('features/') },
-        { label: 'Showcase', href: url('showcase/') },
-        { label: 'Download', href: url('download/') },
-        { label: 'Try it in the browser', href: url('demo/') },
-      ],
-    },
-    {
-      title: 'Documentation',
-      links: [
-        { label: 'Guide', href: url('docs/guide/getting-started/') },
-        { label: 'Reference', href: url('docs/reference/overview/') },
-        { label: 'Changelog', href: url('changelog/') },
-      ],
-    },
-    {
       title: 'Project',
       links: [
-        { label: 'About', href: url('about/') },
-        { label: 'Brand', href: url('brand/') },
-        { label: 'License', href: url('license/') },
         { label: 'Source code', href: REPO_URL, external: true },
         { label: 'Issues', href: `${REPO_URL}/issues`, external: true },
+        { label: 'License', href: url('license/') },
       ],
     },
   ];

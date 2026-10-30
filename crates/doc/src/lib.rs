@@ -26,7 +26,12 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -164,6 +169,10 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// Typed sourcing facts: manufacturer, part number, description, supplier numbers
+    /// and compliance. Empty records are not saved. See `sourcing.rs`.
+    #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
+    pub sourcing: Sourcing,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -186,6 +195,62 @@ pub struct Sheet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<Point>,
 }
+/// The settings of one schematic page that are not drawn objects: its title
+/// block fields, whether the title block shows, and the defaults new graphics
+/// on the page start with. A page with no record uses the defaults of
+/// [`PageSettings::new`] and the project metadata for its title block.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct PageSettings {
+    /// The page these settings belong to; 0 is the Main page.
+    pub sheet: Id,
+    /// Empty falls back to the project metadata `title`, then the project name.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    /// The version of this sheet, such as `B` or `2.1`; printed in the title block.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub revision: String,
+    /// Empty falls back to the project metadata `date`, then today.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub date: String,
+    /// A standard paper size such as `A4`; empty picks the smallest that fits.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub size: String,
+    /// The company or person the design belongs to.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub company: String,
+    /// Who drew this sheet.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub drawn_by: String,
+    /// True when the page draws no title block.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub title_hidden: bool,
+    /// Stroke width in millimetres new graphics on this page start with.
+    #[serde(default = "default_page_line_width")]
+    pub line_width: f64,
+    /// Stroke colour `#rrggbb` new graphics start with; empty is the theme ink.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub line_color: String,
+}
+fn default_page_line_width() -> f64 {
+    0.25
+}
+impl PageSettings {
+    /// Settings with every field at its default for page `sheet`.
+    pub fn new(sheet: Id) -> Self {
+        Self {
+            sheet,
+            title: String::new(),
+            revision: String::new(),
+            date: String::new(),
+            size: String::new(),
+            company: String::new(),
+            drawn_by: String::new(),
+            title_hidden: false,
+            line_width: default_page_line_width(),
+            line_color: String::new(),
+        }
+    }
+}
 /// One named property on a component. A blank value is still a real property:
 /// it says the key applies to this component and has not been filled in.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -193,7 +258,16 @@ pub struct ComponentField {
     pub key: String,
     pub value: String,
 }
+/// The component property that keeps a part out of the bill of materials.
+/// Set it to `yes` with `component.field`; clear it to put the part back.
+pub const BOM_EXCLUDE_FIELD: &str = "Exclude from BOM";
 impl Component {
+    /// True unless the part carries `BOM_EXCLUDE_FIELD` set to `yes`.
+    pub fn in_bom(&self) -> bool {
+        !self
+            .field(BOM_EXCLUDE_FIELD)
+            .is_some_and(|v| v.eq_ignore_ascii_case("yes"))
+    }
     /// Value of a named component property, if the component carries it.
     pub fn field(&self, key: &str) -> Option<&str> {
         self.fields
@@ -648,6 +722,9 @@ pub struct Graphic {
     /// artwork only, no mask meaning).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sublayer: String,
+    /// Stroke colour as `#rrggbb`; empty draws in the theme's default ink.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
 }
 /// Fabrication sublayer names a board graphic may carry.
 pub const GRAPHIC_SUBLAYERS: [&str; 4] = ["F.SilkS", "B.SilkS", "F.Mask", "B.Mask"];
@@ -3121,6 +3198,55 @@ pub fn valid_parameter_note(note: &str) -> bool {
 pub fn valid_parameter_value(value: f64) -> bool {
     value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
 }
+/// Settings for the `missing_decoupling` check: how close a capacitor must sit
+/// to an integrated circuit power pin, and the value the finding suggests.
+///
+/// # Rules
+/// - `max_distance_mm` is measured pad centre to pad centre, in millimetres,
+///   between the power pad and the nearest pad of a capacitor on the same net.
+/// - The defaults are 3.0 mm and "100 nF"; they stay out of the saved file
+///   until changed.
+///
+/// # Dependencies
+/// - crates/rules/src/decoupling.rs reads it; `rules.decoupling_set` in
+///   crates/engine/src/lib.rs writes it.
+///
+/// # Do not
+/// - Store a per-part override here; part rules belong to the component rule
+///   record that issue 832 will add.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DecouplingRule {
+    /// Largest allowed pad to pad distance in millimetres.
+    pub max_distance_mm: f64,
+    /// Capacitor value the finding suggests, as plain text.
+    pub suggested_value: String,
+}
+impl Default for DecouplingRule {
+    fn default() -> Self {
+        Self {
+            max_distance_mm: 3.0,
+            suggested_value: "100 nF".into(),
+        }
+    }
+}
+impl DecouplingRule {
+    /// True when nothing was changed from the defaults.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+    /// Refuse a distance outside 0.1 to 50 mm or a value that is empty or long.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.max_distance_mm.is_finite() || !(0.1..=50.0).contains(&self.max_distance_mm) {
+            return Err("decoupling distance must be between 0.1 and 50 mm".into());
+        }
+        let value = self.suggested_value.trim();
+        if value.is_empty() || value.len() > 32 {
+            return Err("decoupling value must be 1 to 32 characters".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Project {
     pub format: String,
@@ -3142,6 +3268,10 @@ pub struct Project {
     /// Named schematic pages, ordered by id; sheet 0 is the implicit root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sheets: Vec<Sheet>,
+    /// Per-page title block fields and drawing defaults; a page without a
+    /// record uses [`PageSettings::new`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub page_settings: Vec<PageSettings>,
     /// Named hierarchy ports, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ports: Vec<Port>,
@@ -3208,6 +3338,10 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Settings read by the `missing_decoupling` check; the defaults apply
+    /// until the designer changes them.
+    #[serde(default, skip_serializing_if = "DecouplingRule::is_default")]
+    pub decoupling: DecouplingRule,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -3335,6 +3469,7 @@ impl Default for Project {
             net_classes: vec![],
             class_pairs: vec![],
             sheets: vec![],
+            page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
             output_jobs: vec![],
@@ -3354,6 +3489,7 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            decoupling: DecouplingRule::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -3442,6 +3578,7 @@ pub fn component_template(
         ["1", "2"]
     };
     Some(Component {
+        sourcing: Default::default(),
         units: vec![],
         id,
         reference,
@@ -3813,6 +3950,53 @@ impl Project {
             .filter_map(|i| Layer::from_index(i).ok())
             .collect()
     }
+    /// The bottom copper layer of this board: the last stackup copper row, and
+    /// index 1 on a two-layer board.
+    ///
+    /// # Rules
+    /// - Bottom is always the last copper layer. `Layer::Back` is the bottom
+    ///   only on a two-layer board; elsewhere it is the first inner layer.
+    ///
+    /// # Dependencies
+    /// - `crates/doc/src/lib.rs` `Project::copper_layer_count`.
+    ///
+    /// # Do not
+    /// - Compare a track, zone, text or via end against `Layer::Back`; use
+    ///   [`Project::is_bottom`].
+    pub fn bottom_layer(&self) -> Layer {
+        Layer::from_index(self.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+    }
+    /// Whether `layer` is this board's bottom copper layer.
+    ///
+    /// Why: part sides and the "Bottom" choice use `Layer::Back` as a name for
+    /// the bottom face, while copper items store the real stackup index.
+    /// This accepts both, so callers need not know which one they hold.
+    pub fn is_bottom(&self, layer: Layer) -> bool {
+        layer == self.bottom_layer() || (layer == Layer::Back && self.copper_layer_count() <= 2)
+    }
+    /// The copper layer of the face a part sits on: top for `Layer::Front`,
+    /// this board's bottom layer for anything else.
+    pub fn face_layer(&self, side: Layer) -> Layer {
+        if side == Layer::Front {
+            Layer::Front
+        } else {
+            self.bottom_layer()
+        }
+    }
+    /// Whether a pad has copper on `layer` of this board: through-hole pads on
+    /// every copper layer, surface pads only on the face their part sits on.
+    ///
+    /// # Rules
+    /// - Use this instead of [`Footprint::pad_on_copper`] whenever `layer` is a
+    ///   stackup index that can be an inner layer or the bottom of a board with
+    ///   more than two layers.
+    pub fn pad_on_copper(&self, footprint: &Footprint, pad: &Pad, layer: Layer) -> bool {
+        match pad.geometry.as_ref() {
+            None => layer == Layer::Front,
+            Some(g) if g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu") => true,
+            Some(_) => self.face_layer(footprint.board_side()) == layer,
+        }
+    }
     /// Gerber-style copper name for a layer index on this board.
     pub fn layer_name(&self, layer: Layer) -> String {
         let idx = layer.index();
@@ -4006,7 +4190,9 @@ impl Project {
         let to = self.component(wire.to.component)?.sheet;
         if from == to { Some(from) } else { None }
     }
-    fn schematic_label_page(&self, label: &Label) -> Id {
+    /// The page a label shows on: the page of the nearest part pin or port on its net,
+    /// the Main page when none is found.
+    pub fn schematic_label_page(&self, label: &Label) -> Id {
         if label.kind == "junction" {
             for wire in &self.wires {
                 if wire.net != label.net {
@@ -4076,6 +4262,14 @@ impl Project {
             }
         }
         best.1
+    }
+    /// The settings of page `sheet`, or the defaults when it has no record.
+    pub fn page_settings_of(&self, sheet: Id) -> PageSettings {
+        self.page_settings
+            .iter()
+            .find(|s| s.sheet == sheet)
+            .cloned()
+            .unwrap_or_else(|| PageSettings::new(sheet))
     }
     /// True when a schematic object should appear on the given page.
     pub fn on_schematic_page(&self, page: Id, object: Id) -> bool {
@@ -4330,6 +4524,7 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
+        self.decoupling.validate()?;
         if self
             .components
             .iter()
@@ -4923,6 +5118,7 @@ impl Project {
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
             }
+            c.sourcing.validate()?;
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {
                 if f.key.is_empty()
@@ -5510,6 +5706,7 @@ pub fn library_component(
         })
         .collect();
     Ok(Component {
+        sourcing: Default::default(),
         id,
         reference,
         value: value.unwrap_or_else(|| definition.value.clone()),
