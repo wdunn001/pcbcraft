@@ -3980,7 +3980,6 @@ impl Project {
             v.from_layer = v.from_layer.map(to);
             v.to_layer = v.to_layer.map(to);
         }
-        self.remap_copper_layer_roles(map);
     }
     /// True when `layer` is neither the top nor the bottom copper row.
     pub fn is_inner_copper_layer(&self, layer: Layer) -> bool {

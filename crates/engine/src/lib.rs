@@ -14015,11 +14015,13 @@ fn run_command(
                 record("Core".into(), "core", thickness, Some("FR-4")),
                 record(String::new(), "copper", 0.035, Some("Copper")),
             ];
-            p.remap_copper_layers(|i| if i as usize >= first { i + 2 } else { i });
+            let map = |i: u8| if i as usize >= first { i + 2 } else { i };
+            p.remap_copper_layers(map);
             let mut trial = p.board.layer_records.clone();
             trial.splice(at + 1..at + 1, block);
             renumber_inner(&mut trial);
             p.board.layer_records = trial;
+            p.remap_copper_layer_roles(map);
             Ok(json!({"copper_layers": p.copper_layer_count(), "first_new": first}))
         }
         "board.stackup_move_layer" => {
@@ -14051,7 +14053,7 @@ fn run_command(
                 ));
             }
             let (x, y) = (pos as u8, other as u8);
-            p.remap_copper_layers(|i| {
+            let map = |i: u8| {
                 if i == x {
                     y
                 } else if i == y {
@@ -14059,9 +14061,11 @@ fn run_command(
                 } else {
                     i
                 }
-            });
+            };
+            p.remap_copper_layers(map);
             p.board.layer_records.swap(coppers[pos], coppers[other]);
             renumber_inner(&mut p.board.layer_records);
+            p.remap_copper_layer_roles(map);
             Ok(json!({"name": a.name.trim(), "index": other}))
         }
         "board.stackup_rename_layer" => {
@@ -14114,8 +14118,10 @@ fn run_command(
             }
             trial.remove(at);
             renumber_inner(&mut trial);
-            p.remap_copper_layers(|i| if i as usize > index { i - 1 } else { i });
+            let map = |i: u8| if i as usize > index { i - 1 } else { i };
+            p.remap_copper_layers(map);
             p.board.layer_records = trial;
+            p.remap_copper_layer_roles(map);
             Ok(json!({"copper_layers": p.copper_layer_count()}))
         }
         "board.remove_layer_record" => {
