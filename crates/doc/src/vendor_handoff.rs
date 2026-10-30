@@ -91,6 +91,27 @@ pub struct VendorQuoteFileEntry {
     pub role: Option<String>,
 }
 
+/// Confirmation dialog model for a quote handoff (no network I/O).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct VendorQuoteConfirmDialog {
+    pub schema_version: u32,
+    pub adapter_id: String,
+    pub adapter_label: String,
+    pub adapter_mode: VendorAdapterMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_label: Option<String>,
+    pub files: Vec<VendorQuoteFileEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stackup_notes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub finish_options: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared_archive_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared_archive_bytes: Option<u64>,
+}
+
 /// Manifest shown before anything leaves the machine.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -165,8 +186,13 @@ impl VendorHandoffModuleSettings {
     }
 
     pub fn capability_json(&self, compiled: bool) -> Value {
-        serde_json::to_value(self.instance_capabilities(compiled))
-            .unwrap_or_else(|_| json!({"schema_version": VENDOR_HANDOFF_SCHEMA_VERSION, "compiled": compiled}))
+        match serde_json::to_value(self.instance_capabilities(compiled)) {
+            Ok(value) => value,
+            Err(_) => json!({
+                "schema_version": VENDOR_HANDOFF_SCHEMA_VERSION,
+                "compiled": compiled
+            }),
+        }
     }
 }
 
@@ -243,6 +269,49 @@ impl VendorQuoteHandoffManifest {
         }
         self.files.iter().all(VendorQuoteFileEntry::valid)
     }
+
+    pub fn confirm_dialog(
+        &self,
+        adapter: &VendorAdapterDescriptor,
+        prepared_archive: Option<&VendorQuotePreparedArchive>,
+    ) -> Option<VendorQuoteConfirmDialog> {
+        if self.adapter_id != adapter.id || !self.valid() || !adapter.valid() {
+            return None;
+        }
+        let (prepared_archive_sha256, prepared_archive_bytes) = match prepared_archive {
+            Some(archive) if archive.valid() => {
+                (Some(archive.sha256.clone()), Some(archive.size_bytes))
+            }
+            Some(_) => return None,
+            None => (None, None),
+        };
+        Some(VendorQuoteConfirmDialog {
+            schema_version: self.schema_version,
+            adapter_id: self.adapter_id.clone(),
+            adapter_label: adapter.label.clone(),
+            adapter_mode: self.adapter_mode,
+            host_label: self.host_label.clone(),
+            files: self.files.clone(),
+            stackup_notes: self.stackup_notes.clone(),
+            finish_options: self.finish_options.clone(),
+            prepared_archive_sha256,
+            prepared_archive_bytes,
+        })
+    }
+}
+
+/// Prepared upload-flow archive metadata (bytes stay on disk until the user approves).
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct VendorQuotePreparedArchive {
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+impl VendorQuotePreparedArchive {
+    pub fn valid(&self) -> bool {
+        self.size_bytes > 0 && sha256_hex(&self.sha256)
+    }
 }
 
 /// Built-in fixture adapter for upload-flow tests (no network).
@@ -259,6 +328,43 @@ pub fn fixture_upload_adapter() -> VendorAdapterDescriptor {
             "bom".into(),
             "placement".into(),
         ],
+    }
+}
+
+const FIXTURE_UPLOAD_ARCHIVE: &[u8] =
+    include_bytes!("../../tests/fixtures/vendor-quote-handoff/fixture-upload.zip");
+
+/// Fixture upload-flow archive for tests (manufacturing outputs only).
+pub fn fixture_upload_archive() -> VendorQuotePreparedArchive {
+    VendorQuotePreparedArchive {
+        size_bytes: FIXTURE_UPLOAD_ARCHIVE.len() as u64,
+        sha256: "05ed971968e4ebd79823c05876c7c2a47d6f3712cf4f4408c4f36e283eaea6b1".into(),
+    }
+}
+
+pub fn fixture_upload_manifest() -> VendorQuoteHandoffManifest {
+    let adapter = fixture_upload_adapter();
+    VendorQuoteHandoffManifest {
+        schema_version: VENDOR_HANDOFF_SCHEMA_VERSION,
+        adapter_id: adapter.id,
+        adapter_mode: adapter.mode,
+        host_label: Some("example.test".into()),
+        files: vec![
+            VendorQuoteFileEntry {
+                path: "gerber/board.gtl".into(),
+                size_bytes: 20,
+                sha256: "8c1ee8b2e1167b161ac40b117b88b9264fc0298912c34803eab1f48f48998cd4".into(),
+                role: Some("gerber".into()),
+            },
+            VendorQuoteFileEntry {
+                path: "drill/board.drl".into(),
+                size_bytes: 13,
+                sha256: "34ac523394a88f2bdd53125089d9e4122b36a7d6b6fee857812dee6c48dbcb76".into(),
+                role: Some("drill".into()),
+            },
+        ],
+        stackup_notes: vec!["1.6 mm FR4".into()],
+        finish_options: vec!["HASL".into()],
     }
 }
 
@@ -329,6 +435,46 @@ mod tests {
             finish_options: vec!["HASL".into()],
         };
         assert!(manifest.valid());
+        Ok(())
+    }
+
+    #[test]
+    fn fixture_archive_matches_embedded_bytes() -> Result<(), String> {
+        let archive = fixture_upload_archive();
+        assert!(archive.valid());
+        assert_eq!(archive.size_bytes, FIXTURE_UPLOAD_ARCHIVE.len() as u64);
+        Ok(())
+    }
+
+    #[test]
+    fn confirm_dialog_lists_every_file_and_archive() -> Result<(), String> {
+        let adapter = fixture_upload_adapter();
+        let manifest = fixture_upload_manifest();
+        let archive = fixture_upload_archive();
+        let dialog = manifest
+            .confirm_dialog(&adapter, Some(&archive))
+            .ok_or("dialog must build from fixture manifest")?;
+        assert_eq!(dialog.files.len(), manifest.files.len());
+        assert_eq!(dialog.adapter_label, adapter.label);
+        assert_eq!(
+            dialog.prepared_archive_sha256.as_deref(),
+            Some(archive.sha256.as_str())
+        );
+        assert_eq!(dialog.prepared_archive_bytes, Some(archive.size_bytes));
+        for (entry, source) in dialog.files.iter().zip(manifest.files.iter()) {
+            assert_eq!(entry.path, source.path);
+            assert_eq!(entry.sha256, source.sha256);
+            assert_eq!(entry.size_bytes, source.size_bytes);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn confirm_dialog_missing_when_adapter_id_mismatch() -> Result<(), String> {
+        let adapter = fixture_upload_adapter();
+        let mut manifest = fixture_upload_manifest();
+        manifest.adapter_id = "other".into();
+        assert!(manifest.confirm_dialog(&adapter, None).is_none());
         Ok(())
     }
 }

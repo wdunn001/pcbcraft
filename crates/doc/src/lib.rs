@@ -16,8 +16,10 @@ pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, 
 mod vendor_handoff;
 pub use vendor_handoff::{
     VENDOR_HANDOFF_SCHEMA_VERSION, VendorAdapterDescriptor, VendorAdapterMode,
-    VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings, VendorQuoteFileEntry,
-    VendorQuoteHandoffManifest, VendorQuoteSettings, MarketplaceSettings, fixture_upload_adapter,
+    VendorHandoffInstanceCapabilities, VendorHandoffModuleSettings, VendorQuoteConfirmDialog,
+    VendorQuoteFileEntry, VendorQuoteHandoffManifest, VendorQuotePreparedArchive,
+    VendorQuoteSettings, MarketplaceSettings, fixture_upload_adapter, fixture_upload_archive,
+    fixture_upload_manifest,
 };
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;

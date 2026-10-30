@@ -1,7 +1,7 @@
 //! Vendor quote handoff commands (compile-time optional, no network I/O).
 use pcbcraft_doc::{
     VendorAdapterDescriptor, VendorHandoffModuleSettings, VendorQuoteHandoffManifest,
-    fixture_upload_adapter,
+    fixture_upload_adapter, fixture_upload_manifest,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -70,7 +70,10 @@ struct ValidateManifestParams {
 }
 
 fn parse_settings(v: Option<Value>) -> Result<VendorHandoffModuleSettings, Error> {
-    let raw = v.unwrap_or_else(|| json!({}));
+    let raw = match v {
+        Some(value) => value,
+        None => json!({}),
+    };
     serde_json::from_value(raw).map_err(|e| Error::Invalid(format!("invalid settings: {e}")))
 }
 
@@ -163,6 +166,22 @@ mod tests {
             .ok_or("adapters array")?;
         assert_eq!(list.len(), 1);
         assert_eq!(list[0]["id"], "fixture-upload");
+        Ok(())
+    }
+
+    #[test]
+    fn quote_validate_accepts_fixture_manifest() -> Result<(), String> {
+        let mut project = Project::default();
+        let manifest = fixture_upload_manifest();
+        let value = serde_json::to_value(&manifest).map_err(|e| e.to_string())?;
+        let result = run(
+            &mut project,
+            "vendor_handoff.quote.validate",
+            &json!({"manifest": value}),
+        )
+        .ok_or("handler missing")??;
+        assert_eq!(result["valid"], true);
+        assert_eq!(result["files"], 2);
         Ok(())
     }
 

@@ -41,7 +41,7 @@ Recommendation from research: ship upload-flow and link-only first; add API mode
 | `vendor_handoff.quote.validate` | Validate a quote manifest |
 | `vendor_handoff.adapters.list` | Built-in adapter descriptors when quotes are enabled |
 
-Types live in `crates/doc/src/vendor_handoff.rs`. A fixture upload adapter (`fixture-upload`) supports tests without network access.
+Types live in `crates/doc/src/vendor_handoff.rs`. A fixture upload adapter (`fixture-upload`), manifest, prepared archive (`crates/doc/tests/fixtures/vendor-quote-handoff/fixture-upload.zip`), and `VendorQuoteConfirmDialog` support dialog and upload-flow tests without network access.
 
 ## Marketplace
 
