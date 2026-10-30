@@ -50,7 +50,8 @@ pub use board_mesh::{
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
-    MirrorAxis as CamMirrorAxis, Side, Spindle, Tool, isolation_gcode, isolation_paths,
+    MirrorAxis as CamMirrorAxis, RubRegion, Side, Spindle, Tool, isolation_gcode, isolation_paths,
+    rubout_paths,
 };
 pub use cam_drill::{
     CamProfile, CutDirection, Dialect as DrillDialect, DrillHit, DrillOptions, DrillOrder,

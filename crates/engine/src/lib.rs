@@ -2298,7 +2298,8 @@ pub fn commands() -> Vec<CommandSpec> {
                     "tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},
                     "overlap_pct":{"type":"integer","minimum":0,"maximum":90,"default":50},
                     "mirror_axis":{"type":"string","enum":["x","y"],"default":"y"},
-                    "alignment_holes":{"type":"boolean","default":false}
+                    "alignment_holes":{"type":"boolean","default":false},
+                    "rubout":{"type":"object","properties":{"rect":{"type":["object","null"],"properties":{"min":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]},"max":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"]}},"required":["min","max"]},"tool":{"type":"object","properties":{"diameter_mm":{"type":"number","exclusiveMinimum":0},"feed_mm_min":{"type":"number","exclusiveMinimum":0},"plunge_mm_min":{"type":"number","exclusiveMinimum":0},"depth_mm":{"type":"number","exclusiveMinimum":0},"passes":{"type":"integer","minimum":1,"maximum":8},"spindle_rpm":{"type":"integer","minimum":1}},"required":["diameter_mm","feed_mm_min","plunge_mm_min","depth_mm","passes","spindle_rpm"],"additionalProperties":false},"stepover_pct":{"type":"integer","minimum":30,"maximum":80},"angle_deg":{"type":"number"}},"required":["tool","stepover_pct","angle_deg"],"additionalProperties":false}
                 }),
                 &["side", "tool"],
             ),
@@ -7136,15 +7137,7 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
     }
 }
 
-fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
-    let side = match params.get("side").and_then(Value::as_str) {
-        Some("top") => pcbcraft_io::Side::Top,
-        Some("bottom") => pcbcraft_io::Side::Bottom,
-        _ => return Err("side must be top or bottom".into()),
-    };
-    let tool_val = params
-        .get("tool")
-        .ok_or_else(|| "missing tool".to_string())?;
+fn parse_cam_tool(tool_val: &Value) -> Result<pcbcraft_io::Tool, String> {
     let diameter_mm = tool_val
         .get("diameter_mm")
         .and_then(Value::as_f64)
@@ -7176,6 +7169,86 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
         .filter(|v| *v > 0)
         .ok_or_else(|| "tool.spindle_rpm must be positive".to_string())?
         as u32;
+    Ok(pcbcraft_io::Tool {
+        diameter_mm,
+        feed_mm_min,
+        plunge_mm_min,
+        depth_mm,
+        passes,
+        spindle: pcbcraft_io::Spindle::Rpm(spindle_rpm),
+    })
+}
+
+fn parse_cam_rubout(value: Option<&Value>) -> Result<Option<pcbcraft_io::RubRegion>, String> {
+    let Some(val) = value else {
+        return Ok(None);
+    };
+    if val.is_null() {
+        return Ok(None);
+    }
+    let tool = parse_cam_tool(
+        val.get("tool")
+            .ok_or_else(|| "rubout.tool is required".to_string())?,
+    )?;
+    let stepover_pct = val
+        .get("stepover_pct")
+        .and_then(Value::as_u64)
+        .filter(|v| (30..=80).contains(v))
+        .ok_or_else(|| "rubout.stepover_pct must be 30 to 80".to_string())? as u8;
+    let angle_deg = val
+        .get("angle_deg")
+        .and_then(Value::as_f64)
+        .filter(|v| v.is_finite())
+        .ok_or_else(|| "rubout.angle_deg must be finite".to_string())?;
+    let rect = match val.get("rect") {
+        None | Some(Value::Null) => None,
+        Some(r) => {
+            let min = r.get("min").ok_or("rubout.rect.min is required")?;
+            let max = r.get("max").ok_or("rubout.rect.max is required")?;
+            let x0 = min
+                .get("x")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.min.x must be finite")?;
+            let y0 = min
+                .get("y")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.min.y must be finite")?;
+            let x1 = max
+                .get("x")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.max.x must be finite")?;
+            let y1 = max
+                .get("y")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite())
+                .ok_or("rubout.rect.max.y must be finite")?;
+            Some((
+                pcbcraft_geom::Point::new(x0, y0),
+                pcbcraft_geom::Point::new(x1, y1),
+            ))
+        }
+    };
+    Ok(Some(pcbcraft_io::RubRegion {
+        rect,
+        tool,
+        stepover_pct,
+        angle_deg,
+    }))
+}
+
+fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
+    let side = match params.get("side").and_then(Value::as_str) {
+        Some("top") => pcbcraft_io::Side::Top,
+        Some("bottom") => pcbcraft_io::Side::Bottom,
+        _ => return Err("side must be top or bottom".into()),
+    };
+    let tool_val = params
+        .get("tool")
+        .ok_or_else(|| "missing tool".to_string())?;
+    let tool = parse_cam_tool(tool_val)?;
     let overlap_pct = params
         .get("overlap_pct")
         .and_then(Value::as_u64)
@@ -7193,18 +7266,12 @@ fn cam_isolation(p: &Project, params: &Value) -> Result<Value, String> {
         .get("alignment_holes")
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let rubout = parse_cam_rubout(params.get("rubout"))?;
     let opts = pcbcraft_io::IsolationOptions {
         side,
-        tool: pcbcraft_io::Tool {
-            diameter_mm,
-            feed_mm_min,
-            plunge_mm_min,
-            depth_mm,
-            passes,
-            spindle: pcbcraft_io::Spindle::Rpm(spindle_rpm),
-        },
+        tool,
         overlap_pct,
-        rubout: None,
+        rubout,
         mirror_axis,
         alignment_holes,
     };

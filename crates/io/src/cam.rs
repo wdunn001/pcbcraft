@@ -2,8 +2,8 @@
 use crate::cam_shapes::{LayerShape, layer_shapes};
 use pcbcraft_doc::{Layer, Project};
 use pcbcraft_geom::{
-    OffsetJoin, Point, Ring, polygon_boundary_distance, polygon_offset, polygon_union,
-    segment_distance,
+    OffsetJoin, Point, Ring, hatch, polygon_boundary_distance, polygon_difference,
+    polygon_offset, polygon_union, segment_distance,
 };
 use serde::{Deserialize, Serialize};
 
@@ -73,9 +73,16 @@ pub enum MirrorAxis {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+/// Area to clear with a larger bit after isolation: optional rectangle, hatch tool and fill.
 pub struct RubRegion {
-    pub min: Point,
-    pub max: Point,
+    /// When `None`, the rubout fills the whole board side up to the board width and height.
+    pub rect: Option<(Point, Point)>,
+    /// Bit used for the hatch and island contours; written to its own G-code file.
+    pub tool: Tool,
+    /// Stepover as a percent of the rubout bit width, 30 to 80 inclusive.
+    pub stepover_pct: u8,
+    /// Hatch line angle in degrees.
+    pub angle_deg: f64,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -115,8 +122,7 @@ pub struct IsolationOptions {
     pub tool: Tool,
     /// How much consecutive passes overlap, 0 to 90 percent of the bit width.
     pub overlap_pct: u8,
-    /// Reserved for clearing the whole copper area (#376); any value other than `None` is refused
-    /// today.
+    /// Optional copper rubout after isolation; uses `RubRegion::tool` in a second file.
     pub rubout: Option<RubRegion>,
     /// Axis used to flip the bottom side; ignored for the top.
     pub mirror_axis: MirrorAxis,
@@ -352,12 +358,9 @@ fn linearise_ring(ring: &Ring) -> Vec<Point> {
 }
 
 /// Closed rings the bit centre follows: the union of all copper on the chosen side, grown outward
-/// by half the bit width, once per pass. Refuses rubout, an overlap over 90 percent, and nets
-/// closer than the bit can pass.
+/// by half the bit width, once per pass. Refuses an overlap over 90 percent, and nets closer than
+/// the bit can pass.
 pub fn isolation_paths(p: &Project, opts: &IsolationOptions) -> Result<Vec<Ring>, String> {
-    if opts.rubout.is_some() {
-        return Err("rubout isolation is not implemented yet".into());
-    }
     if opts.overlap_pct > 90 {
         return Err("overlap must be between 0 and 90 percent".into());
     }
@@ -380,6 +383,203 @@ pub fn isolation_paths(p: &Project, opts: &IsolationOptions) -> Result<Vec<Ring>
         paths.extend(polygon_offset(&union, delta, OffsetJoin::Round));
     }
     Ok(paths)
+}
+
+fn board_rect_ring(p: &Project) -> Ring {
+    let w = p.board.width;
+    let h = p.board.height;
+    vec![
+        Point::new(0.0, 0.0),
+        Point::new(w, 0.0),
+        Point::new(w, h),
+        Point::new(0.0, h),
+        Point::new(0.0, 0.0),
+    ]
+}
+
+fn normalize_rect(a: Point, b: Point) -> Result<(Point, Point), String> {
+    if !a.valid() || !b.valid() {
+        return Err("rubout rect coordinates are invalid".into());
+    }
+    let (lo_x, hi_x) = if a.x <= b.x { (a.x, b.x) } else { (b.x, a.x) };
+    let (lo_y, hi_y) = if a.y <= b.y { (a.y, b.y) } else { (b.y, a.y) };
+    if hi_x - lo_x < 1e-6 || hi_y - lo_y < 1e-6 {
+        return Err("rubout rect must have positive width and height".into());
+    }
+    Ok((Point::new(lo_x, lo_y), Point::new(hi_x, hi_y)))
+}
+
+fn rect_to_ring(min: Point, max: Point) -> Ring {
+    vec![
+        Point::new(min.x, min.y),
+        Point::new(max.x, min.y),
+        Point::new(max.x, max.y),
+        Point::new(min.x, max.y),
+        Point::new(min.x, min.y),
+    ]
+}
+
+fn join_hatch_zigzag(segments: &[(Point, Point)], stepover: f64) -> Vec<Vec<Point>> {
+    if segments.is_empty() {
+        return vec![];
+    }
+    let join_dist = stepover * 1.01 + 1e-6;
+    let mut used = vec![false; segments.len()];
+    let mut paths = Vec::new();
+    for start in 0..segments.len() {
+        if used[start] {
+            continue;
+        }
+        used[start] = true;
+        let (a, b) = segments[start];
+        let mut path = vec![a, b];
+        loop {
+            let Some(tail) = path.last().copied() else {
+                break;
+            };
+            let mut extended = false;
+            for i in 0..segments.len() {
+                if used[i] {
+                    continue;
+                }
+                let (c, d) = segments[i];
+                if tail.distance(c) <= join_dist {
+                    used[i] = true;
+                    path.push(c);
+                    path.push(d);
+                    extended = true;
+                    break;
+                }
+                if tail.distance(d) <= join_dist {
+                    used[i] = true;
+                    path.push(d);
+                    path.push(c);
+                    extended = true;
+                    break;
+                }
+            }
+            if !extended {
+                break;
+            }
+        }
+        paths.push(path);
+    }
+    paths
+}
+
+/// Hatch and contour paths that clear unused copper inside `RubRegion` without crossing `keep`
+/// isolation rings.
+pub fn rubout_paths(
+    p: &Project,
+    side: Side,
+    region: &RubRegion,
+    keep: &[Ring],
+    isolation_tool_d_mm: f64,
+) -> Result<Vec<Vec<Point>>, String> {
+    if region.stepover_pct < 30 || region.stepover_pct > 80 {
+        return Err("rubout stepover_pct must be between 30 and 80".into());
+    }
+    if region.tool.diameter_mm < isolation_tool_d_mm {
+        return Err(format!(
+            "rubout tool diameter {:.3} mm is smaller than the isolation tool {:.3} mm",
+            region.tool.diameter_mm, isolation_tool_d_mm
+        ));
+    }
+    if region.tool.diameter_mm <= 0.0
+        || region.tool.feed_mm_min <= 0.0
+        || region.tool.plunge_mm_min <= 0.0
+    {
+        return Err("rubout tool diameter, feed and plunge must be positive".into());
+    }
+    if !region.angle_deg.is_finite() {
+        return Err("rubout angle_deg must be finite".into());
+    }
+    let layer = match side {
+        Side::Top => Layer::Front,
+        Side::Bottom => Layer::Back,
+    };
+    let shapes = layer_shapes(p, layer)?;
+    let copper: Vec<Ring> = shapes.iter().map(|s| s.outline.clone()).collect();
+    let rect_ring = match region.rect {
+        Some((a, b)) => {
+            let (lo, hi) = normalize_rect(a, b)?;
+            rect_to_ring(lo, hi)
+        }
+        None => board_rect_ring(p),
+    };
+    let clearance = region.tool.diameter_mm / 2.0;
+    let grown = polygon_offset(&polygon_union(&copper), clearance, OffsetJoin::Round);
+    let free = polygon_difference(&[rect_ring], &grown);
+    if free.is_empty() {
+        return Ok(vec![]);
+    }
+    let stepover = region.tool.diameter_mm * f64::from(region.stepover_pct) / 100.0;
+    let segments = hatch(&free, stepover, region.angle_deg);
+    let mut paths = join_hatch_zigzag(&segments, stepover);
+    for ring in &free {
+        let contour = linearise_ring(ring);
+        if contour.len() >= 3 {
+            paths.push(contour);
+        }
+    }
+    for path in &paths {
+        for window in path.windows(2) {
+            let a = window[0];
+            let b = window[1];
+            for ring in keep {
+                for (c, d) in pcbcraft_geom::polygon_edges(ring) {
+                    if segment_distance(a, b, c, d) < 1e-6 {
+                        return Err("rubout path crosses an isolation ring".into());
+                    }
+                }
+            }
+        }
+    }
+    Ok(paths)
+}
+
+fn rubout_side_suffix(side: Side) -> &'static str {
+    match side {
+        Side::Top => "top",
+        Side::Bottom => "bottom",
+    }
+}
+
+fn rubout_file_name(side: Side, diameter_mm: f64) -> String {
+    format!(
+        "rubout-{}-{}.nc",
+        decimal(diameter_mm),
+        rubout_side_suffix(side)
+    )
+}
+
+fn write_polylines(
+    writer: &mut GcodeWriter,
+    paths: &[Vec<Point>],
+    tool: &Tool,
+    profile: &CncProfile,
+    side: Side,
+    axis: MirrorAxis,
+    centre: Point,
+) -> Result<(), String> {
+    let safe = profile.safe_z_mm;
+    for path in paths {
+        if path.len() < 2 {
+            continue;
+        }
+        let mut pts: Vec<Point> = path.to_vec();
+        for pt in &mut pts {
+            *pt = transform_point(*pt, side, axis, centre);
+        }
+        check_bounds(&pts, profile)?;
+        writer.rapid(pts[0], profile.jog_mm_min);
+        writer.plunge(-tool.depth_mm, tool.plunge_mm_min);
+        for pt in pts.iter().skip(1) {
+            writer.cut(*pt, tool.feed_mm_min);
+        }
+        writer.retract(safe, tool.plunge_mm_min);
+    }
+    Ok(())
 }
 
 fn in_work_area(p: Point, profile: &CncProfile) -> bool {
@@ -483,6 +683,20 @@ pub fn isolation_gcode(
     {
         return Err("tool diameter, feed and plunge must be positive".into());
     }
+    if let Some(rub) = &opts.rubout {
+        if rub.tool.depth_mm > p.board.thickness {
+            return Err(format!(
+                "rubout cut depth {:.3} mm exceeds board thickness {:.3} mm",
+                rub.tool.depth_mm, p.board.thickness
+            ));
+        }
+        if rub.tool.diameter_mm < opts.tool.diameter_mm {
+            return Err(format!(
+                "rubout tool diameter {:.3} mm is smaller than the isolation tool {:.3} mm",
+                rub.tool.diameter_mm, opts.tool.diameter_mm
+            ));
+        }
+    }
     let paths = isolation_paths(p, opts)?;
     let centre = board_centre(p);
     let mut writer = GcodeWriter::new(profile.dialect, profile.safe_z_mm);
@@ -501,7 +715,7 @@ pub fn isolation_gcode(
     )?;
     writer.spindle_off();
     writer.lines.push("M2".into());
-    let estimate = writer.estimate_s();
+    let mut estimate = writer.estimate_s();
     if let Some(first) = writer
         .lines
         .iter_mut()
@@ -514,6 +728,38 @@ pub fn isolation_gcode(
         Side::Top => "isolation-top.nc".into(),
         Side::Bottom => "isolation-bottom.nc".into(),
     };
+    let mut files = vec![(name, body)];
+    if let Some(rub) = &opts.rubout {
+        let rub_polylines = rubout_paths(p, opts.side, rub, &paths, opts.tool.diameter_mm)?;
+        let mut rub_writer = GcodeWriter::new(profile.dialect, profile.safe_z_mm);
+        for line in header(profile, 0.0, &rub.tool) {
+            rub_writer.lines.push(line);
+        }
+        rub_writer.spindle_on(rub.tool.spindle);
+        write_polylines(
+            &mut rub_writer,
+            &rub_polylines,
+            &rub.tool,
+            profile,
+            opts.side,
+            opts.mirror_axis,
+            centre,
+        )?;
+        rub_writer.spindle_off();
+        rub_writer.lines.push("M2".into());
+        estimate += rub_writer.estimate_s();
+        if let Some(first) = rub_writer
+            .lines
+            .iter_mut()
+            .find(|l| l.starts_with("; estimate_s="))
+        {
+            *first = format!("; estimate_s={:.1}", rub_writer.estimate_s());
+        }
+        files.push((
+            rubout_file_name(opts.side, rub.tool.diameter_mm),
+            rub_writer.finish(),
+        ));
+    }
     let mut alignment = None;
     if opts.side == Side::Bottom && opts.alignment_holes {
         let outline = p
@@ -549,7 +795,7 @@ pub fn isolation_gcode(
         alignment = Some([holes[0], holes[1]]);
     }
     Ok(IsolationGcodeResult {
-        files: vec![(name, body)],
+        files,
         estimate_s: estimate,
         alignment,
     })
