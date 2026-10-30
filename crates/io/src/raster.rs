@@ -849,10 +849,7 @@ mod tests {
         const SIG: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
         for (name, bytes) in &files {
             assert!(name.ends_with(".png"), "{name}");
-            assert!(
-                bytes.starts_with(&SIG),
-                "{name} should be a PNG"
-            );
+            assert!(bytes.starts_with(&SIG), "{name} should be a PNG");
         }
         Ok(())
     }

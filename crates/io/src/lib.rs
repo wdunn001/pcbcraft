@@ -6982,7 +6982,9 @@ mod tests {
         std::fs::write(&path, "line one\nline two").map_err(|e| e.to_string())?;
         assert_eq!(read_text(&path)?, "line one\nline two");
         let missing = dir.join("missing.txt");
-        let err = read_text(&missing).err().ok_or("missing file should fail")?;
+        let err = read_text(&missing)
+            .err()
+            .ok_or("missing file should fail")?;
         assert!(
             err.contains("missing.txt"),
             "error should name the path: {err}"

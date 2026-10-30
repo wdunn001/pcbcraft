@@ -1090,10 +1090,7 @@ mod fab_export_tests {
         };
         assert!(via_mask_opening(&open, &board));
         assert!(!via_mask_opening(&tented, &board));
-        let no_drill = Via {
-            drill: 0.0,
-            ..open
-        };
+        let no_drill = Via { drill: 0.0, ..open };
         assert!(!via_mask_opening(&no_drill, &board));
         Ok(())
     }
