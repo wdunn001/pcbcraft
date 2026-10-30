@@ -1074,10 +1074,7 @@ fn electrolytic_can_body(pads: &[PadBox], lo: Point, hi: Point, height: f64) -> 
         .fold(0.0_f64, f64::max)
         .max(hi.x - lo.x + 1.0);
     let mut body = Body::plain("can", circle_ring(Point::new(cx, cy), d / 2.0), height);
-    let plug = circle_ring(
-        Point::new(cx - d * 0.12, cy - d * 0.12),
-        d * 0.08,
-    );
+    let plug = circle_ring(Point::new(cx - d * 0.12, cy - d * 0.12), d * 0.08);
     body.extras.push((plug, 0.05));
     body
 }
@@ -1094,11 +1091,7 @@ fn to92_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
 fn to220_body(pads: &[PadBox], lo: Point, hi: Point) -> Body {
     let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
     let w = (hi.x - lo.x + 2.0).max(8.0);
-    let mut body = Body::plain(
-        "to220",
-        rect_ring(cx, cy, w, 10.0),
-        4.5,
-    );
+    let mut body = Body::plain("to220", rect_ring(cx, cy, w, 10.0), 4.5);
     let tab = pads
         .iter()
         .max_by(|a, b| {
@@ -1122,8 +1115,12 @@ fn terminal_block_body(pads: &[PadBox], lo: Point, hi: Point, pitch: f64) -> Bod
     let h = (hi.y - lo.y + 2.0).max(6.0);
     let mut body = Body::plain("terminal", rect_ring(cx, cy, w, h), 8.0);
     for p in pads {
-        body.pins
-            .push(rect_ring(p.centre.x, p.centre.y - h * 0.35, p.width() * 0.9, 1.2));
+        body.pins.push(rect_ring(
+            p.centre.x,
+            p.centre.y - h * 0.35,
+            p.width() * 0.9,
+            1.2,
+        ));
     }
     body
 }
@@ -1133,13 +1130,7 @@ fn shield_can_body(lo: Point, hi: Point) -> Body {
     let h = (hi.y - lo.y + 1.0).max(6.0);
     Body::plain("shield", rect_ring(cx, cy, w, h), 2.0)
 }
-fn body_from_name(
-    name: &str,
-    pads: &[PadBox],
-    lo: Point,
-    hi: Point,
-    n: usize,
-) -> Option<Body> {
+fn body_from_name(name: &str, pads: &[PadBox], lo: Point, hi: Point, n: usize) -> Option<Body> {
     if name.contains("crystal") || name.contains("xtal") {
         return (n == 4).then(|| crystal_body(pads, lo, hi));
     }
@@ -1165,10 +1156,8 @@ fn body_from_name(
         return Some(dpak_body(lo, hi));
     }
     if name.contains("terminal") || (name.contains("block") && name.contains("term")) {
-        let pitch = smallest_gap(
-            &pads.iter().map(|p| p.centre.x).collect::<Vec<_>>(),
-        )
-        .unwrap_or(5.0);
+        let pitch =
+            smallest_gap(&pads.iter().map(|p| p.centre.x).collect::<Vec<_>>()).unwrap_or(5.0);
         return Some(terminal_block_body(pads, lo, hi, pitch));
     }
     if name.contains("shield") {
@@ -1220,13 +1209,13 @@ fn body_from_pattern(
     if through && n == 3 {
         return Some(to92_body(pads, lo, hi));
     }
-    if through && n >= 3 && n <= 4 {
+    if through && (3..=4).contains(&n) {
         let large = pads.iter().filter(|p| p.width() * p.height() > 2.5).count();
         if large >= 2 {
             return Some(to220_body(pads, lo, hi));
         }
     }
-    if !through && n >= 5 && n <= 8 {
+    if !through && (5..=8).contains(&n) {
         let large = pads
             .iter()
             .filter(|p| p.width() * p.height() >= 2.0 * pads[0].width() * pads[0].height())
@@ -1488,7 +1477,7 @@ fn through_body(
         let (lo, hi) = ring_bounds(&corners);
         let diameter = (2.0 * c).max(4.0);
         let height = 6.0 + 0.7 * diameter;
-        if height >= 7.5 {
+        if height >= 7.5 && c >= 4.5 {
             return Some(electrolytic_can_body(pads, lo, hi, height));
         }
         return Some(Body::plain(
@@ -1997,13 +1986,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             }
             for (extra, rise) in &body.extras {
                 if let Some(ring) = clean_ring(&map_ring(fp, extra)) {
-                    b.prism(
-                        &ring,
-                        vec![],
-                        body_top,
-                        body_top + *rise,
-                        &mut warnings,
-                    )?;
+                    b.prism(&ring, vec![], body_top, body_top + *rise, &mut warnings)?;
                 }
             }
             if let Some(text) = &body.decal {
@@ -2390,9 +2373,7 @@ mod tests {
         let generic: Vec<String> = mesh
             .parts
             .iter()
-            .filter(|part| {
-                part.kind == PartKind::Body && part.family.as_deref() == Some("generic")
-            })
+            .filter(|part| part.kind == PartKind::Body && part.family.as_deref() == Some("generic"))
             .map(|part| part.name.clone())
             .collect();
         assert!(
