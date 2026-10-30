@@ -18556,9 +18556,7 @@ mod tests {
         let revision = s.revision;
         let undo_before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
         let copied = s.execute("selection.copy_text", json!({"ids":[r1]}), None)?;
-        let text = copied["result"]["text"]
-            .as_str()
-            .ok_or_else(missing)?;
+        let text = copied["result"]["text"].as_str().ok_or_else(missing)?;
         assert!(!text.is_empty());
         assert_eq!(s.revision, revision);
         assert_eq!(s.inspect()["history"]["undo"].as_u64(), Some(undo_before));
