@@ -1,11 +1,11 @@
 //! Loads 3D model files off the UI thread and remembers the results for the
 //! 3D View tab. One worker thread reads and parses; the frame only asks and
-//! never waits. The cache key is path, byte length, modification time and the
-//! loader version, so a changed file reloads and an unchanged one is served
-//! from memory. Nothing here enters the project document. On the browser
-//! build there are no threads and no files: every lookup says so.
+//! never waits. The in-memory key is path, byte length, modification time and
+//! the loader version; converted models are also stored under the user cache
+//! directory keyed by source hash, loader version and STEP tolerance. On the
+//! browser build there are no threads and no files: every lookup says so.
 
-use pcbcraft_io::{ModelCacheKey, ModelLookup};
+use pcbcraft_io::{ImportCache, ModelCacheKey, ModelLookup};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -32,13 +32,26 @@ struct Shared {
 /// # Dependencies
 /// `crates/io/src/model_load.rs` for the reader and the cache key.
 /// # Do not
-/// Do not store loaded models in the project document or on disk here.
-#[derive(Clone, Default)]
+/// Do not store loaded models in the project document here.
+#[derive(Clone)]
 pub(super) struct ModelCache {
     shared: Arc<Shared>,
+    disk: ImportCache,
     #[cfg(not(target_arch = "wasm32"))]
     jobs: Arc<Mutex<Option<JobSender>>>,
 }
+
+impl Default for ModelCache {
+    fn default() -> Self {
+        Self {
+            shared: Arc::new(Shared::default()),
+            disk: ImportCache::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            jobs: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
 impl std::fmt::Debug for ModelCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModelCache")
@@ -122,7 +135,7 @@ impl ModelCache {
                     while let Ok((key, path)) = rx.recv() {
                         let entry = match std::fs::read(&path) {
                             Err(_) => Entry::Failed("The model file could not be read.".into()),
-                            Ok(bytes) => match pcbcraft_io::load_model(&path, &bytes) {
+                            Ok(bytes) => match cache.disk.load_or_convert(&path, &bytes) {
                                 Ok(m) => Entry::Ready(Arc::new(m)),
                                 Err(e) => Entry::Failed(e.0),
                             },

@@ -94,6 +94,8 @@ pub struct ModelPlacement {
     pub matrix: [f64; 16],
     /// True once [`with_models`] replaced the default box by the file's triangles.
     pub loaded: bool,
+    /// Decoded from the footprint when the project carries a compact model.
+    pub preloaded: Option<std::sync::Arc<LoadedModel>>,
 }
 
 /// One named triangle list.
@@ -809,21 +811,26 @@ pub fn with_models(
         if part.kind != PartKind::Body {
             continue;
         }
+        let apply = |m: &LoadedModel| {
+            part.positions = m
+                .positions
+                .iter()
+                .map(|p| apply_matrix(&model.matrix, *p))
+                .collect();
+            part.indices = m.indices.clone();
+            part.family = Some("model".into());
+            part.color = m.color;
+            model.loaded = true;
+            notes.push((id, ModelStatus::Loaded));
+        };
+        if let Some(m) = model.preloaded.clone() {
+            apply(&m);
+            continue;
+        }
         match lookup(&model.path) {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
-            ModelLookup::Ready(m) => {
-                part.positions = m
-                    .positions
-                    .iter()
-                    .map(|p| apply_matrix(&model.matrix, *p))
-                    .collect();
-                part.indices = m.indices.clone();
-                part.family = Some("model".into());
-                part.color = m.color;
-                model.loaded = true;
-                notes.push((id, ModelStatus::Loaded));
-            }
+            ModelLookup::Ready(m) => apply(&m),
         }
     }
     notes
@@ -1593,6 +1600,10 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
+                let preloaded = (!model.embedded.is_empty())
+                    .then(|| crate::decode_compact_base64(&model.embedded).ok())
+                    .flatten()
+                    .map(std::sync::Arc::new);
                 b.part.model = Some(ModelPlacement {
                     path: model.path.clone(),
                     matrix: model_matrix(
@@ -1603,6 +1614,7 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                         thickness,
                     ),
                     loaded: false,
+                    preloaded,
                 });
             }
             if let Some(ring) = clean_ring(&map_ring(fp, &body.ring)) {
@@ -2087,8 +2099,47 @@ mod tests {
             offset,
             scale: [scale; 3],
             rotate,
+            embedded: String::new(),
             raw_source: String::new(),
         }
+    }
+
+    #[test]
+    fn embedded_model_renders_without_a_file_lookup() -> Check {
+        let source = include_bytes!("../tests/fixtures/box.step");
+        let loaded = crate::load_model("box.step", source).map_err(|e| e.0)?;
+        let digest = crate::source_digest(source);
+        let embedded = crate::encode_compact_base64(&loaded, crate::LOADER_VERSION, 0.05, &digest)
+            .map_err(|e| e.0)?;
+        let mut mesh = BoardMesh {
+            parts: vec![MeshPart {
+                kind: PartKind::Body,
+                name: "U1".into(),
+                component: Some(1),
+                family: Some("chip".into()),
+                height_source: Some("default"),
+                model: Some(ModelPlacement {
+                    path: "missing/box.step".into(),
+                    matrix: [
+                        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+                        0.0, 1.0,
+                    ],
+                    loaded: false,
+                    preloaded: Some(std::sync::Arc::new(loaded)),
+                }),
+                color: None,
+                positions: vec![[0.0; 3]; 8],
+                indices: vec![0; 36],
+            }],
+            ..Default::default()
+        };
+        let notes = with_models(&mut mesh, |_| {
+            panic!("lookup must not run when the project embeds the model")
+        });
+        assert_eq!(notes, vec![(1, ModelStatus::Loaded)]);
+        assert!(mesh.parts[0].model.as_ref().is_some_and(|m| m.loaded));
+        assert_eq!(embedded.len() > 20, true);
+        Ok(())
     }
 
     #[test]

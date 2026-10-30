@@ -371,6 +371,7 @@ mod tests {
             offset: [10.0, 0.0, 0.0],
             scale: [2.0, 1.0, 1.0],
             rotate: [0.0, 0.0, 90.0],
+            embedded: String::new(),
             raw_source: String::new(),
         };
         let mat = model_matrix(&model, pcbcraft_geom::Point::new(0.0, 0.0), 0.0, false, 0.0);

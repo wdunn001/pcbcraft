@@ -21,6 +21,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("footprint.assign_custom","Assign a project-library footprint whose pad numbers match the component pins",schema(json!({"id":id_schema(),"name":{"type":"string"}}),&["id","name"])),
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.embed_model","Store the converted compact model on a project-library footprint so the project renders without the original file; reads from the footprint path or an override on the desktop",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024}}),&["name"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
@@ -410,6 +411,13 @@ pub(super) struct ModelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct EmbedModelParams {
+    name: String,
+    #[serde(default)]
+    path: Option<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RulesParams {
     name: String,
     #[serde(default)]
@@ -486,6 +494,7 @@ pub(super) fn build_model(a: &ModelParams) -> Result<pcbcraft_library::Model3D, 
         offset,
         scale,
         rotate,
+        embedded: String::new(),
         raw_source,
     })
 }
@@ -581,6 +590,92 @@ pub(super) fn run(
             def.model = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
+        }
+        "library.footprint.embed_model" => {
+            #[cfg(target_arch = "wasm32")]
+            {
+                return Err(Error::Invalid(
+                    "embedding a model needs the desktop app".into(),
+                ));
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let a: EmbedModelParams = parse(params)?;
+                let def = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|s| s.name == a.name)
+                    .ok_or_else(missing)?;
+                let path = a
+                    .path
+                    .as_deref()
+                    .or_else(|| def.model.as_ref().map(|m| m.path.as_str()))
+                    .filter(|p| !p.is_empty())
+                    .ok_or_else(|| {
+                        Error::Invalid("set a model path on the footprint first".into())
+                    })?;
+                if path.len() > 1024 {
+                    return Err(Error::Invalid("model path must be 1 to 1024 bytes".into()));
+                }
+                let bytes = std::fs::read(path).map_err(|_| {
+                    Error::Invalid(format!("the model file {path} was not found"))
+                })?;
+                let (load_path, source) = if path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+                {
+                    let (step_name, step_bytes) =
+                        pcbcraft_io::first_step_from_vendor_zip(&bytes).map_err(|e| {
+                            Error::Invalid(e.0)
+                        })?;
+                    (step_name, step_bytes)
+                } else {
+                    (path.to_owned(), bytes)
+                };
+                let cache = pcbcraft_io::ImportCache::default();
+                let loaded = cache
+                    .load_or_convert(&load_path, &source)
+                    .map_err(|e| Error::Invalid(e.0))?;
+                let digest = pcbcraft_io::source_digest(&source);
+                let tol = if load_path
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "step" | "stp"))
+                {
+                    pcbcraft_io::STEP_TOLERANCE_MM
+                } else {
+                    0.0
+                };
+                let embedded = pcbcraft_io::encode_compact_base64(
+                    &loaded,
+                    pcbcraft_io::LOADER_VERSION,
+                    tol,
+                    &digest,
+                )
+                .map_err(|e| Error::Invalid(e.0))?;
+                match &mut def.model {
+                    Some(m) => {
+                        if a.path.is_some() {
+                            m.path = path.to_owned();
+                        }
+                        m.embedded = embedded;
+                    }
+                    None => {
+                        def.model = Some(build_model(&ModelParams {
+                            name: a.name.clone(),
+                            path: path.to_owned(),
+                            offset: None,
+                            scale: None,
+                            rotate: None,
+                        })?);
+                        def.model.as_mut().unwrap().embedded = embedded;
+                    }
+                }
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+                Ok(json!({"name": a.name, "embedded": true}))
+            }
         }
         "library.footprint.set_rules" => {
             let a: RulesParams = parse(params)?;
