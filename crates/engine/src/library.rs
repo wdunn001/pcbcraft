@@ -180,10 +180,7 @@ fn test_sources_path_override() -> Option<PathBuf> {
         .lock()
         .ok()
         .and_then(|slot| slot.as_ref().cloned())?;
-    let holder = SOURCES_TEST_HOLDER
-        .lock()
-        .ok()
-        .and_then(|guard| *guard)?;
+    let holder = SOURCES_TEST_HOLDER.lock().ok().and_then(|guard| *guard)?;
     let here = std::thread::current().id();
     if here == holder || library_worker_thread() {
         return Some(path);
