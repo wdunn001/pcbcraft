@@ -9,6 +9,7 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod courtyard;
+mod decoupling;
 mod drill;
 mod silk;
 mod stub;
@@ -802,6 +803,7 @@ pub fn erc(project: &Project) -> Vec<Finding> {
             }
         }
     }
+    result.extend(decoupling::missing_decoupling(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

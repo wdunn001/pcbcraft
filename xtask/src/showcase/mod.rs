@@ -389,6 +389,8 @@ fn outward(g: &Gen, reference: &str, number: &str) -> Res<Point> {
 /// Build the whole project into `g`.
 pub fn build(g: &mut Gen) -> Res<()> {
     g.cmd("project.rename", json!({"name": "Showcase sensor node"}))?;
+    // The demo board is placed loosely; its bypass capacitors sit within 15 mm of their pins.
+    g.cmd("rules.decoupling_set", json!({"max_distance_mm": 15.0}))?;
     for (key, value) in [
         ("title", "Showcase sensor node"),
         ("revision", "A"),
