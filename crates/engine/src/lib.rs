@@ -14,6 +14,7 @@ mod selection_clip;
 mod snapmaker;
 mod summary;
 mod tuning;
+mod datasheet_annotations;
 use pcbcraft_doc::*;
 use pcbcraft_geom::{Point, positive, segment_distance};
 use serde::{Deserialize, Serialize};
@@ -2309,6 +2310,7 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(images::commands())
         .chain(outline::commands())
         .chain(tuning::commands())
+        .chain(datasheet_annotations::commands())
         .collect()
 }
 
@@ -2349,6 +2351,11 @@ impl Session {
         params: Value,
         expected: Option<u64>,
     ) -> Result<Value, Error> {
+        if datasheet_annotations::is_profile_command(id) {
+            self.check_revision(expected)?;
+            let result = datasheet_annotations::run_profile(id, &params).map_err(Error::Invalid)?;
+            return Ok(json!({"revision": self.revision, "result": result}));
+        }
         if artifacts::command_is_read_only(id) {
             return self.query(id, params, expected);
         }
@@ -7093,6 +7100,9 @@ fn run_command(
         return result;
     }
     if let Some(result) = outline::run(p, next, command, params) {
+        return result;
+    }
+    if let Some(result) = datasheet_annotations::run_design(p, command, params) {
         return result;
     }
     match command {
