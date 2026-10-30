@@ -19,6 +19,16 @@ pub mod source_log;
 pub mod digikey;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mouser;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
