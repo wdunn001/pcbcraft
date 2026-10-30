@@ -288,6 +288,8 @@ fn keepout_hits_cover_inner_layers() -> Result<(), String> {
             height: 10.0,
         },
         profile: None,
+        forbid: None,
+        footprint_ref: None,
     });
     let hits = keepout_hits(&p)?;
     let hit: Vec<Id> = sorted(hits.iter().map(|hit| hit.object).collect());

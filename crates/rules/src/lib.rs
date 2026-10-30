@@ -3593,8 +3593,8 @@ mod tests {
 mod pour_tests {
     use super::*;
     use pcbcraft_doc::{
-        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleRegion, Track, Via, ZoneIslands,
-        ZonePour, component_template,
+        CopperZone, Footprint, Keepout, Net, Pad, RuleArea, RuleForbid, RuleRegion, Track, Via,
+        ZoneIslands, ZonePour, component_template,
     };
     use pcbcraft_library::{Drill, FootprintPad};
 
@@ -3838,6 +3838,8 @@ mod pour_tests {
                 height: 4.0,
             },
             profile: None,
+            forbid: None,
+            footprint_ref: None,
         }
     }
 
@@ -3895,5 +3897,70 @@ mod pour_tests {
         assert!(!f.contains(Point::new(20.0, 20.0)));
         assert!(f.contains(Point::new(20.0, 28.0)));
         Ok(())
+    }
+
+    #[test]
+    fn forbid_tracks_allows_vias_while_forbid_vias_reports_only_vias() {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "sig".into(),
+            ..Default::default()
+        });
+        p.board.tracks.push(Track {
+            id: 30,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.2,
+            layer: Layer::Front,
+            arc: None,
+        });
+        test_via(&mut p);
+        p.board.rule_areas.push(RuleArea {
+            id: 40,
+            name: None,
+            net: None,
+            layer: None,
+            clearance: 0.2,
+            keepout: None,
+            max_height: None,
+            region: RuleRegion {
+                x: 0.0,
+                y: 0.0,
+                width: 25.0,
+                height: 25.0,
+            },
+            profile: None,
+            forbid: Some(RuleForbid::Tracks),
+            footprint_ref: None,
+        });
+        let track_only = drc(&p);
+        assert!(
+            track_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&30)),
+            "tracks inside a forbid-tracks area are flagged"
+        );
+        assert!(
+            !track_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&20)),
+            "vias stay allowed under forbid-tracks"
+        );
+        p.board.rule_areas[0].forbid = Some(RuleForbid::Vias);
+        let via_only = drc(&p);
+        assert!(
+            !via_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&30)),
+            "tracks stay allowed under forbid-vias"
+        );
+        assert!(
+            via_only
+                .iter()
+                .any(|f| f.code == "keepout" && f.objects.contains(&20)),
+            "vias inside a forbid-vias area are flagged"
+        );
     }
 }
