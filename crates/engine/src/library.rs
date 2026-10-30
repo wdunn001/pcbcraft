@@ -8,10 +8,10 @@
 //! Dependencies: `crates/library/src/listing.rs` for `PartListing` and `PartFilter`;
 //! `crates/library/src/listing_adapters.rs` for the symbol adapters.
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
+use pcbcraft_library::listing_adapters::listings_from_symbols;
 use pcbcraft_library::sources::{
     PartResult, PartSource, ResponseCache, SourceError, join_distributor_into_cards,
 };
-use pcbcraft_library::listing_adapters::listings_from_symbols;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
 use serde_json::{Value, json};
 use std::io::Read;

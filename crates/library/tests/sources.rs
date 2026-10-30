@@ -1,7 +1,7 @@
 use pcbcraft_library::sources::{
-    FixtureSource, PartResult, PartSource, ResponseCache, SourceError,
+    DISTRIBUTOR_KEY_HINT, FixtureSource, PartResult, PartSource, ResponseCache, SourceError,
     distributor_network_allowed, join_distributor_into_cards, merge_distributor_fields,
-    part_match_key, DISTRIBUTOR_KEY_HINT,
+    part_match_key,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -109,15 +109,20 @@ fn cad_card(mpn: &str) -> PartResult {
 fn join_matches_by_part_number_ignoring_case() -> Result<(), SourceError> {
     let distributor = source()?;
     let dist = distributor.fetch("sample-r-10k")?;
-    assert_eq!(part_match_key("SAMPLE-R-10K"), part_match_key("sample-r-10k"));
+    assert_eq!(
+        part_match_key("SAMPLE-R-10K"),
+        part_match_key("sample-r-10k")
+    );
     let merged = merge_distributor_fields(cad_card("SAMPLE-R-10K"), &dist);
     assert_eq!(merged.stock, dist.stock);
     assert!(!merged.price_breaks.is_empty());
     assert_eq!(merged.distributor, dist.distributor);
-    assert_eq!(merged.sku, "Device/SAMPLE-R-10K", "the open-library sku stays");
     assert_eq!(
-        merged.description,
-        "Symbol in Device. Licence: CC-BY-SA 4.0.",
+        merged.sku, "Device/SAMPLE-R-10K",
+        "the open-library sku stays"
+    );
+    assert_eq!(
+        merged.description, "Symbol in Device. Licence: CC-BY-SA 4.0.",
         "the licence line stays on the card"
     );
     let mut cache = ResponseCache::default();
