@@ -806,12 +806,12 @@ fn meander_one_track(p: &mut Project, next: &mut Id, opts: MeanderOpts) -> Resul
             (low > extra && low - extra <= tolerance).then_some(meander::MIN_AMPLITUDE)
         })
     };
-    let sides: [i8; 2] = match opts.fixed_side {
-        Some(s) => [s, s],
-        None => [1, -1],
+    let sides: &[i8] = match opts.fixed_side {
+        Some(s) => std::slice::from_ref(s),
+        None => &[1, -1],
     };
     for n in 1..=nmax {
-        for side in sides {
+        for &side in sides {
             let run = Run { side, ..base };
             let Some(amplitude) = pick(&run, n) else {
                 continue;
@@ -944,9 +944,10 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
     }
     let fit_tolerance = tolerance.clamp(0.01, 0.1);
     let mut bump_ids: Vec<Id> = vec![];
-    let mut bumps = 0usize;
+    let mut bump_count = 0usize;
+    let mut passes = 0usize;
     while (net_length(p, net_p) - net_length(p, net_n)).abs() > tolerance + 1e-9 {
-        if bumps >= MAX_SKEW_MEANDERS {
+        if passes >= MAX_SKEW_MEANDERS {
             return Err(refuse(
                 "skew tuning stopped after too many meander passes",
             ));
@@ -985,7 +986,8 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
                 }
             }
         }
-        bumps += pass["bumps"].as_u64().unwrap_or(1) as usize;
+        bump_count += pass["bumps"].as_u64().unwrap_or(1) as usize;
+        passes += 1;
     }
     let len_p_after = net_length(p, net_p);
     let len_n_after = net_length(p, net_n);
@@ -997,7 +999,7 @@ fn tune_skew(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value, Er
         "length_n": r3(len_n_after),
         "skew": r3((len_p_after - len_n_after).abs()),
         "tolerance": tolerance,
-        "bumps": bumps,
+        "bumps": bump_count,
         "ids": bump_ids,
     }))
 }
