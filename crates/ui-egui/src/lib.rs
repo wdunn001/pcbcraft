@@ -2954,8 +2954,7 @@ impl App {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let window_w = ui.ctx().screen_rect().width().max(1.0);
-                        ui.set_max_width(window_w);
+                        ui.set_max_width(280.0);
                         ui.vertical_centered(|ui| {
                             ui.add_space(36.0);
                             brand::mark(ui, 96.0);
@@ -2974,7 +2973,7 @@ impl App {
                                 .color(self.muted()),
                             );
                             ui.add_space(24.0);
-                            let home_btn = [window_w.min(280.0), 64.0];
+                            let home_btn = [280.0, 64.0];
                             if ui
                                 .add_sized(
                                     home_btn,
