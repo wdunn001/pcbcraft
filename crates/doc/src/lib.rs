@@ -1,6 +1,8 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod interface_profile;
 mod machine_profile;
 mod outline;
+pub use interface_profile::*;
 pub use machine_profile::*;
 pub use outline::{
     MIN_ARC_SAGITTA, VALIDATION_CHORD_ERROR, arc_sagitta, flatten_outline, outline_extent,
@@ -3324,6 +3326,9 @@ pub struct ProjectLibrary {
     pub notices: Vec<String>,
     pub symbols: Vec<pcbcraft_library::SymbolDefinition>,
     pub footprints: Vec<pcbcraft_library::FootprintDefinition>,
+    /// Interface rule profiles embedded in this design, overriding built-ins by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interface_profiles: Vec<InterfaceProfileEntry>,
 }
 impl ProjectLibrary {
     pub fn validate(&self) -> Result<(), String> {
@@ -3332,6 +3337,16 @@ impl ProjectLibrary {
         }
         if self.symbols.len() > 256 || self.footprints.len() > 256 {
             return Err("project library supports at most 256 symbols and 256 footprints".into());
+        }
+        if self.interface_profiles.len() > 64 {
+            return Err("project library supports at most 64 interface profiles".into());
+        }
+        let mut ids = BTreeSet::new();
+        for entry in &self.interface_profiles {
+            entry.validate()?;
+            if !ids.insert(&entry.id) {
+                return Err("duplicate interface profile id in project library".into());
+            }
         }
         let mut names = BTreeSet::new();
         for s in &self.symbols {

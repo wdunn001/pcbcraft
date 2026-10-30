@@ -18,6 +18,7 @@ mod gerber_job;
 mod laser;
 mod layers;
 mod library_render;
+mod interface_profile;
 mod machine_profile;
 mod model_load;
 mod neoden_yy1;
@@ -92,6 +93,9 @@ pub use layers::{
     fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
 };
 use library_render::*;
+pub use interface_profile::{
+    interface_profile_content_hash, interface_profile_from_toml, interface_profile_to_toml,
+};
 pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,

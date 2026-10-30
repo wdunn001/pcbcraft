@@ -130,20 +130,45 @@ fn applying_twice_updates_values_without_duplicating_classes() -> Result<(), Err
     Ok(())
 }
 
+const SCHEMA_V2_BUILTINS: &[&str] = &["usb2", "i2c", "spi", "qspi", "uart", "can"];
+
 #[test]
-fn every_built_in_profile_toml_parses() {
+fn every_built_in_profile_toml_parses_and_validates() {
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
-        let parsed = toml::from_str::<toml::Value>(builtin.toml);
+        let doc = pcbcraft_io::interface_profile_from_toml(builtin.toml);
+        assert!(doc.is_ok(), "{} must validate: {:?}", builtin.id, doc.err());
+        let doc = doc.expect("validated above");
+        assert_eq!(doc.profile.id, builtin.id);
+        let schema = doc.schema;
         assert!(
-            parsed.is_ok(),
-            "{} must parse: {:?}",
-            builtin.id,
-            parsed.err()
+            schema == 1 || schema == 2,
+            "{} schema must be 1 or 2",
+            builtin.id
         );
-        let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
-        assert_eq!(doc["schema"].as_integer(), Some(1));
-        assert_eq!(doc["profile"]["id"].as_str(), Some(builtin.id));
+        if SCHEMA_V2_BUILTINS.contains(&builtin.id) {
+            assert_eq!(schema, 2, "{} must be schema 2", builtin.id);
+        }
     }
+}
+
+#[test]
+fn schema_v2_builtins_round_trip_through_toml() -> Result<(), pcbcraft_engine::Error> {
+    for id in SCHEMA_V2_BUILTINS {
+        let text = pcbcraft_engine::profiles::parse_builtin(id)
+            .map_err(|e| pcbcraft_engine::Error::Invalid(e))?;
+        let doc = pcbcraft_io::interface_profile_from_toml(text)
+            .map_err(pcbcraft_engine::Error::Invalid)?;
+        let exported = pcbcraft_io::interface_profile_to_toml(&doc)
+            .map_err(pcbcraft_engine::Error::Invalid)?;
+        let back = pcbcraft_io::interface_profile_from_toml(&exported)
+            .map_err(pcbcraft_engine::Error::Invalid)?;
+        if back != doc {
+            return Err(pcbcraft_engine::Error::Invalid(format!(
+                "{id} toml round trip changed the profile"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[test]
@@ -154,20 +179,86 @@ fn value_source_fields_name_known_schema_keys() {
             .copied()
             .collect();
     for builtin in pcbcraft_engine::profiles::BUILT_INS {
-        let parsed = toml::from_str::<toml::Value>(builtin.toml);
-        assert!(parsed.is_ok(), "{}", builtin.id);
-        let doc = parsed.unwrap_or_else(|_| toml::Value::Table(toml::map::Map::new()));
-        if let Some(rows) = doc.get("value_source").and_then(|v| v.as_array()) {
-            for row in rows {
-                let field = row["field"].as_str().unwrap_or("");
-                assert!(
-                    known.contains(field),
-                    "{} value_source field {field}",
-                    builtin.id
-                );
-            }
+        let doc = pcbcraft_io::interface_profile_from_toml(builtin.toml);
+        assert!(doc.is_ok(), "{}", builtin.id);
+        let doc = doc.expect("validated above");
+        for row in &doc.value_source {
+            assert!(
+                known.contains(row.field.as_str()),
+                "{} value_source field {}",
+                builtin.id,
+                row.field
+            );
         }
     }
+}
+
+#[test]
+fn unknown_profile_field_is_refused_with_the_field_name() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/unknown_field_profile.toml");
+    let err = pcbcraft_io::interface_profile_from_toml(
+        &std::fs::read_to_string(&path).unwrap_or_default(),
+    )
+    .unwrap_err();
+    assert!(
+        err.contains("not_a_real_table") || err.contains("unknown field"),
+        "expected field name in refusal, got {err}"
+    );
+}
+
+#[test]
+fn out_of_range_impedance_is_refused() {
+    let text = r#"
+schema = 2
+[profile]
+id = "bad-z"
+name = "Bad Z"
+category = "test"
+summary = "test"
+[bus]
+name = "T"
+schematic_type = "T"
+[[signal]]
+name = "A"
+net = "A"
+electrical_class = "single-ended"
+[bus.limits]
+impedance_ohm = 5.0
+"#;
+    let err = pcbcraft_io::interface_profile_from_toml(text).unwrap_err();
+    assert!(err.contains("impedance_ohm"), "got {err}");
+}
+
+#[test]
+fn a_newcomer_picks_usb_2_0_and_gets_the_net_class_and_required_parts() -> Result<(), Error> {
+    let mut s = Session::default();
+    s.execute("net.create", json!({"name":"USB_D+"}), None)?;
+    s.execute("net.create", json!({"name":"USB_D-"}), None)?;
+    let preview = s.execute("rules.profile_read", json!({"id":"usb2"}), None)?;
+    assert_eq!(preview["result"]["bus"]["name"], "USB 2.0");
+    let unsupported = preview["result"]["unsupported"]
+        .as_array()
+        .ok_or_else(missing)?;
+    assert!(unsupported.iter().any(|v| v.as_str() == Some("companion")));
+    let out = s.execute("rules.profile_apply", json!({"id":"usb2"}), None)?;
+    assert_eq!(s.project.net_classes.len(), 1);
+    assert_eq!(s.project.board.diff_pairs.len(), 1);
+    let companions = out["result"]["plan"]["companions"]
+        .as_array()
+        .ok_or_else(missing)?;
+    assert!(!companions.is_empty());
+    Ok(())
+}
+
+#[test]
+fn profile_read_reports_bus_template_name() -> Result<(), Error> {
+    let mut s = Session::default();
+    let out = s.execute("rules.profile_read", json!({"id":"i2c"}), None)?;
+    assert_eq!(out["result"]["bus"]["name"], "I2C");
+    let unsupported = out["result"]["unsupported"].as_array().ok_or_else(missing)?;
+    assert!(!unsupported.is_empty());
+    Ok(())
 }
 
 #[test]
@@ -189,6 +280,13 @@ fn manifest_source_slugs_exist() {
             builtin.id
         );
     }
+}
+
+#[test]
+fn schema_v1_built_in_still_loads() {
+    let text = pcbcraft_engine::profiles::parse_builtin("rs485").expect("rs485");
+    let doc = pcbcraft_io::interface_profile_from_toml(text).expect("rs485 v1");
+    assert_eq!(doc.schema, 1);
 }
 
 #[test]

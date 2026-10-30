@@ -24,4 +24,5 @@ equal_vias = true
 name = "lg"
 
 [[companion]]
-kind = "decoupling"
+role = "decoupling"
+source = "fixture"

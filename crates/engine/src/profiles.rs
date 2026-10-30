@@ -1,12 +1,20 @@
-//! Built-in interface rule profiles (TOML) and apply/list commands.
-use pcbcraft_doc::{DiffPair, Id, NetClass, NetPairRule, Project, RuleArea, RuleRegion};
+//! Built-in interface rule profiles (TOML) and apply/list/read commands.
+use pcbcraft_doc::{
+    collect_unsupported, companion_plan, InterfaceProfileDocument, NetClassSpec, Project,
+};
+use pcbcraft_doc::{DiffPair, Id, NetClass, NetPairRule, RuleArea, RuleRegion};
+use pcbcraft_io::{interface_profile_content_hash, interface_profile_from_toml};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 const MAX_PROFILE_ID: usize = 64;
 const MAX_PATH: usize = 4096;
+
+pub static USER_PROFILES_DIR_TEST: Mutex<Option<PathBuf>> = Mutex::new(None);
+pub static USER_PROFILES_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 pub struct BuiltInProfile {
     pub id: &'static str,
@@ -53,153 +61,14 @@ pub static BUILT_INS: &[BuiltInProfile] = &[
 
 pub fn manifest_slugs() -> &'static [&'static str] {
     &[
-        "usb2",
-        "i2c",
-        "spi",
-        "uart",
-        "can",
-        "rs485",
-        "swd",
-        "jtag",
-        "hdmi",
-        "ethernet-100",
-        "ethernet-1g",
-        "pcie-gen2",
-        "pcie-gen3",
-        "lvds",
-        "mipi-dsi",
-        "mipi-csi",
-        "sdio",
-        "qspi",
-        "ddr3",
-        "ddr4",
-        "lpddr4",
-        "power-3v3",
-        "power-5v",
-        "power-12v",
-        "analog-audio",
-        "rf-50ohm",
+        "usb2", "i2c", "spi", "uart", "can", "rs485", "swd", "jtag", "hdmi", "ethernet-100",
+        "ethernet-1g", "pcie-gen2", "pcie-gen3", "lvds", "mipi-dsi", "mipi-csi", "sdio", "qspi",
+        "ddr3", "ddr4", "lpddr4", "power-3v3", "power-5v", "power-12v", "analog-audio", "rf-50ohm",
     ]
 }
 
 pub fn known_value_source_fields() -> &'static [&'static str] {
-    &[
-        "net_class.clearance",
-        "net_class.width",
-        "net_class.min_width",
-        "net_class.max_width",
-        "net_class.target_length",
-        "net_class.length_tolerance",
-        "pair.gap",
-        "pair.length_tolerance",
-        "pair_rule.clearance",
-        "rule_area.clearance",
-    ]
-}
-
-#[derive(Debug, Deserialize)]
-struct ProfileMeta {
-    id: String,
-    name: String,
-    category: String,
-    summary: String,
-}
-
-#[derive(Debug, Deserialize, Default)]
-struct ClassLimits {
-    max_routed_length: Option<f64>,
-    max_stub: Option<f64>,
-    max_vias: Option<u32>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NetClassToml {
-    name: String,
-    #[serde(default)]
-    clearance: Option<f64>,
-    #[serde(default)]
-    width: Option<f64>,
-    #[serde(default)]
-    min_width: Option<f64>,
-    #[serde(default)]
-    max_width: Option<f64>,
-    #[serde(default)]
-    target_length: Option<f64>,
-    #[serde(default)]
-    length_tolerance: Option<f64>,
-    #[serde(default)]
-    max_length: Option<f64>,
-    #[serde(default)]
-    patterns: Vec<String>,
-    #[serde(default)]
-    nets: Vec<String>,
-    #[serde(default)]
-    limits: Option<ClassLimits>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PairToml {
-    name: String,
-    net_p: String,
-    net_n: String,
-    gap: f64,
-    #[serde(default)]
-    length_tolerance: Option<f64>,
-    #[serde(default)]
-    equal_vias: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PairRuleToml {
-    net_a: String,
-    net_b: String,
-    clearance: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct RuleAreaToml {
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    net: Option<String>,
-    #[serde(default)]
-    layer: Option<String>,
-    clearance: f64,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct ValueSourceToml {
-    field: String,
-    #[serde(default)]
-    source: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ProfileDocument {
-    schema: u32,
-    profile: ProfileMeta,
-    #[serde(default)]
-    net_class: Vec<NetClassToml>,
-    #[serde(default)]
-    pair: Vec<PairToml>,
-    #[serde(default)]
-    pair_rule: Vec<PairRuleToml>,
-    #[serde(default)]
-    rule_area: Vec<RuleAreaToml>,
-    #[serde(default)]
-    value_source: Vec<ValueSourceToml>,
-    #[serde(default)]
-    length_group: Vec<toml::Value>,
-    #[serde(default)]
-    companion: Vec<toml::Value>,
-}
-
-fn parse_toml(text: &str) -> Result<ProfileDocument, String> {
-    toml::from_str(text).map_err(|e| format!("TOML profile: {e}"))
+    pcbcraft_doc::known_value_source_fields()
 }
 
 fn validate_profile_id(id: &str) -> Result<(), String> {
@@ -209,231 +78,132 @@ fn validate_profile_id(id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn collect_unsupported(doc: &ProfileDocument) -> Vec<String> {
-    let mut out = Vec::new();
-    if !doc.length_group.is_empty() {
-        out.push("length_group".into());
-    }
-    if !doc.companion.is_empty() {
-        out.push("companion".into());
-    }
-    for class in &doc.net_class {
-        if class.max_length.is_some() {
-            out.push(format!("net_class.{}.max_length", class.name));
-        }
-        if let Some(limits) = &class.limits {
-            if limits.max_routed_length.is_some() {
-                out.push(format!("net_class.{}.limits.max_routed_length", class.name));
-            }
-            if limits.max_stub.is_some() {
-                out.push(format!("net_class.{}.limits.max_stub", class.name));
-            }
-            if limits.max_vias.is_some() {
-                out.push(format!("net_class.{}.limits.max_vias", class.name));
-            }
-        }
-    }
-    for pair in &doc.pair {
-        if pair.equal_vias.is_some() {
-            out.push(format!("pair.{}.equal_vias", pair.name));
-        }
-    }
-    out.sort();
-    out.dedup();
-    out
-}
-
-fn net_id_by_name(p: &Project, name: &str) -> Option<Id> {
-    p.nets.iter().find(|n| n.name == name).map(|n| n.id)
-}
-
-pub fn class_pattern_matches(pattern: &str, name: &str) -> bool {
-    let pattern: Vec<char> = pattern.chars().collect();
-    let name: Vec<char> = name.chars().collect();
-    let mut p = 0usize;
-    let mut n = 0usize;
-    let mut star: Option<usize> = None;
-    let mut star_name = 0usize;
-    while n < name.len() {
-        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == name[n]) {
-            p += 1;
-            n += 1;
-        } else if p < pattern.len() && pattern[p] == '*' {
-            star = Some(p);
-            star_name = n;
-            p += 1;
-        } else if let Some(sp) = star {
-            p = sp + 1;
-            star_name += 1;
-            n = star_name;
-        } else {
-            return false;
-        }
-    }
-    while p < pattern.len() && pattern[p] == '*' {
-        p += 1;
-    }
-    p == pattern.len()
-}
-
-fn resolve_nets_for_class(
-    p: &Project,
-    class: &NetClassToml,
-    nets_override: Option<&[String]>,
-) -> (Vec<Id>, Vec<String>) {
-    let mut ids = BTreeSet::new();
-    let mut unmatched = Vec::new();
-    let filter: BTreeSet<&str> = nets_override
-        .map(|v| v.iter().map(String::as_str).collect())
-        .unwrap_or_default();
-    for name in &class.nets {
-        if !filter.is_empty() && !filter.contains(name.as_str()) {
-            continue;
-        }
-        if let Some(id) = net_id_by_name(p, name) {
-            ids.insert(id);
-        } else {
-            unmatched.push(name.clone());
-        }
-    }
-    for pattern in &class.patterns {
-        for net in &p.nets {
-            if !filter.is_empty() && !filter.contains(net.name.as_str()) {
-                continue;
-            }
-            if class_pattern_matches(pattern, &net.name) {
-                ids.insert(net.id);
-            }
-        }
-    }
-    (ids.into_iter().collect(), unmatched)
-}
-
-fn allocate(next: &mut Id) -> Result<Id, String> {
-    let id = *next;
-    if id == 0 || id > u32::MAX as u64 {
-        return Err("object ID space exhausted".into());
-    }
-    *next = next.saturating_add(1);
-    Ok(id)
-}
-
-fn find_or_create_class<'a>(
-    p: &'a mut Project,
-    next: &mut Id,
-    profile_id: &str,
-    spec: &NetClassToml,
-) -> Result<&'a mut NetClass, String> {
-    if spec.name.is_empty() || spec.name.len() > 128 {
-        return Err("net class name must be 1 to 128 bytes".into());
-    }
-    if let Some(existing) = p
-        .net_classes
-        .iter()
-        .position(|c| c.name == spec.name && c.profile.as_deref().is_some_and(|t| t == profile_id))
+fn user_profiles_dir() -> Result<PathBuf, String> {
+    if let Some(path) = USER_PROFILES_DIR_TEST
+        .lock()
+        .ok()
+        .and_then(|locked| locked.as_ref().cloned())
     {
-        return Ok(&mut p.net_classes[existing]);
+        return Ok(path);
     }
-    if p.net_classes.iter().any(|c| c.name == spec.name) {
-        let idx = p
-            .net_classes
-            .iter()
-            .position(|c| c.name == spec.name)
-            .ok_or_else(|| "missing class".to_string())?;
-        p.net_classes[idx].profile = Some(profile_id.to_string());
-        return Ok(&mut p.net_classes[idx]);
+    let directory = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+    };
+    directory("XDG_CONFIG_HOME")
+        .or_else(|| directory("APPDATA"))
+        .or_else(|| directory("HOME").map(|home| home.join(".config")))
+        .map(|base| base.join("pcbcraft").join("interface-profiles"))
+        .ok_or_else(|| "no user configuration folder was found".into())
+}
+
+fn resolve_profile_by_id(p: &Project, id: &str) -> Result<(String, String), String> {
+    validate_profile_id(id)?;
+    if let Some(entry) = p
+        .library
+        .interface_profiles
+        .iter()
+        .find(|entry| entry.id == id)
+    {
+        return Ok((entry.toml.clone(), "project".into()));
     }
-    if p.net_classes.len() >= 64 {
-        return Err("net class limit reached (64)".into());
+    if let Ok(dir) = user_profiles_dir() {
+        let path = dir.join(format!("{id}.toml"));
+        if path.is_file() {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("read user profile {id}: {e}"))?;
+            return Ok((text, "user".into()));
+        }
     }
-    let clearance = spec.clearance.unwrap_or(0.15);
-    let width = spec.width.unwrap_or(0.2);
-    if !clearance.is_finite() || clearance <= 0.0 || clearance > 100.0 {
-        return Err("invalid class clearance".into());
-    }
-    if !width.is_finite() || width <= 0.0 || width > 100.0 {
-        return Err("invalid class width".into());
-    }
-    let id = allocate(next)?;
-    p.net_classes.push(NetClass {
-        id,
-        name: spec.name.clone(),
-        clearance,
-        width,
-        min_width: None,
-        max_width: None,
-        target_length: None,
-        length_tolerance: None,
-        max_stub: None,
-        via_diameter: None,
-        via_drill: None,
-        pair_width: None,
-        pair_gap: None,
-        nets: Vec::new(),
-        profile: Some(profile_id.to_string()),
+    let builtin = BUILT_INS
+        .iter()
+        .find(|b| b.id == id)
+        .ok_or_else(|| format!("unknown profile {id}"))?;
+    Ok((builtin.toml.to_string(), "builtin".into()))
+}
+
+fn preview_json(doc: &InterfaceProfileDocument, text: &str) -> Value {
+    let unsupported = collect_unsupported(doc);
+    let companions: Vec<Value> = companion_plan(doc)
+        .into_iter()
+        .map(|(role, source)| json!({"role": role, "source": source}))
+        .collect();
+    let bus = doc.bus.as_ref().map(|bus| {
+        json!({
+            "name": bus.name,
+            "schematic_type": bus.schematic_type,
+        })
     });
-    p.net_classes
-        .last_mut()
-        .ok_or_else(|| "class push".to_string())
-}
-
-fn apply_class_fields(class: &mut NetClass, spec: &NetClassToml) {
-    if let Some(c) = spec.clearance {
-        class.clearance = c;
-    }
-    if let Some(w) = spec.width {
-        class.width = w;
-    }
-    class.min_width = spec.min_width;
-    class.max_width = spec.max_width;
-    class.target_length = spec.target_length;
-    class.length_tolerance = spec.length_tolerance;
-}
-
-fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<(), String> {
-    for net in nets {
-        if !p.nets.iter().any(|n| n.id == *net) {
-            return Err("unknown net in class membership".into());
-        }
-        if let Some(existing) = p.net_class(*net)
-            && existing.id != class_id
-        {
-            return Err(format!("net already belongs to class {}", existing.name));
-        }
-    }
-    for class in p.net_classes.iter_mut() {
-        class.nets.retain(|n| !nets.contains(n));
-    }
-    let class = p
-        .net_classes
-        .iter_mut()
-        .find(|c| c.id == class_id)
-        .ok_or_else(|| "missing class".to_string())?;
-    for net in nets {
-        if class.nets.len() >= 256 {
-            return Err("a class holds at most 256 nets".into());
-        }
-        if !class.nets.contains(net) {
-            class.nets.push(*net);
-        }
-    }
-    Ok(())
+    json!({
+        "schema": doc.schema,
+        "id": doc.profile.id,
+        "name": doc.profile.name,
+        "category": doc.profile.category,
+        "summary": doc.profile.summary,
+        "bus": bus,
+        "unsupported": unsupported,
+        "companions": companions,
+        "content_hash": interface_profile_content_hash(text),
+    })
 }
 
 pub fn profile_list() -> Value {
     let profiles: Vec<Value> = BUILT_INS
         .iter()
         .filter_map(|b| {
-            let doc = parse_toml(b.toml).ok()?;
+            let doc = interface_profile_from_toml(b.toml).ok()?;
+            let bus_name = doc.bus.as_ref().map(|bus| bus.name.as_str());
             Some(json!({
                 "id": doc.profile.id,
                 "name": doc.profile.name,
                 "category": doc.profile.category,
                 "summary": doc.profile.summary,
+                "schema": doc.schema,
+                "bus_name": bus_name,
             }))
         })
         .collect();
     json!({"profiles": profiles})
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileIdOrPathParams {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+pub fn profile_read(p: &Project, params: &Value) -> Result<Value, String> {
+    let a: ProfileIdOrPathParams = serde_json::from_value(params.clone())
+        .map_err(|e| format!("profile read parameters: {e}"))?;
+    let has_id = a.id.as_ref().is_some_and(|s| !s.is_empty());
+    let has_path = a.path.as_ref().is_some_and(|s| !s.is_empty());
+    if has_id == has_path {
+        return Err("give exactly one of id or path".into());
+    }
+    let (text, origin) = if let Some(id) = a.id.filter(|s| !s.is_empty()) {
+        let (text, origin) = resolve_profile_by_id(p, &id)?;
+        (text, origin)
+    } else {
+        let path = a.path.as_ref().ok_or_else(|| "missing path".to_string())?;
+        if path.len() > MAX_PATH {
+            return Err("profile path is too long".into());
+        }
+        let text =
+            std::fs::read_to_string(Path::new(path)).map_err(|e| format!("read profile: {e}"))?;
+        (text, "path".into())
+    };
+    let doc = interface_profile_from_toml(&text)?;
+    let mut preview = preview_json(&doc, &text);
+    if let Some(obj) = preview.as_object_mut() {
+        obj.insert("origin".into(), json!(origin));
+    }
+    Ok(preview)
 }
 
 #[derive(Debug, Deserialize)]
@@ -465,13 +235,9 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
             return Err("nets_override names must be 1 to 128 bytes".into());
         }
     }
-    let (text, profile_id) = if let Some(id) = a.id {
-        validate_profile_id(&id)?;
-        let builtin = BUILT_INS
-            .iter()
-            .find(|b| b.id == id)
-            .ok_or_else(|| format!("unknown built-in profile {id}"))?;
-        (builtin.toml.to_string(), id)
+    let (text, profile_id, origin) = if let Some(id) = a.id.filter(|s| !s.is_empty()) {
+        let (text, origin) = resolve_profile_by_id(p, &id)?;
+        (text, id, origin)
     } else {
         let path = a.path.as_ref().ok_or_else(|| "missing path".to_string())?;
         if path.len() > MAX_PATH {
@@ -479,21 +245,19 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
         }
         let text =
             std::fs::read_to_string(Path::new(path)).map_err(|e| format!("read profile: {e}"))?;
-        let doc = parse_toml(&text)?;
+        let doc = interface_profile_from_toml(&text)?;
         validate_profile_id(&doc.profile.id)?;
-        (text, doc.profile.id)
+        (text, doc.profile.id, "path".into())
     };
-    let doc = parse_toml(&text)?;
-    if doc.schema != 1 {
-        return Err(format!("unsupported profile schema {}", doc.schema));
-    }
+    let doc = interface_profile_from_toml(&text)?;
     if doc.profile.id != profile_id {
         return Err("profile id mismatch between parameter and file".into());
     }
-    if doc.net_class.len() > 64 || doc.pair.len() > 64 || doc.rule_area.len() > 64 {
-        return Err("a profile defines at most 64 classes, pairs and areas each".into());
-    }
     let unsupported = collect_unsupported(&doc);
+    let companions: Vec<Value> = companion_plan(&doc)
+        .into_iter()
+        .map(|(role, source)| json!({"role": role, "source": source}))
+        .collect();
     let override_slice = if a.nets_override.is_empty() {
         None
     } else {
@@ -518,14 +282,25 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
             })
         })
         .collect();
+    let bus = doc.bus.as_ref().map(|bus| {
+        json!({
+            "name": bus.name,
+            "schematic_type": bus.schematic_type,
+        })
+    });
     let plan = json!({
         "profile": profile_id,
+        "origin": origin,
+        "schema": doc.schema,
+        "bus": bus,
         "classes": plan_classes,
         "pairs": doc.pair.len(),
         "pair_rules": doc.pair_rule.len(),
         "rule_areas": doc.rule_area.len(),
         "unsupported": unsupported,
+        "companions": companions,
         "value_source": value_sources,
+        "content_hash": interface_profile_content_hash(&text),
     });
     if a.dry_run {
         return Ok(json!({"dry_run": true, "plan": plan}));
@@ -676,6 +451,183 @@ pub fn profile_apply(p: &mut Project, next: &mut Id, params: &Value) -> Result<V
             Err(e)
         }
     }
+}
+
+fn net_id_by_name(p: &Project, name: &str) -> Option<Id> {
+    p.nets.iter().find(|n| n.name == name).map(|n| n.id)
+}
+
+pub fn class_pattern_matches(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+    let mut p = 0usize;
+    let mut n = 0usize;
+    let mut star: Option<usize> = None;
+    let mut star_name = 0usize;
+    while n < name.len() {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == name[n]) {
+            p += 1;
+            n += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some(p);
+            star_name = n;
+            p += 1;
+        } else if let Some(sp) = star {
+            p = sp + 1;
+            star_name += 1;
+            n = star_name;
+        } else {
+            return false;
+        }
+    }
+    while p < pattern.len() && pattern[p] == '*' {
+        p += 1;
+    }
+    p == pattern.len()
+}
+
+fn resolve_nets_for_class(
+    p: &Project,
+    class: &NetClassSpec,
+    nets_override: Option<&[String]>,
+) -> (Vec<Id>, Vec<String>) {
+    let mut ids = BTreeSet::new();
+    let mut unmatched = Vec::new();
+    let filter: BTreeSet<&str> = nets_override
+        .map(|v| v.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+    for name in &class.nets {
+        if !filter.is_empty() && !filter.contains(name.as_str()) {
+            continue;
+        }
+        if let Some(id) = net_id_by_name(p, name) {
+            ids.insert(id);
+        } else {
+            unmatched.push(name.clone());
+        }
+    }
+    for pattern in &class.patterns {
+        for net in &p.nets {
+            if !filter.is_empty() && !filter.contains(net.name.as_str()) {
+                continue;
+            }
+            if class_pattern_matches(pattern, &net.name) {
+                ids.insert(net.id);
+            }
+        }
+    }
+    (ids.into_iter().collect(), unmatched)
+}
+
+fn allocate(next: &mut Id) -> Result<Id, String> {
+    let id = *next;
+    if id == 0 || id > u32::MAX as u64 {
+        return Err("object ID space exhausted".into());
+    }
+    *next = next.saturating_add(1);
+    Ok(id)
+}
+
+fn find_or_create_class<'a>(
+    p: &'a mut Project,
+    next: &mut Id,
+    profile_id: &str,
+    spec: &NetClassSpec,
+) -> Result<&'a mut NetClass, String> {
+    if spec.name.is_empty() || spec.name.len() > 128 {
+        return Err("net class name must be 1 to 128 bytes".into());
+    }
+    if let Some(existing) = p
+        .net_classes
+        .iter()
+        .position(|c| c.name == spec.name && c.profile.as_deref().is_some_and(|t| t == profile_id))
+    {
+        return Ok(&mut p.net_classes[existing]);
+    }
+    if p.net_classes.iter().any(|c| c.name == spec.name) {
+        let idx = p
+            .net_classes
+            .iter()
+            .position(|c| c.name == spec.name)
+            .ok_or_else(|| "missing class".to_string())?;
+        p.net_classes[idx].profile = Some(profile_id.to_string());
+        return Ok(&mut p.net_classes[idx]);
+    }
+    if p.net_classes.len() >= 64 {
+        return Err("net class limit reached (64)".into());
+    }
+    let clearance = spec.clearance.unwrap_or(0.15);
+    let width = spec.width.unwrap_or(0.2);
+    if !clearance.is_finite() || clearance <= 0.0 || clearance > 100.0 {
+        return Err("invalid class clearance".into());
+    }
+    if !width.is_finite() || width <= 0.0 || width > 100.0 {
+        return Err("invalid class width".into());
+    }
+    let id = allocate(next)?;
+    p.net_classes.push(NetClass {
+        id,
+        name: spec.name.clone(),
+        clearance,
+        width,
+        min_width: None,
+        max_width: None,
+        target_length: None,
+        length_tolerance: None,
+        max_stub: None,
+        via_diameter: None,
+        via_drill: None,
+        pair_width: None,
+        pair_gap: None,
+        nets: Vec::new(),
+        profile: Some(profile_id.to_string()),
+    });
+    p.net_classes
+        .last_mut()
+        .ok_or_else(|| "class push".to_string())
+}
+
+fn apply_class_fields(class: &mut NetClass, spec: &NetClassSpec) {
+    if let Some(c) = spec.clearance {
+        class.clearance = c;
+    }
+    if let Some(w) = spec.width {
+        class.width = w;
+    }
+    class.min_width = spec.min_width;
+    class.max_width = spec.max_width;
+    class.target_length = spec.target_length;
+    class.length_tolerance = spec.length_tolerance;
+}
+
+fn assign_nets_to_class(p: &mut Project, class_id: Id, nets: &[Id]) -> Result<(), String> {
+    for net in nets {
+        if !p.nets.iter().any(|n| n.id == *net) {
+            return Err("unknown net in class membership".into());
+        }
+        if let Some(existing) = p.net_class(*net)
+            && existing.id != class_id
+        {
+            return Err(format!("net already belongs to class {}", existing.name));
+        }
+    }
+    for class in p.net_classes.iter_mut() {
+        class.nets.retain(|n| !nets.contains(n));
+    }
+    let class = p
+        .net_classes
+        .iter_mut()
+        .find(|c| c.id == class_id)
+        .ok_or_else(|| "missing class".to_string())?;
+    for net in nets {
+        if class.nets.len() >= 256 {
+            return Err("a class holds at most 256 nets".into());
+        }
+        if !class.nets.contains(net) {
+            class.nets.push(*net);
+        }
+    }
+    Ok(())
 }
 
 fn parse_layer(name: &str) -> Result<pcbcraft_doc::Layer, String> {
