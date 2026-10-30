@@ -4,8 +4,8 @@ use serde_json::json;
 use std::io::Write;
 
 #[test]
-fn import_manufacturer_file_records_user_download_provenance() -> Result<(), Box<dyn std::error::Error>>
-{
+fn import_manufacturer_file_records_user_download_provenance(
+) -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("TSW-103-07-G-S.kicad_mod");
     let fixture = concat!(
@@ -29,11 +29,7 @@ fn import_manufacturer_file_records_user_download_provenance() -> Result<(), Box
         .as_str()
         .is_some_and(|n| n.contains("not redistributed")));
     assert_eq!(s.project.library.notices.len(), 1);
-    assert!(s
-        .project
-        .library
-        .notices[0]
-        .contains("downloaded by the user"));
+    assert!(s.project.library.notices[0].contains("downloaded by the user"));
     Ok(())
 }
 

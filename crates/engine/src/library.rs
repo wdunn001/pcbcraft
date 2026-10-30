@@ -7,7 +7,7 @@
 use pcbcraft_library::listing::{ListingSource, PartFilter, PartListing};
 use pcbcraft_library::listing_adapters::listings_from_symbols;
 use pcbcraft_library::{FootprintDefinition, SymbolDefinition};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -1003,13 +1003,11 @@ mod tests {
             let args = json!({"path":"missing.kicad_sym","kind":"symbol","limit":limit});
             assert!(read_tool("library.search", &args).is_err_and(|e| e.contains("limit")));
         }
-        assert!(
-            read_tool(
-                "library.search",
-                &json!({"path":"missing.kicad_sym","kind":"symbol","query":true})
-            )
-            .is_err_and(|e| e.contains("query"))
-        );
+        assert!(read_tool(
+            "library.search",
+            &json!({"path":"missing.kicad_sym","kind":"symbol","query":true})
+        )
+        .is_err_and(|e| e.contains("query")));
     }
     #[test]
     fn library_reads_are_regular_bounded_and_independent_of_project_cap() -> Result<(), String> {
@@ -1301,10 +1299,7 @@ mod tests {
             "library.samtec.manufacturer_page",
             &json!({"mpn":"TSW-103-07-G-S"}),
         )?;
-        assert_eq!(
-            out["url"],
-            "https://www.samtec.com/products/tsw-103-07-g-s"
-        );
+        assert_eq!(out["url"], "https://www.samtec.com/products/tsw-103-07-g-s");
         Ok(())
     }
 
