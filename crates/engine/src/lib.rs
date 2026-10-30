@@ -19557,13 +19557,20 @@ mod tests {
             .as_u64()
             .ok_or_else(missing)?;
         let corner = Point::new(10.0, 10.0);
-        let undo_before = s.undo.len();
+        let undo_before = s.inspect()["history"]["undo"]
+            .as_u64()
+            .ok_or_else(missing)?;
         s.execute(
             "track.round_corners",
             json!({"radius":2.0,"style":"arc"}),
             None,
         )?;
-        assert_eq!(s.undo.len(), undo_before + 1);
+        assert_eq!(
+            s.inspect()["history"]["undo"]
+                .as_u64()
+                .ok_or_else(missing)?,
+            undo_before + 1
+        );
         assert!(
             s.project.board.tracks.iter().any(|t| t.arc.is_some()),
             "rounding should add an arc"
