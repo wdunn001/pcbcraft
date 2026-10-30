@@ -1,10 +1,18 @@
 //! Normalised part parameters with units, per-source aliases and confidence.
 //!
-//! Local rules match [`crate::listing`]: empty means unknown and nothing is
-//! guessed. Raw source text is kept beside every parsed value. No network here.
+//! # Rules
+//! - Empty means unknown; nothing is guessed.
+//! - Raw source text stays beside every parsed value.
+//! - Per-source alias JSON maps attribute names to [`ParamKey`] per category.
+//!
+//! # Dependencies
+//! - crates/library/src/listing.rs (`parse_value`, `package_key`, categories)
+//!
+//! # Do not
+//! - Fetch live catalogue data or write into project files from here.
 use crate::listing::{
-    Category, Unit, category_from, package_key, parse_temperature_range, parse_tolerance,
-    parse_value, tolerance_from,
+    category_from, package_key, parse_temperature_range, parse_tolerance, parse_value,
+    tolerance_from, Category, Unit,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -111,6 +119,11 @@ pub struct ParamAliasFile {
 }
 
 /// Read alias JSON: top-level keys are source ids; then category snake names.
+///
+/// # Rules
+/// - Files larger than two megabytes are refused.
+/// # Do not
+/// - Call with live network data; fixtures only.
 pub fn load_param_aliases(json: &str) -> Result<ParamAliasFile, String> {
     if json.len() > 2_000_000 {
         return Err("the alias file is too large".into());
@@ -183,7 +196,13 @@ fn allowed_keys(category: Category) -> &'static [ParamKey] {
             Height,
             MountType,
         ],
-        Category::Crystal => &[Frequency, ToleranceRange, TemperatureRange, PackageKey, MountType],
+        Category::Crystal => &[
+            Frequency,
+            ToleranceRange,
+            TemperatureRange,
+            PackageKey,
+            MountType,
+        ],
         Category::Mosfet => &[
             DrainSourceVoltage,
             OnResistance,
@@ -247,10 +266,7 @@ fn parse_payload(
         }
         RatedVoltageDc | RatedVoltageAc => {
             let (v, u) = parse_value(trimmed, Some(Unit::Volt))?;
-            (u == Unit::Volt).then_some((
-                ParamPayload::Number { value: v },
-                Some(Unit::Volt),
-            ))
+            (u == Unit::Volt).then_some((ParamPayload::Number { value: v }, Some(Unit::Volt)))
         }
         ToleranceRange => {
             let (lo, hi) = tolerance_from(trimmed, category)
@@ -280,10 +296,7 @@ fn parse_payload(
             } else {
                 pkg.key.clone()
             };
-            Some((
-                ParamPayload::Text { value },
-                None,
-            ))
+            Some((ParamPayload::Text { value }, None))
         }
         PinCount => {
             let digits: String = trimmed
@@ -359,20 +372,26 @@ fn lookup_key(
     category: Category,
     attribute: &str,
 ) -> Option<ParamKey> {
-    if let Some(aliases) = table {
-        if let Some(key) = aliases
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(attribute))
-            .map(|(_, v)| *v)
-            .filter(|key| key_allowed(category, *key))
-        {
-            return Some(key);
-        }
-    }
-    heuristic_key(category, attribute)
+    table
+        .and_then(|aliases| {
+            aliases
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(attribute))
+                .map(|(_, v)| *v)
+                .filter(|key| key_allowed(category, *key))
+        })
+        .or_else(|| heuristic_key(category, attribute))
 }
 
 /// Normalise one source attribute map using aliases and the part category.
+///
+/// # Rules
+/// - Unmapped attribute names become [`ExtraAttribute`] rows.
+/// - Each parsed row starts with [`ParamConfidence::Single`].
+/// # Dependencies
+/// - [`load_param_aliases`]; [`crate::listing::category_from`].
+/// # Do not
+/// - Invent a value when parsing fails; failed rows go to extras.
 pub fn params_from_attributes(
     source_id: &str,
     source_category: &str,
@@ -429,16 +448,9 @@ fn payloads_equal(a: &ParamPayload, b: &ParamPayload) -> bool {
         (ParamPayload::Number { value: x }, ParamPayload::Number { value: y }) => {
             (x - y).abs() <= (x.abs().max(y.abs()) * 1e-9).max(1e-12)
         }
-        (
-            ParamPayload::Range {
-                low: al,
-                high: ah,
-            },
-            ParamPayload::Range {
-                low: bl,
-                high: bh,
-            },
-        ) => (al - bl).abs() <= 1e-6 && (ah - bh).abs() <= 1e-6,
+        (ParamPayload::Range { low: al, high: ah }, ParamPayload::Range { low: bl, high: bh }) => {
+            (al - bl).abs() <= 1e-6 && (ah - bh).abs() <= 1e-6
+        }
         (ParamPayload::Text { value: x }, ParamPayload::Text { value: y }) => {
             x.eq_ignore_ascii_case(y)
         }
@@ -447,43 +459,59 @@ fn payloads_equal(a: &ParamPayload, b: &ParamPayload) -> bool {
 }
 
 /// Merge parameters from two sources for the same part. Nothing is guessed.
-pub fn merge_part_params(mut a: PartParams, mut b: PartParams) -> PartParams {
-    let mut extras = std::mem::take(&mut a.extras);
-    extras.append(&mut b.extras);
+///
+/// # Rules
+/// - Equal payloads become [`ParamConfidence::Agreed`]; mismatches keep both
+///   values with [`ParamConfidence::Conflict`].
+/// # Do not
+/// - Pick a winner when sources disagree.
+pub fn merge_part_params(a: PartParams, b: PartParams) -> PartParams {
+    let mut extras = a.extras;
+    extras.extend(b.extras);
     let mut by_key: BTreeMap<ParamKey, Vec<ParamValue>> = BTreeMap::new();
-    for p in a.params.drain(..).chain(b.params.drain(..)) {
+    for p in a.params.into_iter().chain(b.params) {
         by_key.entry(p.key).or_default().push(p);
     }
     let mut params = Vec::new();
     for (_key, mut group) in by_key {
         group.sort_by(|x, y| x.source.cmp(&y.source));
-        if group.len() == 1 {
-            let mut only = group.pop().expect("one");
-            only.confidence = ParamConfidence::Single;
-            params.push(only);
-            continue;
+        match group.len() {
+            0 => {}
+            1 => {
+                if let Some(mut only) = group.pop() {
+                    only.confidence = ParamConfidence::Single;
+                    params.push(only);
+                }
+            }
+            _ => {
+                let same = group.first().is_some_and(|first| {
+                    group
+                        .iter()
+                        .all(|p| payloads_equal(&p.payload, &first.payload))
+                });
+                if same {
+                    if let Some(mut merged) = group.pop() {
+                        merged.confidence = ParamConfidence::Agreed;
+                        merged.conflicts.clear();
+                        params.push(merged);
+                    }
+                } else if !group.is_empty() {
+                    let mut primary = group.remove(0);
+                    primary.confidence = ParamConfidence::Conflict;
+                    primary.conflicts = group
+                        .into_iter()
+                        .map(|p| ParamConflictEntry {
+                            payload: p.payload,
+                            unit: p.unit,
+                            raw: p.raw,
+                            source: p.source,
+                            retrieved_at: p.retrieved_at,
+                        })
+                        .collect();
+                    params.push(primary);
+                }
+            }
         }
-        let first = &group[0];
-        if group.iter().all(|p| payloads_equal(&p.payload, &first.payload)) {
-            let mut merged = group.pop().expect("non-empty");
-            merged.confidence = ParamConfidence::Agreed;
-            merged.conflicts.clear();
-            params.push(merged);
-            continue;
-        }
-        let mut primary = group.remove(0);
-        primary.confidence = ParamConfidence::Conflict;
-        primary.conflicts = group
-            .into_iter()
-            .map(|p| ParamConflictEntry {
-                payload: p.payload,
-                unit: p.unit,
-                raw: p.raw,
-                source: p.source,
-                retrieved_at: p.retrieved_at,
-            })
-            .collect();
-        params.push(primary);
     }
     params.sort_by(|a, b| a.key.cmp(&b.key));
     extras.sort_by(|x, y| x.name.cmp(&y.name));
@@ -492,6 +520,11 @@ pub fn merge_part_params(mut a: PartParams, mut b: PartParams) -> PartParams {
 }
 
 /// Parse a temperature coefficient string such as `±30 ppm/°C`.
+///
+/// # Rules
+/// - The text must mention `ppm`; the numeric part is returned.
+/// # Do not
+/// - Guess when the unit is missing.
 pub fn parse_temperature_coefficient(text: &str) -> Option<f64> {
     let lower = text.to_lowercase();
     if !lower.contains("ppm") {
