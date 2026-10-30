@@ -1,4 +1,6 @@
-use pcbcraft_rules::compliance::{bundled_export_and_trade, bundled_list_tokens, EntityListSnapshot};
+use pcbcraft_rules::compliance::{
+    EntityListSnapshot, bundled_export_and_trade, bundled_list_tokens,
+};
 
 #[test]
 fn bundled_export_and_trade_rule_set_loads() -> Result<(), String> {

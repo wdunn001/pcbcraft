@@ -2,11 +2,7 @@
 use pcbcraft_doc::{Component, ComponentField, ExportTradeSettings, Project, TariffExposureRow};
 use pcbcraft_rules::export_trade_report;
 
-fn part(
-    id: u64,
-    reference: &str,
-    fields: &[(&str, &str)],
-) -> Component {
+fn part(id: u64, reference: &str, fields: &[(&str, &str)]) -> Component {
     Component {
         id,
         reference: reference.into(),

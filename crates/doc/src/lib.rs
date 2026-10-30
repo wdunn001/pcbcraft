@@ -14,9 +14,7 @@ pub use panel::{
 mod fab;
 pub use fab::{ClassPairRule, FAB_PRESET_NAMES, FabPreset, FabRules, fab_preset, fab_preset_list};
 mod export_trade;
-pub use export_trade::{
-    ExportTradeSettings, TariffExposureRow, MAX_HTS_PREFIX, MAX_TARIFF_ROWS,
-};
+pub use export_trade::{ExportTradeSettings, MAX_HTS_PREFIX, MAX_TARIFF_ROWS, TariffExposureRow};
 use pcbcraft_geom::{Point, positive};
 use pcbcraft_library::PadShape;
 use serde::de::{self, Visitor};

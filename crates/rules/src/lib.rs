@@ -8,14 +8,14 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod compliance;
 mod courtyard;
 mod drill;
 mod silk;
 mod stub;
-pub mod compliance;
 pub use compliance::{
-    bundled_export_and_trade, export_trade_report, export_trade_report_with_ruleset,
-    ExportTradeReport,
+    ExportTradeReport, bundled_export_and_trade, export_trade_report,
+    export_trade_report_with_ruleset,
 };
 
 #[derive(Clone, Debug, Serialize)]

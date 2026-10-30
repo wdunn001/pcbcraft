@@ -22,9 +22,7 @@ pub fn control_rank(eccn: &str) -> Option<u32> {
             };
             rank = rank.saturating_mul(10).saturating_add(d);
         } else if c.is_ascii_alphabetic() {
-            rank = rank
-                .saturating_mul(100)
-                .saturating_add(u32::from(c as u8));
+            rank = rank.saturating_mul(100).saturating_add(u32::from(c as u8));
             while chars.peek().is_some_and(|n| n.is_ascii_digit()) {
                 let next = chars.next();
                 let Some(ch) = next else {
