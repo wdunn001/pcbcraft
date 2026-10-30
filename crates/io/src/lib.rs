@@ -3540,7 +3540,11 @@ pub fn ipc356_netlist(p: &Project) -> Result<String, String> {
 
 fn component_is_test_point(c: &pcbcraft_doc::Component) -> bool {
     if let Some(sym) = &c.library_symbol {
-        if sym.definition.description.eq_ignore_ascii_case("test point") {
+        if sym
+            .definition
+            .description
+            .eq_ignore_ascii_case("test point")
+        {
             return true;
         }
         if sym.definition.reference == "TP" {
@@ -3602,14 +3606,7 @@ pub fn testpoints_csv(p: &Project) -> Result<String, String> {
             if size <= 0.0 || !size.is_finite() {
                 return Err("test pad size is not a positive number".into());
             }
-            rows.push((
-                net,
-                c.reference.clone(),
-                world.x,
-                world.y,
-                side,
-                size,
-            ));
+            rows.push((net, c.reference.clone(), world.x, world.y, side, size));
         }
     }
     if rows.len() > MAX_POINTS {
@@ -9996,8 +9993,8 @@ mod tests {
     }
 
     #[test]
-    fn testpoints_csv_lists_test_point_pads_with_side_and_units_in_the_header(
-    ) -> Result<(), String> {
+    fn testpoints_csv_lists_test_point_pads_with_side_and_units_in_the_header() -> Result<(), String>
+    {
         let mut project = Project::default();
         project.nets.push(pcbcraft_doc::Net {
             id: 7,
@@ -10091,10 +10088,7 @@ mod tests {
             data.iter().any(|r| r.starts_with("VBAT,TP1,")),
             "TP1 on VBAT"
         );
-        assert!(
-            data.iter().any(|r| r.starts_with("3V3,TP2,")),
-            "TP2 on 3V3"
-        );
+        assert!(data.iter().any(|r| r.starts_with("3V3,TP2,")), "TP2 on 3V3");
         Ok(())
     }
 
