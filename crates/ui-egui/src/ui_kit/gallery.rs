@@ -462,14 +462,8 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
             "seg-side",
             &mut state.seg[0],
             &[
-                Segment {
-                    label: "Top",
-                    tip: "Show the top side",
-                },
-                Segment {
-                    label: "Bottom",
-                    tip: "Show the bottom side",
-                },
+                Segment::text("Top", "Show the top side"),
+                Segment::text("Bottom", "Show the bottom side"),
             ],
         );
         ui.add_space(16.0);
@@ -478,14 +472,8 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
             "seg-units",
             &mut state.seg[1],
             &[
-                Segment {
-                    label: "mm",
-                    tip: "Show millimetres",
-                },
-                Segment {
-                    label: "mil",
-                    tip: "Show thousandths of an inch",
-                },
+                Segment::text("mm", "Show millimetres"),
+                Segment::text("mil", "Show thousandths of an inch"),
             ],
         );
         ui.add_space(16.0);
@@ -494,23 +482,14 @@ pub fn tabs(ui: &mut egui::Ui, state: &mut GalleryState) {
             "seg-corners",
             &mut state.seg[2],
             &[
-                Segment {
-                    label: "45",
-                    tip: "Cut corners at 45 degrees",
-                },
-                Segment {
-                    label: "90",
-                    tip: "Square corners",
-                },
-                Segment {
-                    label: "Free",
-                    tip: "Any angle",
-                },
+                Segment::text("45", "Cut corners at 45 degrees"),
+                Segment::text("90", "Square corners"),
+                Segment::text("Free", "Any angle"),
             ],
         );
     });
     if state.frames == 2 {
-        let id = segmented::item_id(ui, "seg-side", 0);
+        let id = segmented::group_id(ui, "seg-side");
         ui.memory_mut(|m| m.request_focus(id));
     }
     ui.add_space(16.0);
@@ -1041,18 +1020,9 @@ pub fn dialog_page(ui: &mut egui::Ui, state: &mut GalleryState) {
                 "d-corner",
                 &mut corner,
                 &[
-                    Segment {
-                        label: "45",
-                        tip: "Cut corners at 45 degrees",
-                    },
-                    Segment {
-                        label: "90",
-                        tip: "Square corners",
-                    },
-                    Segment {
-                        label: "Free",
-                        tip: "Any angle",
-                    },
+                    Segment::text("45", "Cut corners at 45 degrees"),
+                    Segment::text("90", "Square corners"),
+                    Segment::text("Free", "Any angle"),
                 ],
             );
         });

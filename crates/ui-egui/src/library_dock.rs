@@ -123,6 +123,8 @@ pub(crate) struct Dock {
     /// Which drawing the cards show; follows the tab until the person picks.
     pub(crate) view: ViewKind,
     view_tab: Option<Tab>,
+    /// Last Symbols | Footprints | Both choice per workspace tab group.
+    view_saved: [Option<ViewKind>; 3],
     /// A `--capture` image asks for the first online card to be placed once it is listed;
     /// holds the frame the placement was started on.
     pub(crate) capture_place: Option<Option<u32>>,
@@ -200,6 +202,7 @@ impl Default for Dock {
             hide_online: false,
             view: ViewKind::Symbols,
             view_tab: None,
+            view_saved: [None; 3],
             capture_place: None,
             favourites_only: false,
             kinds: BTreeSet::new(),
@@ -316,6 +319,30 @@ fn finds(query: &str, text: &str) -> bool {
 }
 
 /// The listing category name the library's own table gives this text.
+fn view_tab_bucket(tab: Tab) -> usize {
+    match tab {
+        Tab::Schematic => 0,
+        Tab::Pcb => 1,
+        _ => 2,
+    }
+}
+
+fn default_view_for_tab(tab: Tab) -> ViewKind {
+    match tab {
+        Tab::Schematic => ViewKind::Symbols,
+        Tab::Pcb => ViewKind::Footprints,
+        _ => ViewKind::Both,
+    }
+}
+
+fn card_has_footprint(card: &Card) -> bool {
+    match card {
+        Card::BuiltIn(..) | Card::Online(..) => true,
+        Card::Project(d) => !d.footprint.trim().is_empty(),
+        Card::Installed(i) => !i.package.trim().is_empty(),
+    }
+}
+
 fn category_name(source: &str, text: &str) -> String {
     serde_json::to_value(pcbcraft_library::listing::category_from(source, text))
         .ok()
@@ -375,11 +402,12 @@ impl App {
             self.part_search_focus = false;
         }
         ui.add_space(6.0);
-        self.dock_view_switch(ui);
+        let query = self.part_search.trim().to_lowercase();
+        let (mut cards, sets, view_counts) = self.dock_gather_cards(ui, &query);
+        self.dock_view_switch(ui, view_counts);
         ui.add_space(6.0);
         self.dock_chips(ui);
         ui.add_space(4.0);
-        let query = self.part_search.trim().to_lowercase();
         let want_installed =
             !self.dock.hide_installed && (!query.is_empty() || !self.dock.kinds.is_empty());
         let signature = if want_installed {
@@ -424,63 +452,8 @@ impl App {
                 }
             });
         }
-        let mut cards: Vec<Card> = Vec::new();
-        let mut sets: BTreeMap<String, usize> = BTreeMap::new();
-        for d in &project_parts {
-            let matches = query.is_empty()
-                || finds(&query, &d.name)
-                || d.keywords.to_lowercase().contains(query.as_str())
-                || d.set.to_lowercase().contains(query.as_str());
-            let tagged = self
-                .dock
-                .tag
-                .as_ref()
-                .is_none_or(|t| d.keywords.to_lowercase().split_whitespace().any(|w| w == t));
-            let kind_ok =
-                self.kind_allows(&category_name("", &format!("{} {}", d.keywords, d.name)));
-            if matches && tagged && kind_ok {
-                let set = d.set.trim().to_owned();
-                if !set.is_empty() {
-                    *sets.entry(set.clone()).or_default() += 1;
-                }
-                if set.is_empty() || !self.hidden_sets.contains(&set) {
-                    cards.push(Card::Project(Box::new(d.clone())));
-                }
-            }
-        }
-        if !self.dock.hide_installed && self.dock.tag.is_none() {
-            for item in &self.dock.items {
-                cards.push(Card::Installed(item.clone()));
-            }
-        }
-        if !self.dock.hide_built_in && self.dock.tag.is_none() {
-            for t in TEMPLATES {
-                let kind_ok = self.kind_allows(&category_name("", t.kind));
-                if kind_ok
-                    && (query.is_empty()
-                        || finds(&query, t.label)
-                        || t.kind.contains(query.as_str()))
-                {
-                    cards.push(Card::BuiltIn(t.kind, t.label));
-                }
-            }
-        }
-        if !self.dock.hide_online && self.dock.tag.is_none() {
-            for (part, credit) in self.online_parts(ui) {
-                cards.push(Card::Online(Box::new(part), credit));
-            }
-        }
-        let favourites = self.preferences.library_favourites.clone();
-        if self.dock.favourites_only {
-            cards.retain(|c| favourites.contains(&c.key()));
-        }
         if self.dock.view == ViewKind::Footprints {
-            cards.retain(|c| match c {
-                Card::BuiltIn(..) => true,
-                Card::Project(d) => !d.footprint.trim().is_empty(),
-                Card::Installed(i) => !i.package.trim().is_empty(),
-                Card::Online(..) => true,
-            });
+            cards.retain(card_has_footprint);
         }
         if self.dock.capture_place == Some(None)
             && self.dock.pending.is_none()
@@ -574,55 +547,143 @@ impl App {
                 .any(|(k, .., cats)| self.dock.kinds.contains(*k) && cats.contains(&category))
     }
 
-    /// Follow the tab: symbols on the Schematic, footprints on the Layout.
-    /// A pick from the switch holds until the tab changes again.
+    /// Follow the tab: symbols on the Schematic, footprints on the Layout,
+    /// both elsewhere, unless the person already picked for this tab group.
     fn dock_follow_tab(&mut self) {
         if self.dock.view_tab != Some(self.tab) {
             self.dock.view_tab = Some(self.tab);
-            match self.tab {
-                Tab::Schematic => self.dock.view = ViewKind::Symbols,
-                Tab::Pcb => self.dock.view = ViewKind::Footprints,
-                _ => {}
-            }
+            let bucket = view_tab_bucket(self.tab);
+            self.dock.view = self.dock.view_saved[bucket]
+                .unwrap_or_else(|| default_view_for_tab(self.tab));
         }
     }
 
-    /// The small Symbols | Footprints | Both control under the search.
-    fn dock_view_switch(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            for (view, label, tip) in [
-                (
-                    ViewKind::Symbols,
-                    "library.dock.view.symbols",
-                    "library.dock.view.symbols.tip",
-                ),
-                (
-                    ViewKind::Footprints,
-                    "library.dock.view.footprints",
-                    "library.dock.view.footprints.tip",
-                ),
-                (
-                    ViewKind::Both,
-                    "library.dock.view.both",
-                    "library.dock.view.both.tip",
-                ),
-            ] {
-                let name = pcbcraft_text::lookup(label, &[]);
-                let on = self.dock.view == view;
-                let response = ui
-                    .add(
-                        egui::Button::new(name.clone())
-                            .selected(on)
-                            .min_size(egui::vec2(72.0, crate::targets::MIN_TARGET)),
-                    )
-                    .on_hover_text(pcbcraft_text::lookup(tip, &[]));
-                crate::a11y::name_control(&response, &name, Some(on));
-                if response.clicked() {
-                    self.dock.view = view;
+    /// Build the filtered card list and live counts for the view switch.
+    fn dock_gather_cards(
+        &mut self,
+        ui: &mut egui::Ui,
+        query: &str,
+    ) -> (Vec<Card>, BTreeMap<String, usize>, [usize; 3]) {
+        let project_parts: Vec<SymbolDefinition> = if self.dock.hide_project {
+            Vec::new()
+        } else {
+            self.project.library.symbols.clone()
+        };
+        let mut cards: Vec<Card> = Vec::new();
+        let mut sets: BTreeMap<String, usize> = BTreeMap::new();
+        for d in &project_parts {
+            let matches = query.is_empty()
+                || finds(query, &d.name)
+                || d.keywords.to_lowercase().contains(query)
+                || d.set.to_lowercase().contains(query);
+            let tagged = self.dock.tag.as_ref().is_none_or(|t| {
+                d.keywords
+                    .to_lowercase()
+                    .split_whitespace()
+                    .any(|w| w == t)
+            });
+            let kind_ok =
+                self.kind_allows(&category_name("", &format!("{} {}", d.keywords, d.name)));
+            if matches && tagged && kind_ok {
+                let set = d.set.trim().to_owned();
+                if !set.is_empty() {
+                    *sets.entry(set.clone()).or_default() += 1;
+                }
+                if set.is_empty() || !self.hidden_sets.contains(&set) {
+                    cards.push(Card::Project(Box::new(d.clone())));
                 }
             }
-        });
+        }
+        if !self.dock.hide_installed && self.dock.tag.is_none() {
+            for item in &self.dock.items {
+                cards.push(Card::Installed(item.clone()));
+            }
+        }
+        if !self.dock.hide_built_in && self.dock.tag.is_none() {
+            for t in TEMPLATES {
+                let kind_ok = self.kind_allows(&category_name("", t.kind));
+                if kind_ok
+                    && (query.is_empty()
+                        || finds(query, t.label)
+                        || t.kind.contains(query))
+                {
+                    cards.push(Card::BuiltIn(t.kind, t.label));
+                }
+            }
+        }
+        if !self.dock.hide_online && self.dock.tag.is_none() {
+            for (part, credit) in self.online_parts(ui) {
+                cards.push(Card::Online(Box::new(part), credit));
+            }
+        }
+        let favourites = self.preferences.library_favourites.clone();
+        if self.dock.favourites_only {
+            cards.retain(|c| favourites.contains(&c.key()));
+        }
+        let both = cards.len();
+        let footprints = cards.iter().filter(|c| card_has_footprint(c)).count();
+        (cards, sets, [both, footprints, both])
+    }
+
+    /// Full-width Symbols | Footprints | Both control under the search.
+    fn dock_view_switch(&mut self, ui: &mut egui::Ui, counts: [usize; 3]) {
+        use crate::ui_kit::segmented::{Segment, SegmentedStyle, segmented_styled};
+        let mut selected = match self.dock.view {
+            ViewKind::Symbols => 0,
+            ViewKind::Footprints => 1,
+            ViewKind::Both => 2,
+        };
+        let symbols = t!("library.dock.view.symbols");
+        let footprints = t!("library.dock.view.footprints");
+        let both = t!("library.dock.view.both");
+        let (sym_tip, fp_tip, both_tip) = (
+            t!("library.dock.view.symbols.tip"),
+            t!("library.dock.view.footprints.tip"),
+            t!("library.dock.view.both.tip"),
+        );
+        let items = [
+            Segment {
+                label: &symbols,
+                tip: &sym_tip,
+                icon: Some("sheet"),
+                count: Some(counts[0]),
+                disabled: None,
+            },
+            Segment {
+                label: &footprints,
+                tip: &fp_tip,
+                icon: Some("footprint"),
+                count: Some(counts[1]),
+                disabled: None,
+            },
+            Segment {
+                label: &both,
+                tip: &both_tip,
+                icon: Some("layers"),
+                count: Some(counts[2]),
+                disabled: None,
+            },
+        ];
+        let group = "Show";
+        let changed = segmented_styled(
+            ui,
+            "library-view",
+            &mut selected,
+            &items,
+            SegmentedStyle {
+                full_width: true,
+                group_name: Some(group),
+            },
+        )
+        .changed();
+        if changed {
+            self.dock.view = match selected {
+                1 => ViewKind::Footprints,
+                2 => ViewKind::Both,
+                _ => ViewKind::Symbols,
+            };
+            self.dock.view_saved[view_tab_bucket(self.tab)] = Some(self.dock.view);
+        }
     }
 
     /// One row of small icon toggles: four sources, three kinds, favourites,

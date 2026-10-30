@@ -506,14 +506,8 @@ impl App {
                 "toolbar-corners",
                 &mut idx,
                 &[
-                    Segment {
-                        label: &chamfer,
-                        tip: &chamfer_tip,
-                    },
-                    Segment {
-                        label: &square,
-                        tip: &square_tip,
-                    },
+                    Segment::text(&chamfer, &chamfer_tip),
+                    Segment::text(&square, &square_tip),
                 ],
             );
             ui.label(fonts::caption(t!("toolbar.corners")).color(t.muted))
