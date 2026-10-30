@@ -374,4 +374,28 @@ mod generate_tests {
         assert_eq!(map, gerber_files(&project)?);
         Ok(())
     }
+
+    #[test]
+    fn generate_stencil_package_writes_paste_cut_and_manifest() -> Result<(), String> {
+        let project = Project::default();
+        let artifact = Artifact {
+            id: 1,
+            name: "stencil".into(),
+            kind: "stencil".into(),
+            layers: vec![],
+            settings: serde_json::json!({}),
+            machine: None,
+            path: "stencil/".into(),
+            generated_at_revision: None,
+            generated_hash: None,
+            job: None,
+        };
+        let out = generate(&project, &artifact)?;
+        let GeneratedOutput::Files(map) = out else {
+            return Err("expected a file map".into());
+        };
+        assert!(map.contains_key("paste-top.gbr"));
+        assert!(map.contains_key("manifest.json"));
+        Ok(())
+    }
 }
