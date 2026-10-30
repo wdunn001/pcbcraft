@@ -18555,7 +18555,8 @@ mod tests {
             .ok_or_else(missing)?;
         let revision = s.revision;
         let undo_before = s.inspect()["history"]["undo"].as_u64().unwrap_or(0);
-        let text = s.execute("selection.copy_text", json!({"ids":[r1]}), None)?["result"]["text"]
+        let copied = s.execute("selection.copy_text", json!({"ids":[r1]}), None)?;
+        let text = copied["result"]["text"]
             .as_str()
             .ok_or_else(missing)?;
         assert!(!text.is_empty());
