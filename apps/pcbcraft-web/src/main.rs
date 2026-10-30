@@ -3,7 +3,7 @@
 //! Local rules: the page text that appears before the wasm loads lives in
 //! `index.html` and `webgpu-check.js`; its wording must equal the catalog key
 //! `web.needs_webgpu` (test `the_page_message_matches_the_catalog`). The wasm
-//! build needs a browser with WebGPU; a failed start shows the same message.
+//! build needs WebGPU or WebGL2; a failed start shows the same message.
 //!
 //! # Dependencies
 //! - `crates/text/strings/en.txt` (message text)
@@ -19,12 +19,30 @@ fn main() {
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
+    install_panic_hook();
     wasm_bindgen_futures::spawn_local(async {
         if let Err(error) = start().await {
             web_sys::console::error_1(&error);
             show_start_failure();
         }
     });
+}
+
+/// Route Rust panics (including in the first frame) to the same notice as a
+/// failed `start()`.
+#[cfg(target_arch = "wasm32")]
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "application panic".to_string()
+        };
+        web_sys::console::error_1(&wasm_bindgen::JsValue::from_str(&message));
+        show_start_failure();
+    }));
 }
 #[cfg(target_arch = "wasm32")]
 async fn start() -> Result<(), wasm_bindgen::JsValue> {
@@ -50,10 +68,10 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .await
 }
 
-/// Show the "needs WebGPU" notice that `index.html` carries, hide the canvas.
+/// Show the graphics notice that `index.html` carries, hide the canvas.
 ///
-/// Called when the app fails to start after load, which is what a browser
-/// without a usable graphics adapter produces. The text is the page's own
+/// Called when the app fails to start after load or panics during startup.
+/// The text is the page's own
 /// paragraph, kept equal to catalog key `web.needs_webgpu` by a test.
 ///
 /// # Rules
