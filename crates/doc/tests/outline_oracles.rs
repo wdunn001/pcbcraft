@@ -1,6 +1,6 @@
 //! Geometry and outline oracle tests for pads and board outlines.
 use pcbcraft_doc::{
-    circle_through, outline_area, outline_signed_area, validate_closed_outline, Graphic, Pad,
+    Graphic, Pad, circle_through, outline_area, outline_signed_area, validate_closed_outline,
 };
 use pcbcraft_geom::Point;
 use pcbcraft_library::FootprintPad;
@@ -126,7 +126,10 @@ fn pad_drill_outline_points_sample_the_plated_hole() -> T {
         }),
     };
     let outline = pad.drill_outline_points();
-    assert!(outline.len() >= 4, "a round hole closes with sampled vertices");
+    assert!(
+        outline.len() >= 4,
+        "a round hole closes with sampled vertices"
+    );
     let first = *outline.first().ok_or("hole outline empty")?;
     let last = *outline.last().ok_or("hole outline empty")?;
     assert!(first.distance(last) < 1e-6, "hole outline closes");

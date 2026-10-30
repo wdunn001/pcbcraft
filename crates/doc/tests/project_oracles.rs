@@ -1,8 +1,8 @@
 //! Project query, clearance, and schematic helper oracle tests.
 use pcbcraft_doc::{
-    component_template, fill::KeepoutKind, symbol_units, ArtKind, ArtLayer, ArtShape, BoardText,
-    Component, Footprint, Layer, Net, NetClass, NetPairRule, Pad, Project,
-    RuleArea, RuleRegion, SymbolUnitPlacement, Track, ViaCovering, ViaKind,
+    ArtKind, ArtLayer, ArtShape, BoardText, Component, Footprint, Layer, Net, NetClass,
+    NetPairRule, Pad, Project, RuleArea, RuleRegion, SymbolUnitPlacement, Track, ViaCovering,
+    ViaKind, component_template, fill::KeepoutKind, symbol_units,
 };
 use pcbcraft_geom::Point;
 use std::collections::BTreeSet;
@@ -11,8 +11,8 @@ type T = Result<(), String>;
 
 #[test]
 fn component_unit_placement_and_schematic_views_split_units() -> T {
-    let mut c = component_template("resistor", 1, "U1".into(), Point::new(1.0, 2.0))
-        .ok_or("template")?;
+    let mut c =
+        component_template("resistor", 1, "U1".into(), Point::new(1.0, 2.0)).ok_or("template")?;
     c.units.push(SymbolUnitPlacement {
         unit: 2,
         position: Point::new(40.0, 0.0),
@@ -31,9 +31,8 @@ fn component_unit_placement_and_schematic_views_split_units() -> T {
 #[test]
 fn footprint_drawing_points_include_pad_outlines() -> T {
     let mut p = Project::default();
-    p.components.push(
-        component_template("resistor", 1, "R1".into(), Point::default()).ok_or("template")?,
-    );
+    p.components
+        .push(component_template("resistor", 1, "R1".into(), Point::default()).ok_or("template")?);
     let fp = Footprint {
         id: 2,
         component: 1,
@@ -309,7 +308,9 @@ fn required_clearance_takes_the_strictest_rule() -> T {
         profile: None,
     });
     let at = Point::new(5.0, 5.0);
-    assert!((p.required_clearance_at(1, 2, at, at, Layer::Front, Layer::Front) - 0.9).abs() < 1e-12);
+    assert!(
+        (p.required_clearance_at(1, 2, at, at, Layer::Front, Layer::Front) - 0.9).abs() < 1e-12
+    );
     Ok(())
 }
 
