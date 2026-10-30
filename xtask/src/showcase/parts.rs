@@ -31,12 +31,16 @@ fn pt(x: f64, y: f64) -> Point {
 pub type PinSpec = (&'static str, &'static str, &'static str);
 
 fn sym_pin(spec: PinSpec, x: f64, y: f64, angle: f64, unit: u32) -> SymbolPin {
+    sym_pin_len(spec, x, y, angle, unit, GRID)
+}
+
+fn sym_pin_len(spec: PinSpec, x: f64, y: f64, angle: f64, unit: u32, length: f64) -> SymbolPin {
     SymbolPin {
         number: spec.0.into(),
         name: spec.1.into(),
         position: pt(x, y),
         angle,
-        length: GRID,
+        length,
         electrical_type: spec.2.into(),
         unit,
         body_style: 1,
@@ -119,62 +123,66 @@ fn symbol(
 /// Pins and outline of one boxed unit.
 ///
 /// `left`, `right`, `top` and `bottom` list the pins on each edge in reading
-/// order. The body is `width` wide (a multiple of the grid) and tall enough
-/// for the longer side column.
+/// order; a pin with an empty number is a blank row that keeps the spacing.
+/// Side pins sit `pitch` apart, top and bottom pins `column` apart, and every
+/// pin has a stem of `STEM` millimetres, so a pin name and number never share
+/// the stem with a wire. The body is `width` wide (a multiple of two grid
+/// steps) and tall enough for the longer side column plus the top and bottom
+/// pins.
 pub struct BoxUnit {
     pub unit: u32,
     pub width: f64,
+    pub pitch: f64,
+    pub column: f64,
     pub left: Vec<PinSpec>,
     pub right: Vec<PinSpec>,
     pub top: Vec<PinSpec>,
     pub bottom: Vec<PinSpec>,
 }
 
+/// Length of the stem of every boxed-symbol pin.
+pub const STEM: f64 = 2.0 * GRID;
+
 fn box_unit(u: &BoxUnit, pins: &mut Vec<SymbolPin>, graphics: &mut Vec<UnitGraphic>) {
     let rows = u.left.len().max(u.right.len()).max(1);
-    let half_rows = (rows - 1) as f64 / 2.0;
-    let top_y = -(half_rows.ceil()) * GRID;
-    let bottom_y = top_y + (rows - 1) as f64 * GRID;
+    let top_y = -(((rows - 1) as f64 * u.pitch / 2.0) / GRID - 1e-9).ceil() * GRID;
+    let bottom_y = top_y + (rows - 1) as f64 * u.pitch;
     let hw = u.width / 2.0;
-    let hh_top = top_y - GRID / 2.0 - if u.top.is_empty() { 0.0 } else { GRID };
-    let hh_bottom = bottom_y + GRID / 2.0 + if u.bottom.is_empty() { 0.0 } else { GRID };
-    for (i, spec) in u.left.iter().enumerate() {
-        pins.push(sym_pin(
-            *spec,
-            -(hw + GRID),
-            top_y + i as f64 * GRID,
-            0.0,
-            u.unit,
-        ));
-    }
-    for (i, spec) in u.right.iter().enumerate() {
-        pins.push(sym_pin(
-            *spec,
-            hw + GRID,
-            top_y + i as f64 * GRID,
-            180.0,
-            u.unit,
-        ));
-    }
-    let column = |count: usize, i: usize| (i as f64 - (count as f64 - 1.0) / 2.0).round() * GRID;
-    for (i, spec) in u.top.iter().enumerate() {
-        pins.push(sym_pin(
-            *spec,
-            column(u.top.len(), i),
-            hh_top - GRID,
-            270.0,
-            u.unit,
-        ));
-    }
-    for (i, spec) in u.bottom.iter().enumerate() {
-        pins.push(sym_pin(
-            *spec,
-            column(u.bottom.len(), i),
-            hh_bottom + GRID,
-            90.0,
-            u.unit,
-        ));
-    }
+    let hh_top = top_y - u.pitch / 2.0 - if u.top.is_empty() { GRID } else { 3.0 * GRID };
+    let hh_bottom = bottom_y + u.pitch / 2.0 + if u.bottom.is_empty() { 0.0 } else { 3.0 * GRID };
+    let mut put =
+        |specs: &[PinSpec], x: &dyn Fn(usize) -> f64, y: &dyn Fn(usize) -> f64, angle: f64| {
+            for (i, spec) in specs.iter().enumerate() {
+                if !spec.0.is_empty() {
+                    pins.push(sym_pin_len(*spec, x(i), y(i), angle, u.unit, STEM));
+                }
+            }
+        };
+    put(
+        &u.left,
+        &|_| -(hw + STEM),
+        &|i| top_y + i as f64 * u.pitch,
+        0.0,
+    );
+    put(
+        &u.right,
+        &|_| hw + STEM,
+        &|i| top_y + i as f64 * u.pitch,
+        180.0,
+    );
+    let column = |count: usize, i: usize| (i as f64 - (count as f64 - 1.0) / 2.0) * u.column;
+    put(
+        &u.top,
+        &|i| column(u.top.len(), i),
+        &|_| hh_top - STEM,
+        270.0,
+    );
+    put(
+        &u.bottom,
+        &|i| column(u.bottom.len(), i),
+        &|_| hh_bottom + STEM,
+        90.0,
+    );
     graphics.push(rect(u.unit, (-hw, hh_top), (hw, hh_bottom), "background"));
 }
 
@@ -226,10 +234,10 @@ pub fn capacitor(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
         value,
         "Fixed capacitor",
         footprint,
-        two_pin((P1, P2), 3.81),
+        two_pin((P1, P2), 5.08),
         vec![
-            line(1, (-1.27, 0.0), (-0.508, 0.0)),
-            line(1, (0.508, 0.0), (1.27, 0.0)),
+            line(1, (-2.54, 0.0), (-0.508, 0.0)),
+            line(1, (0.508, 0.0), (2.54, 0.0)),
             line(1, (-0.508, -2.032), (-0.508, 2.032)),
             line(1, (0.508, -2.032), (0.508, 2.032)),
         ],
@@ -263,9 +271,11 @@ pub fn diode(
         g.push(poly(1, &[(0.9, -3.4), (1.4, -3.4), (1.4, -2.9)], "none"));
         g.push(poly(1, &[(2.1, -3.4), (2.6, -3.4), (2.6, -2.9)], "none"));
     }
+    g.push(line(1, (-2.54, 0.0), (-1.27, 0.0)));
+    g.push(line(1, (1.27, 0.0), (2.54, 0.0)));
     let pins = vec![
-        sym_pin(("1", "A", "passive"), -3.81, 0.0, 0.0, 1),
-        sym_pin(("2", "K", "passive"), 3.81, 0.0, 180.0, 1),
+        sym_pin(("1", "~", "passive"), -5.08, 0.0, 0.0, 1),
+        sym_pin(("2", "~", "passive"), 5.08, 0.0, 180.0, 1),
     ];
     let description = if light {
         "Light-emitting diode"
@@ -299,10 +309,10 @@ pub fn switch(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
         value,
         "Momentary push switch",
         footprint,
-        two_pin((P1, P2), 3.81),
+        two_pin((P1, P2), 5.08),
         vec![
-            line(1, (-1.27, 0.0), (-0.6, 0.0)),
-            line(1, (1.27, 0.0), (0.6, 0.0)),
+            line(1, (-2.54, 0.0), (-0.6, 0.0)),
+            line(1, (2.54, 0.0), (0.6, 0.0)),
             line(1, (-0.6, 0.0), (0.9, -1.6)),
             line(1, (0.0, -2.6), (0.0, -1.0)),
             line(1, (-1.0, -2.6), (1.0, -2.6)),
@@ -313,10 +323,10 @@ pub fn switch(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
 /// Four-terminal crystal: pins 1 and 3 are the resonator, 2 and 4 the case.
 pub fn crystal(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
     let pins = vec![
-        sym_pin(("1", "X1", "passive"), -5.08, 0.0, 0.0, 1),
-        sym_pin(("3", "X2", "passive"), 5.08, 0.0, 180.0, 1),
-        sym_pin(("2", "G", "passive"), -1.27, 5.08, 90.0, 1),
-        sym_pin(("4", "G", "passive"), 1.27, 5.08, 90.0, 1),
+        sym_pin(("1", "~", "passive"), -5.08, 0.0, 0.0, 1),
+        sym_pin(("3", "~", "passive"), 5.08, 0.0, 180.0, 1),
+        sym_pin(("2", "~", "passive"), -2.54, 5.08, 90.0, 1),
+        sym_pin(("4", "~", "passive"), 2.54, 5.08, 90.0, 1),
     ];
     symbol(
         name,
@@ -331,7 +341,7 @@ pub fn crystal(name: &str, value: &str, footprint: &str) -> SymbolDefinition {
             line(1, (2.54, -2.032), (2.54, 2.032)),
             line(1, (-1.016, 0.0), (-2.54, 0.0)),
             line(1, (1.016, 0.0), (2.54, 0.0)),
-            line(1, (-1.27, 2.54), (1.27, 2.54)),
+            line(1, (-2.54, 2.54), (2.54, 2.54)),
         ],
     )
 }
@@ -344,7 +354,7 @@ pub fn test_point(name: &str, value: &str, footprint: &str) -> SymbolDefinition 
         value,
         "Test point",
         footprint,
-        vec![sym_pin(("1", "TP", "passive"), -2.54, 0.0, 0.0, 1)],
+        vec![sym_pin(("1", "~", "passive"), -2.54, 0.0, 0.0, 1)],
         vec![ug(
             1,
             Graphic::Circle {
