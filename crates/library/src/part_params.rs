@@ -365,12 +365,22 @@ fn parse_payload(
             let v: f64 = bare.parse().ok()?;
             Some((ParamPayload::Number { value: v }, None))
         }
-        MountType | Dielectric | TemperatureCoefficient => Some((
+        MountType | Dielectric => Some((
             ParamPayload::Text {
                 value: trimmed.to_string(),
             },
             None,
         )),
+        TemperatureCoefficient => parse_temperature_coefficient(trimmed)
+            .map(|value| (ParamPayload::Number { value }, None))
+            .or_else(|| {
+                Some((
+                    ParamPayload::Text {
+                        value: trimmed.to_string(),
+                    },
+                    None,
+                ))
+            }),
     }
 }
 
@@ -615,5 +625,124 @@ mod tests {
             rated_voltage_key("Voltage - Rated"),
             ParamKey::RatedVoltageDc
         );
+    }
+
+    #[test]
+    fn heuristics_parse_ac_rated_voltage_and_package() {
+        let aliases = ParamAliasFile::new();
+        let mut attrs = BTreeMap::from([
+            (
+                "Voltage - Rated AC".into(),
+                "250 VAC".into(),
+            ),
+            (
+                "Package / Case".into(),
+                "0603 (1608 Metric)".into(),
+            ),
+        ]);
+        let out = params_from_attributes(
+            "Sample parts",
+            "Chip Resistor - Surface Mount",
+            "resistor",
+            &attrs,
+            &aliases,
+            0,
+        );
+        assert_eq!(out.params.len(), 2);
+        assert!(out.params.iter().any(|p| {
+            p.key == ParamKey::RatedVoltageAc
+                && matches!(p.payload, ParamPayload::Number { value } if (value - 250.0).abs() < 1e-6)
+        }));
+        assert!(out.params.iter().any(|p| {
+            p.key == ParamKey::PackageKey
+                && matches!(&p.payload, ParamPayload::Text { value } if value.contains("0603"))
+        }));
+    }
+
+    #[test]
+    fn pitch_height_and_pin_count_parse_from_aliases() {
+        let aliases = load_param_aliases(
+            r#"{
+              "fixture": {
+                "resistor": {
+                  "Pitch": "pitch",
+                  "Height": "height",
+                  "Pin Count": "pin_count"
+                }
+              }
+            }"#,
+        )
+        .expect("alias json");
+        let attrs = BTreeMap::from([
+            ("Pitch".into(), "1.6 mm".into()),
+            ("Height".into(), "0.55mm".into()),
+            ("Pin Count".into(), "2".into()),
+        ]);
+        let out = params_from_attributes("fixture", "Resistors", "resistor", &attrs, &aliases, 0);
+        let pitch = out
+            .params
+            .iter()
+            .find(|p| p.key == ParamKey::Pitch)
+            .and_then(|p| match p.payload {
+                ParamPayload::Number { value } => Some(value),
+                _ => None,
+            });
+        let height = out
+            .params
+            .iter()
+            .find(|p| p.key == ParamKey::Height)
+            .and_then(|p| match p.payload {
+                ParamPayload::Number { value } => Some(value),
+                _ => None,
+            });
+        let pins = out
+            .params
+            .iter()
+            .find(|p| p.key == ParamKey::PinCount)
+            .and_then(|p| match p.payload {
+                ParamPayload::Number { value } => Some(value),
+                _ => None,
+            });
+        assert!((pitch.unwrap_or(0.0) - 1.6).abs() < 1e-6);
+        assert!((height.unwrap_or(0.0) - 0.55).abs() < 1e-6);
+        assert!((pins.unwrap_or(0.0) - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn temperature_coefficient_parses_ppm_or_keeps_text() {
+        let aliases = load_param_aliases(
+            r#"{
+              "fixture": {
+                "resistor": { "Temp Coeff": "temperature_coefficient" }
+              }
+            }"#,
+        )
+        .expect("alias json");
+        let ppm = BTreeMap::from([("Temp Coeff".into(), "±30 ppm/°C".into())]);
+        let parsed = params_from_attributes(
+            "fixture",
+            "Resistors",
+            "resistor",
+            &ppm,
+            &aliases,
+            0,
+        );
+        assert!(parsed.params.iter().any(|p| {
+            p.key == ParamKey::TemperatureCoefficient
+                && matches!(p.payload, ParamPayload::Number { value } if (value - 30.0).abs() < 1e-6)
+        }));
+        let raw = BTreeMap::from([("Temp Coeff".into(), "C0G".into())]);
+        let text = params_from_attributes(
+            "fixture",
+            "Resistors",
+            "resistor",
+            &raw,
+            &aliases,
+            0,
+        );
+        assert!(text.params.iter().any(|p| {
+            p.key == ParamKey::TemperatureCoefficient
+                && matches!(&p.payload, ParamPayload::Text { value } if value == "C0G")
+        }));
     }
 }
