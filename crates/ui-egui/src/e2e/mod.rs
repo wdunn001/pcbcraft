@@ -158,4 +158,5 @@ mod tree_rows;
 mod via_covering;
 mod vias;
 mod view_side;
+mod wire_canvas;
 mod workbench;
