@@ -84,6 +84,7 @@ const READS: &[&str] = &[
     "board_mesh",
     "design.summary",
     "library.catalog",
+    "library.starter_models.list",
     "library.search",
     "library.list",
     "library.inspect_symbol",
