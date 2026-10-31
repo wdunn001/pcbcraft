@@ -1,10 +1,35 @@
-schema = 1
+schema = 2
+
+[record]
+kind = "interface_profile"
+license = "MIT"
+source = "PCBCraft built-in interface profiles"
 
 [profile]
 id = "usb2"
-name = "USB 2.0 full speed"
+name = "USB 2.0 full and high speed"
 category = "usb"
-summary = "Differential pair, class and pair clearance for USB 2.0 data."
+summary = "Differential pair, net class, and companion parts for USB 2.0 data."
+
+[bus]
+name = "USB 2.0"
+schematic_type = "USB"
+
+[bus.limits]
+edge_rate_band = "full_and_high_speed"
+impedance_ohm = 90.0
+impedance_tolerance_percent = 15.0
+reference_plane = "required"
+
+[[signal]]
+name = "D+"
+net = "USB_D+"
+electrical_class = "differential"
+
+[[signal]]
+name = "D-"
+net = "USB_D-"
+electrical_class = "differential"
 
 [[net_class]]
 name = "USB"
@@ -18,11 +43,37 @@ net_p = "USB_D+"
 net_n = "USB_D-"
 gap = 0.2
 length_tolerance = 0.25
+impedance = { target = 90, tolerance = 0.1 }
 
 [[pair_rule]]
 net_a = "USB_D+"
 net_b = "USB_D-"
 clearance = 0.15
+
+[[companion]]
+role = "series_resistor"
+value_min = 22.0
+value_max = 33.0
+unit = "ohm"
+placement_distance_max_mm = 5.0
+source = "USB 2.0 specification section 7.1.5 (full-speed driver with external series termination)"
+nets = ["USB_D+"]
+
+[[companion]]
+role = "esd"
+source = "USB 2.0 specification section 7.1.1 (ESD protection at the USB connector)"
+
+[[check]]
+name = "diffpair_skew"
+params = { pair = "USB" }
+
+[[value_source]]
+field = "bus.limits.impedance_ohm"
+source = "USB 2.0 specification section 7.1.2.2 (90 ohm differential characteristic impedance)"
+
+[[value_source]]
+field = "bus.limits.impedance_tolerance_percent"
+source = "USB 2.0 specification section 7.1.2.2 (+/- 15 percent)"
 
 [[value_source]]
 field = "net_class.width"
@@ -31,3 +82,7 @@ source = "usb2_default_track"
 [[value_source]]
 field = "pair.gap"
 source = "usb2_coupling_gap"
+
+[[value_source]]
+field = "pair.impedance"
+source = "usb2_diff_impedance"
