@@ -495,8 +495,20 @@ fn symbol_pin_graphical_style_rejects_unknown_token() {
         extends: None,
         raw_source: String::new(),
         unsupported: vec![],
+        retained: vec![],
     };
     assert!(symbol.validate().is_ok());
     symbol.pins[0].graphical_style = "mystery_shape".into();
     assert!(symbol.validate().is_err());
+}
+
+#[test]
+fn read_footprint_stores_unknown_nodes_for_lossless_export()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source = "(footprint RetainTest (version 1) (generator x) (layer \"F.Cu\") (attr smd) \
+        (pad 1 smd rect (at 0 0 0) (size 1 1) (layers F.Cu)) (legacy_marker yes) (embedded_fonts no))\n";
+    let footprint = read_footprint(source)?;
+    assert_eq!(footprint.retained.len(), 1);
+    assert!(footprint.retained[0].contains("legacy_marker"));
+    Ok(())
 }
