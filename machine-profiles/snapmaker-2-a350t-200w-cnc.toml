@@ -1,3 +1,5 @@
+# Source: Snapmaker CNC module specs and published CNC defaults.
+# Retrieved: 2026-10-29
 id = "snapmaker-2-a350t-200w-cnc"
 name = "Snapmaker 2 A350T 200W CNC"
 kind = "cnc_mill"

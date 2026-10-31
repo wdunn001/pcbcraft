@@ -93,4 +93,9 @@ impl ToolNames {
     pub fn mcp_name(&self, wire: &str) -> Option<&str> {
         self.to_mcp.get(wire).map(String::as_str)
     }
+
+    /// Add one mapping (for tools not in the MCP registry, such as `search_knowledge`).
+    pub fn insert(&mut self, wire: &str, mcp: &str) {
+        self.to_mcp.insert(wire.to_string(), mcp.to_string());
+    }
 }

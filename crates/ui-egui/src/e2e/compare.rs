@@ -8,7 +8,10 @@ fn a_newcomer_compares_their_board_with_yesterdays() -> Result<(), String> {
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
     app.tool_call("sample_design", json!({}));
-    let baseline = std::env::temp_dir().join("pcbcraft-compare-yesterday.pcbcraft");
+    let baseline = std::env::temp_dir().join(format!(
+        "pcbcraft-compare-yesterday-{}.pcbcraft",
+        std::process::id()
+    ));
     pcbcraft_io::save(&app.project, &baseline)?;
     let r1 = app
         .project
