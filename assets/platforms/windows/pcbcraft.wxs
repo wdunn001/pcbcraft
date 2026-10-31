@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PCBCraft MSI (WiX Toolset v5). Built by packaging/windows/package.ps1.
+
+  Per-machine install with WixUI_InstallDir (no licence page; GPL is shipped as files only).
+  Adapted from SolidCraft packaging (bherbruck/solidcraft; MIT OR Apache-2.0; see ATTRIBUTION.md).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+      Name="PCBCraft"
+      Manufacturer="PCBCraft contributors"
+      Version="$(var.Version)"
+      UpgradeCode="7C4E9A12-3B8F-4D6E-9F01-2A5C8D3E6B47"
+      Scope="perMachine"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="PCBCraft open-source PCB design" Manufacturer="PCBCraft contributors" />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of PCBCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="PcbcraftIcon.exe" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="PcbcraftIcon.exe" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/tangency-labs/pcbcraft" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/tangency-labs/pcbcraft/releases" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/tangency-labs/pcbcraft/issues" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="PCBCraft" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="PreviousInstallFolder" Root="HKLM" Key="Software\PCBCraft" Name="InstallDir" Type="raw" />
+    </Property>
+
+    <Feature Id="Main" Title="PCBCraft" Level="1">
+      <ComponentGroupRef Id="PcbcraftFiles" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchPcbcraft"
+          Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+
+    <Property Id="PcbcraftVersion" Value="$(var.DisplayVersion)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="PCBCraft $(var.DisplayVersion) is installed. You can start it any time from the Start menu." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch PCBCraft" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#PcbcraftExe]" />
+    <CustomAction Id="LaunchPcbcraft" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="PcbcraftFiles" Directory="INSTALLFOLDER">
+      <Component Id="PcbcraftApp" Guid="E2A8C4F1-9D3B-4E67-A812-5F6B0C9D1E23">
+        <File Id="PcbcraftExe" Source="$(var.BinDir)\pcbcraft.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="PCBCraft"
+              Description="PCBCraft PCB design" WorkingDirectory="INSTALLFOLDER" Advertise="yes"
+              Icon="PcbcraftIcon.exe" IconIndex="0" />
+        </File>
+
+        <ProgId Id="Pcbcraft.Design" Description="PCBCraft design" Icon="PcbcraftExe" IconIndex="0">
+          <Extension Id="pcbcraft" ContentType="application/x-pcbcraft">
+            <Verb Id="open" Command="Open" TargetFile="PcbcraftExe" Argument="&quot;%1&quot;" />
+          </Extension>
+        </ProgId>
+
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\pcbcraft.exe" Name="FriendlyAppName" Value="PCBCraft" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\pcbcraft.exe\shell\open\command" Value="&quot;[#PcbcraftExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\pcbcraft.exe\SupportedTypes" Name=".pcbcraft" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\pcbcraft.exe" Value="[#PcbcraftExe]" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\PCBCraft" Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
+      </Component>
+
+      <Component Id="PcbcraftCli">
+        <File Id="PcbcraftCliExe" Source="$(var.BinDir)\pcbcraft-cli.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="PcbcraftLicences" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+        <File Id="LicenseGpl" Source="$(var.BinDir)\LICENSE" KeyPath="yes" />
+        <File Id="Notice" Source="$(var.BinDir)\NOTICE" />
+        <File Id="Attribution" Source="$(var.BinDir)\ATTRIBUTION.md" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

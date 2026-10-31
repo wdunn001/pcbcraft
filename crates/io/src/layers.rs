@@ -858,6 +858,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         project.validate()?;
         let shape_front = copper_shape_counts(&project, true)?;

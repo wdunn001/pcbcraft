@@ -66,10 +66,14 @@ fn to_line(item: &Item) -> Option<Value> {
             "text": format!("{title}: {}", answer.as_deref().unwrap_or("not answered")),
             "error": false,
         }),
+Item::Queued { .. } => return None,
+        Item::Sources(links) => json!({
+            "k": "sources",
+            "links": links.iter().map(|l| json!({"title": l.title, "source": l.source})).collect::<Vec<_>>(),
+        }),
         Item::Step { title, result, .. } => {
             json!({"k": "note", "text": format!("{title}: {result}"), "error": false})
         }
-        Item::Suggestions(_) | Item::Queued { .. } => return None,
     })
 }
 
@@ -138,6 +142,19 @@ pub fn load(path: &std::path::Path) -> (Vec<Item>, usize) {
                     .into_iter()
                     .flatten()
                     .filter_map(|s| Some((s[0].as_str()?.to_string(), s[1].as_str()?.to_string())))
+                    .collect(),
+            ),
+            Some("sources") => Item::Sources(
+                v["links"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|l| {
+                        Some(crate::backend::SourceLink {
+                            title: l["title"].as_str()?.to_string(),
+                            source: l["source"].as_str().unwrap_or("").to_string(),
+                        })
+                    })
                     .collect(),
             ),
             _ => {

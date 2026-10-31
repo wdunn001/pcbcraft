@@ -534,7 +534,11 @@ mod tests {
                 },
             }),
             fields: vec![],
+            sourcing: Default::default(),
+            compliance: Default::default(),
             sheet: 0,
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(Footprint {
             preserved: pcbcraft_doc::PreservedSource::default(),
