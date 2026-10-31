@@ -774,6 +774,21 @@ library.library_workspaces.new_footprint.tip = Start a fresh empty footprint def
 library.library_workspaces.generate_footprint = Generate footprint
 library.library_workspaces.generate_footprint.tip = Build a footprint from a package family and the numbers in its datasheet.
 
+# model_align.rs (#709)
+library.model_align.auto_align = Auto-align to pads
+library.model_align.auto_align.tip = Fit the model to the pad centres using quarter turns and an optional mirror.
+library.model_align.preview = Preview
+library.model_align.preview.tip = Show the fit without changing the footprint yet.
+library.model_align.apply = Apply
+library.model_align.apply.tip = Write the fit as one undoable step.
+library.model_align.cancel = Cancel
+library.model_align.cancel.tip = Drop the preview and keep the current transform.
+library.model_align.residual = Residual {mm} mm
+library.model_align.residual.tip = Root-mean-square gap between model terminals and pad centres after the fit.
+library.model_align.coarse = The fit is still off by more than 0.15 mm; check the model or pads before relying on it.
+library.model_align.snap_off = Hold Ctrl to move without snapping.
+library.model_align.snap_off.tip = While Ctrl is held, the model offset does not snap to pads, the courtyard or the origin.
+
 # authoring.rs graphic
 library.graphic.start = Start
 library.graphic.end = End

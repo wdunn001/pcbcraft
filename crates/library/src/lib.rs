@@ -33,6 +33,10 @@ pub use connector_series_generate::{
     pin1_position,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use model_align::{
+    SNAP_RADIUS_MM, SnapTarget, SnapTargetKind, footprint_snap_targets, pad_centres, pad_centroid,
+    snap_point,
+};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
