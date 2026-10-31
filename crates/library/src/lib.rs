@@ -46,7 +46,20 @@ pub mod mouser;
 pub mod part_fields;
 pub mod online_import;
 pub mod open_library;
-pub mod samtec;
+pub mod credentials;
+mod footprint_check;
+mod footprint_generate;
+mod footprint_pad_outline;
+pub mod http_client;
+pub mod listing;
+pub mod listing_adapters;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+pub mod part_fields;
+pub mod part_params;
+pub mod part_sidecar;
+pub mod online_import;
+pub mod open_library;
 mod paths;
 pub mod rate_limit;
 mod reader;
@@ -516,11 +529,48 @@ pub struct FootprintDefinition {
     /// clearance tightens checks; the margins are recorded and exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<FootprintRules>,
+    /// Explicit 3D box body size in footprint-local millimetres, centred on the
+    /// footprint origin. When set, the 3D view and mechanical exports use this
+    /// width, depth and height instead of pad-derived defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub box_body: Option<FootprintBoxBody>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
     /// Unknown S-expression snippets from the source file, re-emitted on export.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retained: Vec<String>,
+}
+/// Width, depth and height of a simple box body for 3D preview and export.
+///
+/// # Rules
+/// - All sizes are in millimetres and must be between 0.05 and 100.
+/// - The outline is centred on the footprint origin in the board plane.
+///
+/// # Dependencies
+/// - `library.footprint.set_box_body` stores this on a project-library footprint.
+/// - `crates/io` reads it when building meshes and STEP bodies.
+///
+/// # Do not
+/// - Use this for 2D courtyard or fab outlines; those stay in footprint graphics.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FootprintBoxBody {
+    pub width: f64,
+    pub depth: f64,
+    pub height: f64,
+}
+impl FootprintBoxBody {
+    /// Counter-clockwise rectangle centred on the footprint origin.
+    pub fn outline(&self) -> Vec<Point> {
+        let hx = self.width / 2.0;
+        let hy = self.depth / 2.0;
+        vec![
+            Point::new(-hx, -hy),
+            Point::new(hx, -hy),
+            Point::new(hx, hy),
+            Point::new(-hx, hy),
+        ]
+    }
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.

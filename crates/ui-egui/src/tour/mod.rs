@@ -1,4 +1,7 @@
-//! In-app tours: data files beside the string catalog and validation only.
-//! Drawing and anchors live in sibling modules (#770, #772).
+//! In-app tours: data (#769), anchors (#772), overlay (#770).
 
+pub mod anchor;
 pub mod data;
+mod layout;
+
+pub(crate) use layout::step_layout;
