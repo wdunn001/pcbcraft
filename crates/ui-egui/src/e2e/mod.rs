@@ -28,6 +28,7 @@ mod builds;
 mod checks;
 mod compare;
 mod context_menus;
+mod findings_counts;
 mod editing;
 mod glyphs;
 mod export;
