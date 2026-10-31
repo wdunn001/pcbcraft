@@ -12,30 +12,16 @@ mod browser;
 mod canvas;
 mod wire_canvas;
 mod contrast;
-<<<<<<< ours
 mod datums;
-<<<<<<< ours
 mod datasheet_reader;
-=======
-mod datasheet;
->>>>>>> theirs
-=======
 mod datasheet;
 mod datums;
->>>>>>> theirs
 mod draw_target;
 mod drill_table;
 mod editing;
-<<<<<<< ours
-<<<<<<< ours
 mod file_dialogs;
-mod files_home;
-=======
 mod finding_set;
->>>>>>> theirs
-=======
-mod file_dialogs;
->>>>>>> theirs
+mod files_home;
 pub mod fonts;
 mod footprint_wizard;
 mod hover_affordance;
@@ -49,16 +35,10 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
 mod minimap;
-=======
 mod library_workspace;
->>>>>>> theirs
-=======
 mod library_rank;
->>>>>>> theirs
+mod model_align;
 mod modifier_ui;
 mod model_transform;
 mod motion;
@@ -66,27 +46,19 @@ mod number_entry;
 mod pages;
 mod palette;
 mod placement_machine_ui;
+mod pin_matrix;
 mod plot_viewer;
 mod pour_panel;
 mod project_settings;
 mod properties;
 mod reference_panel;
 mod route_drag;
-<<<<<<< ours
-<<<<<<< ours
 mod rules_fab;
-=======
->>>>>>> theirs
-=======
 mod setup_wizard;
->>>>>>> theirs
 mod sheet_rows;
 mod showcase;
 mod sources;
 mod sourcing_panel;
-<<<<<<< ours
-<<<<<<< ours
-=======
 mod pages;
 mod palette;
 mod plot_viewer;
@@ -96,32 +68,18 @@ mod reference_panel;
 mod route_drag;
 mod library_quality;
 mod minimap;
-=======
-mod model_align;
->>>>>>> theirs
 mod modifier_ui;
 mod motion;
 mod number_entry;
 mod outline_arcs;
-mod pages;
-mod palette;
-mod pin_matrix;
-mod plot_viewer;
-mod pour_panel;
-mod properties;
-mod reference_panel;
-mod route_drag;
 mod rules_fab;
 mod sheet_rows;
 mod schematic_port;
 mod showcase;
 mod sources;
 mod sourcing_panel;
->>>>>>> theirs
 mod stack_view;
 mod sync_notice;
-=======
->>>>>>> theirs
 #[cfg(test)]
 mod target_size;
 mod targets;
@@ -137,7 +95,6 @@ mod wall_clock;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
-<<<<<<< ours
 use pcbcraft_doc::{Id, PanelSeparation, PinRef, Project, TEMPLATES};
 use pcbcraft_geom::Point;
 use pcbcraft_mcp::SharedSession;
@@ -148,12 +105,6 @@ use std::collections::HashMap;
 use targets::TapButton;
 /// Window width in points under which side docks give way to the drawing.
 const NARROW_WINDOW: f32 = 640.0;
-=======
-use pcbcraft_doc::{Id, PinRef, Project, TEMPLATES};
-use pcbcraft_geom::Point;
-use pcbcraft_mcp::SharedSession;
-use std::collections::BTreeMap;
->>>>>>> theirs
 
 /// Guidance shown when a panel section has no content yet: what belongs
 /// there and the command that fills it, so a first-run user is never left
@@ -784,27 +735,21 @@ struct Preferences {
     /// The last exports and imports with the options they used, newest first.
     #[serde(default)]
     recent_files: file_dialogs::Recents,
-<<<<<<< ours
     /// Projects kept at the top of the Files page, by path.
     #[serde(default)]
     pinned_projects: Vec<String>,
     /// When each project was last opened or saved here, seconds since 1970, by path.
     #[serde(default)]
     project_opened: std::collections::BTreeMap<String, u64>,
-=======
->>>>>>> theirs
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
-<<<<<<< ours
     /// Minimap look per tab (`layout`, `schematic`): pinned, width, opacity, position.
     #[serde(default)]
     minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
-=======
     /// In-app tour progress; the browser build stores this in page storage.
     #[serde(default)]
     tour_progress: tour::state::TourProgress,
->>>>>>> theirs
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -842,7 +787,9 @@ struct Preferences {
     /// Remapped tool modifiers and tool hotkeys; empty means classic defaults.
     #[serde(default)]
     modifiers: tool_modifiers::Bindings,
-<<<<<<< ours
+    /// After the design setup wizard is finished or skipped, do not open it on every new design.
+    #[serde(default)]
+    setup_wizard_seen: bool,
     /// When off, no tour chip or first-launch card appears without an explicit ask.
     #[serde(default = "default_true")]
     offer_tours: bool,
@@ -852,11 +799,6 @@ struct Preferences {
     /// Set once any first-launch tour card has been shown or dismissed.
     #[serde(default)]
     tour_first_launch_done: bool,
-=======
-    /// After the design setup wizard is finished or skipped, do not open it on every new design.
-    #[serde(default)]
-    setup_wizard_seen: bool,
->>>>>>> theirs
 }
 fn default_keymap_profile() -> String {
     "Default".into()
@@ -897,17 +839,11 @@ impl Default for Preferences {
             layouts: std::collections::BTreeMap::new(),
             language: default_language(),
             recent_files: Default::default(),
-<<<<<<< ours
             pinned_projects: Vec::new(),
             project_opened: Default::default(),
-=======
->>>>>>> theirs
             reduced_motion: motion::os_prefers_reduced_motion(),
-<<<<<<< ours
             minimap: Default::default(),
-=======
             tour_progress: tour::state::TourProgress::default(),
->>>>>>> theirs
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -921,13 +857,10 @@ impl Default for Preferences {
             active_keymap_profile: default_keymap_profile(),
             keymap_profiles: default_keymap_profiles(),
             modifiers: Default::default(),
-<<<<<<< ours
+            setup_wizard_seen: false,
             offer_tours: true,
             tour_progress: std::collections::BTreeMap::new(),
             tour_first_launch_done: false,
-=======
-            setup_wizard_seen: false,
->>>>>>> theirs
         }
     }
 }
@@ -1204,11 +1137,8 @@ pub struct App {
     catalog: std::sync::Arc<pcbcraft_text::Catalog>,
     /// Embedded in-app tour definitions (#769).
     tours: tour::data::Doc,
-<<<<<<< ours
-=======
     /// Active tour while steps are shown.
     tour_playback: Option<tour::state::Playback>,
->>>>>>> theirs
     recent_designs: Vec<String>,
     /// The Files workspace: page, selection, pictures of recent projects.
     files_home: files_home::State,
@@ -1376,31 +1306,19 @@ pub struct App {
     capture_sheet: bool,
     frames: u32,
     library: library::Browser,
-<<<<<<< ours
     pub(crate) compare_open: bool,
     pub(crate) compare_baseline_path: String,
     compare_report_open: bool,
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
     /// The Library tab: open parts, the showing page, recorded supplier answers.
     libws: library_workspace::State,
-=======
-    datasheet: datasheet_reader::State,
->>>>>>> theirs
-=======
-    datasheet_pane: datasheet::Pane,
->>>>>>> theirs
-=======
     tour: tour::Controller,
->>>>>>> theirs
+    datasheet: datasheet_reader::State,
+    datasheet_pane: datasheet::Pane,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
-=======
->>>>>>> theirs
     /// This design's autosave slot, while the desktop has a recovery folder.
     autosave: Option<pcbcraft_engine::recovery::Autosaver>,
     /// Snapshots a killed app left behind, newest first.
@@ -1409,172 +1327,6 @@ pub struct App {
     recovery_open: bool,
     /// The folder this window autosaves into and offers snapshots from.
     recovery_dir: Option<std::path::PathBuf>,
-<<<<<<< ours
-=======
-}
-impl App {
-    /// How long ago a snapshot was written, in words.
-    fn ago(saved_at: u64) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let seconds = now.saturating_sub(saved_at);
-        match seconds {
-            0..=59 => "just now".into(),
-            60..=3599 => format!("{} minutes ago", seconds / 60),
-            3600..=86399 => format!("{} hours ago", seconds / 3600),
-            _ => format!("{} days ago", seconds / 86400),
-        }
-    }
-
-    /// The window that offers work a killed app left behind, newest first. It
-    /// asks rather than restoring silently, and answering either way clears the
-    /// snapshot it names.
-    fn recovery_window(&mut self, ui: &mut egui::Ui) {
-        if !self.recovery_open {
-            return;
-        }
-        let Some(dir) = self.recovery_dir.clone() else {
-            self.recovery_open = false;
-            return;
-        };
-        let entries = self.recovery_offer.clone();
-        let mut open = true;
-        let mut chose: Option<(String, bool)> = None;
-        let muted = self.muted();
-        egui::Window::new("Pick up where you left off")
-            .collapsible(false)
-            .resizable(false)
-            .open(&mut open)
-            .show(ui, |ui| {
-                ui.label(
-                    "PCBCraft closed before this work was saved. Recover it, or throw the snapshot away.",
-                );
-                ui.add_space(6.0);
-                if entries.is_empty() {
-                    ui.label("Nothing is left to recover.");
-                }
-                for entry in &entries {
-                    let what = match &entry.path {
-                        Some(path) => format!("{} · {} · {} pads", entry.name, path, entry.pads),
-                        None => format!("{} · never saved · {} pads", entry.name, entry.pads),
-                    };
-                    egui::Frame::group(ui.style())
-                        .inner_margin(10.0)
-                        .show(ui, |ui| {
-                            ui.label(egui::RichText::new(what).strong());
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "saved {} · revision {}",
-                                    Self::ago(entry.saved_at),
-                                    entry.revision
-                                ))
-                                .small()
-                                .color(muted),
-                            );
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .button("Recover")
-                                    .on_hover_text(
-                                        "Open this snapshot as the design, as unsaved work you can keep editing or save.",
-                                    )
-                                    .clicked()
-                                {
-                                    chose = Some((entry.id.clone(), true));
-                                }
-                                if ui
-                                    .button("Discard")
-                                    .on_hover_text(
-                                        "Delete this snapshot and its record; the design file on disk is not touched.",
-                                    )
-                                    .clicked()
-                                {
-                                    chose = Some((entry.id.clone(), false));
-                                }
-                            });
-                        });
-                }
-            });
-        if !open {
-            self.recovery_open = false;
-            return;
-        }
-        match chose {
-            Some((id, true)) => self.recover_entry(&dir, &id),
-            Some((id, false)) => {
-                match pcbcraft_engine::recovery::remove(&dir, &id) {
-                    Ok(()) => self.message = "recovery snapshot discarded".into(),
-                    Err(e) => self.message = e,
-                }
-                self.recovery_offer = pcbcraft_engine::recovery::orphans(&dir);
-                self.recovery_open = !self.recovery_offer.is_empty();
-            }
-            None => {}
-        }
-    }
-
-    /// Open one snapshot as the design, counted as unsaved work so a save or a
-    /// further edit decides what happens to the file it came from.
-    fn recover_entry(&mut self, dir: &std::path::Path, id: &str) {
-        let (project, entry) = match pcbcraft_engine::recovery::load(dir, id) {
-            Ok(loaded) => loaded,
-            Err(e) => {
-                self.message = e;
-                self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
-                self.recovery_open = !self.recovery_offer.is_empty();
-                return;
-            }
-        };
-        let replaced = self
-            .session
-            .lock()
-            .map_err(|_| "the design is busy".to_string())
-            .and_then(|mut s| s.replace(project).map_err(|e| e.to_string()));
-        match replaced {
-            Ok(_) => {
-                let _ = pcbcraft_engine::recovery::remove(dir, id);
-                self.saved_revision = None;
-                self.needs_fit = true;
-                self.refresh();
-                self.message = format!(
-                    "recovered {} from {}",
-                    entry.name,
-                    Self::ago(entry.saved_at)
-                );
-            }
-            Err(e) => self.message = e,
-        }
-        self.recovery_offer = pcbcraft_engine::recovery::orphans(dir);
-        self.recovery_open = !self.recovery_offer.is_empty();
-    }
-
-    /// One library part offered as a small card: its name to pick, and a
-    /// plain line saying what it is and what it answers to when searched.
-    fn part_card(&mut self, ui: &mut egui::Ui, definition: &pcbcraft_library::SymbolDefinition) {
-        if ui
-            .button(&definition.name)
-            .on_hover_text("Pick this saved part; the next click on the schematic places it.")
-            .clicked()
-        {
-            self.change_tab(Tab::Schematic);
-            self.tool = Tool::CustomPlace(definition.name.clone(), Box::new(definition.clone()));
-            self.palette = false;
-            self.part_search.clear();
-        }
-        let tags: Vec<&str> = definition.keywords.split_whitespace().collect();
-        let words = tags.join(" · ");
-        let note = match (definition.description.trim(), words.as_str()) {
-            ("", "") => String::new(),
-            ("", tags) => format!("search words: {tags}"),
-            (what, "") => what.to_owned(),
-            (what, tags) => format!("{what} · search words: {tags}"),
-        };
-        if !note.is_empty() {
-            ui.label(egui::RichText::new(note).small().color(self.muted()));
-        }
-    }
->>>>>>> theirs
 }
 /// Plain-language facts about a selected board or schematic object that is not
 /// a component, so the properties panel can describe tracks, vias, zones,
@@ -1819,10 +1571,7 @@ fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
 impl App {
     /// How long ago a snapshot was written, in words.
     fn ago(saved_at: u64) -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now = pcbcraft_clock::unix_secs();
         let seconds = now.saturating_sub(saved_at);
         match seconds {
             0..=59 => "just now".into(),
@@ -1957,7 +1706,6 @@ impl App {
         }
         self
     }
-<<<<<<< ours
     /// Select the part with this reference once the first frames have run, so a
     /// `--capture` image shows a selection. Ignored outside capture mode.
     pub fn with_capture_select(mut self, reference: Option<String>) -> Self {
@@ -2040,8 +1788,6 @@ impl App {
         self.tree.expanded.insert("side:top".into());
         self
     }
-=======
->>>>>>> theirs
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         session: SharedSession,
@@ -2053,18 +1799,10 @@ impl App {
             .storage
             .and_then(|s| eframe::get_value(s, "preferences"))
             .unwrap_or_default();
-<<<<<<< ours
         preferences.normalize_keymaps();
         if light {
             preferences.dark = false;
         }
-=======
-        if light {
-            preferences.dark = false;
-        }
-        // The browser has no recovery folder, so it keeps one slot in the
-        // page's own storage. Everywhere else the offer window asks first.
->>>>>>> theirs
         #[cfg(target_arch = "wasm32")]
         if let Some(text) = cc
             .storage
@@ -2081,14 +1819,11 @@ impl App {
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
         app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
-<<<<<<< ours
         // Install the fonts now, so the fallback font added next lands behind them.
         fonts::install(&cc.egui_ctx);
         cc.egui_ctx
             .data_mut(|d| d.insert_temp(egui::Id::new("design-fonts-installed"), true));
         app.apply_fallback_font(&cc.egui_ctx);
-=======
->>>>>>> theirs
         app
     }
     /// The settings folder this window's session was given. Recents, library
@@ -2108,13 +1843,7 @@ impl App {
         Self::create_with_recovery(session, preferences, capture, tab, recovery_dir())
     }
 
-<<<<<<< ours
     pub(crate) fn create_with_recovery(
-=======
-    /// `create` with the recovery folder named, so a test can point the offer
-    /// at its own folder without touching the machine's.
-    fn create_with_recovery(
->>>>>>> theirs
         session: SharedSession,
         preferences: Preferences,
         capture: Option<String>,
@@ -2164,19 +1893,11 @@ impl App {
             catalog: std::sync::Arc::new(pcbcraft_text::Catalog::for_language(
                 &preferences.language,
             )),
-<<<<<<< ours
             tours: tour::data::embedded_for_shell(),
-=======
-            tours: tour::data::embedded().unwrap_or_default(),
             tour_playback: None,
->>>>>>> theirs
             preferences,
-<<<<<<< ours
-            recent_designs: pcbcraft_engine::recents::load_recent_paths(),
-            files_home: files_home::State::default(),
-=======
             recent_designs: pcbcraft_engine::recents::load_recent_paths(&config),
->>>>>>> theirs
+            files_home: files_home::State::default(),
             home_open: false,
             home_path_focus: false,
             tree: layers_tree::TreeView::default(),
@@ -2268,15 +1989,9 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
-<<<<<<< ours
-<<<<<<< ours
             libws: library_workspace::State::default(),
-=======
             datasheet: datasheet_reader::State::default(),
->>>>>>> theirs
-=======
             datasheet_pane: datasheet::Pane::default(),
->>>>>>> theirs
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
@@ -2336,13 +2051,9 @@ impl App {
             capture,
             capture_select: None,
             capture_menu: false,
-<<<<<<< ours
             capture_menu_tag: None,
-            capture_sheet: false,
-=======
             // `--tab checks` is Layout with the Findings sheet expanded.
             capture_sheet: tab == Some("checks"),
->>>>>>> theirs
             frames: 0,
             binding_capture: None,
             profile_name_draft: String::new(),
@@ -2360,20 +2071,14 @@ impl App {
             compare_diff: None,
             compare_tint: std::collections::BTreeMap::new(),
             library,
-<<<<<<< ours
-<<<<<<< ours
-=======
             tour: {
                 let mut catalog = Vec::new();
                 #[cfg(test)]
                 catalog.extend(tour::state::e2e_fixture_catalog());
                 tour::Controller::new(catalog)
             },
->>>>>>> theirs
             #[cfg(test)]
             icon_rects: BTreeMap::new(),
-=======
->>>>>>> theirs
             autosave,
             recovery_open: !recovery_offer.is_empty(),
             recovery_offer,
@@ -2410,7 +2115,7 @@ impl App {
         }
         let view = self.tour_shell_view();
         self.tour
-            .sync_triggers(view, std::time::Instant::now());
+            .sync_triggers(view, pcbcraft_clock::instant_now());
     }
     fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
         let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
@@ -2442,11 +2147,6 @@ impl App {
         }
     }
     fn refresh(&mut self) {
-<<<<<<< ours
-=======
-        // The autosave goes out with the same lock that takes the snapshot, so
-        // what lands in the recovery folder is a revision the window has seen.
->>>>>>> theirs
         let mut autosave = self.autosave.take();
         let saved = self.saved_revision;
         let mut autosave_error: Option<String> = None;
@@ -2655,16 +2355,11 @@ impl App {
             self.assistant_save();
         }
         if success && (name == "save" || name == "open") {
-<<<<<<< ours
-            pcbcraft_engine::recents::record_recent_path(&self.path);
-            self.recent_designs = pcbcraft_engine::recents::load_recent_paths();
-            let opened = self.path.clone();
-            self.files_note_opened(&opened);
-=======
             let config = self.user_config();
             pcbcraft_engine::recents::record_recent_path(&config, &self.path);
             self.recent_designs = pcbcraft_engine::recents::load_recent_paths(&config);
->>>>>>> theirs
+            let opened = self.path.clone();
+            self.files_note_opened(&opened);
             self.saved_revision = Some(self.revision);
         }
         if success && (name == "open" || name == "new_design" || name == "sample_design") {
@@ -2753,7 +2448,7 @@ impl App {
             self.needs_fit = true;
         }
         self.tour
-            .note_tab_change(std::time::Instant::now());
+            .note_tab_change(pcbcraft_clock::instant_now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
@@ -3324,7 +3019,6 @@ impl App {
         if let Some(via) = self.project.board.vias.iter().find(|v| v.id == id) {
             return Some(via.net);
         }
-<<<<<<< ours
         if let Some(fp) = self.project.footprint(id) {
             return fp.pads.iter().find_map(|p| p.net);
         }
@@ -3336,30 +3030,6 @@ impl App {
         match action {
             KeyAction::Undo => {
                 self.tool_call("undo", json!({}));
-=======
-        let mut delete_now = false;
-        ctx.input(|i| {
-            let held = tool_modifiers::Held::new(i.modifiers, tool_modifiers::Platform::host());
-            if i.modifiers.command {
-                if i.key_pressed(egui::Key::F) {
-                    self.needs_fit = true;
-                }
-                if i.key_pressed(egui::Key::Z) {
-                    self.tool_call(if held.shift { "redo" } else { "undo" }, json!({}));
-                }
-                if i.key_pressed(egui::Key::Y) {
-                    self.tool_call("redo", json!({}));
-                }
-                if held.shift && i.key_pressed(egui::Key::A) {
-                    self.assistant_toggle();
-                }
-                if i.key_pressed(egui::Key::K) {
-                    self.command_open = !self.command_open;
-                    self.command_focus = self.command_open;
-                    self.command_index = 0;
-                }
-                return;
->>>>>>> theirs
             }
             KeyAction::Redo => {
                 self.tool_call("redo", json!({}));
@@ -3683,17 +3353,14 @@ impl App {
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-<<<<<<< ours
-        let shown: [(Tab, String); 5] = [
-=======
-        const TAB_ANCHORS: [&str; 4] = [
+        const TAB_ANCHORS: [&str; 5] = [
             "shell.tab.files",
+            "shell.tab.library",
             "shell.tab.schematic",
             "shell.tab.layout",
             "shell.tab.manufacture",
         ];
-        let shown: [(Tab, String); 4] = [
->>>>>>> theirs
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
             (Tab::Library, t!("docks.workbench_tabs.library")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
@@ -3810,10 +3477,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-<<<<<<< ours
                                     home_btn,
-=======
-                                    [300.0, 48.0],
                                     egui::Button::new(
                                         egui::RichText::new("Design setup wizard").size(14.0),
                                     ),
@@ -3829,8 +3493,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
->>>>>>> theirs
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -3995,8 +3658,6 @@ impl App {
                 ui.close();
             }
             if ui
-<<<<<<< ours
-<<<<<<< ours
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
@@ -4006,17 +3667,6 @@ impl App {
             if ui
                 .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
-<<<<<<< ours
-=======
-                .button("Save as…")
-                .on_hover_text(
-                    "Save the whole project under a new name or as an archive. To make something from it, such as a bill of materials, use Export.",
-                )
->>>>>>> theirs
-=======
-                .button(t!("menu.file.save_as"))
-                .on_hover_text(t!("menu.file.save_as.tip"))
->>>>>>> theirs
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
@@ -4028,11 +3678,6 @@ impl App {
                 .clicked()
             {
                 self.open_project_settings(project_settings::TAB_BOARD);
-=======
-                .clicked()
-            {
-                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
->>>>>>> theirs
                 ui.close();
             }
             ui.separator();
@@ -4288,24 +3933,7 @@ impl App {
                 self.command_focus = self.command_open;
                 self.command_index = 0;
             }
-<<<<<<< ours
-<<<<<<< ours
-            ui.menu_button(t!("menu.help.tours"), |ui| {
-<<<<<<< ours
-=======
             let tours = ui.menu_button(t!("menu.help.tours"), |ui| {
->>>>>>> theirs
-=======
-            ui.menu_button(t!("menu.help.tours"), |ui| {
->>>>>>> theirs
-                for tour in &self.tours.tour {
-                    let list_key = tour.list_key();
-                    let label = pcbcraft_text::lookup(&list_key, &[]);
-                    let tip_key = format!("{list_key}.tip");
-                    ui.button(label)
-                        .on_hover_text(pcbcraft_text::lookup(&tip_key, &[]));
-<<<<<<< ours
-=======
                 if self.browser {
                     ui.label(
                         egui::RichText::new(t!("menu.help.tours.browser_note"))
@@ -4338,19 +3966,10 @@ impl App {
                         );
                         ui.close();
                     }
->>>>>>> theirs
                 }
             });
             tour::anchor::anchor(ui, "menu.help.tours", &tours.response);
-            tours
-                .response
-                .on_hover_text(t!("menu.help.tours.tip"));
-=======
-                }
-            })
-            .response
-            .on_hover_text(t!("menu.help.tours.tip"));
->>>>>>> theirs
+            tours.response.on_hover_text(t!("menu.help.tours.tip"));
             ui.separator();
             if ui
                 .button(t!("app.about"))
@@ -7387,7 +7006,6 @@ impl App {
             let mut padded = egui::Frame::NONE
                 .inner_margin(theme::aside_margin())
                 .begin(ui);
-<<<<<<< ours
             self.tour_panel_hints(&mut padded.content_ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
@@ -7397,10 +7015,6 @@ impl App {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| self.library_properties(ui));
-=======
-            assistant::pane::show(self, &mut padded.content_ui);
-            padded.end(ui);
->>>>>>> theirs
             return;
         }
         egui::ScrollArea::vertical()
@@ -7411,10 +7025,6 @@ impl App {
                     .inner_margin(theme::aside_margin())
                     .begin(ui);
                 {
-<<<<<<< ours
-<<<<<<< ours
-=======
->>>>>>> theirs
                     let ui = &mut padded.content_ui;
                     ui.spacing_mut().item_spacing.y = theme::ASIDE_ROW_GAP;
                     if matches!(self.tool, Tool::DrawLayer | Tool::Hole | Tool::Fiducial) {
@@ -7463,6 +7073,7 @@ impl App {
                             self.object_general(ui, id);
                             self.via_span_controls(ui, id);
                             self.via_covering_controls(ui, id);
+                            self.via_backdrill_controls(ui, id);
                             if let Some(track) =
                                 self.project.board.tracks.iter().find(|t| t.id == id)
                             {
@@ -7507,87 +7118,6 @@ impl App {
                                                 .speed(0.05)
                                                 .suffix(format!(" {}", t!("unit.mm"))),
                                             3,
-<<<<<<< ours
-=======
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(16, 12))
-                        .show(ui, |ui| self.datum_inspector(ui, id));
-                } else if let Some(id) = self.selected {
-                    let c = self.project.component(id).cloned().or_else(|| {
-                        self.project
-                            .footprint(id)
-                            .and_then(|f| self.project.component(f.component))
-                            .cloned()
-                    });
-                    if let Some(c) = c {
-                        self.part_properties(ui, id, &c);
-                    } else {
-                        self.object_general(ui, id);
-                        self.via_span_controls(ui, id);
-                        self.via_covering_controls(ui, id);
-                        self.via_backdrill_controls(ui, id);
-                        if let Some(track) = self.project.board.tracks.iter().find(|t| t.id == id) {
-                            let curved = track.arc.is_some();
-                            let net = track.net;
-                            let mid = (
-                                (track.start.x + track.end.x) / 2.0,
-                                (track.start.y + track.end.y) / 2.0,
-                            );
-                            let near = |a: Point, b: Point| {
-                                (a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4
-                            };
-                            let span = |a: Point, b: Point| {
-                                ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt()
-                            };
-                            let own_len = span(track.start, track.end);
-                            let mate = self
-                                .project
-                                .board
-                                .tracks
-                                .iter()
-                                .filter(|o| o.id != id && o.net == track.net)
-                                .filter_map(|o| {
-                                    let joined = near(o.start, track.start)
-                                        || near(o.start, track.end)
-                                        || near(o.end, track.start)
-                                        || near(o.end, track.end);
-                                    joined.then(|| (o.id, span(o.start, o.end)))
-                                })
-                                .min_by(|a, b| a.1.total_cmp(&b.1));
-                            let max_cut = mate.map_or(0.05, |(_, len)| len.min(own_len) * 0.45);
-                            ui_kit::section::section(
-                                ui,
-                                "track",
-                                &t!("props.track"),
-                                &t!("props.track.tip"),
-                                |ui| {
-                                    ui.label(t!("board.inspector.wire_width"));
-                                    ui.add(crate::number_entry::localized_active(
-                                        egui::DragValue::new(&mut self.track_width)
-                                            .range(0.05..=10.0)
-                                            .speed(0.05)
-                                            .suffix(format!(" {}", t!("unit.mm"))),
-                                        3,
-                                    ))
-                                    .named("Wire width")
-                                    .on_hover_text(t!("unit.mm7.tip"));
-                                    if ui
-                                        .button(t!("board.inspector.set_width"))
-                                        .on_hover_text(command_tip("track.set_width"))
-                                        .clicked()
-                                    {
-                                        self.run(
-                                            "track.set_width",
-                                            json!({"id": id, "width": self.track_width}),
-                                        );
-                                    }
-                                    if ui
-                                        .button(t!("board.inspector.thicken_whole_connection"))
-                                        .on_hover_text(t!(
-                                            "board.inspector.thicken_whole_connection.tip"
->>>>>>> theirs
-=======
->>>>>>> theirs
                                         ))
                                         .named("Wire width")
                                         .on_hover_text(t!("unit.mm7.tip"));
@@ -8006,10 +7536,7 @@ impl App {
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
-<<<<<<< ours
         self.project_settings_window(ui.ctx());
-=======
->>>>>>> theirs
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
@@ -8165,17 +7692,6 @@ impl App {
             self.select_sheet_row(0, &row);
         }
         if self.frames == 3
-            && let Some(row) = self
-                .capture_select
-                .as_deref()
-                .and_then(|s| s.strip_prefix("row:"))
-                .map(str::to_owned)
-        {
-            // `--select row:title` (or symbols, power, drawing) opens that page row.
-            self.capture_select = None;
-            self.select_sheet_row(0, &row);
-        }
-        if self.frames == 3
             && let Some(reference) = self.capture_select.take()
             && let Some(component) = self
                 .project
@@ -8213,10 +7729,7 @@ impl App {
             && library_ready
             && self.online_settled()
             && self.edit.dialog.script.ready()
-<<<<<<< ours
             && (self.tab != Tab::Files || self.files_home.settled(&self.files_listed()))
-=======
->>>>>>> theirs
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -8282,51 +7795,9 @@ impl App {
         }
     }
 
-<<<<<<< ours
     fn record_icon(&mut self, _id: &str, _rect: Rect) {
         #[cfg(test)]
         self.icon_rects.insert(_id.to_owned(), _rect);
-=======
-    fn show(&mut self, ui: &mut egui::Ui) {
-        let ctx = ui.ctx().clone();
-        self.refresh();
-        self.style(&ctx);
-        self.shortcuts(&ctx);
-        self.header(ui);
-        self.footer(ui);
-        self.recovery_window(ui);
-        if self.home_open {
-            self.start_home(ui);
-        } else {
-            self.browser(ui);
-            self.inspector(ui);
-            egui::CentralPanel::default()
-                .frame(egui::Frame::NONE.fill(self.surface()))
-                .show(ui, |ui| match self.tab {
-                    Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                    Tab::Libraries => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.library(ui))
-                            .inner
-                    }
-                    Tab::Rules => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
-                    }
-                    Tab::Checks => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| self.checks_view(ui))
-                            .inner
-                    }
-                    Tab::Settings => {
-                        egui::ScrollArea::vertical()
-                            .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
-                    }
-                });
-        }
-        self.capture(&ctx);
-        ctx.request_repaint_after(std::time::Duration::from_millis(200));
->>>>>>> theirs
     }
 
     /// A toolbar tooltip with the tool's hotkey and modifier lines added.
@@ -8344,25 +7815,11 @@ impl App {
             tool_modifiers::Platform::host(),
         )
     }
-<<<<<<< ours
     fn draw_tool_options(&mut self, ui: &mut egui::Ui) {
         if self.tab != Tab::Pcb {
             return;
-=======
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, "preferences", &self.preferences);
-        // The desktop autosaves into the recovery folder (see `recovery`);
-        // only the browser still needs the page's own storage for it.
-        #[cfg(target_arch = "wasm32")]
-        if let Ok(session) = self.session.lock()
-            && let Ok(text) = serde_json::to_string(&session.project)
-            && text.len() <= pcbcraft_io_limit()
-        {
-            storage.set_string("recovery", text);
->>>>>>> theirs
         }
         if matches!(self.tool, Tool::DrawLayer) {
-<<<<<<< ours
             use draw_target::Target;
             let on_user = matches!(self.current_target(), Target::User(_));
             let layer_tip = t!("board.draw_tool_options.new_figures_land_on_this.tip");
@@ -8372,45 +7829,6 @@ impl App {
             } else {
                 ui.label(t!("board.canvas_click.pick_or_make_a_layer"))
                     .on_hover_text(t!("tree.add_layer.tip"));
-=======
-            ui.label(
-                egui::RichText::new("DRAW ON LAYER")
-                    .size(10.0)
-                    .color(self.muted()),
-            );
-            let names: Vec<(Id, String)> = self
-                .project
-                .board
-                .user_layers
-                .iter()
-                .map(|l| (l.id, l.name.clone()))
-                .collect();
-            let current = self
-                .art_layer
-                .and_then(|id| names.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()))
-                .unwrap_or_else(|| "no layer yet".into());
-            egui::ComboBox::from_id_salt("art-layer-pick")
-                .selected_text(current)
-                .width(150.0)
-                .show_ui(ui, |ui| {
-                    for (id, name) in &names {
-                        ui.radio_value(&mut self.art_layer, Some(*id), name.as_str())
-                            .on_hover_text("New figures land on this layer.");
-                    }
-                });
-            if ui
-                .button("New layer")
-                .on_hover_text(
-                    "Make a new drawn layer and switch to it; give it a real name in the layers list.",
-                )
-                .clicked()
-            {
-                let name = format!("Art {}", names.len() + 1);
-                self.run("board.layer_add", json!({"name": name, "kind": "other"}));
-                if self.message.starts_with("board.layer_add") {
-                    self.art_layer = self.selected;
-                }
->>>>>>> theirs
             }
             ui.horizontal(|ui| {
                 for (shape, label, tip) in [
@@ -8510,15 +7928,11 @@ impl App {
                 self.change_tab(Tab::Libraries);
             }
             ui.add_space(12.0);
-<<<<<<< ours
             ui.label(
                 egui::RichText::new(t!("library.files_tab.builds"))
                     .size(10.0)
                     .color(self.muted()),
             );
-=======
-            ui.label(egui::RichText::new("Builds").size(10.0).color(self.muted()));
->>>>>>> theirs
             self.builds_tab(ui);
         });
     }
@@ -8567,11 +7981,8 @@ impl App {
         self.header(ui);
         self.footer(ui);
         self.renumber_window(&ctx);
-<<<<<<< ours
         self.recovery_window(ui);
-=======
         self.setup_wizard_window(&ctx);
->>>>>>> theirs
         if self.home_open {
             self.start_home(ui);
         } else {
@@ -8582,7 +7993,6 @@ impl App {
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(self.surface()))
                 .show(ui, |ui| {
-<<<<<<< ours
                     self.bottom_sheet(ui);
                     self.page_left = ui.max_rect().left();
                     if let Some(workspace) = workspace::workspace_for(self.tab) {
@@ -8610,39 +8020,6 @@ impl App {
                                     .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
                             }
                             _ => {}
-=======
-                    self.workbench_tabs(ui);
-                    self.tool_strip(ui);
-                    match self.tab {
-                        Tab::Schematic | Tab::Pcb => self.canvas(ui),
-                        Tab::Files => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.files_tab(ui))
-                                .inner
-                        }
-                        Tab::Board3d => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.board3d_tab(ui))
-                                .inner
-                        }
-                        Tab::Libraries => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.library(ui))
-                                .inner
-                        }
-                        Tab::Rules => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::margined(ui, |ui| self.rules_tab(ui)));
-                        }
-                        Tab::Checks => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| self.checks_view(ui))
-                                .inner
-                        }
-                        Tab::Settings => {
-                            egui::ScrollArea::vertical()
-                                .show(ui, |ui| Self::margined(ui, |ui| self.settings_tab(ui)));
->>>>>>> theirs
                         }
                     }
                 });
@@ -8725,60 +8102,6 @@ fn recovery_slots(
     }
 }
 
-<<<<<<< ours
-=======
-/// Closing the window with everything saved leaves no recovery entry behind;
-/// closing with unsaved work leaves it for the next launch to offer.
-impl Drop for App {
-    fn drop(&mut self) {
-        let Some(slot) = self.autosave.take() else {
-            return;
-        };
-        let saved = self.saved_revision;
-        match self.session.lock() {
-            Ok(session) => slot.close(&session, saved),
-            Err(_) => slot.discard(),
-        }
-    }
-}
-/// The recovery folder this build reads and writes: the real one on a desktop,
-/// and in a test run only a folder a test pointed the override at, so a test
-/// never sees or writes the user's own snapshots.
-#[cfg(not(target_arch = "wasm32"))]
-fn recovery_dir() -> Option<std::path::PathBuf> {
-    let pointed = pcbcraft_engine::recovery::override_dir();
-    if cfg!(test) {
-        pointed
-    } else {
-        pointed.or_else(|| pcbcraft_engine::recovery::default_dir().ok())
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-fn recovery_dir() -> Option<std::path::PathBuf> {
-    None
-}
-
-/// This design's autosave slot, and the snapshots a killed app left in the same
-/// folder, newest first. The offer is read before the slot takes its own lock,
-/// so this session's empty entry is never one of them.
-fn recovery_slots(
-    dir: Option<&std::path::Path>,
-) -> (
-    Option<pcbcraft_engine::recovery::Autosaver>,
-    Vec<pcbcraft_engine::recovery::Entry>,
-) {
-    let Some(dir) = dir else {
-        return (None, Vec::new());
-    };
-    let offer = pcbcraft_engine::recovery::orphans(dir);
-    match pcbcraft_engine::recovery::Autosaver::new(dir) {
-        Ok(slot) => (Some(slot), offer),
-        Err(_) => (None, offer),
-    }
-}
-
->>>>>>> theirs
 #[cfg(target_arch = "wasm32")]
 fn pcbcraft_io_limit() -> usize {
     8 * 1024 * 1024
@@ -8842,2789 +8165,6 @@ mod tests {
             find(track, "Net").as_deref(),
             Some("PWR · follows the wiring"),
             "a track names its net and says where it comes from"
-<<<<<<< ours
-=======
-        );
-        assert_eq!(
-            find(track, "Width").as_deref(),
-            Some("0.300 mm · chosen for this wire"),
-            "a track states its width and says it was picked on purpose"
-        );
-        assert_eq!(
-            find(via, "Drill").as_deref(),
-            Some("0.30 mm"),
-            "a via states its drill"
-        );
-        assert_eq!(
-            find(zone, "Copper").as_deref(),
-            Some("poured"),
-            "a zone states its pour"
-        );
-        assert_eq!(
-            find(zone, "Outline").as_deref(),
-            Some("5 vertices"),
-            "a zone counts its outline"
-        );
-        assert_eq!(
-            find(text, "Text").as_deref(),
-            Some("REV A"),
-            "text shows its string"
-        );
-        assert_eq!(
-            find(label, "Kind").as_deref(),
-            Some("label"),
-            "a schematic label states its kind"
-        );
-        assert!(
-            object_detail_rows(&project, 999).is_empty(),
-            "an unknown id stays quiet"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_folder_added_from_anywhere_joins_the_list_and_removal_forgets_it_again()
-    -> Result<(), String> {
-        let _turn = pcbcraft_engine::library::SOURCES_TEST_LOCK
-            .lock()
-            .map_err(|_| "source test lock unavailable")?;
-        let file =
-            std::env::temp_dir().join(format!("pcbcraft-source-e2e-{}.json", std::process::id()));
-        let _ = std::fs::remove_file(&file);
-        {
-            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "source path slot unavailable")?;
-            *slot = Some(file.clone());
-        }
-        let outcome = source_round_trip(&file);
-        {
-            let mut slot = pcbcraft_engine::library::SOURCES_PATH_TEST
-                .lock()
-                .map_err(|_| "source path slot unavailable")?;
-            *slot = None;
-        }
-        let _ = std::fs::remove_file(&file);
-        outcome
-    }
-    /// The visible loop a newcomer follows: type a folder, press Add folder,
-    /// watch its collections appear, select one, press Remove source, and
-    /// watch both the list and the remembered config forget it.
-    fn source_round_trip(file: &std::path::Path) -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.change_tab(Tab::Libraries);
-        app.refresh();
-        let ctx = egui::Context::default();
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.catalog.is_some() && app.library.sources.is_some() {
-                break;
-            }
-        }
-        assert!(
-            app.library.catalog.is_some(),
-            "the catalog arrives on its own"
-        );
-        let shelf = std::fs::canonicalize(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../library/tests/fixtures"),
-        )
-        .map_err(|e| format!("fixture shelf missing: {e}"))?
-        .to_string_lossy()
-        .into_owned();
-        app.library.new_source = shelf.clone();
-        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
-        let mut added = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Added") {
-                added = true;
-                break;
-            }
-        }
-        assert!(
-            added,
-            "adding the folder reports back: {}",
-            app.library.notice
-        );
-        let saved =
-            std::fs::read_to_string(file).map_err(|e| format!("config not written: {e}"))?;
-        assert!(
-            saved.contains(&shelf),
-            "the folder is remembered in the config file"
-        );
-        let mut listed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            listed = app
-                .library
-                .catalog
-                .as_ref()
-                .and_then(|catalog| catalog.get("symbol_libraries"))
-                .and_then(Value::as_array)
-                .is_some_and(|libs| {
-                    libs.iter().any(|lib| {
-                        lib.get("path")
-                            .and_then(Value::as_str)
-                            .is_some_and(|path| path.starts_with(&shelf))
-                    })
-                });
-            if listed {
-                break;
-            }
-        }
-        assert!(
-            listed,
-            "the added folder's collections join the unified list"
-        );
-        let added_path = app
-            .library
-            .catalog
-            .as_ref()
-            .and_then(|catalog| catalog.get("symbol_libraries"))
-            .and_then(Value::as_array)
-            .and_then(|libs| {
-                libs.iter().find_map(|lib| {
-                    lib.get("path")
-                        .and_then(Value::as_str)
-                        .filter(|path| path.starts_with(&shelf))
-                        .map(str::to_owned)
-                })
-            })
-            .ok_or("the added collection vanished from the list")?;
-        app.library.path = added_path;
-        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
-        let mut removed = false;
-        for _ in 0..80 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            if app.library.notice.contains("Removed") {
-                removed = true;
-                break;
-            }
-        }
-        assert!(removed, "removal reports back: {}", app.library.notice);
-        let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
-        assert!(
-            !saved.contains(&shelf),
-            "the forgotten folder is out of the config file"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn the_file_menu_is_where_you_open_save_and_start_a_design() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        let file = std::env::temp_dir()
-            .join(format!(
-                "pcbcraft-menu-save-{}.pcbcraft",
-                std::process::id()
-            ))
-            .to_string_lossy()
-            .into_owned();
-        app.path = file.clone();
-        let ctx = egui::Context::default();
-        for _ in 0..4 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        }
-        assert!(
-            !paints_text(&ctx, &mut app, "Project file")?,
-            "the old bottom file strip is gone; file jobs live in the File menu"
-        );
-        app.tool_call("sample_design", json!({}));
-        authoring::tests::tap(&ctx, &mut app, "File")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            !paints_text(&ctx, &mut app, "Load LED example")?,
-            "the example lives on the start screen, not in the menu"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Save")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.message.starts_with("save"),
-            "saving answers: {}",
-            app.message
-        );
-        assert!(
-            std::fs::metadata(&file).is_ok_and(|m| m.len() > 0),
-            "the design lands in the file the menu names"
-        );
-        authoring::tests::tap(&ctx, &mut app, "File")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.components.is_empty(),
-            "New empties the design: {} parts left",
-            app.project.components.len()
-        );
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Undo")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.message.starts_with("undo"),
-            "undo answers: {}",
-            app.message
-        );
-        assert!(
-            !app.project.components.is_empty(),
-            "undo brings the design back"
-        );
-        let _ = std::fs::remove_file(&file);
-        Ok(())
-    }
-    /// True when the named words appear anywhere on screen this frame or the
-    /// next two, so tests can assert what a person actually sees.
-    fn paints_text(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        for _ in 0..3 {
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            if output.shapes.iter().any(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape {
-                    return text.galley.text().contains(needle);
-                }
-                false
-            }) {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Scroll the left dock until `needle` appears, then turn the wheel a
-    /// little further so the rows just below it are on screen too.
-    fn scrolled_to(ctx: &egui::Context, app: &mut App, needle: &str) -> Result<bool, String> {
-        scrolled_to_at(ctx, app, needle, 150.0)
-    }
-
-    /// Same, but over a panel whose horizontal centre is at `x`: 150 is the
-    /// left dock, 300 the middle page (Rules, Settings, Checks).
-    fn scrolled_to_at(
-        ctx: &egui::Context,
-        app: &mut App,
-        needle: &str,
-        x: f32,
-    ) -> Result<bool, String> {
-        // One fixed pointer can land on a text field, which swallows the
-        // wheel; step down the same column so the scroll always finds a gap.
-        let lanes = [(x, 500.0), (x, 300.0), (x, 700.0), (x, 880.0)];
-        for step in 0..80 {
-            let (lane_x, lane_y) = lanes[step % lanes.len()];
-            // Small point-sized steps: a line-sized jump can sail a short
-            // button clean past the viewport between two polls.
-            let wheel = egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::vec2(0.0, -60.0),
-                phase: egui::TouchPhase::Move,
-                modifiers: egui::Modifiers::NONE,
-            };
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            let clickable = output.shapes.iter().any(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape
-                    && text.galley.text().contains(needle)
-                {
-                    let center = text.pos + text.galley.size() / 2.0;
-                    return shape.clip_rect.contains(center);
-                }
-                false
-            });
-            if clickable {
-                return Ok(true);
-            }
-            frame(
-                ctx,
-                app,
-                vec![egui::Event::PointerMoved(egui::pos2(lane_x, lane_y)), wheel],
-                egui::Modifiers::NONE,
-            );
-        }
-        Ok(false)
-    }
-
-    #[test]
-    fn a_drawn_shape_from_a_file_becomes_the_board_edge_and_back_again() -> Result<(), String> {
-        let file =
-            std::env::temp_dir().join(format!("pcbcraft-board-edge-{}.svg", std::process::id()));
-        std::fs::write(
-            &file,
-            r#"<svg width="30mm" height="20mm" stroke="none"><polygon points="1,1 29,1 29,19 15,19 1,12" stroke="edge"/><line x1="2mm" y1="2mm" x2="28mm" y2="2mm" stroke="artwork"/></svg>"#,
-        )
-        .map_err(|e| e.to_string())?;
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD EDGE", 300.0)?,
-            "the board's edge lives in its own plain-language section"
-        );
-        app.svg_path = file.to_string_lossy().into_owned();
-        for _ in 0..2 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Import as board edge")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let corners = app.project.board.outline.as_ref().map_or(0, |o| o.len());
-        assert!(
-            corners >= 3,
-            "the drawn shape became the board edge: {corners} corners"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Back to a plain rectangle")?,
-            "the shape explains itself and offers a way back"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Back to a plain rectangle")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .board
-                .outline
-                .as_ref()
-                .is_none_or(|o| o.len() < 3),
-            "the board is a plain rectangle again"
-        );
-        let _ = std::fs::remove_file(&file);
-        Ok(())
-    }
-
-    #[test]
-    fn switching_a_layer_off_hides_it_on_the_sheet_without_touching_the_design()
-    -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let revision = {
-            let session = app.session.lock().map_err(|_| "session unavailable")?;
-            session.revision
-        };
-        let wire_count = |app: &mut App, ctx: &egui::Context| -> Result<usize, String> {
-            let output = frame(ctx, app, vec![], egui::Modifiers::NONE);
-            Ok(output
-                .shapes
-                .iter()
-                .filter(|shape| {
-                    matches!(
-                        &shape.shape,
-                        egui::Shape::Path(path) if (path.stroke.width - 1.8).abs() < 0.01
-                    )
-                })
-                .count())
-        };
-        let ctx = egui::Context::default();
-        let before = wire_count(&mut app, &ctx)?;
-        assert!(before > 0, "the worked example is wired up");
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "Wires")?,
-            "the layers page lists wires as its own row"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Wires")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.preferences.hidden_layers.iter().any(|h| h == "Wires"),
-            "unticking the row hides the wires layer"
-        );
-        let after = wire_count(&mut app, &ctx)?;
-        assert!(
-            after < before,
-            "the wires vanish from the sheet: {before} strokes became {after}"
-        );
-        let now = {
-            let session = app.session.lock().map_err(|_| "session unavailable")?;
-            session.revision
-        };
-        assert_eq!(
-            now, revision,
-            "hiding a layer is only a view change; the design itself is untouched"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_searches_for_a_part_and_it_is_ready_to_place() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add part")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Search parts by name")?,
-            "the part search opens with a box that says what to type"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Search parts by name")?;
-        for letter in "resistor".chars() {
-            frame(
-                &ctx,
-                &mut app,
-                vec![egui::Event::Text(letter.into())],
-                egui::Modifiers::NONE,
-            );
-        }
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.part_search, "resistor",
-            "typing in the search box arrives letter by letter"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Resistor")?,
-            "the matching part stays in the list"
-        );
-        assert!(
-            !paints_text(&ctx, &mut app, "Capacitor")?,
-            "parts that do not match the search disappear from the list"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Resistor")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            matches!(&app.tool, Tool::Place(kind) if kind == "resistor"),
-            "picking the part arms the schematic to place it, got {:?}",
-            app.tool
-        );
-        assert_eq!(
-            app.tab,
-            Tab::Schematic,
-            "the sheet comes forward to receive it"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn selection_grows_handles_and_the_old_button_bar_is_gone() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            !paints_text(&ctx, &mut app, "Select  Esc")?,
-            "the wall of tool buttons is gone from the top"
-        );
-        assert!(
-            !paints_text(&ctx, &mut app, "Sync to PCB >")?,
-            "sync moved into the Edit menu"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Fit")?,
-            "a floating Fit control sits in the work area"
-        );
-        let first = app.project.components[0].id;
-        let before = app.project.components[0].rotation;
-        app.select(Some(first));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Rotate")?,
-            "a selected part grows a Rotate handle beside it"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Rotate")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let after = app
-            .project
-            .component(first)
-            .map(|c| c.rotation)
-            .unwrap_or(before);
-        assert!(
-            (after - before).abs() > 1e-6,
-            "the handle turns the part: {before} -> {after}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn the_nets_tab_adds_names_and_shines_a_spotlight() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.nets.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "New net")?,
-            "the layers tree offers a way to add a connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New net")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.nets.len(),
-            before + 1,
-            "one click adds one named connection"
-        );
-        let added = app.project.nets.len() - 1;
-        let fresh = app.project.nets[added].name.clone();
-        authoring::tests::tap(&ctx, &mut app, &fresh)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.highlight_net,
-            Some(app.project.nets[added].id),
-            "clicking a net lights it up on the board"
-        );
-        let fresh_id = app.project.nets[added].id;
-        app.net_draft = Some((fresh_id, "Flashlight".into()));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Use name")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .nets
-                .iter()
-                .any(|n| n.id == fresh_id && n.name == "Flashlight"),
-            "the rename sticks: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_puts_a_pin_on_a_connection_and_takes_it_back_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call(
-            "component.add",
-            json!({"kind":"resistor","reference":"R1","value":"330","position":{"x":40.0,"y":14.0}}),
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        assert!(
-            scrolled_to(&ctx, &mut app, "New net")?,
-            "the layers tree offers a way to add a connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New net")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(app.project.nets.len(), 1, "one click adds one connection");
-        assert!(
-            paints_text(&ctx, &mut app, "No pins on this connection yet.")?,
-            "a fresh connection says so plainly: {}",
-            app.message
-        );
-        assert!(
-            scrolled_to(&ctx, &mut app, "choose a spare pin")?,
-            "the new connection offers a pin picker: {}",
-            app.message
-        );
-        let net_id = app.project.nets[0].id;
-        let on_net = |app: &App| -> usize {
-            app.project
-                .components
-                .iter()
-                .flat_map(|c| c.pins.iter())
-                .filter(|p| p.net == Some(net_id))
-                .count()
-        };
-        assert_eq!(on_net(&app), 0, "the resistor starts unconnected");
-        authoring::tests::tap(&ctx, &mut app, "choose a spare pin")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1 pin 1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Connect")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            on_net(&app),
-            1,
-            "the chosen pin joins the connection: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "R1 pin 1")?,
-            "the pin is listed on the connection"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            on_net(&app),
-            0,
-            "one click takes the pin back off: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn the_make_files_section_writes_the_factory_folder() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let directory = std::env::temp_dir().join(format!("pcbcraft-make-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&directory);
-        app.make_dir = directory.to_string_lossy().into_owned();
-        let revision = app.revision;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..10 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "MAKE FILES", 300.0)?,
-            "the settings page should offer the factory files"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Copper & drill files")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let listed = |directory: &std::path::Path| -> Result<Vec<String>, String> {
-            std::fs::read_dir(directory)
-                .map_err(|e| format!("the folder should exist: {e}"))?
-                .filter_map(|entry| entry.ok())
-                .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned()))
-                .collect()
-        };
-        let names = listed(&directory)?;
-        assert!(
-            !names.is_empty(),
-            "copper and drill files should land in the folder: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Parts list (CSV)")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Net list")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Pick and place file")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Design report")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names = listed(&directory)?;
-        assert!(
-            names.iter().any(|n| n.ends_with(".csv"))
-                && names.iter().any(|n| n.ends_with(".net"))
-                && names.iter().any(|n| n == "placement.txt")
-                && names.iter().any(|n| n.ends_with(".txt")),
-            "every factory file should land in the folder: {names:?}"
-        );
-        assert_eq!(
-            app.revision, revision,
-            "writing files leaves the design itself untouched"
-        );
-        let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_clears_the_wiring_on_one_connection_then_the_whole_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let routed = app.project.board.tracks.len();
-        assert!(
-            routed > 0,
-            "routing a pad to pad should draw copper: {}",
-            app.message
-        );
-        let vcc = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.name == "VCC")
-            .map(|n| n.id)
-            .ok_or("the sample should have a VCC connection")?;
-        app.highlight_net = Some(vcc);
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Clear wiring on VCC")?,
-            "the lit connection gets its own clear item"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Clear wiring on VCC")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.tracks.len() < routed,
-            "the connection's copper lifts: {}",
-            app.message
-        );
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let routed = app.project.board.tracks.len();
-        assert!(
-            routed > 0,
-            "the copper should be back for the whole-board clear"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Edit")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Clear all wiring")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.tracks.len(),
-            0,
-            "the board starts over clean: {}",
-            app.message
-        );
-        assert_eq!(app.project.nets.len(), 3, "the connections themselves stay");
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_adds_a_rule_set_and_tunes_its_numbers() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No rule sets yet")?,
-            "a design without rule sets says so"
-        );
-        authoring::tests::tap(&ctx, &mut app, "New class")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.net_classes.len(),
-            1,
-            "one click adds one rule set: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Gap 0.200 mm")?,
-            "the new rule set shows its starting numbers"
-        );
-        let id = app.project.net_classes[0].id;
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.rule_draft = Some((id, 0.5, 0.6));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let class = &app.project.net_classes[0];
-        assert!(
-            (class.clearance - 0.5).abs() < 1e-9 && (class.width - 0.6).abs() < 1e-9,
-            "the tuned numbers stick: {} {} · {}",
-            class.clearance,
-            class.width,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes.is_empty(),
-            "the rule set is removed: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_puts_a_connection_under_a_rule_set_and_lets_it_go() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "New class")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let vcc = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.name == "VCC")
-            .map(|n| n.id)
-            .ok_or("the sample should have a VCC connection")?;
-        authoring::tests::tap(&ctx, &mut app, "choose a connection to put here")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "VCC")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Assign")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes[0].nets.contains(&vcc),
-            "the connection joins the rule set: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 nets")?,
-            "the row counts its connections"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.net_classes[0].nets.is_empty(),
-            "the connection is released to the defaults: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn the_start_screen_is_the_first_thing_a_newcomer_sees() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.home_open = true;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "New design")?,
-            "the start screen offers a blank page"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Worked example")?,
-            "the start screen offers something to explore"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Worked example")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            !app.home_open,
-            "picking the example leaves the start screen"
-        );
-        assert!(
-            !app.project.components.is_empty(),
-            "the example fills the design from one click"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn the_start_screen_lists_designs_you_can_open_again() -> Result<(), String> {
-        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-home-recents-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        let file = directory
-            .join("flashlight.pcbcraft")
-            .to_string_lossy()
-            .into_owned();
-        app.path = file.clone();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call("save", json!({"path": file}));
-        app.home_open = true;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "flashlight.pcbcraft")?,
-            "a design you saved is listed for one-click return"
-        );
-        let want = app.path.clone();
-        authoring::tests::tap(&ctx, &mut app, &want)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            !app.home_open,
-            "clicking a recent design opens it and leaves the start screen"
-        );
-        pcbcraft_engine::recents::clear_recent_paths();
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = None;
-        let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
-    fn the_library_split_pages_now_open_one_unified_page() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.change_tab(Tab::Libraries);
-        app.library.editor.mode = 1; // an old split-view selection
-        let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.library.editor.mode, 0,
-            "the separate project page is gone; one library shows everything"
-        );
-        assert_eq!(output.viewport_output.len(), 1, "the unified page paints");
-        Ok(())
-    }
-
-    #[test]
-    fn the_library_browser_groups_collections_by_the_source_they_came_from() {
-        let catalog = json!({"symbol_libraries":[
-            {"name":"Device","path":"/installed/Device.kicad_sym","source":"Installed collections"},
-            {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","source":"Digi-Key shelf"},
-            {"name":"R","path":"/installed/R.kicad_sym"}
-        ]});
-        let items = catalog["symbol_libraries"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        assert_eq!(
-            library::entry_source(&items[2]),
-            "Installed collections",
-            "an entry without a source tag still answers with one"
-        );
-        assert_eq!(
-            library::distinct_sources(&items),
-            vec!["Digi-Key shelf", "Installed collections"],
-            "every source is named once, in list order"
-        );
-    }
-
-    #[test]
-    fn the_libraries_tab_paints_the_unified_list_from_added_sources() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.change_tab(Tab::Libraries);
-        app.library.catalog = Some(json!({"symbol_libraries":[
-            {"name":"Device","path":"/installed/Device.kicad_sym","source":"Installed collections"},
-            {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","source":"Digi-Key shelf"}
-        ],"footprint_libraries":[],"scan_truncated":false}));
-        app.library.sources = Some(json!({"sources":[
-            {"name":"Digi-Key shelf","path":"/home/me/digikey","kind":"added","symbol_libraries":1,"footprint_libraries":0},
-            {"name":"Installed collections","path":"/usr/share/design-collections","kind":"built-in","symbol_libraries":1,"footprint_libraries":0}
-        ]}));
-        app.library.results = Some(json!({"total":2,"entries":[
-            {"name":"Device","path":"/installed/Device.kicad_sym","kind":"symbol"},
-            {"name":"DigiKeyParts","path":"/home/me/digikey/DigiKeyParts.kicad_sym","kind":"symbol"}
-        ]}));
-        let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            output.viewport_output.len(),
-            1,
-            "the unified library view paints"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn library_filter_narrows_listed_entries_by_name_or_description() {
-        let led = json!({"name":"LED","description":"light emitting diode"});
-        let resistor = json!({"name":"R","description":"resistor"});
-        assert!(
-            library::entry_matches(&led, ""),
-            "an empty filter shows everything"
-        );
-        assert!(
-            library::entry_matches(&led, "lig"),
-            "descriptions match too"
-        );
-        assert!(
-            library::entry_matches(&resistor, "RESIST"),
-            "the filter ignores case"
-        );
-        assert!(!library::entry_matches(&resistor, "led"));
-        assert!(!library::entry_matches(&led, "9"));
-    }
-    #[test]
-    fn control_tooltips_come_from_the_command_registry() -> Result<(), String> {
-        let registry = pcbcraft_engine::commands();
-        for id in [
-            "component.add",
-            "board.sync",
-            "board.resize",
-            "object.delete",
-        ] {
-            let want = registry
-                .iter()
-                .find(|spec| spec.id == id)
-                .map(|spec| spec.description)
-                .unwrap_or_default();
-            assert!(
-                !want.is_empty() && command_tip(id) == want,
-                "the tooltip for {id} must be the registry description"
-            );
-        }
-        assert_eq!(
-            command_tip("no.such_command"),
-            "This control runs an engine command.",
-            "an unmapped id still explains itself"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn empty_states_name_the_command_that_fills_the_panel() {
-        // Guidance must reference commands that actually exist, so a novice
-        // who follows the hint always finds a real command to run.
-        let registry: Vec<&str> = pcbcraft_engine::commands()
-            .iter()
-            .map(|spec| spec.id)
-            .collect();
-        for copy in [EMPTY_SYMBOLS, EMPTY_NETS, EMPTY_BOARD] {
-            for name in ["component.add", "netlist.import", "board.sync"] {
-                if copy.contains(name) {
-                    assert!(registry.contains(&name), "{name} must exist");
-                }
-            }
-            assert!(
-                copy.contains("component.add")
-                    || copy.contains("netlist.import")
-                    || copy.contains("board.sync"),
-                "empty guidance must name a filling command: {copy}"
-            );
-        }
-        assert!(EMPTY_CHECKS.contains("automatically"));
-    }
-
-    #[test]
-    fn no_control_asks_the_user_to_know_a_tool_brand() {
-        let brand = ["Ki", "Cad"].concat();
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut offenders = Vec::new();
-        for file in ["lib.rs", "canvas.rs", "library.rs", "authoring.rs"] {
-            let text = std::fs::read_to_string(dir.join(file)).unwrap_or_default();
-            for line in text.lines() {
-                let code = line.split("//").next().unwrap_or("");
-                if !code.contains('"') || !code.contains(&brand) {
-                    continue;
-                }
-                let allowed = code.contains("credits the")
-                    || code.contains("-derived data")
-                    || code.contains("LICENSE-")
-                    || code.contains(".contains(&brand)")
-                    || code.contains("code.contains");
-                if !allowed {
-                    offenders.push(format!("{file}: {}", code.trim()));
-                }
-            }
-        }
-        assert!(
-            offenders.is_empty(),
-            "buttons and labels must speak plainly, not name other tools: {offenders:?}"
-        );
-    }
-
-    #[test]
-    fn dragging_a_list_entry_onto_the_sheet_places_that_real_symbol() -> Result<(), String> {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../library/tests/fixtures/device.kicad_sym")
-            .to_string_lossy()
-            .into_owned();
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared.clone(), Preferences::default(), None, None);
-        app.refresh();
-        assert!(
-            !app.place_dropped_library(&json!({"kind": "footprint"}), Point::new(20.0, 15.0)),
-            "a footprint entry cannot be dropped on the schematic"
-        );
-        assert!(app.place_dropped_library(
-            &json!({"kind": "symbol", "path": path, "name": "R"}),
-            Point::new(20.0, 15.0)
-        ));
-        let placed = shared
-            .lock()
-            .map_err(|_| "session unavailable")?
-            .project
-            .components
-            .first()
-            .cloned();
-        let placed = placed.ok_or("the dropped entry never arrived")?;
-        assert!(
-            placed.library_symbol.is_some(),
-            "the drop places the library's own definition, not a template"
-        );
-        assert!(
-            (placed.position.x - 20.0).abs() < 2.0,
-            "the part lands where the pointer let go"
-        );
-        assert!(
-            matches!(app.tab, Tab::Schematic),
-            "the sheet shows the drop"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn designs_opened_on_this_computer_are_remembered_for_the_start_screen() -> Result<(), String> {
-        let _turn = pcbcraft_engine::recents::RECENTS_TEST_LOCK
-            .lock()
-            .map_err(|_| "test lock unavailable")?;
-        let directory =
-            std::env::temp_dir().join(format!("pcbcraft-ui-recents-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = Some(directory.join("recent-designs.json"));
-        pcbcraft_engine::recents::clear_recent_paths();
-        pcbcraft_engine::recents::record_recent_path("/designs/flashlight.board.json");
-        pcbcraft_engine::recents::record_recent_path("/designs/radio.board.json");
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        assert_eq!(
-            app.recent_designs,
-            vec![
-                "/designs/radio.board.json",
-                "/designs/flashlight.board.json"
-            ],
-            "the newest design leads the list"
-        );
-        let ctx = egui::Context::default();
-        let output = frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            output.viewport_output.len(),
-            1,
-            "the app keeps the recent list ready for the Start screen"
-        );
-        pcbcraft_engine::recents::clear_recent_paths();
-        *pcbcraft_engine::recents::RECENTS_PATH_TEST
-            .lock()
-            .map_err(|_| "test lock unavailable")? = None;
-        let _ = std::fs::remove_dir_all(&directory);
-        Ok(())
-    }
-
-    #[test]
-    fn every_control_hovers_a_plain_sentence_for_a_first_time_user() {
-        let click = [".button", "("].concat();
-        let pick = [".selectable_", "label("].concat();
-        let choice = [".selectable_", "value("].concat();
-        let tip = ["on_hover", "_text"].concat();
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let mut offenders = Vec::new();
-        for file in ["lib.rs", "canvas.rs", "library.rs", "authoring.rs"] {
-            let text = std::fs::read_to_string(dir.join(file)).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().collect();
-            for (n, line) in lines.iter().enumerate() {
-                let code = line.split("//").next().unwrap_or("");
-                if !(code.contains(&click) || code.contains(&pick) || code.contains(&choice)) {
-                    continue;
-                }
-                let window: String = lines[n.min(n)..(n + 10).min(lines.len())]
-                    .iter()
-                    .map(|l| l.split("//").next().unwrap_or(""))
-                    .collect();
-                if !window.contains(&tip) {
-                    offenders.push(format!("{file}:{}: {}", n + 1, code.trim()));
-                }
-            }
-        }
-        assert!(
-            offenders.is_empty(),
-            "every clickable control must explain itself on hover: {offenders:?}"
-        );
-    }
-
-    #[test]
-    fn every_editable_field_explains_its_bounds_and_effect() {
-        // The help copy for the inspector's free-form fields must state the
-        // same limits the engine enforces, so a novice never has to guess
-        // why a value was refused.
-        assert!(FIELD_HELP_VALUE.contains("name or value"));
-        assert!(FIELD_HELP_POSITION.contains("origin"));
-        assert!(FIELD_HELP_BOARD.contains("larger than zero"));
-        assert!(FIELD_HELP_CUTOUT.contains("inside the board"));
-    }
-
-    #[test]
-    fn shortcut_list_documents_every_binding_the_app_installs() {
-        let rows = shortcut_rows();
-        let keys: Vec<&str> = rows.iter().map(|(keys, _, _)| *keys).collect();
-        for wanted in ["Ctrl+Z", "Ctrl+K", "?", "W", "X", "Delete", "Esc"] {
-            assert!(
-                keys.contains(&wanted),
-                "the shortcut list must mention {wanted}"
-            );
-        }
-        let mut seen: Vec<&str> = keys.clone();
-        seen.sort_unstable();
-        let unique = {
-            let mut v = seen.clone();
-            v.dedup();
-            v
-        };
-        assert_eq!(seen.len(), unique.len(), "no key is listed twice");
-        for (keys, action, context) in &rows {
-            assert!(!keys.is_empty() && !action.is_empty());
-            assert!(
-                [
-                    "anywhere",
-                    "schematic tab",
-                    "pcb tab",
-                    "canvas",
-                    "command palette",
-                ]
-                .contains(context),
-                "{keys} claims an unknown context {context}"
-            );
-        }
-    }
-
-    #[test]
-    fn tool_hints_name_the_next_action_for_every_tool() {
-        let cases = [
-            (Tool::Place("resistor".into()), "symbol"),
-            (Tool::Wire(None), "first pin"),
-            (
-                Tool::Wire(Some(PinRef {
-                    component: 1,
-                    pin: "1".into(),
-                })),
-                "second pin",
-            ),
-            (Tool::Route(None), "first pad"),
-            (Tool::Route(Some((1, "1".into()))), "second pad"),
-            (Tool::Move, "drop"),
-            (Tool::Cutout, "cutout"),
-            (Tool::Hole, "mounting hole"),
-            (Tool::NoConnect, "unused"),
-            (Tool::Fiducial, "assembly"),
-        ];
-        for (tool, verb) in cases {
-            let hint = tool_hint(&tool);
-            assert!(
-                hint.contains(verb) && hint.contains("LMB") && hint.contains("Esc"),
-                "{verb} must be spelled out for the active tool: {hint}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Builds")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "No extra builds")?,
-            "a plain design says so: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "New build")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants.len(),
-            1,
-            "one click adds one build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "choose a part to leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "R1")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Leave off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let r1 = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference == "R1")
-            .map(|c| c.id)
-            .ok_or("the sample should have an R1")?;
-        assert!(
-            app.project.variants[0].dnp.contains(&r1),
-            "the build leaves R1 off: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "1 left off")?,
-            "the row counts what it skips"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.build_note = Some((app.project.variants[0].name.clone(), "no blue LED".into()));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Save note")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.variants[0].note.as_deref(),
-            Some("no blue LED"),
-            "the reminder is kept: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "no blue LED")?,
-            "the reminder shows on the row"
-        );
-        authoring::tests::tap(&ctx, &mut app, "\u{d7}")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants[0].dnp.is_empty(),
-            "the part is back on the build: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.variants.is_empty(),
-            "the build is gone: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_records_the_finish_and_thickness_of_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "HASL")?,
-            "the board shows the finish it ships with"
-        );
-        authoring::tests::tap(&ctx, &mut app, "HASL")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "ENIG")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.finish, "ENIG",
-            "the finish is recorded: {}",
-            app.message
-        );
-        app.notes_thick = 1.2;
-        app.notes_er = 4.2;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Set thickness")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Set substrate")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            (app.project.board.thickness - 1.2).abs() < 1e-9
-                && (app.project.board.er - 4.2).abs() < 1e-9,
-            "thickness and substrate are recorded: {} {} · {}",
-            app.project.board.thickness,
-            app.project.board.er,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Plated board edge")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project
-                .board
-                .machining
-                .as_ref()
-                .and_then(|m| m.edge_plating)
-                == Some(true),
-            "the edge plating note is kept: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_records_a_multilayer_board_stackup() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            scrolled_to(&ctx, &mut app, "Nothing recorded yet")?,
-            "a plain board says what it is: {}",
-            app.message
-        );
-        app.stack_name = "Core".into();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.layer_records.len(),
-            1,
-            "one layer is recorded: {}",
-            app.message
-        );
-        app.stack_name = "L2".into();
-        app.stack_kind = "copper".into();
-        app.stack_thickness = 0.035;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Add layer")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.layer_records.len(),
-            2,
-            "the stackup grows layer by layer: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "add up to 1.235 mm")?,
-            "the sheet totals the board: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Tune")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.stack_edit = Some(("L2".into(), "copper".into(), 0.05));
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Apply")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let l2 = app
-            .project
-            .board
-            .layer_records
-            .iter()
-            .find(|r| r.name == "L2")
-            .ok_or("L2 should still be in the stackup")?;
-        assert!(
-            (l2.thickness - 0.05).abs() < 1e-9 && l2.kind == "copper",
-            "the tuned layer keeps its new numbers: {} {} · {}",
-            l2.kind,
-            l2.thickness,
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Back to a plain two-layer board")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            app.project.board.layer_records.is_empty(),
-            "the stackup notes are forgotten: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_thickens_a_wire_with_one_click() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, middle) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| {
-                (
-                    t.id,
-                    Point::new((t.start.x + t.end.x) / 2.0, (t.start.y + t.end.y) / 2.0),
-                )
-            })
-            .ok_or("routing should have left a wire on the board")?;
-        app.change_tab(Tab::Pcb);
-        app.canvas_click(middle, 15.0);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "clicking the middle of a wire picks it up: {}",
-            app.message
-        );
-        app.track_width = 0.6;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Wire width")?,
-            "the picked wire's width is editable in the inspector: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Set width")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .tracks
-                .iter()
-                .any(|t| t.id == id && (t.width - 0.6).abs() < 1e-9),
-            "the wire is now half a millimetre across: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_hardens_the_junctions_for_the_etcher() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.run(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        app.refresh();
-        let teardrops = |app: &App| -> usize {
-            app.project
-                .board
-                .zones
-                .iter()
-                .filter(|zone| zone.kind.as_deref() == Some("teardrop"))
-                .count()
-        };
-        assert_eq!(
-            teardrops(&app),
-            0,
-            "a fresh route has no teardrops yet: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Harden junctions")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            teardrops(&app) > 0,
-            "one click grows teardrop copper at every joint: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove teardrops")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            teardrops(&app),
-            0,
-            "removing teardrops leaves the plain wires exactly as they were: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_learns_where_a_wire_s_size_comes_from() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (track, net, width) = app
-            .project
-            .board
-            .tracks
-            .first()
-            .map(|t| (t.id, t.net, t.width))
-            .ok_or("the practice board should have copper to inspect")?;
-        app.tool_call(
-            "netclass.add",
-            json!({"name": "Power", "clearance": 0.2, "width": width, "nets": [net]}),
-        );
-        app.select(Some(track));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let usual = format!("{width:.3} mm · the usual width for Power");
-        assert!(
-            paints_text(&ctx, &mut app, &usual)?,
-            "the properties panel should say the width came from the net class ({usual}): {}",
-            app.message
-        );
-        app.tool_call(
-            "track.set_width",
-            json!({"id": track, "width": width + 0.1}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let own = format!(
-            "{:.3} mm · chosen for this wire, not the usual {:.3} mm for Power",
-            width + 0.1,
-            width
-        );
-        assert!(
-            paints_text(&ctx, &mut app, &own)?,
-            "after widening one wire the panel should say it is no longer the class default ({own}): {}",
-            app.message
-        );
-        let equal = "0.200 mm · the board's usual gap, Power asks no more".to_string();
-        assert!(
-            paints_text(&ctx, &mut app, &equal)?,
-            "a class that asks no more than the board should say the gap is the board's ({equal}): {}",
-            app.message
-        );
-        let class_id = app
-            .project
-            .net_classes
-            .iter()
-            .find(|c| c.name == "Power")
-            .map(|c| c.id)
-            .ok_or("the class should still exist")?;
-        app.tool_call(
-            "netclass.clearance",
-            json!({"class": class_id, "clearance": 0.35}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let usual_gap = "0.350 mm · the usual gap for Power".to_string();
-        assert!(
-            paints_text(&ctx, &mut app, &usual_gap)?,
-            "a stricter class should own the gap note ({usual_gap}): {}",
-            app.message
-        );
-        let (other_id, other_name) = app
-            .project
-            .nets
-            .iter()
-            .find(|n| n.id != net)
-            .map(|n| (n.id, n.name.clone()))
-            .ok_or("the practice board should have another net")?;
-        app.tool_call(
-            "board.set_pair_rule",
-            json!({"net_a": net, "net_b": other_id, "clearance": 0.5}),
-        );
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let special = format!("0.500 mm away from {other_name}");
-        assert!(
-            paints_text(&ctx, &mut app, &special)?,
-            "a rule between two named nets should be listed beside the wire ({special}): {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_sees_findings_grouped_by_check() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let mut best: Option<(String, usize)> = None;
-        for key in ["erc", "drc"] {
-            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-                let mut counts: Vec<(String, usize)> = Vec::new();
-                for finding in findings {
-                    let code = finding
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("finding")
-                        .to_owned();
-                    if let Some(row) = counts.iter_mut().find(|(c, _)| *c == code) {
-                        row.1 += 1;
-                    } else {
-                        counts.push((code, 1));
-                    }
-                }
-                if let Some(top) = counts.iter().max_by_key(|(_, n)| *n)
-                    && best.as_ref().is_none_or(|(_, n)| top.1 > *n)
-                {
-                    best = Some(top.clone());
-                }
-            }
-        }
-        let (code, count) = best.ok_or("the practice board should have findings")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        let words = code.replace('_', " ");
-        let mut chars = words.chars();
-        let human = match chars.next() {
-            Some(first) => first
-                .to_uppercase()
-                .next()
-                .into_iter()
-                .chain(chars)
-                .collect::<String>(),
-            None => words,
-        };
-        let title = format!("{human} · {count} places");
-        let mut shown = false;
-        for _ in 0..10 {
-            if paints_text(&ctx, &mut app, &title)? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(720.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the checks list should group every place one check fired under one heading ({title}): {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Whether the wiring makes electrical sense")?,
-            "each checks group should say in plain words what it looks at: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    /// A board of ten thousand pads: forty packages of 256 pads each, spread
-    /// over the board with a track between neighbours, so the checks and a
-    /// window frame have real work to do.
-    fn large_board() -> Result<Project, String> {
-        let mut project = Project::default();
-        project.board.width = 240.0;
-        project.board.height = 180.0;
-        for net in 1..=8 {
-            project.nets.push(pcbcraft_doc::Net {
-                id: net,
-                name: format!("net {net}"),
-                ..Default::default()
-            });
-        }
-        // A package is a component of 64 pins and the placed footprint that
-        // holds them, laid out as an 8 by 8 pad grid.
-        let (columns, rows, spacing, packages) = (8u64, 8u64, 1.2, 160u64);
-        for package in 0..packages {
-            let id = 10 + package;
-            let origin = Point::new(
-                8.0 + (package % 16) as f64 * 14.0,
-                8.0 + (package / 16) as f64 * 17.0,
-            );
-            let mut pins = Vec::new();
-            let mut pads = Vec::new();
-            for pad in 0..columns * rows {
-                let number = (pad + 1).to_string();
-                let net = 1 + (pad % 8);
-                let offset = Point::new(
-                    (pad % columns) as f64 * spacing,
-                    (pad / columns) as f64 * spacing,
-                );
-                pins.push(pcbcraft_doc::Pin {
-                    number: number.clone(),
-                    name: number.clone(),
-                    offset,
-                    net: Some(net),
-                    electrical_type: "passive".into(),
-                    direction: None,
-                    unit: 1,
-                });
-                pads.push(pcbcraft_doc::Pad {
-                    number,
-                    offset,
-                    diameter: 0.8,
-                    net: Some(net),
-                    castellated: None,
-                    geometry: None,
-                });
-            }
-            project.components.push(pcbcraft_doc::Component {
-                id,
-                reference: format!("J{id}"),
-                value: "header".into(),
-                kind: "connector".into(),
-                position: origin,
-                rotation: 0.0,
-                pins,
-                units: Vec::new(),
-                library_symbol: None,
-                library_footprint: None,
-                fields: Vec::new(),
-                sheet: 0,
-            });
-            project.board.footprints.push(pcbcraft_doc::Footprint {
-                id: 2000 + package,
-                component: id,
-                position: origin,
-                rotation: 0.0,
-                locked: None,
-                pads,
-            });
-        }
-        // Copper between neighbours, so the airwire pass has work too.
-        for track in 0..400u64 {
-            let start = Point::new(
-                8.0 + (track % 16) as f64 * 14.0,
-                16.0 + (track / 16) as f64 * 17.0,
-            );
-            project.board.tracks.push(pcbcraft_doc::Track {
-                id: 5000 + track,
-                net: 1 + (track % 8),
-                start,
-                end: Point::new(start.x + 6.0, start.y),
-                width: 0.25,
-                layer: pcbcraft_doc::Layer::Front,
-                arc: None,
-            });
-        }
-        project.validate()?;
-        Ok(project)
-    }
-
-    /// The large-board bench: ten thousand pads through the copper checks and
-    /// a selection and pan frame, inside a budget that a shared runner can
-    /// still meet. Ignored in the normal run because the dev profile has no
-    /// optimisation; `cargo xtask bench` runs it in release.
-    #[test]
-    #[ignore = "timed bench: run with cargo xtask bench"]
-    fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
-        use std::time::{Duration, Instant};
-        let project = large_board()?;
-        let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
-        assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
-        // The structural promise of the broad phase: neighbouring copper only.
-        let (pairs, items) = pcbcraft_rules::copper_pair_candidates(&project);
-        assert!(
-            pairs <= items * 40,
-            "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
-        );
-        let started = Instant::now();
-        let findings = pcbcraft_rules::drc(&project);
-        let checks = started.elapsed();
-        assert!(
-            !findings.is_empty(),
-            "the bench board is dense enough to report findings"
-        );
-        let started = Instant::now();
-        let airwires = pcbcraft_rules::airwires(&project);
-        let wires = started.elapsed();
-        assert!(
-            airwires.len() <= items,
-            "one airwire per extra island at most"
-        );
-        eprintln!(
-            "bench: {items} copper items, {pairs} candidate pairs, checks {checks:?}, airwires {wires:?} ({} wires)",
-            airwires.len()
-        );
-        // A window frame with this board on the PCB tab: paint, then a pan.
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        shared
-            .lock()
-            .map_err(|_| "the design is busy".to_string())?
-            .replace(project)
-            .map_err(|e| e.to_string())?;
-        let mut app =
-            App::create_with_recovery(shared, Preferences::default(), None, Some("pcb"), None);
-        app.refresh();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let started = Instant::now();
-        for step in 0..5 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(600.0 + step as f32, 500.0)),
-                    egui::Event::PointerButton {
-                        pos: egui::pos2(600.0, 500.0),
-                        button: egui::PointerButton::Primary,
-                        pressed: true,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        let painted = started.elapsed();
-        // Generous ceilings: a shared runner is several times slower than a
-        // workstation, and a regression of the old quadratic scans is minutes.
-        assert!(
-            checks < Duration::from_secs(20),
-            "the copper checks on ten thousand pads took {checks:?}"
-        );
-        assert!(
-            painted < Duration::from_secs(20),
-            "five selection frames on ten thousand pads took {painted:?}"
-        );
-        eprintln!("bench: five frames {painted:?}");
-        Ok(())
-    }
-
-    /// A killed app leaves a snapshot behind; the next launch asks before it
-    /// opens it, and saying yes brings the work back as unsaved changes.
-    #[test]
-    fn a_newcomer_gets_offered_the_work_a_crash_left_behind() -> Result<(), String> {
-        let dir = std::env::temp_dir().join(format!("pcbcraft-ui-recovery-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        // A design somebody was drawing when the app died: one connection and
-        // one track, autosaved, and then the process went away.
-        let crashed = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        {
-            let mut session = crashed
-                .lock()
-                .map_err(|_| "the design is busy".to_string())?;
-            let net = session
-                .execute("net.create", json!({"name": "SIG"}), None)
-                .map_err(|e| e.to_string())?["result"]["id"]
-                .as_u64()
-                .ok_or("a new connection has an id")?;
-            session
-                .execute(
-                    "track.add",
-                    json!({"net":net,"start":{"x":10.0,"y":10.0},"end":{"x":30.0,"y":10.0},"width":0.3,"layer":"F.Cu"}),
-                    None,
-                )
-                .map_err(|e| e.to_string())?;
-            let mut slot = pcbcraft_engine::recovery::Autosaver::new(&dir)?;
-            slot.tick(&session, None)?;
-            // Dropping the slot is the crash: the lock goes, the snapshot stays.
-        }
-        assert!(
-            !pcbcraft_engine::recovery::orphans(&dir).is_empty(),
-            "the snapshot outlives the app"
-        );
-
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create_with_recovery(
-            shared,
-            Preferences::default(),
-            None,
-            None,
-            Some(dir.clone()),
-        );
-        let ctx = egui::Context::default();
-        assert!(
-            paints_text(&ctx, &mut app, "Pick up where you left off")?,
-            "the next launch should ask instead of restoring silently"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "never saved")?,
-            "the offer should say what is in the snapshot: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Recover")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.project.board.tracks.len(),
-            1,
-            "the snapshot is open again: {}",
-            app.message
-        );
-        assert_eq!(
-            app.saved_revision, None,
-            "recovered work counts as unsaved until it is saved"
-        );
-        assert!(
-            pcbcraft_engine::recovery::orphans(&dir).is_empty(),
-            "the snapshot that was opened is not offered again"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_reads_the_status_strip() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Tool: Pick")?,
-            "the status strip should say what a click does: {}",
-            app.message
-        );
-        let pct = (app.schematic.zoom / 15.0 * 100.0).round() as i32;
-        let zoom_label = format!("{pct}%");
-        assert!(
-            paints_text(&ctx, &mut app, &zoom_label)?,
-            "the status strip should show the zoom level ({zoom_label}): {}",
-            app.message
-        );
-        let mut mind = 0usize;
-        for key in ["erc", "drc"] {
-            if let Some(findings) = app.checks.get(key).and_then(serde_json::Value::as_array) {
-                for finding in findings {
-                    let code = finding
-                        .get("code")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("finding");
-                    if app.project.rule_severity(code, "warning") != "error" {
-                        mind += 1;
-                    }
-                }
-            }
-        }
-        assert!(
-            mind > 0,
-            "the practice board should leave something to mind"
-        );
-        let mind_label = format!("{mind} to mind");
-        assert!(
-            paints_text(&ctx, &mut app, &mind_label)?,
-            "the status strip should count the warnings ({mind_label}): {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &mind_label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.tab,
-            Tab::Checks,
-            "tapping the warning count should open the checks list: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_chooses_a_board_shape() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        let mut shown = false;
-        for _ in 0..8 {
-            if paints_text(&ctx, &mut app, "START FROM A SHAPE")? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the layers dock should offer ready-made board shapes: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Four layers")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names: Vec<String> = self_names(&app);
-        assert_eq!(
-            names.len(),
-            7,
-            "the four-layer shape should record seven layers: {names:?}"
-        );
-        assert!(
-            names.iter().any(|n| n == "Inner 1"),
-            "the four-layer shape should add inner copper planes: {names:?}"
-        );
-        authoring::tests::tap(&ctx, &mut app, "Two layers · 1.6 mm")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let names = self_names(&app);
-        assert_eq!(
-            names.len(),
-            3,
-            "the starter shape should replace the four-layer stack with three layers: {names:?}"
-        );
-        Ok(())
-    }
-
-    fn self_names(app: &App) -> Vec<String> {
-        app.project
-            .board
-            .layer_records
-            .iter()
-            .map(|r| r.name.clone())
-            .collect()
-    }
-
-    #[test]
-    fn a_newcomer_walks_the_board_anatomy() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "track.route",
-            json!({"from":{"footprint":10,"pad":"1"},"to":{"footprint":11,"pad":"1"},"layer":"F.Cu"}),
-        );
-        let (id, label) = app
-            .project
-            .board
-            .tracks
-            .iter()
-            .rev()
-            .find(|t| t.layer == pcbcraft_doc::Layer::Front)
-            .map(|t| {
-                (
-                    t.id,
-                    format!(
-                        "Wire · {:.2} mm · {} · at {}, {}",
-                        t.width,
-                        app.project.net_name(t.net),
-                        t.start.x.round(),
-                        t.start.y.round()
-                    ),
-                )
-            })
-            .ok_or("routing should leave a wire on the top layer")?;
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Layers")?;
-        let mut shown = false;
-        for _ in 0..14 {
-            if paints_text(&ctx, &mut app, "BOARD ANATOMY")? {
-                shown = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            shown,
-            "the layers dock should list every piece of the board: {}",
-            app.message
-        );
-        let mut seen = false;
-        for _ in 0..12 {
-            if paints_text(&ctx, &mut app, "Top copper wires")? {
-                seen = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            seen,
-            "the anatomy list should show the top copper wires layer: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Top copper wires")?;
-        let mut row = false;
-        for _ in 0..18 {
-            if paints_text(&ctx, &mut app, &label)? {
-                row = true;
-                break;
-            }
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            row,
-            "the top copper layer should show the drawn wire {label}: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert_eq!(
-            app.selected,
-            Some(id),
-            "picking the wire in the tree selects it on the drawing: {}",
-            app.message
-        );
-        assert_eq!(
-            app.tab,
-            Tab::Pcb,
-            "the drawing jumps to the board so the pick is visible"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_prints_words_on_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.texts.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD LABELS", 300.0)?,
-            "the board panel should offer printed words: {}",
-            app.message
-        );
-        app.label_text = "Widget One".into();
-        app.label_x = 3.0;
-        app.label_y = 2.0;
-        app.label_size = 1.2;
-        app.label_front = false;
-        scrolled_to_at(&ctx, &mut app, "Add label", 300.0)?;
-        authoring::tests::tap(&ctx, &mut app, "Add label")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.texts.len(),
-            before + 1,
-            "one line of words lands on the board: {}",
-            app.message
-        );
-        let label = app
-            .project
-            .board
-            .texts
-            .last()
-            .ok_or("the label should be on the board")?;
-        assert!(
-            label.text == "Widget One"
-                && label.layer == pcbcraft_doc::Layer::Back
-                && (label.position.x - 3.0).abs() < 1e-9
-                && (label.size - 1.2).abs() < 1e-9,
-            "the label carries the words, side, spot and letter height that were set"
-        );
-        for _ in 0..3 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(1300.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "Widget One · Bottom")?,
-            "the printed words are listed so they can be wiped: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Erase")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.texts.len(),
-            before,
-            "erasing wipes exactly that line of words: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_marks_a_stricter_corner() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let before = app.project.board.rule_areas.len();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..22 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "BOARD AREAS", 300.0)?,
-            "the rules page should offer stricter corners: {}",
-            app.message
-        );
-        app.area_x = 1.0;
-        app.area_y = 1.0;
-        app.area_w = 4.0;
-        app.area_h = 4.0;
-        app.area_gap = 0.5;
-        app.area_limited = true;
-        app.area_height = 3.0;
-        authoring::tests::tap(&ctx, &mut app, "Add area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.rule_areas.len(),
-            before + 1,
-            "one stricter corner is marked on the board: {}",
-            app.message
-        );
-        let area = app
-            .project
-            .board
-            .rule_areas
-            .last()
-            .ok_or("the area should be on the board")?;
-        assert!(
-            (area.clearance - 0.5).abs() < 1e-9 && area.max_height == Some(3.0),
-            "the area carries the gap and height limit that were typed"
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Stricter areas on the board")?,
-            "the area is listed so it can be erased: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Erase area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.rule_areas.len(),
-            before,
-            "erasing hands the corner back to the normal rules: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_declares_a_pair_of_connections() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..18 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            scrolled_to_at(&ctx, &mut app, "DIFFERENTIAL PAIRS", 300.0)?,
-            "the rules page should offer team lines: {}",
-            app.message
-        );
-        app.dp_gap = 0.3;
-        authoring::tests::tap(&ctx, &mut app, "Declare pair")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .diff_pairs
-                .iter()
-                .any(|d| d.name == "USB" && (d.gap - 0.3).abs() < 1e-9 && d.net_p != d.net_n),
-            "one click declares the pair with the typed gap: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Pairs you have declared")?,
-            "the pair is listed so it can be taken away: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Remove")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.diff_pairs.is_empty(),
-            "removing stops the checks watching the pair: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_keeps_two_connections_apart() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        assert!(
-            app.project.nets.len() >= 2,
-            "the practice design has more than one connection"
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        for _ in 0..14 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "PAIR CLEARANCES")?,
-            "the rules dock should offer pair spacing: {}",
-            app.message
-        );
-        app.pair_clearance = 0.9;
-        authoring::tests::tap(&ctx, &mut app, "Set spacing")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .board
-                .pair_rules
-                .iter()
-                .any(|r| r.clearance > 0.89 && r.a != r.b),
-            "one click sets a spacing rule between two different connections: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "away from")?,
-            "the rule is listed in plain words: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Clear")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.board.pair_rules.is_empty(),
-            "clearing hands the pair back to the normal rules: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_quiets_a_check_that_nags() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Rules")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        for _ in 0..2 {
-            frame(
-                &ctx,
-                &mut app,
-                vec![
-                    egui::Event::PointerMoved(egui::pos2(150.0, 500.0)),
-                    egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: egui::vec2(0.0, -4.0),
-                        phase: egui::TouchPhase::Move,
-                        modifiers: egui::Modifiers::NONE,
-                    },
-                ],
-                egui::Modifiers::NONE,
-            );
-        }
-        assert!(
-            paints_text(&ctx, &mut app, "HOW STRICT TO BE")?,
-            "the rules dock should also say how loud each check is: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "off")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project.rule_disabled("missing_footprint"),
-            "the bottom check is silenced by one click: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Auto")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            !app.project.rule_severity.contains_key("missing_footprint"),
-            "Auto hands the choice back to the built-in default: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_silences_a_check_around_a_spot() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let total = |app: &App| -> usize {
-            ["erc", "drc"]
-                .iter()
-                .map(|k| {
-                    app.checks
-                        .get(*k)
-                        .and_then(Value::as_array)
-                        .map_or(0, |v| v.len())
-                })
-                .sum()
-        };
-        let before = total(&app);
-        assert!(
-            before > 0,
-            "the practice board has findings to quiet: {}",
-            app.message
-        );
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Quiet this area")?,
-            "every finding offers to quiet its corner of the board: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Quiet this area")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        let code = app
-            .project
-            .rule_regions
-            .keys()
-            .next()
-            .cloned()
-            .ok_or("one click should draw a quiet zone")?;
-        assert!(
-            total(&app) < before,
-            "the finding inside that zone stops nagging: {}",
-            app.message
-        );
-        assert!(
-            paints_text(&ctx, &mut app, "Quiet zones")?,
-            "the quiet zones are listed so they can be cleared: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &format!("Clear {code} zones"))?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            app.project
-                .rule_regions
-                .get(&code)
-                .is_none_or(|v| v.is_empty()),
-            "clearing hands the whole board back to the check: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_hides_a_finding_they_have_checked() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        app.tool_call(
-            "component.add",
-            json!({"kind":"resistor","position":{"x":20.0,"y":20.0},"reference":"R9"}),
-        );
-        let r9 = |app: &App| -> usize {
-            app.checks
-                .get("erc")
-                .and_then(Value::as_array)
-                .map(|rows| {
-                    rows.iter()
-                        .filter(|r| {
-                            r.get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .contains("R9")
-                        })
-                        .count()
-                })
-                .unwrap_or(0)
-        };
-        let total = |app: &App| -> usize {
-            ["erc", "drc"]
-                .iter()
-                .map(|k| {
-                    app.checks
-                        .get(*k)
-                        .and_then(Value::as_array)
-                        .map_or(0, |v| v.len())
-                })
-                .sum()
-        };
-        assert!(
-            r9(&app) == 2 && total(&app) > 2,
-            "the stray part adds two findings to a board that already has some copper to flag: {}",
-            app.message
-        );
-        let before = total(&app);
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Checks")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Hide this")?,
-            "every finding offers to be hidden: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, "Hide this")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert!(
-            total(&app) < before,
-            "hiding one finding takes it out of the list: {}",
-            app.message
-        );
-        let code = app
-            .project
-            .rule_exclusions
-            .keys()
-            .next()
-            .cloned()
-            .ok_or("a hidden finding should be remembered by its check")?;
-        let label = format!("Bring back {code}");
-        assert!(
-            paints_text(&ctx, &mut app, &label)?,
-            "the app keeps a way back for everything hidden: {}",
-            app.message
-        );
-        authoring::tests::tap(&ctx, &mut app, &label)?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            total(&app),
-            before,
-            "bringing it back shows every hidden finding again: {}",
-            app.message
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_cuts_a_round_hole_in_the_board() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        authoring::tests::tap(&ctx, &mut app, "Settings")?;
-        assert!(
-            paints_text(&ctx, &mut app, "CUT-OUT HOLE")?,
-            "the board geometry section should offer a hole: {}",
-            app.message
-        );
-        let before = app.project.board.cutouts.len();
-        app.cut_x = 25.0;
-        app.cut_y = 20.0;
-        app.cut_r = 1.5;
-        authoring::tests::tap(&ctx, &mut app, "Add hole")?;
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        app.refresh();
-        assert_eq!(
-            app.project.board.cutouts.len(),
-            before + 1,
-            "one more hole is cut into the board: {}",
-            app.message
-        );
-        let hole = app
-            .project
-            .board
-            .cutouts
-            .iter()
-            .find(|h| (h.center.x - 25.0).abs() < 1e-9 && (h.center.y - 20.0).abs() < 1e-9)
-            .ok_or("the hole should sit exactly where it was placed")?;
-        assert!(
-            (hole.radius - 1.5).abs() < 1e-9,
-            "the hole should be exactly the size that was typed"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_newcomer_copies_a_part_with_one_click() -> Result<(), String> {
-        let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
-        let mut app = App::create(shared, Preferences::default(), None, None);
-        app.refresh();
-        app.tool_call("sample_design", json!({}));
-        let resistor = app
-            .project
-            .components
-            .iter()
-            .find(|c| c.reference.starts_with('R'))
-            .map(|c| c.id)
-            .ok_or("the practice design should carry a resistor")?;
-        app.select(Some(resistor));
-        app.refresh();
-        let refs: Vec<String> = app
-            .project
-            .components
-            .iter()
-            .map(|c| c.reference.clone())
-            .collect();
-        let ctx = egui::Context::default();
-        frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        assert!(
-            paints_text(&ctx, &mut app, "Duplicate")?,
-            "a chosen part offers to be copied: {}",
-            app.message
->>>>>>> theirs
         );
         assert_eq!(
             find(track, "Width").as_deref(),
@@ -11716,21 +8256,9 @@ mod tests {
         app.change_tab(Tab::Libraries);
         app.refresh();
         let ctx = egui::Context::default();
-<<<<<<< ours
         frames_until(&ctx, &mut app, 400, |app| {
             app.library.catalog.is_some() && app.library.sources.is_some()
         });
-=======
-        // A worker thread answers; wait for it by the clock (up to 20 s)
-        // rather than by a frame count, so a loaded machine only slows this.
-        for _ in 0..4000 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            if app.library.catalog.is_some() && app.library.sources.is_some() {
-                break;
-            }
-        }
->>>>>>> theirs
         assert!(
             app.library.catalog.is_some(),
             "the catalog arrives on its own"
@@ -11742,24 +8270,9 @@ mod tests {
         .to_string_lossy()
         .into_owned();
         app.library.new_source = shelf.clone();
-<<<<<<< ours
         let added = press_until(&ctx, &mut app, "Add folder", |app| {
             app.library.notice.contains("Added")
         })?;
-=======
-        authoring::tests::tap(&ctx, &mut app, "Add folder")?;
-        let mut added = false;
-        // A worker thread answers; wait for it by the clock (up to 20 s)
-        // rather than by a frame count, so a loaded machine only slows this.
-        for _ in 0..4000 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            if app.library.notice.contains("Added") {
-                added = true;
-                break;
-            }
-        }
->>>>>>> theirs
         assert!(
             added,
             "adding the folder reports back: {}",
@@ -11771,19 +8284,8 @@ mod tests {
             saved.contains(&shelf),
             "the folder is remembered in the config file"
         );
-<<<<<<< ours
         let listed = frames_until(&ctx, &mut app, 400, |app| {
             app.library
-=======
-        let mut listed = false;
-        // A worker thread answers; wait for it by the clock (up to 20 s)
-        // rather than by a frame count, so a loaded machine only slows this.
-        for _ in 0..4000 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            listed = app
-                .library
->>>>>>> theirs
                 .catalog
                 .as_ref()
                 .and_then(|catalog| catalog.get("symbol_libraries"))
@@ -11816,24 +8318,9 @@ mod tests {
             })
             .ok_or("the added collection vanished from the list")?;
         app.library.path = added_path;
-<<<<<<< ours
         let removed = press_until(&ctx, &mut app, "Remove source", |app| {
             app.library.notice.contains("Removed")
         })?;
-=======
-        authoring::tests::tap(&ctx, &mut app, "Remove source")?;
-        let mut removed = false;
-        // A worker thread answers; wait for it by the clock (up to 20 s)
-        // rather than by a frame count, so a loaded machine only slows this.
-        for _ in 0..4000 {
-            frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-            std::thread::sleep(std::time::Duration::from_millis(5));
-            if app.library.notice.contains("Removed") {
-                removed = true;
-                break;
-            }
-        }
->>>>>>> theirs
         assert!(removed, "removal reports back: {}", app.library.notice);
         let saved = std::fs::read_to_string(file).map_err(|_| "config vanished")?;
         assert!(
