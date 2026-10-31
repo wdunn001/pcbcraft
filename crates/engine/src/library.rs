@@ -564,7 +564,8 @@ fn source_rank(source: ListingSource) -> u8 {
         ListingSource::Fixture | ListingSource::Generated => 0,
         ListingSource::Project => 1,
         ListingSource::Installed => 2,
-        ListingSource::Distributor => 3,
+        ListingSource::OpenLibrary => 3,
+        ListingSource::Distributor => 4,
     }
 }
 
