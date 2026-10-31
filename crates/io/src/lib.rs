@@ -44,6 +44,7 @@ mod idf;
 mod laser;
 mod layers;
 mod library_render;
+mod compliance_list;
 mod machine_profile;
 mod import_cache;
 mod model_cache;
@@ -173,8 +174,11 @@ pub use layers::{
     legend_shapes,
 };
 use library_render::*;
-pub use interface_profile::{
-    interface_profile_content_hash, interface_profile_from_toml, interface_profile_to_toml,
+pub use compliance_list::{
+    EntityMatch, EntityMatchConfidence, ListUpdateSummary, builtin_compliance_list,
+    builtin_compliance_list_ids, bundled_list_name_tokens, collect_snapshot_tokens,
+    compliance_list_from_toml, compliance_list_to_toml, diff_compliance_lists,
+    match_entity_name, normalize_compliance_name, snapshot_staleness_note,
 };
 pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,

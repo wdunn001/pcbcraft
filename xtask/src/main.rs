@@ -17,8 +17,7 @@
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
-mod a11y;
-mod coverage;
+mod compliance_lists;
 mod doc_check;
 mod e2e;
 mod i18n;
@@ -517,6 +516,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
 /// clippy; this check makes sure nothing quietly opts out of it.
 fn lint_policy() -> Result<(), String> {
     let root = root()?;
+    compliance_lists::run(&root)?;
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
     if !manifest.contains("unsafe_code = \"forbid\"") {
         return Err("workspace lints must keep unsafe_code = \"forbid\"".into());

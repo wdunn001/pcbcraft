@@ -12,7 +12,7 @@
 //! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
-pub mod collab;
+pub mod compliance_lists;
 mod dry_run;
 mod images;
 pub mod design_document;
@@ -2454,6 +2454,46 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
             ),
         ),
         (
+            "compliance.lists",
+            "List compliance list snapshots installed on this computer with retrieval dates and entry counts",
+            schema(json!({}), &[]),
+        ),
+        (
+            "compliance.lists_update",
+            "Import a compliance list snapshot from a file, inline text or (when network use is allowed) a published HTTPS URL; validates the file and records what entries were added or removed",
+            schema(
+                json!({
+                    "path":{"type":"string","maxLength":4096},
+                    "text":{"type":"string"},
+                    "url":{"type":"string","maxLength":2048},
+                    "allow_network":{"type":"boolean","default":false}
+                }),
+                &[],
+            ),
+        ),
+        (
+            "compliance.entity_match",
+            "Match a manufacturer or entity name against one installed list using normalised names, aliases and a lower-confidence near-name pass",
+            schema(
+                json!({
+                    "list_id":{"type":"string","minLength":1,"maxLength":64},
+                    "name":{"type":"string","minLength":1,"maxLength":256}
+                }),
+                &["list_id", "name"],
+            ),
+        ),
+        (
+            "compliance.list_staleness",
+            "Report whether a list snapshot is older than its cadence and return a note suitable for findings and reports",
+            schema(
+                json!({
+                    "list_id":{"type":"string","minLength":1,"maxLength":64},
+                    "today":{"type":"string","minLength":1,"maxLength":32}
+                }),
+                &["list_id", "today"],
+            ),
+        ),
+        (
             "placement_yy1.export",
             "Write the NeoDen YY1 placement file for one or both sides and the feeder sheet into a folder, using a pick and place machine profile recorded on the design. Reads the design and records nothing",
             schema(
@@ -2738,9 +2778,10 @@ impl Session {
         params: Value,
         expected: Option<u64>,
     ) -> Result<Value, Error> {
-        if datasheet_annotations::is_profile_command(id) {
+        if compliance_lists::command_is_host_only(id) {
             self.check_revision(expected)?;
-            let result = datasheet_annotations::run_profile(id, &params).map_err(Error::Invalid)?;
+            let result =
+                compliance_lists::run_host_command(id, &params).map_err(Error::Invalid)?;
             return Ok(json!({"revision": self.revision, "result": result}));
         }
         if artifacts::command_is_read_only(id) {
@@ -2790,10 +2831,31 @@ impl Session {
         }
         if commands
             .iter()
+            .all(|c| compliance_lists::command_is_host_only(&c.command))
+        {
+            let mut results = vec![];
+            for command in commands {
+                results.push(
+                    compliance_lists::run_host_command(&command.command, &command.params)
+                        .map_err(Error::Invalid)?,
+                );
+            }
+            return Ok(json!({"revision": self.revision, "results": results}));
+        }
+        if commands
+            .iter()
             .any(|c| artifacts::command_is_read_only(&c.command))
         {
             return Err(Error::Invalid(
                 "read-only artifact commands cannot be batched".into(),
+            ));
+        }
+        if commands
+            .iter()
+            .any(|c| compliance_lists::command_is_host_only(&c.command))
+        {
+            return Err(Error::Invalid(
+                "compliance list commands cannot be batched with design edits".into(),
             ));
         }
         let post_revision = self.revision.saturating_add(1);
