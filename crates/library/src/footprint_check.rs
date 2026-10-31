@@ -290,6 +290,24 @@ fn check_courtyard_grid(def: &FootprintDefinition, findings: &mut Vec<FootprintF
     }
 }
 
+/// Half width and half height of the courtyard rectangle in millimetres, when one is drawn.
+///
+/// # Rules
+/// - Uses the `pcbcraft.courtyard` rectangle when present.
+///
+/// # Dependencies
+/// - crates/library/src/footprint_check.rs `courtyard_rectangle`
+///
+/// # Do not
+/// - Include silk or fab bounds; courtyard layer only.
+pub fn courtyard_half_extents(def: &FootprintDefinition) -> Option<(f64, f64)> {
+    let (min, max) = courtyard_rectangle(def)?;
+    Some((
+        min.x.abs().max(max.x.abs()),
+        min.y.abs().max(max.y.abs()),
+    ))
+}
+
 fn courtyard_rectangle(def: &FootprintDefinition) -> Option<(Point, Point)> {
     for graphic in &def.graphics {
         #[allow(clippy::collapsible_if)]

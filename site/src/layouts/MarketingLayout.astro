@@ -42,7 +42,6 @@ const canonical = new URL(Astro.url.pathname, Astro.site).href;
     <header class="site-header">
       <div class="inner">
         <SiteHeader>
-          <a slot="search" class="search-link" href={url('docs/')} title="Open the documentation and its search">Search docs</a>
           <ThemeToggle slot="theme" />
         </SiteHeader>
       </div>

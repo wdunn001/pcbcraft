@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>datasheet spike wasm check</title>
+<pre id="out">running</pre>
+<script>
+// Loads spike.wasm, opens each PDF named in ?pdfs=a.pdf,b.pdf (served beside this page), renders
+// page 1 at 150 dpi, searches for ?q=, and prints one JSON line per file into #out.
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const files = (q.get('pdfs') || '').split(',').filter(Boolean);
+  const needle = q.get('q') || '';
+  const lines = [];
+  try {
+    const t0 = performance.now();
+    const { instance } = await WebAssembly.instantiateStreaming(fetch('spike.wasm'), {});
+    const x = instance.exports;
+    lines.push({ loaded_ms: Math.round(performance.now() - t0), wasm_mem_mb: x.memory.buffer.byteLength / 1048576 });
+    for (const f of files) {
+      const r = { file: f };
+      try {
+        const bytes = new Uint8Array(await (await fetch(f)).arrayBuffer());
+        const p = x.spike_alloc(bytes.length);
+        new Uint8Array(x.memory.buffer, p, bytes.length).set(bytes);
+        let t = performance.now();
+        r.pages = x.spike_open(p, bytes.length);
+        r.open_ms = Math.round(performance.now() - t);
+        t = performance.now();
+        const wh = x.spike_render(0, 150);
+        r.render_ms = Math.round(performance.now() - t);
+        r.w = wh >>> 16; r.h = wh & 0xffff;
+        if (r.w) {
+          const px = new Uint8Array(x.memory.buffer, x.spike_out_ptr(), r.w * r.h * 4);
+          let ink = 0;
+          for (let i = 0; i < px.length; i += 4) if (px[i] < 128) ink++;
+          r.ink_pct = +(100 * ink / (r.w * r.h)).toFixed(2);
+        }
+        if (needle) {
+          const nb = new TextEncoder().encode(needle);
+          const np = x.spike_alloc(nb.length);
+          new Uint8Array(x.memory.buffer, np, nb.length).set(nb);
+          t = performance.now();
+          r.hits = x.spike_search(0, np, nb.length);
+          r.search_ms = Math.round(performance.now() - t);
+        }
+        r.mem_mb = x.memory.buffer.byteLength / 1048576;
+      } catch (e) { r.error = String(e); }
+      lines.push(r);
+    }
+  } catch (e) { lines.push({ fatal: String(e) }); }
+  document.getElementById('out').textContent = 'RESULT ' + JSON.stringify(lines);
+})();
+</script>
