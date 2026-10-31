@@ -157,7 +157,6 @@ struct PendingPage {
 struct PageDraft {
     sheet_id: u64,
     sheet_name: String,
-    sheet_uuid: Option<String>,
     components: Vec<Component>,
     wires: Vec<Vec<Point>>,
     junctions: Vec<Point>,
@@ -201,7 +200,7 @@ impl ImportCtx {
     fn parse_page(
         &mut self,
         sheet_id: u64,
-        sheet_uuid: Option<String>,
+        _sheet_uuid: Option<String>,
         parent_links: Vec<(String, u64, Point)>,
         root: &Node,
         source: &str,
@@ -224,7 +223,6 @@ impl ImportCtx {
         let mut draft = PageDraft {
             sheet_id,
             sheet_name,
-            sheet_uuid,
             components: Vec::new(),
             wires: Vec::new(),
             junctions: Vec::new(),
@@ -452,10 +450,10 @@ impl ImportCtx {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("GND")
                 .to_owned();
-            if let Some(pin) = component.pins.first() {
-                if let Some(pos) = component.pin_position(&pin.number) {
-                    draft.power_nets.push((net_name, pos));
-                }
+            if let Some(pin) = component.pins.first()
+                && let Some(pos) = component.pin_position(&pin.number)
+            {
+                draft.power_nets.push((net_name, pos));
             }
         }
         Ok(component)
@@ -463,14 +461,16 @@ impl ImportCtx {
 
     fn finish(mut self) -> Result<(Project, usize), String> {
         let pages = std::mem::take(&mut self.pages);
-        let mut project = Project::default();
-        project.name = pages
-            .first()
-            .map(|p| p.sheet_name.clone())
-            .unwrap_or_else(|| "Imported schematic".into());
-        project.library = ProjectLibrary {
-            symbols: std::mem::take(&mut self.symbols).into_values().collect(),
-            ..ProjectLibrary::default()
+        let mut project = Project {
+            name: pages
+                .first()
+                .map(|p| p.sheet_name.clone())
+                .unwrap_or_else(|| "Imported schematic".into()),
+            library: ProjectLibrary {
+                symbols: std::mem::take(&mut self.symbols).into_values().collect(),
+                ..ProjectLibrary::default()
+            },
+            ..Project::default()
         };
         for page in &pages {
             if page.sheet_id != 0 {
@@ -748,10 +748,10 @@ fn find_pin_at(components: &[Component], sheet: u64, point: Point) -> Option<(u6
     let target = snap_key(sheet, point);
     for component in components.iter().filter(|c| c.sheet == sheet) {
         for pin in &component.pins {
-            if let Some(pos) = component.pin_position(&pin.number) {
-                if snap_key(sheet, pos) == target {
-                    return Some((component.id, pin.number.clone()));
-                }
+            if let Some(pos) = component.pin_position(&pin.number)
+                && snap_key(sheet, pos) == target
+            {
+                return Some((component.id, pin.number.clone()));
             }
         }
     }

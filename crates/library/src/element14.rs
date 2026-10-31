@@ -1,4 +1,6 @@
 //! Live part source for the element14 partner Product Search API (REST).
+// Field names mirror the distributor JSON wire format.
+#![allow(non_snake_case)]
 
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};
@@ -6,8 +8,8 @@ use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
 use crate::source_errors::{map_auth_or_permission, map_element14_errors};
 use crate::source_hosts;
 use crate::sources::{
-    Attribution, DEFAULT_CACHE_SECS, MAX_QUERY_BYTES, PartResult, PartSource, PriceBreak,
-    SetupCard, SourceError, check_query,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
@@ -365,6 +367,6 @@ mod tests {
 
     #[test]
     fn store_id_bound_matches_query_limit_order() {
-        assert!(MAX_STORE_ID_LEN <= MAX_QUERY_BYTES);
+        const { assert!(MAX_STORE_ID_LEN <= crate::sources::MAX_QUERY_BYTES) };
     }
 }

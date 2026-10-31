@@ -17,6 +17,7 @@ pub enum WorkspaceId {
 }
 
 impl WorkspaceId {
+    #[allow(dead_code)] // catalog loading and event reporting are not wired in yet
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "files" => Some(Self::Files),
@@ -48,6 +49,7 @@ pub enum Trigger {
 }
 
 impl Trigger {
+    #[allow(dead_code)] // catalog loading and event reporting are not wired in yet
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
             "first_launch" => Some(Self::FirstLaunch),
@@ -152,6 +154,7 @@ pub struct ShellView<'a> {
     pub offer_tours: bool,
     pub modal_open: bool,
     pub file_busy: bool,
+    #[allow(dead_code)] // kept for triggers that depend on the tab itself
     pub tab: crate::Tab,
     pub workspace: Option<WorkspaceId>,
     pub progress: &'a BTreeMap<String, TourRecord>,
@@ -185,6 +188,7 @@ impl Controller {
         &self.catalog
     }
 
+    #[allow(dead_code)] // catalog loading and event reporting are not wired in yet
     pub fn take_events(&mut self) -> Vec<TourEvent> {
         std::mem::take(&mut self.session.events)
     }
@@ -443,10 +447,7 @@ fn unprompted_allowed(view: ShellView<'_>, now: Instant) -> bool {
     if view.modal_open || view.file_busy {
         return false;
     }
-    match view.tab_changed_at {
-        Some(at) if now.saturating_duration_since(at) < TAB_QUIET => false,
-        _ => true,
-    }
+    !matches!(view.tab_changed_at, Some(at) if now.saturating_duration_since(at) < TAB_QUIET)
 }
 
 fn version_needs_chip(live: u32, stored: Option<&TourRecord>) -> bool {
@@ -519,7 +520,7 @@ mod tests {
         ctrl.session.active_step = 2;
         write_record(
             &mut progress,
-            ctrl.catalog().first().unwrap(),
+            ctrl.catalog().first().ok_or("fixture catalog is empty")?,
             PersistedState::InProgress,
             2,
         );

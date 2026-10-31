@@ -17,7 +17,7 @@
 //!
 //! Limits are explicit: [`BoardMesh::warnings`] says what was skipped and why.
 use crate::model_load::LoadedModel;
-use pcbcraft_doc::{ArtKind, ArtShape, Component, Footprint, Id, Layer, Pad, Project};
+use pcbcraft_doc::{ArtKind, ArtShape, Footprint, Id, Layer, Pad, Project};
 use pcbcraft_geom::Point;
 use pcbcraft_library::Model3D;
 use serde_json::{Value, json};
@@ -1313,7 +1313,7 @@ fn track_ring(t: &pcbcraft_doc::Track) -> Option<Vec<Point>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pcbcraft_doc::{CopperZone, Cutout, Hole, Net, Track, Via};
+    use pcbcraft_doc::{Component, CopperZone, Cutout, Hole, Net, Track, Via};
 
     type Check = Result<(), String>;
 

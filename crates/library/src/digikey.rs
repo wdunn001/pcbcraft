@@ -1,4 +1,6 @@
 //! Live distributor source for the Product Information API (keyword search and product details).
+// Field names mirror the distributor JSON wire format.
+#![allow(non_snake_case)]
 
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest, HttpResponse};

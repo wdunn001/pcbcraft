@@ -14,10 +14,7 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_secs(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+        pcbcraft_clock::unix_secs()
     }
 }
 

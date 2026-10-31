@@ -1959,9 +1959,10 @@ impl App {
             compare_tint: std::collections::BTreeMap::new(),
             library,
             tour: {
-                let mut catalog = Vec::new();
                 #[cfg(test)]
-                catalog.extend(tour::state::e2e_fixture_catalog());
+                let catalog = tour::state::e2e_fixture_catalog();
+                #[cfg(not(test))]
+                let catalog = Vec::new();
                 tour::Controller::new(catalog)
             },
             #[cfg(test)]
@@ -1980,18 +1981,6 @@ impl App {
             || self.renumber_open
             || self.edit.dialog.open
             || self.edit.dialog.preview_open
-    }
-    fn tour_shell_view(&self) -> tour::state::ShellView<'_> {
-        tour::state::ShellView {
-            offer_tours: self.preferences.offer_tours,
-            modal_open: self.tour_modal_open(),
-            file_busy: self.pending_source.is_some(),
-            tab: self.tab,
-            workspace: tour::WorkspaceId::from_tab(self.tab),
-            progress: &self.preferences.tour_progress,
-            first_launch_done: self.preferences.tour_first_launch_done,
-            tab_changed_at: self.tour.tab_changed_at(),
-        }
     }
     fn tour_tick(&mut self) {
         if let Some(ws) = tour::WorkspaceId::from_tab(self.tab) {
@@ -9501,7 +9490,7 @@ mod tests {
     #[test]
     #[ignore = "timed bench: run with cargo xtask bench"]
     fn large_board_ten_thousand_pads_stays_within_its_budget() -> Result<(), String> {
-        use std::time::{Duration, Instant};
+        use std::time::Duration;
         let project = large_board()?;
         let pads: usize = project.board.footprints.iter().map(|f| f.pads.len()).sum();
         assert_eq!(pads, 10_240, "the bench board holds ten thousand pads");
@@ -9510,14 +9499,14 @@ mod tests {
             pairs <= items * 40,
             "the broad phase should hand the exact test at most 40 pairs per item, not {pairs} for {items} items"
         );
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let findings = pcbcraft_rules::drc(&project);
         let checks = started.elapsed();
         assert!(
             !findings.is_empty(),
             "the bench board is dense enough to report findings"
         );
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         let airwires = pcbcraft_rules::airwires(&project);
         let wires = started.elapsed();
         assert!(
@@ -9539,7 +9528,7 @@ mod tests {
         app.refresh();
         let ctx = egui::Context::default();
         frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-        let started = Instant::now();
+        let started = pcbcraft_clock::instant_now();
         for step in 0..5 {
             frame(
                 &ctx,

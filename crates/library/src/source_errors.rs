@@ -1,4 +1,6 @@
 //! Plain messages for live part sources when credentials are missing or rejected.
+// Field names mirror the distributor JSON wire format.
+#![allow(non_snake_case)]
 
 use crate::sources::SourceError;
 

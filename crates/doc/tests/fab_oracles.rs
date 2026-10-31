@@ -30,8 +30,10 @@ fn fab_preset_carries_vendor_minimums_and_passes_valid() -> T {
 
 #[test]
 fn fab_rules_valid_accepts_vendor_bounds_and_rejects_just_outside() {
-    let mut rules = FabRules::default();
-    rules.min_track = Some(0.001);
+    let mut rules = FabRules {
+        min_track: Some(0.001),
+        ..Default::default()
+    };
     assert!(rules.valid());
     rules.min_track = Some(0.0009);
     assert!(!rules.valid());

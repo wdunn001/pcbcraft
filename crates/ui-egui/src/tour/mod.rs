@@ -5,4 +5,6 @@ mod offer;
 pub mod state;
 
 pub(crate) use offer::paint_offers;
-pub(crate) use state::{Controller, TourMeta, Trigger, WorkspaceId};
+#[cfg(test)]
+pub(crate) use state::Trigger;
+pub(crate) use state::{Controller, WorkspaceId};

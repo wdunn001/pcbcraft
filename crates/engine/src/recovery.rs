@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Overrides the recovery folder; tests set it so they never touch the real
 /// one. Guard writes with [`RECOVERY_TEST_LOCK`] like the recents list does.
@@ -76,10 +75,7 @@ pub struct Entry {
 }
 
 fn unix_now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    pcbcraft_clock::unix_secs()
 }
 
 /// An id names files in the folder, so it stays short and free of separators.

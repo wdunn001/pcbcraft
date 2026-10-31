@@ -217,8 +217,8 @@ fn snapmaker_isolation_with_rubout_writes_second_tool_file() -> Result<(), Strin
     let out = isolation_gcode(&sample_two_pads_track(), &opts, &snapmaker_cnc_profile(&s))?;
     assert_eq!(out.files.len(), 2);
     let names: Vec<&str> = out.files.iter().map(|(n, _)| n.as_str()).collect();
-    assert!(names.iter().any(|n| *n == "isolation-top.nc"));
-    assert!(names.iter().any(|n| *n == "rubout-1-top.nc"));
+    assert!(names.contains(&"isolation-top.nc"));
+    assert!(names.contains(&"rubout-1-top.nc"));
     let files = snapmaker_files(out.files, &s)?;
     assert_eq!(files.len(), 2);
     let rub = files

@@ -433,10 +433,7 @@ fn join_hatch_zigzag(segments: &[(Point, Point)], stepover: f64) -> Vec<Vec<Poin
         used[start] = true;
         let (a, b) = segments[start];
         let mut path = vec![a, b];
-        loop {
-            let Some(tail) = path.last().copied() else {
-                break;
-            };
+        while let Some(tail) = path.last().copied() {
             let mut extended = false;
             for i in 0..segments.len() {
                 if used[i] {

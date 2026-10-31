@@ -9,10 +9,10 @@
 //! - Writers declare file format [`SUPPORTED_FORMAT`] (`solidcraft/22`).
 //! - Unknown JSON keys are kept in side maps so a read then write does not drop them.
 //! - Container blobs live at `blobs/{sha256}.{ext}`; mesh payloads use the `SCMESH01`
-//! layout (magic, two u64 counts, little-endian f64 positions, u32 indices).
+//!   layout (magic, two u64 counts, little-endian f64 positions, u32 indices).
 //! - Container reads enforce at most [`MAX_CONTAINER_ENTRIES`] entries and
-//! [`MAX_CONTAINER_EXPANDED`] bytes of expanded payload, refuse duplicate or unsafe
-//! entry names, and verify each blob hash.
+//!   [`MAX_CONTAINER_EXPANDED`] bytes of expanded payload, refuse duplicate or unsafe
+//!   entry names, and verify each blob hash.
 //!
 //! # Dependencies
 //! - crates/io/src/lib.rs (`zip_entries` and `crc32`)
@@ -567,12 +567,12 @@ fn read_stored_zip(bytes: &[u8]) -> Result<BTreeMap<String, Vec<u8>>, String> {
         if crate::crc32(payload) != crc {
             return Err(format!("archive entry CRC mismatch: {name}"));
         }
-        if name.starts_with("blobs/") {
-            if let Some((_, ext)) = name.rsplit_once('.') {
-                verify_blob_path(&name, ext)?;
-                if digest(payload) != blob_hash_from_path(&name, ext)? {
-                    return Err(format!("blob hash mismatch: {name}"));
-                }
+        if name.starts_with("blobs/")
+            && let Some((_, ext)) = name.rsplit_once('.')
+        {
+            verify_blob_path(&name, ext)?;
+            if digest(payload) != blob_hash_from_path(&name, ext)? {
+                return Err(format!("blob hash mismatch: {name}"));
             }
         }
         out.insert(name, payload.to_vec());
@@ -669,8 +669,7 @@ mod tests {
             .cloned()
             .ok_or("no mesh blob")?;
         entries.get_mut(&name).ok_or("no mesh blob")?[0] ^= 0x01;
-        let zip =
-            crate::zip_entries(&entries.into_iter().map(|(k, v)| (k, v)).collect::<Vec<_>>())?;
+        let zip = crate::zip_entries(&entries.into_iter().collect::<Vec<_>>())?;
         assert!(
             read_solidcraft_container(&zip).is_err(),
             "a wrong blob hash is refused"

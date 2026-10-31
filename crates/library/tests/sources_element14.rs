@@ -85,7 +85,8 @@ fn element14_store_id_is_bounded() -> Result<(), SourceError> {
     let source = Element14Source::new(http, store);
     let err = source
         .search("RC0603FR-0710KL")
-        .expect_err("store id too long");
+        .err()
+        .ok_or_else(|| SourceError::Unavailable("store id too long".into()))?;
     assert!(
         matches!(err, SourceError::Invalid(ref m) if m.contains("store id")),
         "unexpected {err:?}"

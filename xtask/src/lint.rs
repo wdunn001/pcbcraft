@@ -91,6 +91,8 @@ pub fn to_json(results: &[StepResult]) -> String {
 /// Runs one named step, timing it and printing its failure message.
 pub fn timed(name: &str, step: impl FnOnce() -> Result<(), String>) -> StepResult {
     println!("== lint: {name}");
+    // A native build tool; the browser clock rule does not apply.
+    #[allow(clippy::disallowed_methods)]
     let started = Instant::now();
     let outcome = step();
     if let Err(message) = &outcome {
@@ -245,11 +247,12 @@ pub fn check_workflow(text: &str) -> Result<Workflow, String> {
                     "line {number}: unexpected text, not indented under its key"
                 ));
             }
-            if item && stack.len() == 3 {
-                if let Some(job) = &needs_job {
-                    let name = rest.trim_matches(['"', '\'']).to_string();
-                    workflow.jobs.entry(job.clone()).or_default().push(name);
-                }
+            if item
+                && stack.len() == 3
+                && let Some(job) = &needs_job
+            {
+                let name = rest.trim_matches(['"', '\'']).to_string();
+                workflow.jobs.entry(job.clone()).or_default().push(name);
             }
             continue;
         };

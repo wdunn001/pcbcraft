@@ -7234,7 +7234,7 @@ mod tests {
             "error should name the path: {err}"
         );
         let bad = dir.join("bad.bin");
-        std::fs::write(&bad, &[0xff, 0xfe]).map_err(|e| e.to_string())?;
+        std::fs::write(&bad, [0xff, 0xfe]).map_err(|e| e.to_string())?;
         assert!(read_text(&bad).is_err(), "invalid UTF-8 is rejected");
         let _ = std::fs::remove_dir_all(&dir);
         Ok(())
@@ -7336,8 +7336,10 @@ mod tests {
 
     #[test]
     fn lib_fab_readme_text_matches_fab_export() -> Result<(), String> {
-        let mut p = Project::default();
-        p.name = "readme oracle".into();
+        let p = Project {
+            name: "readme oracle".into(),
+            ..Default::default()
+        };
         p.validate()?;
         let names = vec!["pcb-F.Cu.gbr".into(), "pcb-B.Cu.gbr".into()];
         let from_lib = fab_readme_text(&p, &names)?;

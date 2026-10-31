@@ -6,6 +6,7 @@ use pcbcraft_geom::Point;
 use pcbcraft_library::listing::package_key;
 use serde_json::Value;
 
+#[cfg(test)]
 const EPS: f64 = 1e-9;
 const POST_HEIGHT: f64 = 6.0;
 
@@ -323,6 +324,7 @@ struct PadBox {
     hi: Point,
     through: bool,
     round: bool,
+    #[cfg(test)]
     number: String,
 }
 
@@ -348,6 +350,7 @@ fn pad_box(pad: &Pad) -> Option<PadBox> {
         hi,
         through: geometry.is_some_and(|g| g.drill.is_some()),
         round: geometry.is_none_or(|g| g.shape == "circle"),
+        #[cfg(test)]
         number: pad.number.clone(),
     })
 }
@@ -746,7 +749,8 @@ fn through_body(
 }
 
 /// Axis-aligned bounds of all solids in footprint-local space.
-pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
+#[cfg(test)]
+fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
     let mut lo = Point::new(f64::MAX, f64::MAX);
     let mut hi = Point::new(f64::MIN, f64::MIN);
     let mut z_lo = f64::MAX;
@@ -773,7 +777,8 @@ pub(crate) fn local_bounds(body: &ParametricBody) -> (Point, Point, f64, f64) {
     (lo, hi, z_lo, z_hi)
 }
 
-pub(crate) fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
+#[cfg(test)]
+fn pad_covered(pad: &PadBox, all: &[PadBox], body: &ParametricBody) -> bool {
     if thermal_pad(pad, all) {
         let (blo, bhi) = ring_bounds(&body.ring);
         return pad.lo.x >= blo.x - EPS
@@ -1179,7 +1184,8 @@ mod tests {
 
     #[test]
     fn generated_footprints_satisfy_body_properties() -> Result<(), String> {
-        let families: [(&str, fn() -> LandPatternParams); 7] = [
+        type Family = (&'static str, fn() -> LandPatternParams);
+        let families: [Family; 7] = [
             ("chip_2terminal", || {
                 let mut p = nominal_params();
                 p.name = "R_0805".into();

@@ -93,7 +93,7 @@ fn paint_first_launch_card(
     progress: &mut std::collections::BTreeMap<String, super::state::TourRecord>,
     meta: &TourMeta,
     muted: Color32,
-    accent: Color32,
+    _accent: Color32,
 ) {
     let ctx = ui.ctx().clone();
     let mut open = true;

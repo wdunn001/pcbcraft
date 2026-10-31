@@ -14,6 +14,7 @@ pub fn lcsc_signature(key: &str, secret: &str, nonce: &str, timestamp: &str) -> 
 }
 
 /// JLCPCB Open Platform `JOP` authorization header value.
+#[allow(clippy::too_many_arguments)]
 pub fn jlcpcb_authorization(
     app_id: &str,
     access_key: &str,

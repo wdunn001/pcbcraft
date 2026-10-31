@@ -7028,8 +7028,10 @@ mod drill_tests {
 
     #[test]
     fn project_validate_rejects_root_sheet_name_that_matches_another_page() -> Result<(), String> {
-        let mut p = Project::default();
-        p.root_sheet_name = Some("Main".into());
+        let mut p = Project {
+            root_sheet_name: Some("Main".into()),
+            ..Default::default()
+        };
         p.sheets.push(Sheet {
             id: 1,
             name: "Main".into(),

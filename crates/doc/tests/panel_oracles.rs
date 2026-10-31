@@ -48,11 +48,13 @@ fn panel_layout_from_grid_places_copy_origins_on_a_hand_grid() -> T {
 #[test]
 fn panel_layout_with_settings_requires_valid_fields() -> T {
     let board = Project::default().board;
-    let mut settings = PanelSettings::default();
-    settings.enabled = true;
-    settings.columns = 1;
-    settings.rows = 1;
-    settings.tab_channel = 1.5;
+    let mut settings = PanelSettings {
+        enabled: true,
+        columns: 1,
+        rows: 1,
+        tab_channel: 1.5,
+        ..Default::default()
+    };
     assert!(settings.validate_fields().is_err());
     settings.tab_channel = 1.8;
     settings.validate_fields()?;
@@ -104,7 +106,7 @@ fn panel_score_and_tab_helpers_follow_separation_mode() -> T {
     p.panel.pitch_x = 10.0;
     p.panel.rail = 0.0;
     p.panel.separation = PanelSeparation::VScore;
-    let layout = panel_layout_from_grid(&p.board, &PanelGrid::from(&p.panel)).map_err(|e| e)?;
+    let layout = panel_layout_from_grid(&p.board, &PanelGrid::from(&p.panel))?;
     let scores = panel_score_lines(&p)?;
     assert_eq!(scores.len(), 1);
     let mid_x = layout.board_width + p.panel.pitch_x / 2.0;
