@@ -21,6 +21,10 @@ docs=(LICENSE NOTICE ATTRIBUTION.md README.md)
 cp "${docs[@]}" "$stage/"
 mkdir -p "$stage/examples"
 cp examples/* "$stage/examples/"
+# Languages the built-in fonts cannot draw load their font file from the
+# fonts/ folder next to the program; the license travels beside the file.
+mkdir -p "$stage/fonts"
+cp crates/ui-egui/assets/fonts/NotoSansJP-Regular.otf crates/ui-egui/assets/fonts/NotoSansSC-Regular.otf crates/ui-egui/assets/fonts/OFL-NotoSansCJK.txt "$stage/fonts/"
 
 case "$platform" in
   linux-x86_64 | linux-aarch64)
@@ -46,6 +50,8 @@ case "$platform" in
     app="$stage/PCBCraft.app"
     mkdir -p "$app/Contents/MacOS"
     cp "$bin/pcbcraft" "$app/Contents/MacOS/pcbcraft"
+    # The app reads fonts from fonts/ next to its executable.
+    cp -r "$stage/fonts" "$app/Contents/MacOS/fonts"
     cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -53,7 +59,7 @@ case "$platform" in
 <dict>
   <key>CFBundleName</key><string>PCBCraft</string>
   <key>CFBundleDisplayName</key><string>PCBCraft</string>
-  <key>CFBundleIdentifier</key><string>${MACOS_BUNDLE_ID:-io.github.tangency-labs.pcbcraft}</string>
+  <key>CFBundleIdentifier</key><string>${MACOS_BUNDLE_ID:-io.github.tangency_labs.pcbcraft}</string>
   <key>CFBundleExecutable</key><string>pcbcraft</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${version#v}</string>
