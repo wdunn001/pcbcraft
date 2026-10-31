@@ -38,6 +38,7 @@ pub(super) fn commands() -> Vec<CommandSpec> {
         ("library.footprint.set_model","Attach or replace a 3D model reference on a project-library footprint: a file path with an optional offset, scale and rotation in millimetres and degrees; placed instances keep their embedded copy",schema(json!({"name":{"type":"string"},"path":{"type":"string","maxLength":1024},"offset":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"scale":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3},"rotate":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}}),&["name","path"])),
         ("library.footprint.attach_starter_model","Attach a bundled starter 3D model to a project-library footprint when one matches its name or an explicit starter id, materializing the file into the user cache and recording the licence notice",schema(json!({"name":{"type":"string"},"id":{"type":"string","description":"starter model id; omit to match by footprint name"}}),&["name"])),
         ("library.footprint.clear_model","Remove the 3D model reference from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
+        ("library.footprint.model_auto_align","Fit a footprint's 3D model to its pads from a triangle list in model space: tries quarter turns and an optional mirror, reports the residual in millimetres, and when apply is true writes the new offset, rotation and scale as one undoable step",schema(json!({"name":{"type":"string"},"positions":{"type":"array","items":{"type":"number"},"description":"model vertex positions as x,y,z triples in millimetres"},"indices":{"type":"array","items":{"type":"integer"},"description":"triangle corner indices, three per face"},"allow_flip":{"type":"boolean","description":"when true, also try mirroring the model about Y"},"apply":{"type":"boolean","description":"when false, preview only; default true"}}),&["name","positions"])),
         ("library.footprint.set_rules","Set design rule overrides on a project-library footprint: a local copper clearance and solder mask/paste margin shifts in millimetres; the clearance tightens clearance checks while the margins are recorded and exported",schema(json!({"name":{"type":"string"},"clearance":{"type":"number"},"mask_margin":{"type":"number"},"paste_margin":{"type":"number"}}),&["name"])),
         ("library.footprint.clear_rules","Remove the design rule overrides from a project-library footprint",schema(json!({"name":{"type":"string"}}),&["name"])),
         ("library.footprint.renumber_pads","Renumber pads on a project-library footprint with an ordered old-to-new map; embedded copies, their placed pads and matching component pins follow, and a target number already held by an untouched pad is refused",schema(json!({"name":{"type":"string"},"renames":{"type":"array","maxItems":512,"items":{"type":"object","properties":{"old":{"type":"string","maxLength":32},"new":{"type":"string","maxLength":32}},"required":["old","new"],"additionalProperties":false}}}),&["name","renames"])),
@@ -616,6 +617,18 @@ pub(super) struct ModelParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct ModelAutoAlignParams {
+    name: String,
+    positions: Vec<f64>,
+    #[serde(default)]
+    indices: Vec<u32>,
+    #[serde(default)]
+    allow_flip: Option<bool>,
+    #[serde(default)]
+    apply: Option<bool>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RulesParams {
     name: String,
     #[serde(default)]
@@ -868,6 +881,67 @@ pub(super) fn run(
             def.model = None;
             def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
             Ok(json!({"name": a.name}))
+        }
+        "library.footprint.model_auto_align" => {
+            let a: ModelAutoAlignParams = parse(params)?;
+            if a.positions.len() % 3 != 0 || a.positions.is_empty() {
+                return Err(Error::Invalid(
+                    "positions must be a non-empty list of x,y,z triples".into(),
+                ));
+            }
+            if a.positions.len() / 3 > pcbcraft_io::MAX_MODEL_VERTICES {
+                return Err(Error::Invalid("the model has too many vertices".into()));
+            }
+            if !a.indices.is_empty() && a.indices.len() % 3 != 0 {
+                return Err(Error::Invalid(
+                    "indices must come in groups of three".into(),
+                ));
+            }
+            let positions: Vec<[f64; 3]> = a
+                .positions
+                .chunks(3)
+                .map(|c| [c[0], c[1], c[2]])
+                .collect();
+            if positions.iter().any(|p| p.iter().any(|v| !v.is_finite())) {
+                return Err(Error::Invalid("positions must be finite numbers".into()));
+            }
+            let mesh = pcbcraft_io::LoadedModel {
+                positions,
+                indices: a.indices,
+                color: None,
+            };
+            let def = p
+                .library
+                .footprints
+                .iter()
+                .find(|s| s.name == a.name)
+                .ok_or_else(missing)?;
+            let current = def.model.clone().ok_or_else(|| {
+                Error::Invalid("the footprint has no model reference yet".into())
+            })?;
+            let allow_flip = a.allow_flip.unwrap_or(true);
+            let out = pcbcraft_io::auto_align_model(&mesh, def, &current, allow_flip);
+            let apply = a.apply.unwrap_or(true);
+            if apply {
+                let def = p
+                    .library
+                    .footprints
+                    .iter_mut()
+                    .find(|s| s.name == a.name)
+                    .ok_or_else(missing)?;
+                def.model = Some(out.model.clone());
+                def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            }
+            Ok(json!({
+                "name": a.name,
+                "applied": apply,
+                "residual_mm": out.residual_mm,
+                "coarse": out.coarse,
+                "bbox_fallback": out.bbox_fallback,
+                "offset": out.model.offset,
+                "scale": out.model.scale,
+                "rotate": out.model.rotate,
+            }))
         }
         "library.footprint.set_rules" => {
             let a: RulesParams = parse(params)?;
