@@ -480,7 +480,7 @@ impl GerberLayer {
         }
         out.push_str(&self.body);
         out.push_str("M02*\n");
-        out
+        crate::gerber_fidelity::attach_gerber_md5(out)
     }
 }
 
@@ -1077,11 +1077,11 @@ let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
         outline.select(edge_code);
         outline.body.push_str("G75*\n");
         outline.body.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
-            c.radius * scale,
-            0.0
+            "X{x}Y{y}D02*\nG02*\nX{x}Y{y}I{}J{}D01*\nG01*\n",
+            coordinate(c.radius * scale),
+            0,
+            x = coordinate((c.center.x - c.radius) * scale),
+            y = coordinate(c.center.y * scale)
         ));
     }
 

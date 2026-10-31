@@ -23,7 +23,9 @@ mod bottom_sheet;
 pub mod brand;
 mod browser;
 mod canvas;
+mod wire_canvas;
 mod contrast;
+mod datasheet;
 mod datums;
 mod draw_target;
 mod drill_table;
@@ -116,6 +118,7 @@ mod number_entry;
 mod outline_arcs;
 mod sheet_rows;
 mod modifier_ui;
+mod model_transform;
 mod motion;
 mod number_entry;
 mod pages;
@@ -473,7 +476,17 @@ fn tool_hint(tool: &Tool) -> String {
         }
         Tool::Wire(None) => t!("board.tool_hint.lmb_pick_the_first_pin", common = common),
         Tool::Wire(Some(_)) => {
-            t!("board.tool_hint.lmb_pick_the_second_pin", common = common)
+            "Click empty space for bends, another pin or wire to finish. Escape cancels.".to_string()
+                + &common
+        }
+        Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local) => {
+            "Click a wire or pin to place a net label.".to_string() + &common
+        }
+        Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power) => {
+            "Click a wire or pin to place a power label.".to_string() + &common
+        }
+        Tool::Bus => {
+            "Click two or more points for the bus path, then name it.".to_string() + &common
         }
         Tool::Route(None) => t!("board.tool_hint.route_drag", common = common),
         Tool::Route(Some(_)) => {
@@ -1063,6 +1076,8 @@ enum Tool {
     LibraryPlace(String, String, Box<pcbcraft_library::SymbolDefinition>),
     CustomPlace(String, Box<pcbcraft_library::SymbolDefinition>),
     Wire(Option<PinRef>),
+    SchematicLabel(wire_canvas::SchematicLabelKind),
+    Bus,
     Route(Option<(Id, String)>),
     Move,
     Cutout,
@@ -1284,6 +1299,10 @@ pub struct App {
     net_editor: Option<pcbcraft_doc::Id>,
     pin_pick: Option<String>,
     net_draft: Option<(pcbcraft_doc::Id, String)>,
+    wire_route: Vec<Point>,
+    wire_place_pending: Option<wire_canvas::WirePlacePending>,
+    bus_draft: Vec<Point>,
+    bus_name_prompt: Option<wire_canvas::BusNamePrompt>,
     palette: bool,
     part_search: String,
     part_sources: sources::PartSources,
@@ -2058,6 +2077,10 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             net_editor: None,
             pin_pick: None,
             net_draft: None,
+            wire_route: Vec::new(),
+            wire_place_pending: None,
+            bus_draft: Vec::new(),
+            bus_name_prompt: None,
             palette: false,
             part_search: String::new(),
             part_sources: sources::PartSources::default(),
@@ -3135,7 +3158,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 self.palette = true;
             }
             KeyAction::WireTool => {
-                self.tool = Tool::Wire(None);
+                self.arm_wire_tool();
             }
             KeyAction::RouteTool => {
                 self.tool = Tool::Route(None);
@@ -3165,6 +3188,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 }
             }
             KeyAction::ReturnToSelect => {
+                self.cancel_schematic_gestures();
                 self.tool = Tool::Select;
                 self.drag = None;
                 self.palette = false;
@@ -3819,6 +3843,18 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             {
                 self.compare_open = true;
             }
+            if ui
+                .button(t!("menu.file.save_as"))
+                .button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            }
+            ui.separator();
+            self.import_submenu(ui);
+            self.export_submenu(ui);
             if ui
                 .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
@@ -8324,6 +8360,7 @@ impl App {
         if self.compare_open {
             self.compare_window(&ctx);
         }
+        self.datasheet_pane.ui(&ctx);
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);

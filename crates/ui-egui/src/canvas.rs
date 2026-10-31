@@ -629,7 +629,9 @@ impl App {
                 t!("board.canvas.place_symbol_package_click_to")
             }
             Tool::Wire(None) => t!("board.canvas.wire_pick_first_pin"),
-            Tool::Wire(Some(_)) => t!("board.canvas.wire_pick_second_pin"),
+            Tool::Wire(Some(_)) => "Wire: click for bends, pin or existing wire to finish".into(),
+            Tool::SchematicLabel(_) => "Click where the label should sit".into(),
+            Tool::Bus => "Bus: click points along the path".into(),
             Tool::Route(None) => t!("board.canvas.route_pick_first_pad"),
             Tool::Route(Some(_)) => t!("board.canvas.route_pick_second_pad"),
             Tool::Move => t!("board.canvas.move_click_to_place_selection"),
@@ -725,14 +727,28 @@ impl App {
                         Stroke::new(1.5, self.accent()),
                     );
                 }
-                Tool::Wire(Some(r)) => {
-                    if let Some(start) = self.project.pin_position(r) {
-                        let line: Vec<Pos2> = self
-                            .wire_preview_points(start, snapped)
-                            .into_iter()
-                            .map(|q| camera.screen(q, rect))
-                            .collect();
+                Tool::Wire(Some(_)) => {
+                    let line: Vec<Pos2> = self
+                        .wire_draft_preview(snapped)
+                        .into_iter()
+                        .map(|q| camera.screen(q, rect))
+                        .collect();
+                    if line.len() >= 2 {
                         painter.add(egui::Shape::line(line, Stroke::new(1.5, self.accent())));
+                    }
+                }
+                Tool::Bus if !self.bus_draft.is_empty() => {
+                    let mut line: Vec<Pos2> = self
+                        .bus_draft
+                        .iter()
+                        .map(|q| camera.screen(*q, rect))
+                        .collect();
+                    line.push(camera.screen(snapped, rect));
+                    if line.len() >= 2 {
+                        painter.add(egui::Shape::line(
+                            line,
+                            Stroke::new(2.0, self.accent()),
+                        ));
                     }
                 }
                 Tool::Route(Some((id, pad))) => {
@@ -862,6 +878,8 @@ impl App {
             self.schematic_double_click(pos, camera.zoom, held);
         }
         self.rename_prompt(ui.ctx());
+        self.wire_place_prompt(ui.ctx());
+        self.bus_name_prompt(ui.ctx());
         if response.secondary_clicked()
             && let Some(pos) = cursor
             && let Some(screen) = response.interact_pointer_pos()
@@ -1448,6 +1466,9 @@ impl App {
                 if self.tab == Tab::Schematic
                     && let Some(pin) = self.pick_pin(pos, zoom)
                 {
+                    if let Some(at) = self.project.pin_position(&pin) {
+                        self.wire_route = vec![at];
+                    }
                     self.tool = Tool::Wire(Some(pin));
                 } else if self.tab == Tab::Pcb
                     && let Some((id, pad)) = self.pick_pad(pos, zoom)
@@ -1495,17 +1516,8 @@ impl App {
                     self.tool = Tool::Select;
                 }
             }
-            Tool::Wire(start) => {
-                if let Some(pin) = self.pick_pin(pos, zoom) {
-                    if let Some(start) = start {
-                        self.run("wire.connect", json!({"from":start,"to":pin}));
-                        self.tool = Tool::Select;
-                    } else {
-                        self.tool = Tool::Wire(Some(pin));
-                    }
-                } else {
-                    self.message = t!("board.canvas_click.wire_endpoints_must_be_symbol");
-                }
+            Tool::Wire(_) | Tool::SchematicLabel(_) | Tool::Bus => {
+                self.schematic_wire_click(pos, zoom);
             }
             Tool::Route(start) => {
                 if let Some((id, pad)) = self.pick_pad(pos, zoom) {
