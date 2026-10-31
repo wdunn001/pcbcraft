@@ -424,18 +424,50 @@ pub fn commands() -> Vec<CommandSpec> {
         ),
         (
             "component.set_sourcing",
-            "Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
+"Set or clear typed sourcing fields on a component; keys left out stay unchanged and null clears a field. Set the typed sourcing facts of one part: manufacturer, manufacturer part number, description, lifecycle (active, nrnd, last_time_buy, obsolete, unknown), moisture sensitivity level 1 to 6, and RoHS, REACH and halogen-free flags. A key left out stays as it is; null (or an empty string) clears it. One undo step; the old free-form properties are not touched",
             schema(
-                json!({"id":id_schema(),"manufacturer":{"type":["string","null"],"maxLength":256},"mpn":{"type":["string","null"],"maxLength":256},"description":{"type":["string","null"],"maxLength":256},"lifecycle":{"type":["string","null"],"enum":["active","nrnd","last_time_buy","obsolete","unknown",null]},"moisture_level":{"type":["integer","null"],"minimum":1,"maximum":6},"rohs":{"type":["boolean","null"]},"reach":{"type":["boolean","null"]},"halogen_free":{"type":["boolean","null"]}}),
+                json!({
+                    "id": id_schema(),
+                    "manufacturer": {"type": ["string", "null"], "maxLength": 256},
+                    "mpn": {"type": ["string", "null"], "maxLength": 256},
+                    "description": {"type": ["string", "null"], "maxLength": 256},
+                    "lifecycle": {"type": ["string", "null"], "enum": ["active", "nrnd", "last_time_buy", "obsolete", "unknown", null]},
+                    "moisture_level": {"type": ["integer", "null"], "minimum": 1, "maximum": 6},
+                    "rohs": {"type": ["boolean", "null"]},
+                    "reach": {"type": ["boolean", "null"]},
+                    "halogen_free": {"type": ["boolean", "null"]},
+                    "packaging": {"type": ["string", "null"]},
+                    "alternates": {"type": ["array", "null"], "maxItems": 8},
+                    "datasheet_url": {"type": ["string", "null"]},
+                    "model3d_url": {"type": ["string", "null"]}
+                }),
+                &["id"],
+            ),
+        ),
                 &["id"],
             ),
         ),
         (
-            "component.set_supplier",
+"component.set_supplier",
             "Set one supplier's part number on a part (and an optional link to its page), replacing the entry of the same supplier name (ignoring case) or adding one; a null part_number removes that supplier. A part lists at most 16 suppliers, one number each",
             schema(
                 json!({"id":id_schema(),"supplier":{"type":"string","minLength":1,"maxLength":256},"part_number":{"type":["string","null"],"maxLength":256},"url":{"type":["string","null"],"maxLength":512}}),
                 &["id", "supplier"],
+            ),
+        ),
+        (
+            "component.apply_listing",
+            "Copy matching fields from a part listing into typed sourcing; skips values already set unless overwrite is true",
+            schema(
+                json!({
+                    "id": id_schema(),
+                    "listing": {"type": "object"},
+                    "overwrite": {"type": "boolean"}
+                }),
+                &["id", "listing"],
+            ),
+        ),
+        (
             ),
         ),
         (
@@ -6228,6 +6260,49 @@ struct FieldParams {
     #[serde(default)]
     value: Option<String>,
 }
+/// Reads a key that may be absent (leave alone), null (clear) or a value (set).
+fn present<'de, T, D>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourcingParams {
+    id: Id,
+    #[serde(default, deserialize_with = "present")]
+    manufacturer: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    mpn: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    lifecycle: Option<Option<pcbcraft_library::listing::Lifecycle>>,
+    #[serde(default, deserialize_with = "present")]
+    moisture_level: Option<Option<u8>>,
+    #[serde(default, deserialize_with = "present")]
+    rohs: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    reach: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    halogen_free: Option<Option<bool>>,
+    #[serde(default, deserialize_with = "present")]
+    packaging: Option<Option<pcbcraft_library::listing::Packaging>>,
+    #[serde(default, deserialize_with = "present")]
+    alternates: Option<Option<Vec<PartAlternate>>>,
+    #[serde(default, deserialize_with = "present")]
+    datasheet_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    model3d_url: Option<Option<String>>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplyListingParams {
+    id: Id,
+    listing: pcbcraft_library::listing::PartListing,
+    #[serde(default)]
+    overwrite: bool,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetComplianceParams {
@@ -9877,9 +9952,35 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
             };
             text(&mut next.manufacturer, a.manufacturer);
             text(&mut next.mpn, a.mpn);
+text(&mut next.manufacturer, a.manufacturer);
+            text(&mut next.mpn, a.mpn);
             text(&mut next.description, a.description);
             if let Some(v) = a.lifecycle {
                 next.lifecycle = v;
+            }
+            if let Some(v) = a.moisture_level {
+                next.moisture_level = v;
+            }
+            if let Some(v) = a.rohs {
+                next.rohs = v;
+            }
+            if let Some(v) = a.reach {
+                next.reach = v;
+            }
+            if let Some(v) = a.halogen_free {
+                next.halogen_free = v;
+            }
+if let Some(v) = a.packaging {
+                next.packaging = v;
+            }
+            if let Some(v) = a.alternates {
+                next.alternates = v.unwrap_or_default();
+            }
+            if let Some(v) = a.datasheet_url {
+                next.datasheet_url = v.filter(|u| !u.trim().is_empty());
+            }
+            if let Some(v) = a.model3d_url {
+                next.model3d_url = v.filter(|u| !u.trim().is_empty());
             }
             if let Some(v) = a.moisture_level {
                 next.moisture_level = v;
@@ -9932,6 +10033,7 @@ if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(
                 .map_err(Error::Invalid)?;
             component.sourcing = next;
             Ok(json!({"id": a.id, "suppliers": component.sourcing.suppliers}))
+        }
         }
         "part.attach_source" => {
             let a: AttachSourceParams = parse(params)?;
