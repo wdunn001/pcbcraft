@@ -1,6 +1,8 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod datasheet_extract;
+pub mod drop_in_check;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -10,12 +12,15 @@ pub mod online_import;
 pub mod open_library;
 pub mod part_compare;
 pub mod part_substitutes;
+pub mod starter_models;
 mod paths;
 mod reader;
 mod sexpr;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub use drop_in_check::{DropInFinding, DropInPart, DropInPin, DropInReport, drop_in_check};
+pub mod web_transport;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use part_compare::{
     compare_one_part, compare_symbol_fields, effective_footprint_name, FootprintPadCompare,
@@ -30,7 +35,8 @@ pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_foo
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
+pub use sexpr::{Error, Limits, Node, line_number_at_offset, parse, parse_limits};
+pub use sexpr::{parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
 pub use validation::custom_polygon_error;
 

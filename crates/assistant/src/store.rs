@@ -66,7 +66,10 @@ fn to_line(item: &Item) -> Option<Value> {
             "text": format!("{title}: {}", answer.as_deref().unwrap_or("not answered")),
             "error": false,
         }),
-        Item::Queued { .. } => return None,
+        Item::Step { title, result, .. } => {
+            json!({"k": "note", "text": format!("{title}: {result}"), "error": false})
+        }
+        Item::Suggestions(_) | Item::Queued { .. } => return None,
     })
 }
 
@@ -190,7 +193,7 @@ pub fn export_markdown(items: &[Item], design: &str, unix_seconds: u64) -> Strin
                         out.push_str(&format!("\n## Assistant\n\n{text}\n"))
                     }
                     Item::Note { text, .. } => out.push_str(&format!("\n_{text}_\n")),
-                    Item::Approval { .. } | Item::UndoStep { .. } => {
+                    Item::Approval { .. } | Item::UndoStep { .. } | Item::Step { .. } => {
                         if let Some(v) = to_line(other) {
                             out.push_str(&format!("\n_{}_\n", v["text"].as_str().unwrap_or("")));
                         }
@@ -223,6 +226,7 @@ mod tests {
                 id: 1,
                 title: "Add resistor R1".into(),
                 detail: "adds R1".into(),
+                summary: None,
                 answer: Some(true),
             },
             Item::UndoStep {

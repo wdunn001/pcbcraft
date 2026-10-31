@@ -11,7 +11,8 @@
 use pcbcraft_doc::MachineProfile;
 use serde_json::{Map, Value};
 
-const BUILTIN_IDS: [&str; 5] = [
+const BUILTIN_IDS: [&str; 6] = [
+    "neoden-4",
     "neoden-yy1",
     "eufymake-e1",
     "snapmaker-2-a350t-200w-cnc",
@@ -31,6 +32,7 @@ pub fn builtin_machine_profile_ids() -> &'static [&'static str] {
 pub fn builtin_machine_profile(id: &str) -> Result<MachineProfile, String> {
     let text = match id {
         "neoden-yy1" => include_str!("../../../machine-profiles/neoden-yy1.toml"),
+        "neoden-4" => include_str!("../../../machine-profiles/neoden-4.toml"),
         "eufymake-e1" => include_str!("../../../machine-profiles/eufymake-e1.toml"),
         "snapmaker-2-a350t-200w-cnc" => {
             include_str!("../../../machine-profiles/snapmaker-2-a350t-200w-cnc.toml")

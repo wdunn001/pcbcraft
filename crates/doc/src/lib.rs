@@ -1,5 +1,14 @@
 //! Canonical project data. No UI or protocol dependencies.
+mod layer_names;
+pub use layer_names::LayerNaming;
 mod machine_profile;
+mod placement_machine;
+pub use placement_machine::*;
+mod package_def;
+pub use package_def::{
+    MAX_PACKAGE_CONTENTS, MAX_PROJECT_PACKAGES, PACKAGE_CONTAINERS, PACKAGE_TOKENS, PackageContent,
+    PackageDef, PackageRun, check_template, validate_packages,
+};
 mod outline;
 pub use machine_profile::*;
 pub use outline::{
@@ -22,11 +31,103 @@ use std::fmt;
 
 pub type Id = u64;
 pub const MAX_ITEMS: usize = 2048;
+/// Most objects of every kind one project may hold; real multilayer boards
+/// carry several thousand tracks and vias.
+pub const MAX_OBJECTS: usize = 16384;
 
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+mod via_protection;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+mod sourcing;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+pub type Id = u64;
+pub const MAX_ITEMS: usize = 2048;
+
+mod material;
+pub use material::{MATERIALS, Material, material};
+mod net_members;
+mod sourcing;
+mod via_protection;
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
+pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
+pub mod fill;
+pub use fill::{
+    KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
+pub use material::{MATERIALS, Material, material};
+mod net_members;
+mod sourcing;
+mod via_protection;
+pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+
+/// Verbatim interchange subtrees kept for export when the native model has no
+/// field for them yet. Bounds match epic import research caps.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct PreservedSource {
+    /// The kept subtrees, each the exact source text of one node.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<String>,
+}
+
+impl PreservedSource {
+    /// Most subtrees one object keeps.
+    pub const MAX_NODES: usize = 256;
+    /// Most bytes of kept text one object holds.
+    pub const MAX_BYTES: usize = 1024 * 1024;
+
+    /// True when nothing is kept.
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    /// Total bytes of kept text.
+    pub fn byte_len(&self) -> usize {
+        self.nodes.iter().map(String::len).sum()
+    }
+
+    /// Keep the source text in `span`; errors when a per-object limit is hit.
+    pub fn push_span(&mut self, source: &str, span: std::ops::Range<usize>) -> Result<(), String> {
+        if self.nodes.len() >= Self::MAX_NODES {
+            return Err("preserved node limit reached for one object".into());
+        }
+        let slice = source
+            .get(span.clone())
+            .ok_or_else(|| "preserved span out of range".to_string())?;
+        if slice.len() + self.byte_len() > Self::MAX_BYTES {
+            return Err("preserved byte limit reached for one object".into());
+        }
+        self.nodes.push(slice.to_owned());
+        Ok(())
+    }
+
+    /// True when both per-object limits hold.
+    pub fn valid(&self) -> bool {
+        self.nodes.len() <= Self::MAX_NODES && self.byte_len() <= Self::MAX_BYTES
+    }
+}
+
+/// Most bytes of kept source text one project holds in total.
+pub const MAX_PRESERVED_PROJECT_BYTES: usize = 8 * 1024 * 1024;
+
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
+pub use via_protection::{ViaProtectionType, protection_for_faces, protection_type};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -164,6 +265,10 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+    /// Typed sourcing facts: manufacturer, part number, description, supplier numbers
+    /// and compliance. Empty records are not saved. See `sourcing.rs`.
+    #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
+    pub sourcing: Sourcing,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -185,6 +290,9 @@ pub struct Sheet {
     /// Where the child page box sits on the parent page, in millimetres.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<Point>,
+    /// Interchange file uuid for hierarchy round-trip, when present in the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interchange_uuid: Option<String>,
 }
 /// The settings of one schematic page that are not drawn objects: its title
 /// block fields, whether the title block shows, and the defaults new graphics
@@ -681,6 +789,9 @@ pub struct Port {
     /// The page the port sits on; 0 is the root page.
     pub sheet: Id,
     pub position: Point,
+    /// Interchange file uuid for hierarchy round-trip, when present in the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interchange_uuid: Option<String>,
 }
 /// Free-form schematic wire drawn by the user with explicit vertices.
 /// Connectivity stays explicit: `net` is assigned by a command, never inferred from crossings.
@@ -1130,6 +1241,10 @@ pub struct Footprint {
     /// the silk, mask and paste layers are derived from it, never stored per pad.
     pub side: Option<Layer>,
     pub pads: Vec<Pad>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
 }
 /// Swap `F.` and `B.` layer name prefixes; other names are unchanged.
 /// A library pad as it sits when its part is mounted on the bottom: x offset,
@@ -1267,10 +1382,18 @@ impl Layer {
         }
     }
 
-    fn from_file_str(s: &str) -> Result<Self, String> {
+    /// Read a copper layer from a file name: `F.Cu`, `B.Cu`, `L3` or `In2.Cu`.
+    /// Inner and bottom names depend on the stackup, so importers prefer
+    /// `Project::resolve_copper_layer`.
+    pub fn from_file_str(s: &str) -> Result<Self, String> {
         let s = s.trim();
         if s.is_empty() {
             return Err("copper layer name is empty".into());
+        }
+        if let Some(count) = layer_names::current_count()
+            && let Some(i) = layer_names::stackup_index(s, count)
+        {
+            return Layer::from_index(i);
         }
         if s == "F.Cu" {
             return Ok(Layer::Front);
@@ -1295,7 +1418,11 @@ impl Layer {
     }
 
     fn to_file_str(self) -> String {
-        if self.0 == 0 {
+        if let Some(count) = layer_names::current_count()
+            && let Some(name) = layer_names::stackup_name(self.0, count)
+        {
+            name
+        } else if self.0 == 0 {
             "F.Cu".into()
         } else if self.0 == 1 {
             "B.Cu".into()
@@ -1338,6 +1465,10 @@ pub struct Track {
     /// straight segment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arc: Option<Point>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
 }
 impl Track {
     /// The circular arc if the track stores a usable midpoint.
@@ -1364,6 +1495,10 @@ pub struct Via {
     pub diameter: f64,
     /// Drilled hole diameter in millimetres; zero keeps an unplated blind hole.
     pub drill: f64,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
     /// Upper end of the copper span; none means the top layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_layer: Option<Layer>,
@@ -1374,6 +1509,11 @@ pub struct Via {
     /// board default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub covering: Option<ViaCovering>,
+    /// How the bottom face is protected when it differs from the top; none
+    /// means the bottom follows the top (or the board default), which is how
+    /// every file saved before this field existed reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub covering_bottom: Option<ViaCovering>,
 }
 /// How a via hole is protected, named after the seven types of the via
 /// protection standard (IPC-4761). The types that close the hole under the
@@ -1444,8 +1584,15 @@ impl ViaCovering {
 }
 impl Via {
     /// The covering that applies to this via: its own, else the board default.
+    /// For a via with a separate bottom setting this is the top face.
     pub fn effective_covering(&self, board: &Board) -> ViaCovering {
         self.covering.unwrap_or(board.via_covering_default)
+    }
+    /// The covering of the bottom face: its own bottom setting, else the top
+    /// face's covering.
+    pub fn effective_covering_bottom(&self, board: &Board) -> ViaCovering {
+        self.covering_bottom
+            .unwrap_or_else(|| self.effective_covering(board))
     }
 }
 /// What a via is, derived from its span and the stackup.
@@ -1498,6 +1645,10 @@ pub struct CopperZone {
     /// hand-drawn zones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
     /// How the poured copper meets same-net copper inside the outline. Absent
     /// means the defaults: solid to vias, four spokes to plated pads, islands
     /// removed.
@@ -2288,7 +2439,7 @@ impl Hole {
 pub struct LayerRecord {
     /// Display name, for example "F.Cu", "Core" or "L2".
     pub name: String,
-    /// Layer role: copper, core, prepreg, soldermask, silkscreen, paste or custom.
+    /// Layer role: copper, dielectric, mask, paste, silk, flex or finish rows, or custom.
     pub kind: String,
     /// Layer thickness in millimetres.
     pub thickness: f64,
@@ -2326,8 +2477,26 @@ pub struct LayerRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_copper: Option<String>,
 }
+/// Layer roles a physical stack row may carry.
+pub const LAYER_KINDS: [&str; 15] = [
+    "copper",
+    "core",
+    "prepreg",
+    "soldermask",
+    "silkscreen",
+    "paste",
+    "custom",
+    "adhesive",
+    "coverlay",
+    "stiffener",
+    "peelable_mask",
+    "carbon_ink",
+    "gold_mask",
+    "plating",
+    "finish",
+];
 /// Layer functions a record may state.
-pub const LAYER_FUNCTIONS: [&str; 10] = [
+pub const LAYER_FUNCTIONS: [&str; 18] = [
     "signal",
     "plane",
     "mixed",
@@ -2336,9 +2505,31 @@ pub const LAYER_FUNCTIONS: [&str; 10] = [
     "soldermask",
     "silkscreen",
     "paste",
+    "adhesive",
+    "coverlay",
+    "stiffener",
+    "peelable_mask",
+    "carbon_ink",
+    "gold_mask",
+    "plating",
+    "finish",
     "other",
     "none",
 ];
+/// True when a stack row may name or default the copper layer it sits on.
+pub fn layer_kind_names_copper(kind: &str) -> bool {
+    matches!(
+        kind,
+        "soldermask"
+            | "silkscreen"
+            | "paste"
+            | "custom"
+            | "peelable_mask"
+            | "gold_mask"
+            | "carbon_ink"
+            | "coverlay"
+    )
+}
 impl LayerRecord {
     fn valid(&self) -> bool {
         let in_set =
@@ -2348,10 +2539,7 @@ impl LayerRecord {
         };
         !self.name.trim().is_empty()
             && self.name.len() <= 64
-            && matches!(
-                self.kind.as_str(),
-                "copper" | "core" | "prepreg" | "soldermask" | "silkscreen" | "paste" | "custom"
-            )
+            && LAYER_KINDS.contains(&self.kind.as_str())
             && self.thickness.is_finite()
             && (0.0..=100.0).contains(&self.thickness)
             && in_set(&self.copper_role, &["signal", "plane", "mixed", "hatched"])
@@ -2388,6 +2576,14 @@ impl LayerRecord {
             "soldermask" => "soldermask",
             "silkscreen" => "silkscreen",
             "paste" => "paste",
+            "adhesive" => "adhesive",
+            "coverlay" => "coverlay",
+            "stiffener" => "stiffener",
+            "peelable_mask" => "peelable_mask",
+            "carbon_ink" => "carbon_ink",
+            "gold_mask" => "gold_mask",
+            "plating" => "plating",
+            "finish" => "finish",
             _ => "other",
         }
     }
@@ -2839,6 +3035,10 @@ pub struct Board {
     /// Text labels drawn on the board.
     #[serde(default)]
     pub texts: Vec<BoardText>,
+    /// Source subtrees of an imported file this model has no field for, kept
+    /// as text and written back on export. Empty for natively made objects.
+    #[serde(default, skip_serializing_if = "PreservedSource::is_empty")]
+    pub preserved: PreservedSource,
 }
 /// One extra bill-of-materials column defined by the project: which
 /// component property to read and the header to print for it.
@@ -3189,10 +3389,63 @@ pub fn valid_parameter_note(note: &str) -> bool {
 pub fn valid_parameter_value(value: f64) -> bool {
     value.is_finite() && value.abs() <= MAX_PARAMETER_VALUE
 }
+/// Settings for the `missing_decoupling` check: how close a capacitor must sit
+/// to an integrated circuit power pin, and the value the finding suggests.
+///
+/// # Rules
+/// - `max_distance_mm` is measured pad centre to pad centre, in millimetres,
+///   between the power pad and the nearest pad of a capacitor on the same net.
+/// - The defaults are 3.0 mm and "100 nF"; they stay out of the saved file
+///   until changed.
+///
+/// # Dependencies
+/// - crates/rules/src/decoupling.rs reads it; `rules.decoupling_set` in
+///   crates/engine/src/lib.rs writes it.
+///
+/// # Do not
+/// - Store a per-part override here; part rules belong to the component rule
+///   record that issue 832 will add.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DecouplingRule {
+    /// Largest allowed pad to pad distance in millimetres.
+    pub max_distance_mm: f64,
+    /// Capacitor value the finding suggests, as plain text.
+    pub suggested_value: String,
+}
+impl Default for DecouplingRule {
+    fn default() -> Self {
+        Self {
+            max_distance_mm: 3.0,
+            suggested_value: "100 nF".into(),
+        }
+    }
+}
+impl DecouplingRule {
+    /// True when nothing was changed from the defaults.
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+    /// Refuse a distance outside 0.1 to 50 mm or a value that is empty or long.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.max_distance_mm.is_finite() || !(0.1..=50.0).contains(&self.max_distance_mm) {
+            return Err("decoupling distance must be between 0.1 and 50 mm".into());
+        }
+        let value = self.suggested_value.trim();
+        if value.is_empty() || value.len() > 32 {
+            return Err("decoupling value must be 1 to 32 characters".into());
+        }
+        Ok(())
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(remote = "Self")]
 pub struct Project {
     pub format: String,
     pub version: u32,
+    /// File marker: copper layers are named by stackup (see [`LayerNaming`]).
+    #[serde(default, skip_deserializing)]
+    pub layer_naming: LayerNaming,
     pub name: String,
     /// The unit this design is read in: "mm", "mil" or "inch". Stored
     /// coordinates stay millimetres; inch fabrication output is converted,
@@ -3246,6 +3499,12 @@ pub struct Project {
     /// Regenerable fabrication outputs, ordered by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<Artifact>,
+    /// Export packages this project saves besides the bundled ones.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub packages: Vec<PackageDef>,
+    /// What each package export last wrote, by package id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub package_runs: Vec<PackageRun>,
     /// Manufacturing panel grid; disabled until the designer enables it.
     #[serde(default)]
     pub panel: PanelSettings,
@@ -3280,6 +3539,10 @@ pub struct Project {
     /// dropped when every object it names sits inside one of its rectangles.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rule_regions: BTreeMap<String, Vec<RuleRegion>>,
+    /// Settings read by the `missing_decoupling` check; the defaults apply
+    /// until the designer changes them.
+    #[serde(default, skip_serializing_if = "DecouplingRule::is_default")]
+    pub decoupling: DecouplingRule,
     /// Named library folders that library commands resolve through: a path
     /// whose first segment matches a nickname is rewritten to the mapped
     /// folder, so the design opens on another machine without retyping it.
@@ -3312,6 +3575,15 @@ pub struct Project {
     /// reconcile the board in the same undo step as the edit.
     #[serde(default = "default_auto_sync")]
     pub auto_sync: bool,
+    /// True when the board came from an imported file with no schematic behind
+    /// it. Sync from the schematic is then off, because there is nothing to
+    /// sync from and it would reset the imported pads.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub board_only: bool,
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 fn default_auto_sync() -> bool {
@@ -3419,6 +3691,39 @@ pub fn validate_closed_outline(outline: &[Point]) -> Result<(), String> {
     }
     Ok(())
 }
+/// Writes the project with copper layers named by its own stackup.
+///
+/// # Rules
+/// - The context lasts for this call only; see [`layer_names::Scope`].
+///
+/// # Dependencies
+/// - crates/doc/src/layer_names.rs#Scope
+impl Serialize for Project {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let _scope = layer_names::Scope::enter(self.copper_layer_count());
+        Project::serialize(self, serializer)
+    }
+}
+
+/// Reads the project, naming copper layers by its stackup when the file
+/// carries the `layer_naming` marker and by index (the old rule) when not.
+///
+/// # Rules
+/// - Reads the file into a value first, because the stackup may come after
+///   the first item that names a layer.
+///
+/// # Dependencies
+/// - crates/doc/src/layer_names.rs#Scope
+/// - crates/doc/src/layer_names.rs#copper_count_of
+/// - crates/doc/src/layer_names.rs#file_uses_stackup_names
+impl<'de> Deserialize<'de> for Project {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let file = serde_json::Value::deserialize(deserializer)?;
+        let _scope = layer_names::file_uses_stackup_names(&file)
+            .then(|| layer_names::Scope::enter(layer_names::copper_count_of(&file)));
+        Project::deserialize(file).map_err(de::Error::custom)
+    }
+}
 impl Default for Project {
     fn default() -> Self {
         Self {
@@ -3428,6 +3733,7 @@ impl Default for Project {
             library: ProjectLibrary::default(),
             format: "pcbcraft".into(),
             version: 1,
+            layer_naming: LayerNaming,
             name: "Untitled circuit".into(),
             unit: "mm".into(),
             components: vec![],
@@ -3440,6 +3746,8 @@ impl Default for Project {
             bom_fields: vec![],
             output_jobs: vec![],
             artifacts: vec![],
+            packages: vec![],
+            package_runs: vec![],
             panel: PanelSettings::default(),
             custom_checks: vec![],
             pin_matrix: BTreeMap::new(),
@@ -3455,6 +3763,7 @@ impl Default for Project {
             rule_severity: Default::default(),
             rule_exclusions: Default::default(),
             rule_regions: Default::default(),
+            decoupling: DecouplingRule::default(),
             wires: vec![],
             drawn_wires: vec![],
             graphics: vec![],
@@ -3490,8 +3799,10 @@ impl Default for Project {
                 zones: vec![],
                 cutouts: vec![],
                 texts: vec![],
+                preserved: PreservedSource::default(),
             },
             auto_sync: true,
+            board_only: false,
         }
     }
 }
@@ -3543,6 +3854,7 @@ pub fn component_template(
         ["1", "2"]
     };
     Some(Component {
+        sourcing: Default::default(),
         units: vec![],
         id,
         reference,
@@ -3733,6 +4045,9 @@ impl Project {
         if rec.kind == "copper" || rec.kind == "core" || rec.kind == "prepreg" {
             return None;
         }
+        if !layer_kind_names_copper(&rec.kind) {
+            return None;
+        }
         if let Some(l) = &rec.linked_copper {
             return Some(l.clone());
         }
@@ -3913,6 +4228,67 @@ impl Project {
         (0..self.copper_layer_count())
             .filter_map(|i| Layer::from_index(i).ok())
             .collect()
+    }
+    /// The bottom copper layer of this board: the last stackup copper row, and
+    /// index 1 on a two-layer board.
+    ///
+    /// # Rules
+    /// - Bottom is always the last copper layer. `Layer::Back` is the bottom
+    ///   only on a two-layer board; elsewhere it is the first inner layer.
+    ///
+    /// # Dependencies
+/// - `crates/doc/src/lib.rs` `Project::copper_layer_count`.
+    ///
+    /// # Do not
+    /// - Compare a track, zone, text or via end against `Layer::Back`; use
+    ///   [`Project::is_bottom`].
+    pub fn bottom_layer(&self) -> Layer {
+        Layer::from_index(self.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+    }
+    ///
+    /// # Do not
+    /// - Compare a track, zone, text or via end against `Layer::Back`; use
+    ///   [`Project::is_bottom`].
+    pub fn bottom_layer(&self) -> Layer {
+/// - `crates/doc/src/lib.rs` `Project::copper_layer_count`.
+    ///
+    /// # Do not
+    /// - Compare a track, zone, text or via end against `Layer::Back`; use
+    ///   [`Project::is_bottom`].
+    pub fn bottom_layer(&self) -> Layer {
+        Layer::from_index(self.copper_layer_count().saturating_sub(1)).unwrap_or(Layer::Back)
+    }
+    }
+    /// Whether `layer` is this board's bottom copper layer.
+    ///
+    /// Why: part sides and the "Bottom" choice use `Layer::Back` as a name for
+    /// the bottom face, while copper items store the real stackup index.
+    /// This accepts both, so callers need not know which one they hold.
+    pub fn is_bottom(&self, layer: Layer) -> bool {
+        layer == self.bottom_layer() || (layer == Layer::Back && self.copper_layer_count() <= 2)
+    }
+    /// The copper layer of the face a part sits on: top for `Layer::Front`,
+    /// this board's bottom layer for anything else.
+    pub fn face_layer(&self, side: Layer) -> Layer {
+        if side == Layer::Front {
+            Layer::Front
+        } else {
+            self.bottom_layer()
+        }
+    }
+    /// Whether a pad has copper on `layer` of this board: through-hole pads on
+    /// every copper layer, surface pads only on the face their part sits on.
+    ///
+    /// # Rules
+    /// - Use this instead of [`Footprint::pad_on_copper`] whenever `layer` is a
+    ///   stackup index that can be an inner layer or the bottom of a board with
+    ///   more than two layers.
+    pub fn pad_on_copper(&self, footprint: &Footprint, pad: &Pad, layer: Layer) -> bool {
+        match pad.geometry.as_ref() {
+            None => layer == Layer::Front,
+            Some(g) if g.pad_type == "thru_hole" || g.layers.iter().any(|l| l == "*.Cu") => true,
+            Some(_) => self.face_layer(footprint.board_side()) == layer,
+        }
     }
     /// Gerber-style copper name for a layer index on this board.
     pub fn layer_name(&self, layer: Layer) -> String {
@@ -4441,6 +4817,7 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
+        self.decoupling.validate()?;
         if self
             .components
             .iter()
@@ -4588,8 +4965,8 @@ impl Project {
                 return Err("sheet entry position is out of range".into());
             }
         }
-        if self.ids().count() > MAX_ITEMS {
-            return Err("project object limit reached (2048)".into());
+        if self.ids().count() > MAX_OBJECTS {
+            return Err("project object limit reached (16384)".into());
         }
         let mut ids = BTreeSet::new();
         for id in self.ids() {
@@ -4604,9 +4981,9 @@ impl Project {
                 .iter()
                 .map(|f| f.pads.len())
                 .sum::<usize>()
-            > 4096
+            > MAX_COPPER_ITEMS
         {
-            return Err("copper item limit reached (4096)".into());
+            return Err(format!("copper item limit reached ({MAX_COPPER_ITEMS})"));
         }
         let nets: BTreeSet<_> = self.nets.iter().map(|n| n.id).collect();
         let mut names = BTreeSet::new();
@@ -4835,6 +5212,10 @@ impl Project {
                 return Err("output jobs need a unique name and known export kinds".into());
             }
         }
+        validate_packages(&self.packages)?;
+        if self.package_runs.len() > MAX_PROJECT_PACKAGES * 2 {
+            return Err("too many package run records".into());
+        }
         if self.artifacts.len() > MAX_ITEMS {
             return Err("artifact limit reached (2048)".into());
         }
@@ -5034,6 +5415,7 @@ impl Project {
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
             }
+            c.sourcing.validate()?;
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {
                 if f.key.is_empty()
@@ -5109,7 +5491,7 @@ impl Project {
                     return Err("embedded footprint pad numbers do not match symbol pins".into());
                 }
             }
-            if c.pins.is_empty() || c.pins.len() > 64 {
+            if c.pins.is_empty() || c.pins.len() > 256 {
                 return Err("invalid pin count".into());
             }
             let mut numbers = BTreeSet::new();
@@ -5358,7 +5740,7 @@ impl Project {
                 || !f.rotation.is_finite()
                 || f.rotation.abs() > 360_000.0
                 || f.pads.is_empty()
-                || f.pads.len() > 64
+                || f.pads.len() > 256
             {
                 return Err("invalid footprint".into());
             }
@@ -5476,7 +5858,12 @@ impl Project {
             {
                 return Err("via span must run from an upper to a lower copper layer".into());
             }
-            if v.drill <= 0.0 && v.covering.is_some_and(|c| c != ViaCovering::Open) {
+            if v.drill <= 0.0
+                && [v.covering, v.covering_bottom]
+                    .into_iter()
+                    .flatten()
+                    .any(|c| c != ViaCovering::Open)
+            {
                 return Err(
                     "a via without a drilled hole cannot be tented, plugged or filled".into(),
                 );
@@ -5535,6 +5922,34 @@ impl Project {
             {
                 return Err("board text is bound to an unknown component".into());
             }
+        }
+        let mut preserved_bytes = b.preserved.byte_len();
+        for f in &b.footprints {
+            if !f.preserved.valid() {
+                return Err("footprint preserved data exceeds limits".into());
+            }
+            preserved_bytes += f.preserved.byte_len();
+        }
+        for t in &b.tracks {
+            if !t.preserved.valid() {
+                return Err("track preserved data exceeds limits".into());
+            }
+            preserved_bytes += t.preserved.byte_len();
+        }
+        for v in &b.vias {
+            if !v.preserved.valid() {
+                return Err("via preserved data exceeds limits".into());
+            }
+            preserved_bytes += v.preserved.byte_len();
+        }
+        for z in &b.zones {
+            if !z.preserved.valid() {
+                return Err("zone preserved data exceeds limits".into());
+            }
+            preserved_bytes += z.preserved.byte_len();
+        }
+        if !b.preserved.valid() || preserved_bytes > MAX_PRESERVED_PROJECT_BYTES {
+            return Err("board preserved data exceeds project limits".into());
         }
         Ok(())
     }
@@ -5621,6 +6036,7 @@ pub fn library_component(
         })
         .collect();
     Ok(Component {
+        sourcing: Default::default(),
         id,
         reference,
         value: value.unwrap_or_else(|| definition.value.clone()),
@@ -5642,6 +6058,10 @@ pub fn library_component(
 /// Maximum pads considered by placement support checks; matches
 /// `FootprintDefinition::validate` in `pcbcraft-library`.
 pub const MAX_SUPPORTED_FOOTPRINT_PADS: usize = 20_000;
+/// The most copper items (tracks plus placed pads) one design may hold. A
+/// large board is 10 000 pads; the checks were quadratic per edit before the
+/// copper broad phase, which is what made that size unreachable.
+pub const MAX_COPPER_ITEMS: usize = 20_000;
 
 pub fn validate_footprint_support(
     definition: &pcbcraft_library::FootprintDefinition,
@@ -6302,6 +6722,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
+            preserved: PreservedSource::default(),
         };
         let json = serde_json::to_string(&track.layer).map_err(|e| e.to_string())?;
         assert_eq!(json, "\"F.Cu\"");
@@ -6356,6 +6777,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::from_index(1)?,
             arc: None,
+            preserved: PreservedSource::default(),
         });
         p.validate()?;
         Ok(())
@@ -6376,6 +6798,7 @@ mod drill_tests {
             width: 0.2,
             layer: Layer::Back,
             arc: None,
+            preserved: PreservedSource::default(),
         });
         p.validate()?;
         p.board.tracks[0].layer = Layer::from_index(2)?;
@@ -6533,6 +6956,7 @@ mod drill_tests {
                     geometry: Some(peg),
                 },
             ],
+            preserved: PreservedSource::default(),
         });
         assert!(
             p.validate()
@@ -6693,9 +7117,11 @@ mod via_covering_tests {
             position: Point::new(5.0, 5.0),
             diameter: 0.6,
             drill,
+            preserved: PreservedSource::default(),
             from_layer: None,
             to_layer: None,
             covering,
+            covering_bottom: None,
         });
         p
     }
