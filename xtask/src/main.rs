@@ -53,8 +53,21 @@ const USAGE: &str = "usage: cargo xtask <command>
   coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
   e2e          full a_newcomer suite plus the tooltip and story coverage gate
   showcase     regenerate the sample projects in examples/ from engine commands
+tooltips     [--strict] check tooltip text against docs/tooltips.md
+  docs         rustdoc with warnings denied
+  docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
+  deny         cargo-deny licenses, advisories, bans and sources
+  msrv         check the workspace with the declared rust-version toolchain
+  bless-parity regenerate the reference-project parity goldens
+  strings      extract | check: list text catalog keys, or fail on a bad catalog
+  a11y         accessibility gate: names, duplicates, target size, keyboard reach, contrast, motion
+  i18n         [--write] localization gate: key parity, placeholders, literals, pseudo-locale, fonts
+  coverage     [--bless] [--base REF] [--no-run] tests under cargo-llvm-cov, per-crate table, gate and ratchet
+  e2e          full a_newcomer suite plus the tooltip and story coverage gate
+  showcase     regenerate the sample projects in examples/ from engine commands
+  screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files
+  board3d-bench  run the six-hundred-part 3D render regression test
   status-data  [--refresh] write site/src/data/status.json from the cached tracker snapshot
-  screenshots  [--out DIR] [--bin PATH] capture the desktop UI views as PNG files";
 
 /// Packages built for wasm32. Kept in one place so `ci` and `wasm` agree.
 const WASM_PACKAGES: [&str; 2] = ["pcbcraft-ui-egui", "pcbcraft-web"];
@@ -151,6 +164,24 @@ fn has_cargo_subcommand(name: &str) -> bool {
 /// Checks formatting of the whole workspace.
 fn fmt() -> Result<(), String> {
     cargo(&["fmt", "--all", "--", "--check"])
+}
+
+/// Six-hundred-part 3D software render gate (issue 721).
+fn board3d_bench() -> Result<(), String> {
+    run_env(
+        "cargo",
+        &[
+            "test",
+            "-p",
+            "pcbcraft-ui-egui",
+            "--test",
+            "board3d_perf",
+            "--",
+            "six_hundred_parts_render_stays_within_the_baseline",
+            "--nocapture",
+        ],
+        &[("CARGO_BUILD_JOBS", "4")],
+    )
 }
 
 /// Runs clippy on all targets with warnings denied.
@@ -585,6 +616,7 @@ fn run() -> Result<(), String> {
         "showcase" => showcase::run(&root()?)?,
         "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
+        "board3d-bench" => board3d_bench()?,
         "bless-parity" => run_env(
             "cargo",
             &["test", "-p", "pcbcraft-engine", "--test", "parity"],
