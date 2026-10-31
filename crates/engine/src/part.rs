@@ -77,8 +77,31 @@ pub(super) fn commands() -> Vec<CommandSpec> {
             "part.fetch_datasheet",
             "Download a datasheet to the user cache and record its hash on the part (native builds only)",
             schema(
-                json!({"id":id_schema(),"url":{"type":"string","maxLength":4096}}),
+                json!({
+                    "id":id_schema(),
+                    "url":{"type":"string","maxLength":4096},
+                    "distributor":{"type":"string","maxLength":48}
+                }),
                 &["id", "url"],
+            ),
+        ),
+        (
+            "part.set_distributor_credential",
+            "Store a distributor API token in the native keychain (not in the project file; native builds only)",
+            schema(
+                json!({
+                    "distributor":{"type":"string","maxLength":48},
+                    "secret":{"type":"string","maxLength":4096}
+                }),
+                &["distributor", "secret"],
+            ),
+        ),
+        (
+            "part.clear_distributor_credential",
+            "Remove a stored distributor API token from the native keychain (native builds only)",
+            schema(
+                json!({"distributor":{"type":"string","maxLength":48}}),
+                &["distributor"],
             ),
         ),
     ]
@@ -149,6 +172,21 @@ struct UserImportParams {
 struct FetchDatasheetParams {
     id: Id,
     url: String,
+    #[serde(default)]
+    distributor: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DistributorCredentialParams {
+    distributor: String,
+    secret: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DistributorOnlyParams {
+    distributor: String,
 }
 
 pub(super) fn run(
@@ -170,6 +208,8 @@ pub(super) fn run(
         "part.import" => part_import(p, next, params),
         "part.import_user_file" => part_import_user(p, next, params),
         "part.fetch_datasheet" => part_fetch_datasheet(p, params),
+        "part.set_distributor_credential" => part_set_distributor_credential(params),
+        "part.clear_distributor_credential" => part_clear_distributor_credential(params),
         _ => Err(Error::Invalid("unknown part command".into())),
     })())
 }
@@ -402,8 +442,11 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url)
-            .map_err(|e| Error::Invalid(e))?;
+        bounded("distributor", &a.distributor, 48)?;
+        let headers = pcbcraft_io::auth_headers_for_distributor(&a.distributor)
+            .map_err(Error::Invalid)?;
+        let hash = pcbcraft_io::fetch_datasheet_cache(&a.url, &headers)
+            .map_err(Error::Invalid)?;
         let part = p
             .library
             .parts
@@ -425,6 +468,43 @@ fn part_fetch_datasheet(p: &mut Project, params: &Value) -> Result<Value, Error>
         ds.retrieved_at = hash.retrieved_at;
         ds.checked_at = hash.retrieved_at;
         Ok(json!({"sha256": hash.sha256, "path": hash.path}))
+    }
+}
+
+fn part_set_distributor_credential(params: &Value) -> Result<Value, Error> {
+    let a: DistributorCredentialParams = parse(params)?;
+    bounded("distributor", &a.distributor, 48)?;
+    bounded("secret", &a.secret, 4096)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = a;
+        return Err(Error::Invalid(
+            "distributor credentials are not available on wasm builds".into(),
+        ));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pcbcraft_io::set_distributor_credential(&a.distributor, &a.secret)
+            .map_err(Error::Invalid)?;
+        Ok(json!({}))
+    }
+}
+
+fn part_clear_distributor_credential(params: &Value) -> Result<Value, Error> {
+    let a: DistributorOnlyParams = parse(params)?;
+    bounded("distributor", &a.distributor, 48)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = a;
+        return Err(Error::Invalid(
+            "distributor credentials are not available on wasm builds".into(),
+        ));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pcbcraft_io::clear_distributor_credential(&a.distributor)
+            .map_err(Error::Invalid)?;
+        Ok(json!({}))
     }
 }
 
