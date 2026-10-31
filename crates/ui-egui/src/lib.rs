@@ -13,6 +13,7 @@ mod canvas;
 mod contrast;
 mod datums;
 mod draw_target;
+mod drill_table;
 mod editing;
 mod file_dialogs;
 pub mod fonts;
@@ -27,6 +28,7 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
+mod minimap;
 mod modifier_ui;
 mod motion;
 mod number_entry;
@@ -37,9 +39,11 @@ mod pour_panel;
 mod properties;
 mod reference_panel;
 mod route_drag;
+mod rules_fab;
 mod sheet_rows;
 mod showcase;
 mod sources;
+mod sourcing_panel;
 mod stack_view;
 mod sync_notice;
 #[cfg(test)]
@@ -682,6 +686,9 @@ struct Preferences {
     /// Turn off fades, collapses and glided zoom. Dragging is unaffected.
     #[serde(default)]
     reduced_motion: bool,
+    /// Minimap look per tab (`layout`, `schematic`): pinned, width, opacity, position.
+    #[serde(default)]
+    minimap: std::collections::BTreeMap<String, minimap::MapPrefs>,
     /// Interface scale, 0.75 to 2.0; 1.0 is normal size.
     #[serde(default = "default_ui_scale")]
     ui_scale: f32,
@@ -759,6 +766,7 @@ impl Default for Preferences {
             language: default_language(),
             recent_files: Default::default(),
             reduced_motion: motion::os_prefers_reduced_motion(),
+            minimap: Default::default(),
             ui_scale: a11y::DEFAULT_UI_SCALE,
             chamfer_corners: true,
             route_shove: false,
@@ -1154,6 +1162,8 @@ pub struct App {
     connected_cycle: usize,
     last_repeat: Option<(String, Value)>,
     needs_zoom_selection: bool,
+    /// The minimap's per-session state (`minimap.rs`).
+    minimap: minimap::State,
     tree_search_focus: bool,
     about_open: bool,
     command_focus: bool,
@@ -1184,12 +1194,7 @@ pub struct App {
 /// labels, wires and graphics instead of showing a bare id.
 fn object_detail_rows(project: &Project, id: Id) -> Vec<(String, String)> {
     let net = |id: Id| project.net_name(id).to_string();
-    let layer = |value: &pcbcraft_doc::Layer| {
-        serde_json::to_value(value)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_string))
-            .unwrap_or_default()
-    };
+    let layer = |value: &pcbcraft_doc::Layer| project.layer_name(*value);
     let clearance_rows = |net: Id, rows: &mut Vec<(String, String)>| {
         let base = project.board.clearance;
         let class = project.net_class(net);
@@ -1544,6 +1549,11 @@ impl App {
         let show_home = capture.is_none();
         let mut app = Self::create(session, preferences, capture, tab);
         app.home_open = show_home && app.project.components.is_empty();
+        // Install the fonts now, so the fallback font added next lands behind them.
+        fonts::install(&cc.egui_ctx);
+        cc.egui_ctx
+            .data_mut(|d| d.insert_temp(egui::Id::new("design-fonts-installed"), true));
+        app.apply_fallback_font(&cc.egui_ctx);
         app
     }
     fn create(
@@ -1741,6 +1751,7 @@ impl App {
             connected_cycle: 0,
             last_repeat: None,
             needs_zoom_selection: false,
+            minimap: minimap::State::default(),
             tree_search_focus: false,
             shortcuts_settings_open: false,
             compare_open: false,
@@ -2709,6 +2720,9 @@ impl App {
             KeyAction::ToggleAssistant => {
                 self.assistant_toggle();
             }
+            KeyAction::MinimapPeek => {
+                self.minimap.key_held = matches!(self.tab, Tab::Pcb | Tab::Schematic);
+            }
         }
     }
 
@@ -2840,7 +2854,7 @@ impl App {
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let label = egui::RichText::new(t!("app.name"))
                         .size(15.0)
                         .strong()
@@ -2958,9 +2972,10 @@ impl App {
                                 .color(self.muted()),
                             );
                             ui.add_space(24.0);
+                            let home_btn = [300.0, 64.0];
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!("dialogs.start_home.new_design"))
                                             .size(16.0)
@@ -2982,7 +2997,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -3007,7 +3022,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.showcase_board"
@@ -3032,7 +3047,7 @@ impl App {
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.open_a_design_file"
@@ -3052,12 +3067,12 @@ impl App {
                                 self.home_path_focus = true;
                             }
                             ui.add_space(6.0);
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 let path_box = ui
                                     .add(
                                         crate::targets::text_field(&mut self.path)
                                             .hint_text(t!("dialogs.start_home.design_file_path"))
-                                            .desired_width(240.0),
+                                            .desired_width(ui.available_width().min(240.0)),
                                     )
                                     .named("design file path")
                                     .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
@@ -3290,11 +3305,50 @@ impl App {
         .response
         .on_hover_text(t!("menu.edit.tip"));
     }
-    /// Switch the app's language; the next frame paints in it.
-    fn set_language(&mut self, tag: &str) {
+    /// Switch the app's language; the next frame paints in it. A language
+    /// that needs a fallback font (Japanese, Chinese) loads it too.
+    ///
+    /// # Dependencies
+    /// `fonts.rs` (`load_for_language`, `add_fallback`).
+    fn set_language(&mut self, ctx: &egui::Context, tag: &str) {
         self.preferences.language = tag.to_string();
         self.catalog = std::sync::Arc::new(pcbcraft_text::Catalog::for_language(tag));
         pcbcraft_text::activate(&self.catalog);
+        self.apply_fallback_font(ctx);
+    }
+
+    /// The language tag the user chose (`en`, `ja`, `zh`...), with `system`
+    /// resolved. It can name a language with a font but no translation yet. The browser build reads it to fetch a font.
+    pub fn language(&self) -> String {
+        if self.preferences.language == "system" {
+            pcbcraft_text::resolve_system_language()
+        } else {
+            self.preferences.language.clone()
+        }
+    }
+
+    /// Load the fallback font for the showing language when it needs one. A
+    /// missing file keeps the default fonts and says so in the status line.
+    /// The browser build fetches its font in `apps/pcbcraft-web` instead.
+    ///
+    /// # Dependencies
+    /// `fonts.rs` (`load_for_language`).
+    ///
+    /// # Do not
+    /// Fail or block the app for a missing font; empty boxes are survivable.
+    fn apply_fallback_font(&mut self, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(file) = fonts::load_for_language(ctx, &self.language()) {
+            self.report_missing_font(file);
+        }
+        #[cfg(target_arch = "wasm32")]
+        let _ = ctx;
+    }
+
+    /// Say in the status line that a language's font file could not be
+    /// loaded. The browser build calls this when its fetch fails.
+    pub fn report_missing_font(&mut self, file: &str) {
+        self.message = pcbcraft_text::lookup("font.the_font_file_for_this", &[("file", file)]);
     }
     fn language_menu(&mut self, ui: &mut egui::Ui) {
         let mut picked = None;
@@ -3323,7 +3377,7 @@ impl App {
         .response
         .on_hover_text(t!("menu.settings.language.tip"));
         if let Some(tag) = picked {
-            self.set_language(&tag);
+            self.set_language(ui.ctx(), &tag);
             ui.ctx().request_repaint();
         }
     }
@@ -5155,6 +5209,7 @@ impl App {
                         }
                     });
                 } else {
+                    self.class_fab_fields(ui, &class);
                     ui.label(
                         egui::RichText::new(t!(
                             "rules.rules_tab.gap_clearance_mm_wire_width",
@@ -5837,6 +5892,8 @@ impl App {
                 });
             }
         }
+        self.class_pair_section(ui);
+        self.fab_rules_section(ui);
     }
     fn builds_tab(&mut self, ui: &mut egui::Ui) {
         if let Some((name, _)) = &self.build_note
@@ -6553,7 +6610,7 @@ impl App {
             )
             .show(ui, |ui| {
                 use ui_kit::{icons as kit_icons, status_item::status_item};
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);
@@ -6881,6 +6938,17 @@ impl App {
         self.frames = self.frames.saturating_add(1);
         if self.frames == 3 && self.capture_sheet {
             self.open_sheet(bottom_sheet::SheetTab::Findings);
+        }
+        // A numeric reference names a via by id, so an image can show its protection.
+        if self.frames == 3
+            && let Some(via) = self
+                .capture_select
+                .as_deref()
+                .and_then(|r| r.parse::<Id>().ok())
+                .filter(|id| self.project.board.vias.iter().any(|v| v.id == *id))
+        {
+            self.capture_select = None;
+            self.select(Some(via));
         }
         if self.frames == 3
             && let Some(row) = self
