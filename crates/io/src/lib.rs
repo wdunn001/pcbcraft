@@ -2841,6 +2841,12 @@ fn excellon_drill_file(
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     gerber_files_at(p, PACKAGE_CREATION_DATE)
 }
+
+/// Verify the `%TF.MD5` attribute on one Gerber layer file.
+pub fn assert_gerber_md5_valid(text: &str) -> Result<(), String> {
+    gerber_fidelity::verify_gerber_md5(text)
+}
+
 /// The same fabrication files as `gerber_files`, with the creation date the
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
@@ -2933,7 +2939,13 @@ pub fn gerber_files_with_options(
             )
         }
         fn code(&mut self, ap: Ap) -> Result<u32, String> {
+            self.code_fn(ap, None)
+        }
+        fn code_fn(&mut self, ap: Ap, function: Option<&'static str>) -> Result<u32, String> {
             if let Some(code) = self.apertures.get(&ap) {
+                if let Some(f) = function {
+                    self.ap_fn.entry(*code).or_insert(f);
+                }
                 return Ok(*code);
             }
             if self.aperture_slots() >= MAX_APERTURES {
@@ -2941,6 +2953,9 @@ pub fn gerber_files_with_options(
             }
             let code = 10 + self.aperture_slots() as u32;
             self.apertures.insert(ap, code);
+            if let Some(f) = function {
+                self.ap_fn.insert(code, f);
+            }
             Ok(code)
         }
         fn code_shaped(&mut self, aperture: &gerber::Aperture) -> Result<u32, String> {
@@ -3241,6 +3256,12 @@ pub fn gerber_files_with_options(
                 }
             }
         }
+        for (at, diameter, function) in gerber_fidelity::plane_pour_aperture_flashes(p, z)? {
+            let w = (diameter * 1_000.0).round() as u64;
+            let code = file.code_fn(Ap::Circle(w.max(1)), Some(function))?;
+            let (x, y) = mirror(at.x, at.y, flip);
+            file.flash(code, x, y)?;
+        }
     }
     for t in &p.board.tracks {
         let is_back = t.layer == pcbcraft_doc::Layer::Back;
@@ -3314,6 +3335,15 @@ pub fn gerber_files_with_options(
         let d = (v.diameter * 1_000.0).round() as u64;
         let ap = Ap::Via(d.max(1));
         let (reaches_top, reaches_bottom) = fab_export::via_reaches_outer(p, v);
+        for layer in p.via_span_layers(v) {
+            let Some(file) = copper.get_mut(&layer) else {
+                continue;
+            };
+            let code = file.code(ap.clone())?;
+            let flip = gerber_fidelity::copper_layer_is_back(p, layer);
+            let (x, y) = mirror(v.position.x, v.position.y, flip);
+            file.flash(code, x, y)?;
+        }
         if reaches_top {
             let index = usize::from(front.index()).min(bottom);
             let front_code = copper[index].code(ap.clone())?;
@@ -3325,6 +3355,7 @@ pub fn gerber_files_with_options(
             let back_code = copper[index].code(ap.clone())?;
             let (x, y) = mirror_for(v.position.x, v.position.y, index);
             copper[index].flash(back_code, x, y)?;
+        }
         }
         }
     }
@@ -3485,6 +3516,15 @@ pub fn gerber_files_with_options(
     }
     if !files.contains_key("pcb-Plated.drl") {
         files.insert("pcb-Plated.drl".into(), plated_drill);
+    }
+    for (name, text) in gerber_fidelity::mask_stack_gerber_files(p)? {
+        files.insert(name, text);
+    }
+    if gerber_fidelity::board_needs_viafill(p) {
+        files.insert(
+            "pcb-Viafill.gbr".into(),
+            gerber_fidelity::gerber_viafill(p)?,
+        );
     }
     // The job file is built from the files that exist, so it lists itself
     // last and never drifts from the package it travels in.

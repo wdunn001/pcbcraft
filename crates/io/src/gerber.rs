@@ -544,7 +544,7 @@ impl Sheet {
         out.push_str(&self.definitions);
         out.push_str(&self.body);
         out.push_str("M02*\n");
-        out
+        attach_gerber_md5(out)
     }
 }
 
@@ -693,7 +693,7 @@ pub fn gerber_mask(p: &Project, layer: Layer) -> Result<String, String> {
                 continue;
             };
             let opening = pad_opening(f, pad, margin, mirror_x)?;
-            let code = sheet.define(opening, "SMDPad,CuDef")?;
+            let code = sheet.define(opening, smd_aperture_function(f, pad))?;
             sheet.flash(code, mirror(at, layer))?;
         }
     }
@@ -1012,6 +1012,69 @@ pub fn gerber_silk(p: &Project, layer: Layer) -> Result<String, String> {
         _ => ("Legend,Top", "top silkscreen"),
     };
     Ok(sheet.finish(function, "Positive", comment, &notes))
+}
+
+/// Solder mask for one stack row, with an explicit `%TF.FileFunction` string.
+pub fn gerber_mask_for_stack_row(
+    p: &Project,
+    layer: Layer,
+    file_function: &str,
+    default_margin: f64,
+) -> Result<String, String> {
+    p.validate()?;
+    let mirror_x = crate::gerber_fidelity::copper_layer_is_back(p, layer);
+    let mut sheet = Sheet::new(file_scale(p));
+    for f in &p.board.footprints {
+        let margin = footprint_margin(p, f, true).unwrap_or(default_margin);
+        for pad in &f.pads {
+            if !f.pad_on_copper(pad, layer) {
+                continue;
+            }
+            let Some(at) = f.pad_position(&pad.number) else {
+                continue;
+            };
+            let opening = pad_opening(f, pad, margin, mirror_x)?;
+            let code = sheet.define(opening, smd_aperture_function(f, pad))?;
+            let at = if mirror_x {
+                Point::new(-at.x, at.y)
+            } else {
+                at
+            };
+            sheet.flash(code, at)?;
+        }
+    }
+    for v in &p.board.vias {
+        if !p.via_span_layers(v).contains(&layer) {
+            continue;
+        }
+        if !crate::via_mask_opening(v, &p.board) {
+            continue;
+        }
+        let diameter = (v.diameter + 2.0 * default_margin).max(0.001);
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        sheet.flash(code, mirror(v.position, layer))?;
+    }
+    Ok(sheet.finish(file_function, "Negative", "mask layer from stack", &[]))
+}
+
+/// Viafill layer for filled vias.
+pub fn gerber_viafill_layer(p: &Project) -> Result<String, String> {
+    use pcbcraft_doc::ViaCovering;
+    p.validate()?;
+    let mut sheet = Sheet::new(file_scale(p));
+    for v in &p.board.vias {
+        if v.drill <= 0.0 {
+            continue;
+        }
+        match v.effective_covering(&p.board) {
+            ViaCovering::Filled | ViaCovering::FilledCovered | ViaCovering::FilledCapped => {}
+            _ => continue,
+        }
+        let diameter = v.drill.max(0.001);
+        let code = sheet.define(Opening::Circle(microns(diameter)), "ViaPad,CuDef")?;
+        sheet.flash(code, v.position)?;
+    }
+    Ok(sheet.finish("Viafill", "Positive", "via fill", &[]))
 }
 
 #[cfg(test)]
