@@ -406,3 +406,111 @@ fn a_newcomer_reads_the_showcase_findings() -> Result<(), String> {
     );
     Ok(())
 }
+
+/// A newcomer turns the practice resistor into a chip that draws power, gives
+/// it a bypass capacitor, then deletes the capacitor and reads the new finding
+/// on the Checks sheet. The finding names the pin and the value to add.
+#[test]
+fn a_newcomer_sees_a_decoupling_finding_when_the_capacitor_is_removed() -> Result<(), String> {
+    let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
+    let mut app = App::create(shared.clone(), Preferences::default(), None, None);
+    app.refresh();
+    assert!(app.tool_call("sample_design", json!({})), "{}", app.message);
+    {
+        let mut s = shared.lock().map_err(|e| e.to_string())?;
+        let r1 = s
+            .project
+            .components
+            .iter_mut()
+            .find(|c| c.reference == "R1")
+            .ok_or("the sample has R1")?;
+        for pin in r1.pins.iter_mut().filter(|p| p.number == "1") {
+            pin.electrical_type = "power_in".into();
+            pin.name = "VDD".into();
+        }
+    }
+    let run = |app: &mut App, command: &str, params: Value| -> Result<Value, String> {
+        let s = shared.clone();
+        let out = s
+            .lock()
+            .map_err(|e| e.to_string())?
+            .execute(command, params, None)
+            .map_err(|e| e.to_string())?;
+        app.refresh();
+        Ok(out)
+    };
+    let ids = |app: &App, reference: &str| -> Result<u64, String> {
+        app.project
+            .components
+            .iter()
+            .find(|c| c.reference == reference)
+            .map(|c| c.id)
+            .ok_or_else(|| format!("no {reference}"))
+    };
+    let net = |app: &App, name: &str| -> Result<u64, String> {
+        app.project
+            .nets
+            .iter()
+            .find(|n| n.name == name)
+            .map(|n| n.id)
+            .ok_or_else(|| format!("no net {name}"))
+    };
+    let (r1, d1) = (ids(&app, "R1")?, ids(&app, "D1")?);
+    let (vcc, gnd) = (net(&app, "VCC")?, net(&app, "GND")?);
+    let added = run(
+        &mut app,
+        "component.add",
+        json!({"kind":"capacitor","reference":"C1","value":"100n","position":{"x":40,"y":30}}),
+    )?;
+    let c1 = added["result"]["id"]
+        .as_u64()
+        .ok_or("the capacitor has an id")?;
+    run(
+        &mut app,
+        "wire.connect",
+        json!({"net":vcc,"from":{"component":r1,"pin":"1"},"to":{"component":c1,"pin":"1"}}),
+    )?;
+    run(
+        &mut app,
+        "wire.connect",
+        json!({"net":gnd,"from":{"component":d1,"pin":"2"},"to":{"component":c1,"pin":"2"}}),
+    )?;
+    let found = |app: &App| -> Vec<String> {
+        app.checks
+            .get("erc")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|f| f.get("code").and_then(Value::as_str) == Some("missing_decoupling"))
+            .filter_map(|f| f.get("message").and_then(Value::as_str).map(str::to_owned))
+            .collect()
+    };
+    run(
+        &mut app,
+        "rules.decoupling_set",
+        json!({"max_distance_mm": 50.0}),
+    )?;
+    assert!(
+        found(&app).is_empty(),
+        "with a capacitor on the supply there is no finding: {:?}",
+        found(&app)
+    );
+    run(&mut app, "object.delete", json!({"id": c1}))?;
+    let messages = found(&app);
+    assert_eq!(
+        messages.len(),
+        1,
+        "removing the capacitor brings one finding: {messages:?}"
+    );
+    assert!(messages[0].contains("R1 pin 1 (VDD)") && messages[0].contains("100 nF"));
+    let ctx = egui::Context::default();
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    authoring::tests::open_page(&ctx, &mut app, "Checks")?;
+    frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
+    assert!(
+        paints_text(&ctx, &mut app, &messages[0])?,
+        "the Checks sheet shows the finding: {}",
+        messages[0]
+    );
+    Ok(())
+}
