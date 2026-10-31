@@ -1,0 +1,21 @@
+[part]
+manufacturer = "Espressif"
+mpn = "ESP32-C3"
+datasheet_path = "research/sources/library/datasheets/espressif/esp32-c3.pdf"
+datasheet_url = "https://www.espressif.com/sites/default/files/documentation/esp32-c3_datasheet_en.pdf"
+
+package = "QFN-32"
+pin_count = 32
+land_pattern_ref = "See datasheet package section"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[pin]]
+number = 2
+name = "3V3"
+function = "Power supply"
+kind = "power"
+page = 20
+confirmed = false

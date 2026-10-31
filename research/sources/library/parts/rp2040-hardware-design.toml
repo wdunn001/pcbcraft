@@ -1,0 +1,25 @@
+[part]
+manufacturer = "Raspberry Pi"
+mpn = "RP2040 design guide"
+datasheet_path = "research/sources/library/datasheets/raspberry-pi/rp2040-hardware-design.pdf"
+datasheet_url = "https://datasheets.raspberrypi.com/rp2040/hardware-design-with-rp2040.pdf"
+
+package = "N/A"
+pin_count = 0
+land_pattern_ref = "N/A"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[requirement]]
+type = "decoupling"
+text = "Place 100nF close to each RP2040 supply pin; use bulk capacitance per power tree."
+page = 15
+confirmed = false
+
+[[requirement]]
+type = "crystal"
+text = "Follow crystal load, ground guard, and placement rules in the design guide."
+page = 18
+confirmed = false

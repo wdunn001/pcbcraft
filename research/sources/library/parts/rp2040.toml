@@ -1,0 +1,27 @@
+[part]
+manufacturer = "Raspberry Pi"
+mpn = "RP2040"
+datasheet_path = "research/sources/library/datasheets/raspberry-pi/rp2040.pdf"
+datasheet_url = "https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf"
+
+package = "QFN-56"
+pin_count = 56
+land_pattern_ref = "See datasheet land pattern section"
+
+[limits]
+abs_max_vdd = { value = "see datasheet", page = 1, confirmed = false }
+tj_max = { value = "see datasheet", page = 1, confirmed = false }
+
+[[pin]]
+name = "IOVDD"
+function = "IO supply"
+kind = "power"
+page = 17
+confirmed = false
+
+[[pin]]
+name = "DVDD"
+function = "Core supply"
+kind = "power"
+page = 17
+confirmed = false
