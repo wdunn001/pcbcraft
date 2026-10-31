@@ -1,4 +1,4 @@
-//! Six-layer fixture for the pour and keepout obstacle lists (issue #800).
+//! Six-layer fixture for the pour and keepout obstacle lists (issue #805).
 //!
 //! Each test builds a small six-layer board and asks which objects the pour
 //! sees on each copper layer. A via is copper only on the layers of its span, a
@@ -34,6 +34,7 @@ fn copper(name: &str) -> LayerRecord {
 
 fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via, String> {
     Ok(Via {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id,
         net,
         position: Point::new(x, 10.0),
@@ -42,7 +43,9 @@ fn via(id: Id, net: Id, x: f64, from: Option<u8>, to: Option<u8>) -> Result<Via,
         from_layer: from.map(layer).transpose()?,
         to_layer: to.map(layer).transpose()?,
         covering: None,
-        preserved: pcbcraft_doc::PreservedSource::default(),
+covering: None,
+        covering_scope: None,
+        covering_bottom: None,
     })
 }
 
@@ -69,6 +72,7 @@ fn part(id: Id, net: Id, x: f64, thru: bool, side: Option<Layer>) -> Footprint {
         raw_source: String::new(),
     };
     Footprint {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id,
         component: 0,
         position: Point::new(x, 30.0),
@@ -83,12 +87,12 @@ fn part(id: Id, net: Id, x: f64, thru: bool, side: Option<Layer>) -> Footprint {
             castellated: None,
             geometry: Some(geometry),
         }],
-        preserved: pcbcraft_doc::PreservedSource::default(),
     }
 }
 
 fn square(id: Id, net: Id, index: u8) -> Result<CopperZone, String> {
     Ok(CopperZone {
+        preserved: pcbcraft_doc::PreservedSource::default(),
         id,
         net,
         layer: layer(index)?,
@@ -102,7 +106,6 @@ fn square(id: Id, net: Id, index: u8) -> Result<CopperZone, String> {
         cutouts: vec![],
         filled: true,
         kind: None,
-        preserved: pcbcraft_doc::PreservedSource::default(),
         pour: None,
     })
 }
@@ -291,6 +294,8 @@ fn keepout_hits_cover_inner_layers() -> Result<(), String> {
             height: 10.0,
         },
         profile: None,
+        forbid: None,
+        footprint_ref: None,
     });
     let hits = keepout_hits(&p)?;
     let hit: Vec<Id> = sorted(hits.iter().map(|hit| hit.object).collect());
