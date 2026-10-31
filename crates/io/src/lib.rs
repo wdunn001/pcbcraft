@@ -197,7 +197,7 @@ pub use pcbcraft_doc::Layer;
 pub use plot_read::{
     MAX_PLOT_ZIP_BYTES, PlotAperture, PlotDrillHit, PlotDrillTool, PlotFlash, PlotHint, PlotLayer,
     PlotLayerKind, PlotPackage, PlotStroke, count_flashes_and_draws, distance_mm, layer_bounds,
-    load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer,
+    load_plot_folder, load_plot_zip, parse_excellon_drill, parse_gerber_layer, parse_xnc_drill,
 };
 /// Rasterization types and functions for converting vector shapes to raster images.
 /// # Dependencies
@@ -2749,7 +2749,7 @@ fn excellon_drill_file(
     inch: bool,
     scale: f64,
     plated_filter: Option<bool>,
-) -> String {
+) -> Result<String, String> {
     type DrillHit = (f64, f64, f64, f64);
     let mut drills: BTreeMap<(u64, u64), Vec<DrillHit>> = BTreeMap::new();
     for hit in hits {
@@ -2762,21 +2762,25 @@ fn excellon_drill_file(
             .push((hit.x, hit.y, hit.ux, hit.uy));
     }
     let (drill_header, drill_prec) = if inch {
-        ("INCH,TZ", 4)
+        ("INCH", 4)
     } else {
-        ("METRIC,TZ", 3)
+        ("METRIC", 3)
     };
-    let mut drill = format!("M48\nFMAT,2\n{drill_header}\n");
-    for (n, (d, _)) in drills.keys().enumerate() {
+    let mut drill = format!("M48\n{drill_header}\n");
+    let tool_keys: Vec<_> = drills.keys().copied().collect();
+    if tool_keys.len() > 99 {
+        return Err("drill export needs 99 or fewer distinct tools".into());
+    }
+    for (n, (d, _)) in tool_keys.iter().enumerate() {
         drill.push_str(&format!(
-            "T{}C{:.drill_prec$}\n",
+            "T{:02}C{:.drill_prec$}\n",
             n + 1,
             *d as f64 / 1000.0 * scale
         ));
     }
     drill.push_str("%\nG90\nG05\n");
-    for (n, holes) in drills.values().enumerate() {
-        drill.push_str(&format!("T{}\n", n + 1));
+    for (n, (_key, holes)) in tool_keys.iter().zip(drills.values()) {
+        drill.push_str(&format!("T{:02}\n", n + 1));
         for (x, y, ux, uy) in holes {
             let (x, y) = (x - origin.x, y - origin.y);
             let (x, y) = (x * scale, y * scale);
@@ -2785,7 +2789,7 @@ fn excellon_drill_file(
                 drill.push_str(&format!("X{x:.drill_prec$}Y{y:.drill_prec$}\n"));
             } else {
                 drill.push_str(&format!(
-                    "X{a:.drill_prec$}Y{b:.drill_prec$}G85X{c:.drill_prec$}Y{d:.drill_prec$}\n",
+                    "G00X{a:.drill_prec$}Y{b:.drill_prec$}\nM15\nG01X{c:.drill_prec$}Y{d:.drill_prec$}\nM16\n",
                     a = x - ux,
                     b = y - uy,
                     c = x + ux,
@@ -2795,14 +2799,14 @@ fn excellon_drill_file(
         }
     }
     drill.push_str("M30\n");
-    drill
+    Ok(drill)
 }
 
 /// RS-274X copper/outline layers plus an Excellon drill file, as filename to
 /// text. Copper layers carry zones, tracks, via and pad copper; the outline
 /// layer carries the board edge and circular cutouts; the drill file carries
 /// every plated and unplated hole, round holes as single hits and oval holes
-/// as G85 spans along the rotated long axis. Back-copper coordinates are
+/// as routed slots. Back-copper coordinates are
 /// mirrored about x=0 as fabrication houses expect for bottom-side films.
 pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
     gerber_files_at(p, PACKAGE_CREATION_DATE)
@@ -3224,9 +3228,9 @@ pub fn gerber_files_with_options(
     }
     let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
-    let drill = excellon_drill_file(&hits, origin, inch, scale, None);
-    let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true));
-    let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false));
+    let drill = excellon_drill_file(&hits, origin, inch, scale, None)?;
+    let plated_drill = excellon_drill_file(&hits, origin, inch, scale, Some(true))?;
+    let npth_drill = excellon_drill_file(&hits, origin, inch, scale, Some(false))?;
     let drill_map = fab_export::drill_map_plot(p)?;
     let mut files = BTreeMap::new();
     files.insert(
@@ -3273,7 +3277,6 @@ pub fn gerber_files_with_options(
         "pcb-B.Paste.gbr",
         "pcb-Plated.drl",
         "pcb-NPTH.drl",
-        "pcb-Rout.drl",
     ] {
         if let Some(text) = extras.get(key) {
             files.insert(key.to_string(), text.clone());
@@ -8090,15 +8093,16 @@ mod tests {
         });
         project.validate()?;
         let files = gerber_files(&project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-NPTH.drl"];
         assert!(
-            drill.contains("T1C1.000\n"),
+            drill.contains("T01C1.000\n"),
             "the tool is the slot width: {drill}"
         );
         assert!(
-            drill.contains("X10.000Y10.000G85X14.000Y10.000\n"),
-            "one hit spans the two centres: {drill}"
+            drill.contains("G00X10.000Y10.000\nM15\nG01X14.000Y10.000\nM16\n"),
+            "the slot is routed between the two centres: {drill}"
         );
+        assert!(!drill.contains("G85"), "XNC slots never use G85: {drill}");
         assert!(drill.ends_with("M30\n"));
         let map = &files["pcb-DrillMap.gbr"];
         assert!(
@@ -9318,11 +9322,16 @@ mod tests {
         );
         let drill = &files["pcb-Plated.drl"];
         assert!(
-            drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nINCH,TZ\n"),
+            drill.contains("; #@! TF.FileFunction,Plated,1,2,PTH\n")
+                && drill.contains("M48\nINCH\n"),
             "the drill header declares inches: {drill}"
         );
         assert!(
-            drill.contains("T1C0.0118\n"),
+            !drill.contains("FMAT") && !drill.contains(",TZ"),
+            "XNC omits FMAT and trailing-zero words: {drill}"
+        );
+        assert!(
+            drill.contains("T01C0.0118\n"),
             "a 0.3 mm bit is a 0.0118 inch bit"
         );
         assert!(
@@ -9615,11 +9624,14 @@ mod tests {
             "the circular cutout must trace a circle"
         );
         let drill = &files["pcb-Plated.drl"];
-        assert!(drill.starts_with("M48\nPlated,1,2,PTH\nFMAT,2\nMETRIC,TZ\n"));
-        assert!(drill.contains("T1C0.300\n"), "via drill tool");
-        assert!(drill.contains("T2C0.800\n"), "pad drill tool");
-        assert!(drill.contains("T1\nX30.000Y10.000\n"), "via hole hit");
-        assert!(drill.contains("T2\nX0.000Y0.000\n"), "pad hole hit");
+        assert!(
+            drill.contains("; #@! TF.FileFunction,Plated,1,2,PTH\n") && drill.contains("M48\nMETRIC\n"),
+            "plated drill uses XNC headers: {drill}"
+        );
+        assert!(drill.contains("T01C0.300\n"), "via drill tool");
+        assert!(drill.contains("T02C0.800\n"), "pad drill tool");
+        assert!(drill.contains("T01\nX30.000Y10.000\n"), "via hole hit");
+        assert!(drill.contains("T02\nX0.000Y0.000\n"), "pad hole hit");
         assert!(drill.ends_with("M30\n"));
         assert!(
             files["README-fabrication.txt"].contains("pcb-Plated.drl"),
@@ -9755,24 +9767,21 @@ mod tests {
         }
         project.validate()?;
         let files = gerber_files(&project)?;
-        let rout = &files["pcb-Rout.drl"];
+        let drill = &files["pcb-Plated.drl"];
         assert!(
-            rout.starts_with("M48\nRout\n"),
-            "oval slots land in the rout file"
-        );
-        assert!(
-            rout.contains("T1C0.500\n"),
+            drill.contains("T01C0.500\n"),
             "one narrow tool carries both slots"
         );
         assert!(
-            rout.contains("X9.850Y10.000G85X10.150Y10.000\n"),
-            "an unrotated oval spans along x"
+            drill.contains("G00X9.850Y10.000\nM15\nG01X10.150Y10.000\nM16\n"),
+            "an unrotated oval is routed along x"
         );
         assert!(
-            rout.contains("X30.000Y10.150G85X30.000Y9.850\n"),
+            drill.contains("G00X30.000Y10.150\nM15\nG01X30.000Y9.850\nM16\n"),
             "a rotated footprint rotates its slot"
         );
-        assert!(rout.ends_with("M30\n"));
+        assert!(!drill.contains("G85"), "oval pads never use G85 spans: {drill}");
+        assert!(drill.ends_with("M30\n"));
         Ok(())
     }
     #[test]
@@ -13694,7 +13703,7 @@ mod tests {
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
         assert!(
-            plated.contains("T1C0.800\n"),
+            plated.contains("T01C0.800\n"),
             "numbered through-hole pads stay on the plated drill file"
         );
         assert!(
@@ -13702,7 +13711,7 @@ mod tests {
             "peg coordinates must not appear in the plated drill file: {plated}"
         );
         assert!(
-            npth.contains("T1C3.000\n"),
+            npth.contains("T01C3.000\n"),
             "both pegs share one unplated tool"
         );
         assert!(
@@ -13825,8 +13834,55 @@ mod tests {
         let files = gerber_files(&project)?;
         let plated = &files["pcb-Plated.drl"];
         let npth = &files["pcb-NPTH.drl"];
-        assert!(plated.contains("T1C0.300\n") && !plated.contains("T1C3.000\n"));
-        assert!(npth.contains("T1C3.000\n") && !npth.contains("0.300"));
+        assert!(plated.contains("T01C0.300\n") && !plated.contains("T01C3.000\n"));
+        assert!(npth.contains("T01C3.000\n") && !npth.contains("0.300"));
+        Ok(())
+    }
+
+    #[test]
+    fn plated_and_unplated_holes_leave_in_separate_drill_files() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "N1".into(),
+            ..Default::default()
+        });
+        project.board.vias.push(pcbcraft_doc::Via {
+            id: 2,
+            net: 1,
+            position: Point::new(30.0, 20.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        project.board.holes.push(pcbcraft_doc::Hole {
+            id: 3,
+            position: Point::new(5.0, 5.0),
+            diameter: 3.2,
+            end: None,
+        });
+        project.validate()?;
+        let files = gerber_files(&project)?;
+        let plated = &files["pcb-Plated.drl"];
+        let npth = &files["pcb-NPTH.drl"];
+        for text in [plated.as_str(), npth.as_str()] {
+            assert!(!text.contains("FMAT") && !text.contains(",TZ"));
+            assert!(text.ends_with("M30\n"));
+        }
+        let (p_tools, p_hits) = parse_xnc_drill(plated)?;
+        let (n_tools, n_hits) = parse_xnc_drill(npth)?;
+        assert_eq!(p_tools.len(), 1);
+        assert_eq!(n_tools.len(), 1);
+        assert!((p_tools[0].diameter_mm - 0.3).abs() < 1e-6);
+        assert!((n_tools[0].diameter_mm - 3.2).abs() < 1e-6);
+        assert_eq!(p_hits.len(), 1);
+        assert_eq!(n_hits.len(), 1);
+        assert!((p_hits[0].x_mm - 30.0).abs() < 1e-6 && (p_hits[0].y_mm - 20.0).abs() < 1e-6);
+        assert!((n_hits[0].x_mm - 5.0).abs() < 1e-6 && (n_hits[0].y_mm - 5.0).abs() < 1e-6);
+        let map = parse_gerber_layer(&files["pcb-DrillMap.gbr"], "pcb-DrillMap.gbr")?;
+        assert_eq!(map.kind, PlotLayerKind::DrillMap);
         Ok(())
     }
 
@@ -14618,8 +14674,9 @@ mod tests {
             2,
             "each via tool clears its attribute so later tools do not inherit it"
         );
-        assert!(
-            drill.matches("\nT1C0.300\n").count() + drill.matches("\nT2C0.300\n").count() == 2,
+        assert_eq!(
+            drill.matches("\nT01C0.300\n").count() + drill.matches("\nT02C0.300\n").count(),
+            2,
             "one tool per covering: {drill}"
         );
         Ok(())

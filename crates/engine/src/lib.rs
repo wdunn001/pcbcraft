@@ -31939,17 +31939,21 @@ json!({"name":"R_0805_2012Metric","path":"parts/resistor.wrl","offset":[0,0,0.5]
             .collect();
         assert_eq!(xs, vec![20.0, 30.0, 10.0, 20.0, 30.0]);
         let files = pcbcraft_io::gerber_files(&s.project)?;
-        let drill = &files["pcb-Drill.drl"];
+        let drill = &files["pcb-NPTH.drl"];
         assert_eq!(
-            drill.matches("G85").count(),
+            drill.matches("M15").count(),
             6,
-            "every copy is a slotted hit: {drill}"
+            "every copy is a routed slot: {drill}"
+        );
+        assert!(
+            !drill.contains("G85"),
+            "slotted mounting holes never use G85: {drill}"
         );
         let tools: Vec<&str> = drill
             .lines()
             .filter(|l| l.starts_with('T') && l.contains('C'))
             .collect();
-        assert_eq!(tools, vec!["T1C1.000"], "one tool carries all six: {drill}");
+        assert_eq!(tools, vec!["T01C1.000"], "one tool carries all six: {drill}");
         Ok(())
     }
     #[test]
