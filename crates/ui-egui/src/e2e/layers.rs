@@ -465,6 +465,17 @@ fn a_silkscreen_line_drawn_on_the_layout_is_kept_for_the_capture() -> Result<(),
     Ok(())
 }
 
+tap_strip(&ctx, &mut app, "icon:tool-line")?;
+    app.canvas_click(Point::new(8.0, 4.0), 10.0);
+    app.canvas_click(Point::new(30.0, 4.0), 10.0);
+    assert!(
+        app.project.graphics.iter().any(|g| g.sublayer == "F.SilkS"),
+        "{}",
+        app.message
+    );
+    keep_sample(&mut app, "silk-line");
+    Ok(())
+}
 /// Type `text` over what the focused field holds.
 fn type_over(ctx: &egui::Context, app: &mut App, text: &str) {
     frame(
