@@ -72,20 +72,7 @@ pub(crate) struct View3d {
     pub(crate) notes_open: bool,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
-pub dist: f64,
-    pub target: V,
-    mesh: Option<(u64, BoardMesh)>,
-    /// Model files read off the UI thread; see `board3d/model_cache.rs`.
-    models: ModelCache,
-    /// How many finished loads the current mesh already includes.
-    model_gen: u64,
-    /// Per part: did its model file load, or why did the box stay.
-    notes: std::collections::BTreeMap<Id, ModelStatus>,
-    error: Option<String>,
-    /// Where the viewport was painted last frame, so tests and picking agree.
-    pub rect: Rect,
-    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
-    pub keep_camera: bool,
+<<<<<<< ours
     /// The last rendered picture and what it was made from.
     frame: Option<Held>,
     /// An angle a capture asked for; applied once the first fit has run.
@@ -113,7 +100,10 @@ struct FrameKey {
     gold: bool,
     mask: [u8; 3],
     silk: [u8; 3],
-}
+=======
+    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
+    pub keep_camera: bool,
+>>>>>>> theirs
 }
 impl Default for View3d {
     fn default() -> Self {
@@ -129,9 +119,12 @@ impl Default for View3d {
             error: None,
             notes_open: false,
             rect: Rect::NOTHING,
-keep_camera: false,
+<<<<<<< ours
             frame: None,
             start_angle: None,
+=======
+            keep_camera: false,
+>>>>>>> theirs
         }
     }
 }
@@ -797,7 +790,7 @@ mod tests {
             };
             let mut best = f64::MAX;
             for _ in 0..12 {
-                let t = pcbcraft_clock::instant_now();
+                let t = std::time::Instant::now();
                 std::hint::black_box(raster::render(mesh, &basis, w, h, &look));
                 best = best.min(t.elapsed().as_secs_f64() * 1000.0);
             }

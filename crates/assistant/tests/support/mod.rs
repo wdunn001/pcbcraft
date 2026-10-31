@@ -166,7 +166,7 @@ impl FakeServer {
 
 fn answer(mut c: TcpStream, r: Reply, stream: bool) {
     std::thread::sleep(Duration::from_millis(r.delay_ms));
-let (ctype, body) = if stream && r.status == 200 {
+    let (ctype, body) = if stream && r.status == 200 {
         ("text/event-stream", openai_completion_to_sse(&r.body))
     } else {
         ("application/json", r.body.clone())
@@ -178,10 +178,6 @@ let (ctype, body) = if stream && r.status == 200 {
     );
     let _ = c.write_all(head.as_bytes());
     let _ = c.write_all(body.as_bytes());
-}
-    );
-    let _ = c.write_all(head.as_bytes());
-    let _ = c.write_all(r.body.as_bytes());
 }
 
 fn openai_completion_to_sse(json_body: &str) -> String {

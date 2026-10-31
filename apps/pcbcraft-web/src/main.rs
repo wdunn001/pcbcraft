@@ -13,9 +13,14 @@
 //! # Dependencies
 //! - `apps/pcbcraft-web/src/browser_fetch.rs` (the browser transport, wasm only)
 //! - `crates/text/strings/en.txt` (message text)
+<<<<<<< ours
 //! - `apps/pcbcraft-web/index.html`
 //! - `apps/pcbcraft-web/webgpu-check.js`
 //! - `apps/pcbcraft-web/Trunk.toml` (the loader that waits for the check)
+=======
+//! - `apps/pcbcraft-web/index.html` and `apps/pcbcraft-web/webgpu-check.js`
+//! - `apps/pcbcraft-web/src/transport.rs` (online library fetch queue)
+>>>>>>> theirs
 //!
 //! # Do not
 //! - Add text literals here; read them from the catalog.
@@ -60,9 +65,22 @@ async fn start() -> Result<(), wasm_bindgen::JsValue> {
         .ok_or_else(|| wasm_bindgen::JsValue::from_str("missing pcbcraft canvas"))?
         .dyn_into::<web_sys::HtmlCanvasElement>()?;
     let session = pcbcraft_mcp::shared(demo_session());
-let runner = eframe::WebRunner::new();
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
     let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let transport = browser_fetch::transport(offline.clone());
+=======
+    let transport = Arc::new(BrowserTransport::live());
+    let offline = Arc::new(AtomicBool::new(false));
+>>>>>>> theirs
+=======
+    let offline = Arc::new(AtomicBool::new(false));
+    let transport = Arc::new(BrowserTransport::live(Arc::clone(&offline)));
+>>>>>>> theirs
+    eframe::WebRunner::new()
+=======
+    let runner = eframe::WebRunner::new();
     // eframe installs its own panic hook when the runner is made; chain after
     // it so a panic in any frame also puts the notice on the page.
     let previous = std::panic::take_hook();
@@ -71,34 +89,47 @@ let runner = eframe::WebRunner::new();
         show_crash_notice();
     }));
     runner
+>>>>>>> theirs
         .start(
             canvas,
             eframe::WebOptions::default(),
             Box::new(move |cc| {
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+                Ok(Box::new(WithFonts::new(pcbcraft_ui_egui::App::new(
+                    cc, session, None, None, false,
+                ))))
+=======
                 Ok(Box::new(
                     pcbcraft_ui_egui::App::new(cc, session, None, None, false)
-                        .with_web_transport(transport, offline)
+                        .with_web_transport(transport, offline),
                 ))
-            }),
-        )
-        .await
-        .start(
-            canvas,
-            eframe::WebOptions::default(),
-            Box::new(move |cc| {
-Ok(Box::new(
-                    pcbcraft_ui_egui::App::new(cc, session, None, None, false)
-                        .with_web_transport(transport, offline)
-                ))
-            }),
-        )
-        .await
-}
+>>>>>>> theirs
+=======
+                let mut app =
+                    pcbcraft_ui_egui::App::new(cc, session, None, None, false);
+=======
+                let mut app = pcbcraft_ui_egui::App::new(cc, session, None, None, false);
+>>>>>>> theirs
+                if cross_origin_status() != CrossOriginStatus::Refused {
+                    app = app.with_online_fetcher(
+                        Box::new(PollingFetcher::new(Arc::clone(&transport))),
+                        offline,
+                    );
+                }
+                Ok(Box::new(WebShell {
+                    inner: app,
+                    transport,
+                }))
+>>>>>>> theirs
             }),
         )
         .await
 }
 
+<<<<<<< ours
+<<<<<<< ours
 /// Wraps the app so selecting Japanese or Chinese fetches that language's
 /// font file over HTTP, exactly once, and installs it as a fallback. The
 /// font lives beside the site as `fonts/<file>` (brotli-compressed by the
@@ -186,10 +217,27 @@ impl eframe::App for WithFonts {
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.inner.save(storage);
+=======
+/// Runs the inner app and drains the online fetch queue each frame.
+#[cfg(target_arch = "wasm32")]
+struct WebShell {
+    inner: pcbcraft_ui_egui::App,
+    transport: std::sync::Arc<pcbcraft_web::transport::BrowserTransport>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl eframe::App for WebShell {
+    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+        self.transport.poll();
+        self.inner.update(ctx, frame);
+>>>>>>> theirs
     }
 }
 
+/// Show the "needs WebGPU" notice that `index.html` carries, hide the canvas.
+=======
 /// Show the "PCBCraft stopped" notice with its reload button, hide the canvas.
+>>>>>>> theirs
 ///
 /// Called when the app fails to start after load and from the panic hook, so a
 /// crash in any frame leaves a readable page instead of a blank canvas. The

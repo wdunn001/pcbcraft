@@ -23,16 +23,25 @@
 use crate::App;
 use crate::bom_export;
 use pcbcraft_doc::{BOM_EXCLUDE_FIELD, Id, Project};
-use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope, bom_flavour};
+use pcbcraft_io::formats::{self, Direction, FormatSpec, OptionKind, OptionSpec, Run, Scope};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
 /// Option values keyed by the registry label.
 pub(crate) type Values = BTreeMap<String, String>;
 /// A menu pick: the format id and the options to fill in, either may be absent.
 type Pick = (Option<String>, Option<Values>);
 
+<<<<<<< ours
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 /// Most entries a Recent list keeps.
 pub(crate) const RECENT_MAX: usize = 5;
 /// Rows the preview shows inside the dialog.
@@ -115,6 +124,10 @@ pub(crate) struct DialogState {
     pub preview_open: bool,
     /// (revision, rows) of the plain bill, for the Manufacture row count.
     pub count: Option<(u64, usize)>,
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
     /// The scripted clicks of a `--show` capture.
     pub script: CaptureScript,
 }
@@ -123,7 +136,7 @@ pub(crate) struct DialogState {
 /// through File and Export to show the submenu.
 #[derive(Default)]
 pub(crate) struct CaptureScript {
-/// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
+    /// The scene asked for: `file-export`, `export-dialog` or `export-flavour`.
     pub show: Option<String>,
     /// Where the menu buttons were drawn last frame.
     pub rects: BTreeMap<&'static str, egui::Pos2>,
@@ -137,6 +150,11 @@ impl CaptureScript {
     pub(crate) fn ready(&self) -> bool {
         self.show.as_deref() != Some("file-export") || (self.step >= 2 && self.wait >= 10)
     }
+<<<<<<< ours
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 }
 
 fn spec(id: &str) -> Option<&'static FormatSpec> {
@@ -146,19 +164,7 @@ fn spec(id: &str) -> Option<&'static FormatSpec> {
 /// The option values a format starts with.
 fn defaults(project: &Project, f: &FormatSpec) -> BTreeMap<String, String> {
     if f.id == "bom" {
-return bom_export::default_values(project, &formats::BOM_FLAVOURS[0]);
-    }
-    let mut out = BTreeMap::new();
-    for o in f.options {
-        let value = match o.kind {
-            OptionKind::Bool { default } => default.to_string(),
-            OptionKind::Choice { choices, default } => choices
-                .get(default)
-                .map(|(v, _)| (*v).to_owned())
-                .unwrap_or_default(),
-            _ => String::new(),
-        };
-        out.insert(o.label.to_owned(), value);
+        return bom_export::default_values(project, formats::default_bom_flavour());
     }
     let mut out = BTreeMap::new();
     for o in f.options {
@@ -336,10 +342,24 @@ impl App {
             Mode::Import => self.preferences.recent_files.imports.clone(),
             _ => self.preferences.recent_files.exports.clone(),
         };
+<<<<<<< ours
+<<<<<<< ours
         let mut picked: Option<Pick> = None;
         let button = ui.menu_button(label, |ui| {
             if !recent.is_empty() {
                 ui.label(crate::fonts::caption("Recent").color(self.muted()));
+=======
+        let mut picked: Option<(Option<String>, Option<BTreeMap<String, String>>)> = None;
+        ui.menu_button(label, |ui| {
+            if !recent.is_empty() {
+                ui.label(egui::RichText::new("Recent").small().color(self.muted()));
+>>>>>>> theirs
+=======
+        let mut picked: Option<Pick> = None;
+        let button = ui.menu_button(label, |ui| {
+            if !recent.is_empty() {
+                ui.label(crate::fonts::caption("Recent").color(self.muted()));
+>>>>>>> theirs
                 for r in &recent {
                     if ui
                         .button(&r.summary)
@@ -352,7 +372,15 @@ impl App {
                 }
                 ui.separator();
             }
+<<<<<<< ours
+<<<<<<< ours
             ui.label(crate::fonts::caption("Common").color(self.muted()));
+=======
+            ui.label(egui::RichText::new("Common").small().color(self.muted()));
+>>>>>>> theirs
+=======
+            ui.label(crate::fonts::caption("Common").color(self.muted()));
+>>>>>>> theirs
             for f in formats::listed(mode.direction(), mode.scope())
                 .into_iter()
                 .filter(|f| f.common)
@@ -374,6 +402,10 @@ impl App {
                 picked = Some((None, None));
                 ui.close();
             }
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
         });
         if self.capture.is_some() {
             self.edit
@@ -383,6 +415,14 @@ impl App {
                 .insert(label, button.response.rect.center());
         }
         button.response.on_hover_text(tip);
+<<<<<<< ours
+=======
+        })
+        .response
+        .on_hover_text(tip);
+>>>>>>> theirs
+=======
+>>>>>>> theirs
         if let Some((format, values)) = picked {
             self.open_dialog(mode, format.as_deref(), values, vec![]);
         }
@@ -407,9 +447,19 @@ impl App {
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
+<<<<<<< ours
+<<<<<<< ours
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .default_width(780.0)
+=======
+            .default_width(700.0)
+>>>>>>> theirs
+=======
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .default_width(780.0)
+>>>>>>> theirs
             .show(ctx, |ui| {
                 ui.add_space(6.0);
                 ui.horizontal_top(|ui| {
@@ -424,7 +474,15 @@ impl App {
                     ui.separator();
                     ui.add_space(12.0);
                     ui.vertical(|ui| {
+<<<<<<< ours
+<<<<<<< ours
                         ui.set_width(520.0);
+=======
+                        ui.set_width(430.0);
+>>>>>>> theirs
+=======
+                        ui.set_width(520.0);
+>>>>>>> theirs
                         match spec(&d.format) {
                             None => {
                                 ui.label(
@@ -540,22 +598,10 @@ impl App {
             return false;
         }
         match f.export {
-Some(Run::Engine("gerber.files")) => {
+            Some(Run::Engine("gerber.files")) => {
                 let mut params = gerber_params(f, d);
                 params["directory"] = json!(&directory);
                 let ok = self.tool_call("gerber.files", params);
-                if ok {
-                    self.message = format!("{} saved in {directory}.", f.label);
-                }
-                ok
-            }
-            Some(Run::Kind(kind)) => {
-                let job = format!("export-{kind}");
-                let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": [kind]}));
-                let ok = self.tool_call(
-                    "output_job.run",
-                    json!({"name": &job, "directory": &directory}),
-                );
                 if ok {
                     self.message = format!("{} saved in {directory}.", f.label);
                 }
@@ -650,9 +696,7 @@ Some(Run::Engine("gerber.files")) => {
         }
         let o = bom_export::Options::from_values(
             &self.project,
-&bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]),
             &bom_export::default_values(&self.project, formats::default_bom_flavour()),
-            &[],
             &[],
         );
         let n = bom_export::table(&self.project, &o).map_or(0, |t| t.rows.len());
@@ -676,7 +720,14 @@ Some(Run::Engine("gerber.files")) => {
             .collect();
         let muted = self.muted();
         ui.add_space(8.0);
+<<<<<<< ours
+<<<<<<< ours
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
+=======
+>>>>>>> theirs
+=======
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 0)).show(ui, |ui| {
+>>>>>>> theirs
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
@@ -687,11 +738,26 @@ Some(Run::Engine("gerber.files")) => {
                     ui.label(egui::RichText::new(format!("{rows} rows")).color(muted));
                 });
                 ui.label(
+<<<<<<< ours
+<<<<<<< ours
                     crate::fonts::caption(if jobs.is_empty() {
+=======
+                    egui::RichText::new(if jobs.is_empty() {
+>>>>>>> theirs
+=======
+                    crate::fonts::caption(if jobs.is_empty() {
+>>>>>>> theirs
                         "Not in an output job yet.".to_owned()
                     } else {
                         format!("Also written by the output jobs: {}.", jobs.join(", "))
                     })
+<<<<<<< ours
+<<<<<<< ours
+=======
+                    .small()
+>>>>>>> theirs
+=======
+>>>>>>> theirs
                     .color(muted),
                 );
                 ui.add_space(4.0);
@@ -712,35 +778,27 @@ Some(Run::Engine("gerber.files")) => {
                     }
                 });
             });
+<<<<<<< ours
+<<<<<<< ours
         });
+=======
+>>>>>>> theirs
+=======
+        });
+>>>>>>> theirs
     }
 
     fn bom_preview_window(&mut self, ctx: &egui::Context) {
         if !self.edit.dialog.preview_open {
             return;
         }
-let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
+        let values = bom_export::default_values(&self.project, formats::default_bom_flavour());
         let o = bom_export::Options::from_values(&self.project, &values, &[]);
         let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
             headers: vec![],
             rows: vec![],
             header: true,
             missing: vec![],
-        });
-        let mut open = true;
-        let mut export = false;
-        let o = bom_export::Options::from_values(&self.project, &values, &[]);
-        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
-            headers: vec![],
-            rows: vec![],
-let values = bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
-        let o = bom_export::Options::from_values(&self.project, &values, &[]);
-        let table = bom_export::table(&self.project, &o).unwrap_or(bom_export::Table {
-            headers: vec![],
-            rows: vec![],
-            header: true,
-            missing: vec![],
-        });
         });
         let mut open = true;
         let mut export = false;
@@ -818,7 +876,15 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
             .collect()
     };
     for (heading, list) in groups {
+<<<<<<< ours
+<<<<<<< ours
         ui.label(crate::fonts::caption(heading).color(muted));
+=======
+        ui.label(egui::RichText::new(heading).small().color(muted));
+>>>>>>> theirs
+=======
+        ui.label(crate::fonts::caption(heading).color(muted));
+>>>>>>> theirs
         for f in list {
             let chosen = d.format == f.id;
             if ui
@@ -837,7 +903,15 @@ fn format_list(ui: &mut egui::Ui, d: &mut DialogState, project: &Project, muted:
         ui.add_space(8.0);
     }
     if d.mode == Mode::Export {
+<<<<<<< ours
+<<<<<<< ours
         ui.label(crate::fonts::caption("Packages").color(muted));
+=======
+        ui.label(egui::RichText::new("Packages").small().color(muted));
+>>>>>>> theirs
+=======
+        ui.label(crate::fonts::caption("Packages").color(muted));
+>>>>>>> theirs
         if packages().is_empty() {
             ui.label(egui::RichText::new("No packages yet.").color(muted))
                 .on_hover_text(
@@ -864,7 +938,15 @@ fn detail(
     browser: bool,
     go: &mut bool,
 ) {
+<<<<<<< ours
+<<<<<<< ours
     ui.label(crate::fonts::title(f.label));
+=======
+    ui.label(egui::RichText::new(f.label).strong().size(15.0));
+>>>>>>> theirs
+=======
+    ui.label(crate::fonts::title(f.label));
+>>>>>>> theirs
     ui.label(egui::RichText::new(f.tip).color(muted));
     ui.add_space(8.0);
     for o in f.options {
@@ -876,8 +958,22 @@ fn detail(
     ui.add_space(8.0);
     match d.mode {
         Mode::Export => {
+<<<<<<< ours
+<<<<<<< ours
             ui.label(crate::fonts::caption(format!("Saves into {make_dir}")).color(muted))
                 .on_hover_text("The make folder. Change it in Settings under Make files.");
+=======
+            ui.label(
+                egui::RichText::new(format!("Saves into {make_dir}"))
+                    .small()
+                    .color(muted),
+            )
+            .on_hover_text("The make folder. Change it in Settings under Make files.");
+>>>>>>> theirs
+=======
+            ui.label(crate::fonts::caption(format!("Saves into {make_dir}")).color(muted))
+                .on_hover_text("The make folder. Change it in Settings under Make files.");
+>>>>>>> theirs
         }
         Mode::SaveAs | Mode::Import => {
             let before = d.path.clone();
@@ -910,20 +1006,10 @@ fn detail(
         ui.add_space(8.0);
         let o = bom_export::Options::from_values(project, &d.values, &d.only);
         match bom_export::table(project, &o) {
-Ok(table) => {
+            Ok(table) => {
                 bom_needs_ui(ui, &table, &o);
                 preview_grid_limited(ui, &table);
             }
-            Err(e) => {
-                ui.colored_label(ui.visuals().error_fg_color, e);
-            }
-        }
-    }
-if f.id == "bom" && d.mode == Mode::Export {
-        ui.add_space(8.0);
-        let o = bom_export::Options::from_values(project, &d.values, &d.only);
-        match bom_export::table(project, &o) {
-            Ok(table) => preview_grid_limited(ui, &table),
             Err(e) => {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -951,6 +1037,8 @@ if f.id == "bom" && d.mode == Mode::Export {
     }
 }
 
+/// Say, before anything is written, which parts lack a field the flavour needs and
+/// which site limits the list exceeds.
 fn bom_needs_ui(ui: &mut egui::Ui, table: &bom_export::Table, o: &bom_export::Options) {
     for m in &table.missing {
         let shown: Vec<&str> = m.references.iter().take(12).map(String::as_str).collect();
@@ -983,16 +1071,6 @@ fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
         rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
         header: table.header,
         missing: vec![],
-    };
-    ui.label(format!(
-fn preview_grid_limited(ui: &mut egui::Ui, table: &bom_export::Table) {
-    ui.label(egui::RichText::new("Preview").strong());
-    let shown = bom_export::Table {
-        headers: table.headers.clone(),
-        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
-header: table.header,
-        missing: vec![],
-        rows: table.rows.iter().take(PREVIEW_ROWS).cloned().collect(),
     };
     ui.label(format!(
         "First {} of {} rows",
@@ -1057,7 +1135,7 @@ fn option_row(
         }
         OptionKind::Flavour => {
             let current = bom_export::flavour_of(&d.values);
-ui.horizontal_wrapped(|ui| {
+            ui.horizontal(|ui| {
                 ui.label(o.label);
                 egui::ComboBox::from_id_salt("bom_flavour")
                     .selected_text(&current.label)
@@ -1143,9 +1221,8 @@ ui.horizontal_wrapped(|ui| {
                         changed = true;
                     }
                 };
-for (token, header) in flavour.columns {
-                    toggle(ui, token.to_owned(), header.to_owned());
-                }
+                for column in &flavour.columns {
+                    toggle(ui, column.token.clone(), column.header.clone());
                 }
                 for field in &project.bom_fields {
                     let label = if field.label.is_empty() {
@@ -1163,6 +1240,19 @@ for (token, header) in flavour.columns {
     }
     let _ = f;
 }
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
+
+/// The option values a fresh bill of the given flavour starts with.
+#[cfg(test)]
+pub(crate) fn bom_default_values(
+    project: &Project,
+    flavour: &pcbcraft_io::formats::BomFlavour,
+) -> BTreeMap<String, String> {
+    bom_export::default_values(project, flavour)
+}
 
 impl App {
     /// Capture option: stage a scene for the screenshot (`file-export`, `export-dialog`, `export-flavour`).
@@ -1177,17 +1267,6 @@ impl App {
             Some("file-export") => {
                 let mut values =
                     bom_export::default_values(&self.project, formats::default_bom_flavour());
-    pub fn with_capture_show(mut self, scene: Option<String>) -> Self {
-        self.edit.dialog.script.show = scene;
-        self
-    }
-
-    /// Frame 3 of a `--show` capture: seed a Recent export or open the dialog.
-    pub(crate) fn capture_scene(&mut self) {
-        match self.edit.dialog.script.show.clone().as_deref() {
-            Some("file-export") => {
-                let mut values =
-bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
                 values.insert(bom_export::FILE_TYPE.into(), "tsv".into());
                 values.insert(bom_export::GROUP.into(), "false".into());
                 let summary = bom_export::summary(&self.project, &values);
@@ -1201,35 +1280,28 @@ bom_export::default_values(&self.project, &formats::BOM_FLAVOURS[0]);
                 );
             }
             Some("export-dialog") => self.open_dialog(Mode::Export, Some("bom"), None, vec![]),
-Some("export-flavour") => {
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+            Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
+=======
+            Some("export-flavour") => {
                 self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
                 if let Some(flavour) = formats::bom_flavour("asm_proto_a") {
                     self.edit.dialog.values = bom_export::default_values(&self.project, flavour);
                 }
             }
-            Some("export-dialog") => {
-                self.open_dialog(Mode::Export, Some("bom"), None, vec![]);
-                let mut values = self.edit.dialog.values.clone();
-                values.insert(bom_export::GROUP.into(), "false".into());
-                let summary = bom_export::summary(&self.project, &values);
-                remember(
-                    &mut self.preferences.recent_files.exports,
-                    Recent {
-                        format: "bom".into(),
-                        values,
-                        summary,
-                    },
-                );
-            }
+>>>>>>> theirs
+=======
             Some(scene) if scene.starts_with("library-") => self.capture_library_scene(scene),
-            Some(scene) if scene.starts_with("files-") => self.files_capture_scene(scene),
+>>>>>>> theirs
+            _ => {}
+=======
             Some(scene) => {
                 self.capture_project_settings(scene);
             }
             None => {}
-        }
-    }
-            _ => {}
+>>>>>>> theirs
         }
     }
 
@@ -1271,18 +1343,13 @@ Some("export-flavour") => {
         }
     }
 }
-1 if script.wait >= 6 => "Export",
-            _ => return,
-        };
-        if let Some(pos) = script.rects.get(target).copied() {
-            raw.events.push(egui::Event::PointerMoved(pos));
-            raw.events.push(button(pos, true));
-            script.release = Some(pos);
-            script.step += 1;
-            script.wait = 0;
-        }
-    }
-}
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
 
 /// Command parameters from the option values of a format whose options all name a parameter.
 ///
@@ -1340,3 +1407,4 @@ fn gerber_preview(ui: &mut egui::Ui, d: &DialogState, f: &FormatSpec, project: &
             }
         });
 }
+>>>>>>> theirs

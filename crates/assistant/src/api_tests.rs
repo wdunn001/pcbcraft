@@ -2,9 +2,8 @@
 
 use crate::api::*;
 use crate::backend::{
-ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, PromptPart, StartContext, ToolStatus,
-    deliver_streamed_body,
-};
+    ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, HttpStreamPart, PromptPart, StartContext,
+    ToolStatus, deliver_streamed_body,
 };
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;

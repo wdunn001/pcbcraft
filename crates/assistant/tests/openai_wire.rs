@@ -293,7 +293,7 @@ fn a_finished_turn_is_saved_and_loads_back_the_same() -> Result<(), String> {
     let path = std::env::temp_dir().join(format!(
         "pcbcraft-assistant-wire-{}-transcript.jsonl",
         std::process::id()
-    );
+    ));
     let _ = std::fs::remove_file(&path);
     pcbcraft_assistant::save_transcript(&transcript.items, &path)?;
     let (loaded, skipped) = pcbcraft_assistant::load_transcript(&path);

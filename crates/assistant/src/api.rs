@@ -9,22 +9,12 @@
 //! Wire-format checklist (tools, tool results, stop reasons, headers): `docs/assistant-backends.md`.
 
 use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
+    ChatBackend, Event, HttpFn, HttpRequest, HttpResponse, ModelInfo, PromptPart, StartContext,
+    ToolStatus,
 };
 use crate::prompt::SYSTEM_NOTE;
-use crate::backend::{
-    ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PromptPart, StartContext, ToolStatus,
-};
-use crate::prompt::SYSTEM_NOTE;
-use crate::retrieval::{self, MODEL_TOOL_NAME};
 use crate::stream::StreamParser;
-use crate::tool_names::{ToolNames, to_wire};
-use crate::turn::ToolRequest;
-use serde_json::{Value, json};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::Duration;
+use crate::retrieval::{self, MODEL_TOOL_NAME};
 use crate::tool_names::{ToolNames, to_wire};
 use crate::turn::ToolRequest;
 use serde_json::{Value, json};
@@ -572,31 +562,9 @@ impl Worker {
         std::thread::spawn(move || {
             let _ = tx.send(http(&req));
         });
-// streaming: follow-up
         let mut parser = StreamParser::new(self.cfg.protocol);
         let mut streamed = false;
-        let mut http_result: Option<Result<(u16, Vec<u8>), String>> = None;
-        let response = loop {
-            if self.cancelled() {
-                return Err("cancelled by the user".into());
-            }
-            if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
-                return text;
-            }
-        };
-        Ok((
-            response.status,
-            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
-        ))
-            if self.cancelled() {
-                return Err("cancelled by the user".into());
-            }
-            if let Some(text) = self.drain_stream(&stream_rx, &mut parser, &mut streamed) {
-                return text;
-            }
-let mut parser = StreamParser::new(self.cfg.protocol);
-        let mut streamed = false;
-        let mut http_result: Option<Result<(u16, Vec<u8>), String>> = None;
+        let mut http_result: Option<Result<HttpResponse, String>> = None;
         loop {
             if self.cancelled() {
                 return Err("cancelled by the user".into());
@@ -609,7 +577,8 @@ let mut parser = StreamParser::new(self.cfg.protocol);
                     http_result = Some(r);
                 }
             }
-            if let Some(Ok((status, bytes))) = &http_result {
+            if let Some(Ok(resp)) = &http_result {
+                let (status, bytes) = (&resp.status, &resp.body);
                 if streamed && bytes.is_empty() {
                     // Wait for [`HttpStreamPart::End`] on the stream channel.
                 } else if !streamed {
@@ -646,10 +615,6 @@ let mut parser = StreamParser::new(self.cfg.protocol);
                 }
             }
         }
-        Ok((
-            response.status,
-            serde_json::from_slice(&response.body).unwrap_or(Value::Null),
-        ))
     }
 
     fn drain_stream(
@@ -689,7 +654,6 @@ let mut parser = StreamParser::new(self.cfg.protocol);
             Ok(crate::backend::HttpStreamPart::Chunk(_)) => None,
             Err(e) => Some(Err(e)),
         }
-    }
     }
 }
 
