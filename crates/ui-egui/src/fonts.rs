@@ -15,6 +15,15 @@
 //! # Do not
 //! - Pass a raw font size or call `RichText::small()` or `.heading()` in new code.
 //! - Drop the default fonts behind the Plex families; they cover scripts Plex lacks.
+//! - Embed a CJK font in the binary; they load on demand (see "CJK fallback" below).
+//!
+//! CJK fallback: IBM Plex has no Japanese or Chinese glyphs, so those scripts need a
+//! font file. Files live in `crates/ui-egui/assets/fonts/` and ship beside the program,
+//! never inside the binary or the wasm. They are appended behind every Plex family so
+//! Latin text keeps Plex and only missing glyphs fall through. Native builds read
+//! `fonts/` next to the executable or `../share/pcbcraft/fonts`; the browser build
+//! fetches the file and calls [`add_fallback`]. One regular-weight file per language;
+//! bold and titles use the same file.
 use egui::{FontData, FontDefinitions, FontFamily, FontId, RichText, Style, TextStyle};
 use std::sync::Arc;
 
@@ -171,6 +180,121 @@ pub fn definitions() -> FontDefinitions {
     let monospace = fonts.families.entry(FontFamily::Monospace).or_default();
     monospace.insert(0, JETBRAINS_MONO.to_owned());
     fonts
+}
+
+/// The font file language `tag` needs, or `None` when the built-in fonts
+/// already draw it.
+///
+/// # Rules
+/// - One file per region (`ja`, `zh`); there is no single CJK font.
+/// - Regular weight only.
+///
+/// # Dependencies
+/// - `crates/ui-egui/assets/fonts/NotoSansJP-Regular.otf` and `NotoSansSC-Regular.otf` ship with `OFL-NotoSansCJK.txt`.
+///
+/// # Do not
+/// - Do not add a system-font lookup here; a later issue may add one.
+/// - Do not return a file for a language Plex already draws.
+pub fn font_file_for(tag: &str) -> Option<&'static str> {
+    match tag {
+        "ja" => Some("NotoSansJP-Regular.otf"),
+        "zh" => Some("NotoSansSC-Regular.otf"),
+        _ => None,
+    }
+}
+
+/// The family name for a font file: the file name without its extension.
+/// The browser build needs this to install a fetched file under the same
+/// name the native build uses.
+///
+/// # Do not
+/// - Do not shorten to a language tag; two regions may share a tag.
+pub fn font_stem(file: &str) -> &str {
+    file.strip_suffix(".otf").unwrap_or(file)
+}
+
+/// Append font `name` (bytes of an OpenType or TrueType file) to the end
+/// of the Proportional, Monospace, Plex Medium and Plex SemiBold families of `ctx`.
+///
+/// Appending, not replacing, keeps Latin text on the default font; only
+/// characters no earlier font can draw fall through to this one. The font
+/// becomes active at the start of the next frame. The call is idempotent:
+/// a second call with the same name changes nothing.
+///
+/// # Rules
+/// - The font goes last in both families so it is the last resort.
+///
+/// # Dependencies
+/// - `apps/pcbcraft-web/src/main.rs` feeds fetched bytes to this function;
+///   `load_for_language` below is the native caller.
+///
+/// # Do not
+/// - Do not insert the font at the front; that would restyle Latin text.
+pub fn add_fallback(ctx: &egui::Context, name: &str, bytes: Vec<u8>) {
+    ctx.add_font(egui::epaint::text::FontInsert {
+        name: name.to_string(),
+        data: egui::FontData::from_owned(bytes),
+        families: vec![
+            egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Proportional,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+            egui::epaint::text::InsertFontFamily {
+                family: egui::FontFamily::Monospace,
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+            egui::epaint::text::InsertFontFamily {
+                family: medium(),
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+            egui::epaint::text::InsertFontFamily {
+                family: semibold(),
+                priority: egui::epaint::text::FontPriority::Lowest,
+            },
+        ],
+    });
+}
+
+/// The folders holding font files, in search order: `fonts/` next to the
+/// running program (portable archives and app bundles), then the
+/// `../share/pcbcraft/fonts` folder system packages install to.
+#[cfg(not(target_arch = "wasm32"))]
+fn fonts_dirs() -> Vec<std::path::PathBuf> {
+    let Some(exe) = std::env::current_exe().ok() else {
+        return Vec::new();
+    };
+    let Some(dir) = exe.parent() else {
+        return Vec::new();
+    };
+    vec![dir.join("fonts"), dir.join("../share/pcbcraft/fonts")]
+}
+
+/// Load the fallback font for language `tag` from the folders listed by
+/// `fonts_dirs` below.
+///
+/// Returns `Some(file)` when the language needs a font that is not on
+/// disk, so the caller can keep the default fonts and say so in plain
+/// words. Languages with no entry in [`font_file_for`] return `None` and
+/// change nothing.
+///
+/// # Rules
+/// - Read relative to the program, never the current directory.
+///
+/// # Dependencies
+/// - `crates/ui-egui/assets/fonts/` holds the files installers copy next to the program.
+///
+/// # Do not
+/// - Do not fail the app when the file is missing; boxes are survivable.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_for_language(ctx: &egui::Context, tag: &str) -> Option<&'static str> {
+    let file = font_file_for(tag)?;
+    for dir in fonts_dirs() {
+        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+            add_fallback(ctx, font_stem(file), bytes);
+            return None;
+        }
+    }
+    Some(file)
 }
 
 /// Register the fonts on a context. Call once at start-up.
@@ -382,5 +506,160 @@ mod tests {
             });
             output.textures_delta.clear();
         }
+    }
+
+    /// The shipped Japanese font, kept in the repository with its license
+    /// file beside it; the coverage test reads it from there.
+    const JP_FONT: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/fonts/NotoSansJP-Regular.otf"
+    );
+
+    fn jp_font_bytes() -> Vec<u8> {
+        std::fs::read(JP_FONT).unwrap_or_default()
+    }
+
+    /// Run one frame so queued fonts become active. This test has no GPU
+    /// renderer; discard texture uploads on purpose.
+    fn settle(ctx: &egui::Context) {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_ui| {});
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn every_character_in_a_ja_test_string_has_a_glyph_in_the_loaded_font() {
+        let bytes = jp_font_bytes();
+        assert!(
+            !bytes.is_empty(),
+            "{JP_FONT} must exist with its license file beside it"
+        );
+        // Words a Japanese user meets in an EDA: board, design, wiring,
+        // settings, display, plus both kana scripts and a middle dot.
+        let sample = "基板設計配線設定表示回路寸法 かなひらがな カタカナピカ・全角";
+        let parsed = skrifa::FontRef::new(&bytes);
+        assert!(
+            parsed.is_ok(),
+            "the font file did not parse: {:?}",
+            parsed.as_ref().err()
+        );
+        if let Ok(font) = &parsed {
+            use skrifa::MetadataProvider;
+            let cmap = font.charmap();
+            for ch in sample.chars() {
+                assert!(
+                    cmap.map(ch as u32).is_some(),
+                    "NotoSansJP-Regular.otf has no glyph for {ch}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn adding_a_fallback_font_keeps_latin_on_the_default_font() {
+        let ctx = egui::Context::default();
+        add_fallback(&ctx, "NotoSansJP-Regular", jp_font_bytes());
+        settle(&ctx);
+        let definitions = ctx.fonts(|view| view.definitions().clone());
+        let proportional = definitions
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .cloned()
+            .unwrap_or_default();
+        let default_first = egui::FontDefinitions::default()
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .and_then(|list| list.first())
+            .cloned();
+        assert_eq!(
+            proportional.first(),
+            default_first.as_ref(),
+            "Latin text stays on the default font"
+        );
+        assert_eq!(
+            proportional.last().map(String::as_str),
+            Some("NotoSansJP-Regular"),
+            "the CJK font is the last resort"
+        );
+        let monospace = definitions
+            .families
+            .get(&egui::FontFamily::Monospace)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            monospace.last().map(String::as_str),
+            Some("NotoSansJP-Regular"),
+            "the CJK font also backs the monospace family"
+        );
+        assert!(definitions.font_data.contains_key("NotoSansJP-Regular"));
+    }
+
+    #[test]
+    fn adding_the_same_fallback_twice_changes_nothing() {
+        let ctx = egui::Context::default();
+        add_fallback(&ctx, "NotoSansJP-Regular", jp_font_bytes());
+        settle(&ctx);
+        add_fallback(&ctx, "NotoSansJP-Regular", jp_font_bytes());
+        settle(&ctx);
+        let definitions = ctx.fonts(|view| view.definitions().clone());
+        let proportional = definitions
+            .families
+            .get(&egui::FontFamily::Proportional)
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(
+            proportional
+                .iter()
+                .filter(|n| *n == "NotoSansJP-Regular")
+                .count(),
+            1
+        );
+    }
+
+    /// The Chinese font covers common simplified characters an EDA user meets.
+    #[test]
+    fn every_character_in_a_zh_test_string_has_a_glyph_in_the_sc_font() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/fonts/NotoSansSC-Regular.otf"
+        );
+        let bytes = std::fs::read(path).unwrap_or_default();
+        assert!(!bytes.is_empty(), "{path} must exist");
+        let parsed = skrifa::FontRef::new(&bytes);
+        assert!(parsed.is_ok(), "the font file did not parse");
+        if let Ok(font) = &parsed {
+            use skrifa::MetadataProvider;
+            let cmap = font.charmap();
+            for ch in "电路板设计布线设置显示尺寸".chars() {
+                assert!(cmap.map(ch as u32).is_some(), "no glyph for {ch}");
+            }
+        }
+    }
+
+    /// Medium and SemiBold text (buttons, titles) also falls back to the CJK font.
+    #[test]
+    fn bold_families_fall_back_to_the_cjk_font_too() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        add_fallback(&ctx, "NotoSansJP-Regular", jp_font_bytes());
+        settle(&ctx);
+        settle(&ctx);
+        let definitions = ctx.fonts(|view| view.definitions().clone());
+        for family in [medium(), semibold()] {
+            let chain = definitions
+                .families
+                .get(&family)
+                .cloned()
+                .unwrap_or_default();
+            assert_eq!(chain.last().map(String::as_str), Some("NotoSansJP-Regular"));
+            assert_eq!(chain.first().map(|n| n.starts_with("plex")), Some(true));
+        }
+    }
+
+    #[test]
+    fn font_file_for_names_one_regular_file_per_language() {
+        assert_eq!(font_file_for("ja"), Some("NotoSansJP-Regular.otf"));
+        assert_eq!(font_file_for("zh"), Some("NotoSansSC-Regular.otf"));
+        assert_eq!(font_file_for("en"), None);
+        assert_eq!(font_file_for(""), None);
     }
 }
