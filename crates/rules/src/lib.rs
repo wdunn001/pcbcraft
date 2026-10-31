@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod acute;
 mod compliance;
 mod courtyard;
+mod diffpair_impedance;
 mod decoupling;
 mod drill;
 mod silk;
@@ -1937,6 +1938,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             hint: None,
         });
     }
+    result.extend(diffpair_impedance::findings(project));
     for group in &board.length_groups {
         let routed: Vec<(Id, f64)> = group
             .nets

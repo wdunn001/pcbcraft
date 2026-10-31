@@ -1415,6 +1415,7 @@ check.copper_to_edge = Copper to edge
 check.cut_hits_via = Cut hits via
 check.cutout_clearance = Cutout clearance
 check.diffpair_gap = Diffpair gap
+check.diffpair_impedance = Diffpair impedance
 check.diffpair_skew = Diffpair skew
 check.keepout = Keepout
 check.length_group_skew = Length group skew
