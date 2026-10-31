@@ -7,8 +7,7 @@ use std::io::Read;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::Path;
-#[cfg(not(target_arch = "wasm32"))]
-mod datasheet;
+mod assembly_profiles;
 mod bitmap_trace;
 mod board_mesh;
 mod datasheet_cache;
@@ -31,10 +30,6 @@ mod interface_profile;
 mod machine_profile;
 mod diff;
 mod drawn;
-pub mod export_package;
-pub use export_package::{
-    PackageOutput, availability, build_package, bundled_packages, find_package,
-};
 mod fab_export;
 mod generate;
 mod gerber;
@@ -93,8 +88,14 @@ mod cam_drill;
 mod cam_shapes;
 mod compliance_report;
 mod snapmaker;
-mod solidcraft;
-mod solidcraft_format;
+/// Assembly house profiles for centroid files and Gerber component layers.
+/// # Dependencies
+/// - crates/io/src/assembly_profiles.rs
+pub use assembly_profiles::{
+    AssemblyPlacementProfile, BottomRotationPolicy, PlacementColumn, PlacementField, PlacementRow,
+    PlacementUnits, export_rotation, gerber_component_layers, placement_rows,
+    placement_text_with_profile,
+};
 /// 3D board mesh types and functions for generating mesh representations of PCBs.
 /// # Dependencies
 /// - crates/io/src/board_mesh.rs
@@ -190,7 +191,6 @@ pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
-pub use model_resolve::{resolve_library_path, resolve_model_path};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies
@@ -3291,6 +3291,9 @@ pub fn gerber_files_with_options(
     for (name, text) in drawn::gerber_layer_files(p)? {
         files.insert(name, text);
     }
+    for (name, text) in assembly_profiles::gerber_component_layers(p, None)? {
+        files.insert(name, text);
+    }
     let extras = fab_export::gerber_files(p)?;
     for key in [
         "pcb-F.Mask.gbr",
@@ -4425,63 +4428,7 @@ pub fn testpoints_csv(p: &Project) -> Result<String, String> {
 /// centroid format (`SMT|THT,reference,X,Y,rotation,side,package`), sorted by
 /// reference. Side comes from the pad layers; height is unknown to this tool.
 pub fn placement_text(p: &Project) -> Result<String, String> {
-    p.validate()?;
-    const MAX_PLACED: usize = 5_000;
-    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
-        p.components.iter().map(|c| (c.id, c)).collect();
-    if p.board.footprints.len() > MAX_PLACED {
-        return Err("placement file exceeds the placed-object limit".into());
-    }
-    let mut rows: Vec<String> = Vec::new();
-    for f in &p.board.footprints {
-        let c = refs
-            .get(&f.component)
-            .ok_or("footprint references an unknown component")?;
-        let back = f.board_side() == pcbcraft_doc::Layer::Back;
-        let tht = f.pads.iter().any(|pad| {
-            pad.geometry
-                .as_ref()
-                .is_some_and(|g| g.pad_type == "thru_hole")
-        });
-        let package = match &c.library_footprint {
-            Some(footprint) => footprint.definition.name.clone(),
-            None => c.kind.clone(),
-        };
-        rows.push(format!(
-            "{},\"{}\",{:.3},{:.3},{:.1},{},\"{}\"",
-            if tht { "THT" } else { "SMT" },
-            c.reference,
-            f.position.x,
-            f.position.y,
-            f.rotation.rem_euclid(360.0),
-            if back { "B" } else { "T" },
-            package
-        ));
-    }
-    for (i, f) in p.board.fiducials.iter().enumerate() {
-        rows.push(format!(
-            "SMT,\"FID{:02}\",{:.3},{:.3},0.0,{},FIDUCIAL",
-            i + 1,
-            f.position.x,
-            f.position.y,
-            if f.layer == pcbcraft_doc::Layer::Back {
-                "B"
-            } else {
-                "T"
-            }
-        ));
-    }
-    rows.sort_by(|a, b| {
-        a.split('"')
-            .nth(1)
-            .unwrap_or("")
-            .cmp(b.split('"').nth(1).unwrap_or(""))
-    });
-    Ok(format!(
-        "File Format,ASCII,\n#\n#\tPick and Place File\t{}\n#\nSMT,THT,X,Y,Rotation,Side,Package\n{}\n",
-        p.name,
-        rows.join("\n")
-    ))
+    placement_text_with_profile(p, None)
 }
 /// Fabrication plot report as CSV: one row per copper layer counting the
 /// elements a plot of that layer would draw (pads, tracks, vias, zones,
@@ -9800,6 +9747,7 @@ mod tests {
             files.keys().collect::<Vec<_>>(),
             vec![
                 "README-fabrication.txt",
+                "pcb-B.Cmp.gbr",
                 "pcb-B.Cu.gbr",
                 "pcb-B.Mask.gbr",
                 "pcb-B.Paste.gbr",
@@ -9807,6 +9755,7 @@ mod tests {
                 "pcb-Drill.drl",
                 "pcb-DrillMap.gbr",
                 "pcb-Edge.gbr",
+                "pcb-F.Cmp.gbr",
                 "pcb-F.Cu.gbr",
                 "pcb-F.Mask.gbr",
                 "pcb-F.Paste.gbr",

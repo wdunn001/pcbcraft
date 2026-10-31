@@ -1145,6 +1145,9 @@ let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
             polarity: "Positive",
         }),
     );
+    for (name, text) in crate::assembly_profiles::gerber_component_layers(p, None)? {
+        files.insert(name, text);
+    }
     files.insert("pcb-DrillMap.gbr".into(), drill_map_plot(p)?);
     if !plated.is_empty() {
         files.insert(
