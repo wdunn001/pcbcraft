@@ -1,0 +1,151 @@
+id = "bth"
+prefix = "BTH"
+manufacturer = "Samtec"
+description = "0.50 mm basic blade and beam mezzanine header"
+
+[limits]
+max_input_len = 96
+min_positions_per_row = 30
+max_positions_per_row = 150
+
+[[fields]]
+id = "series"
+label = "Series"
+kind = "literal"
+text = "BTH"
+
+[[fields]]
+id = "positions_per_row"
+label = "Positions per row"
+kind = "enum"
+
+[[fields.values]]
+code = "030"
+label = "30 positions per row"
+[fields.values.meaning]
+positions_per_row = 30
+
+[[fields.values]]
+code = "050"
+label = "50 positions per row"
+[fields.values.meaning]
+positions_per_row = 50
+
+[[fields.values]]
+code = "060"
+label = "60 positions per row"
+[fields.values.meaning]
+positions_per_row = 60
+
+[[fields.values]]
+code = "090"
+label = "90 positions per row"
+[fields.values.meaning]
+positions_per_row = 90
+
+[[fields.values]]
+code = "120"
+label = "120 positions per row"
+[fields.values.meaning]
+positions_per_row = 120
+
+[[fields.values]]
+code = "150"
+label = "150 positions per row"
+[fields.values.meaning]
+positions_per_row = 150
+
+[[fields]]
+id = "lead"
+label = "Lead or stack style"
+kind = "enum"
+
+[[fields.values]]
+code = "01"
+label = "Lead style 01"
+[fields.values.meaning]
+mated_height_mm = 5.0
+
+[[fields.values]]
+code = "02"
+label = "Lead style 02"
+[fields.values.meaning]
+mated_height_mm = 7.264
+
+[[fields]]
+id = "plating"
+label = "Plating"
+kind = "enum"
+
+[[fields.values]]
+code = "F"
+label = "Gold flash on contact, matte tin on tail"
+
+[[fields.values]]
+code = "L"
+label = "10 microinch gold on contact, matte tin on tail"
+
+[[fields.values]]
+code = "C"
+label = "Electro-polished selective gold on signal pins"
+
+[[fields]]
+id = "row"
+label = "Row option"
+kind = "enum"
+
+[[fields.values]]
+code = "D"
+label = "Double row"
+[fields.values.meaning]
+rows = 2
+
+[[fields]]
+id = "right_angle"
+label = "Right angle option"
+kind = "optional_enum"
+
+[[fields.values]]
+code = "RA"
+label = "Right angle"
+
+[[fields]]
+id = "weld_tab"
+label = "Weld tab option"
+kind = "optional_enum"
+
+[[fields.values]]
+code = "WT"
+label = "Weld tab"
+
+[[fields]]
+id = "alignment"
+label = "Alignment pins"
+kind = "optional_enum"
+
+[[fields.values]]
+code = "A"
+label = "Alignment pins"
+
+[[fields]]
+id = "pick_place"
+label = "Pick and place pad"
+kind = "optional_enum"
+
+[[fields.values]]
+code = "K"
+label = "Polyimide pick and place pad"
+
+[[fields]]
+id = "packaging"
+label = "Packaging"
+kind = "optional_enum"
+
+[[fields.values]]
+code = "TR"
+label = "Tape and reel"
+
+[[constraints]]
+kind = "even_total_positions"
+row_field = "row"
+positions_field = "positions_per_row"
