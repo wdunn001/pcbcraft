@@ -163,7 +163,8 @@ pub use laser::{
 /// - crates/io/src/layers.rs
 pub use layers::{
     FabLayer, GerberCopperCounts, LayerShapes, Shape, ShapePolarity, copper_shape_counts,
-    fabrication_point, gerber_copper_counts, layer_shapes, legend_shapes,
+    drill_centers, fab_layer_from_name, fabrication_point, gerber_copper_counts, layer_shapes,
+    legend_shapes,
 };
 use library_render::*;
 pub use machine_profile::{
