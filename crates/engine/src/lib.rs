@@ -24,6 +24,8 @@ pub mod recovery;
 pub mod scope;
 pub mod wirelength;
 pub use dry_run::{ChangeSummary, DryRun};
+#[cfg(feature = "plugin-firmware-target")]
+mod firmware_plugin;
 mod route;
 mod selection_clip;
 mod snapmaker;
@@ -2337,6 +2339,7 @@ pub fn commands() -> Vec<CommandSpec> {
         })
         .chain(snapmaker::commands())
         .chain(layout::commands())
+        .chain(firmware_plugin_commands())
         .chain(authoring::commands())
         .chain(online::commands())
         .chain(images::commands())
@@ -2344,6 +2347,26 @@ pub fn commands() -> Vec<CommandSpec> {
         .chain(tuning::commands())
         .chain(via_protection::commands())
         .collect()
+}
+
+#[cfg(feature = "plugin-firmware-target")]
+fn firmware_plugin_commands() -> impl Iterator<Item = CommandSpec> {
+    firmware_plugin::commands().into_iter()
+}
+
+#[cfg(not(feature = "plugin-firmware-target"))]
+fn firmware_plugin_commands() -> impl Iterator<Item = CommandSpec> {
+    std::iter::empty()
+}
+
+#[cfg(feature = "plugin-firmware-target")]
+fn firmware_plugin_handles(command: &str) -> bool {
+    firmware_plugin::handles(command)
+}
+
+#[cfg(not(feature = "plugin-firmware-target"))]
+fn firmware_plugin_handles(_command: &str) -> bool {
+    false
 }
 
 #[derive(Clone)]
@@ -2418,6 +2441,7 @@ impl Session {
             c.command == "cam.isolation"
                 || snapmaker::handles(&c.command)
                 || layout::handles(&c.command)
+                || firmware_plugin_handles(&c.command)
         }) {
             let mut results = vec![];
             for command in commands {
@@ -2829,6 +2853,10 @@ fn render_kind(
             skipped.extend(plots.skipped);
         }
         "raster" => out.extend(pcbcraft_io::raster_job_pngs(p)?),
+        #[cfg(feature = "plugin-firmware-target")]
+        kind if firmware_plugin::export_kind(kind) => {
+            out.extend(firmware_plugin::export_kind_files(p, kind)?);
+        }
         other => {
             return Err(Error::Invalid(format!("unknown export kind {other}")));
         }
@@ -7718,6 +7746,10 @@ fn run_read_only(p: &Project, command: &str, params: &Value) -> Result<Value, Er
         "cam.isolation" => cam_isolation(p, params).map_err(Error::Invalid),
         c if snapmaker::handles(c) => snapmaker::run(p, c, params).map_err(Error::Invalid),
         c if layout::handles(c) => layout::run(p, c, params),
+        #[cfg(feature = "plugin-firmware-target")]
+        c if firmware_plugin::handles(c) => {
+            firmware_plugin::run(p, c, params).map_err(Error::Invalid)
+        }
         _ => Err(Error::Invalid(format!(
             "unknown read-only command: {command}"
         ))),
@@ -7817,7 +7849,11 @@ fn run_command(
     record_revision: u64,
     mutating: bool,
 ) -> Result<Value, Error> {
-    if command == "cam.isolation" || snapmaker::handles(command) || layout::handles(command) {
+    if command == "cam.isolation"
+        || snapmaker::handles(command)
+        || layout::handles(command)
+        || firmware_plugin_handles(command)
+    {
         return run_read_only(p, command, params);
     }
     if let Some(result) = authoring::run(p, next, command, params) {

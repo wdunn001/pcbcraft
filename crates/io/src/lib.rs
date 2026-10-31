@@ -28,6 +28,8 @@ mod package;
 mod panel_export;
 mod part_bodies;
 mod plot_read;
+#[cfg(feature = "plugin-firmware-target")]
+pub mod plugins;
 mod raster;
 mod starter_models;
 mod step_merge;
