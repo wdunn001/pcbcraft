@@ -2828,15 +2828,15 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             std::fs::read_to_string(directory.path().join("bom.csv")).map_err(|e| e.to_string())?;
         assert_eq!(
             text.lines().next(),
-            Some("quantity,references,value,kind,footprint,Tolerance"),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity,Tolerance"),
             "the requested property becomes a column"
         );
         assert!(
-            text.contains("1,R2,10k,resistor,starter pads,"),
+            text.contains("R2,10k,starter pads,,,1,"),
             "a part with no property value gets an empty column"
         );
         assert!(
-            text.contains("1,R1,10k,resistor,starter pads,1%"),
+            text.contains("R1,10k,starter pads,,,1,1%"),
             "the property column carries the set value"
         );
         let bare = call_tool(&session, "bom.write", &json!({"path":directory.path()}));
@@ -2845,7 +2845,7 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             std::fs::read_to_string(directory.path().join("bom.csv")).map_err(|e| e.to_string())?;
         assert_eq!(
             plain.lines().next(),
-            Some("quantity,references,value,kind,footprint"),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity"),
             "fields are optional"
         );
         assert_eq!(
