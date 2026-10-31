@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
-use std::time::{Duration, Instant};
+use pcbcraft_clock::Instant;
+use std::time::Duration;
 
 const TAB_QUIET: Duration = Duration::from_secs(3);
 
@@ -146,6 +147,7 @@ pub struct Session {
 }
 
 /// Shell facts the trigger logic needs without importing all of `App`.
+#[derive(Clone, Copy)]
 pub struct ShellView<'a> {
     pub offer_tours: bool,
     pub modal_open: bool,
@@ -216,7 +218,7 @@ impl Controller {
     #[cfg(test)]
     pub fn test_quiet_tab_changes(&mut self) {
         self.session.tab_changed_at =
-            Some(Instant::now() - TAB_QUIET - Duration::from_secs(1));
+            Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_secs(1));
     }
 
     pub fn note_tab_change(&mut self, now: Instant) {
@@ -528,7 +530,7 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress,
             first_launch_done: false,
-            tab_changed_at: Some(Instant::now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
         }
     }
 
@@ -568,10 +570,10 @@ mod tests {
         ctrl.session.visits.insert(WorkspaceId::Layout);
         let mut view = shell(&progress, false);
         view.tab_changed_at = None;
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         assert!(ctrl.pending_offer().is_none());
         view.offer_tours = true;
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         assert!(ctrl.pending_offer().is_some());
         Ok(())
     }
@@ -600,14 +602,14 @@ mod tests {
             workspace: Some(WorkspaceId::Layout),
             progress: &progress,
             first_launch_done: true,
-            tab_changed_at: Some(Instant::now() - TAB_QUIET - Duration::from_millis(1)),
+            tab_changed_at: Some(pcbcraft_clock::instant_now() - TAB_QUIET - Duration::from_millis(1)),
         };
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         let offer = ctrl.pending_offer().ok_or("expected version chip")?;
         assert_eq!(offer.kind, OfferKind::VersionChip);
         ctrl.session.version_chip_shown.insert("e2e_resume".into());
         ctrl.session.pending = None;
-        ctrl.sync_triggers(view, Instant::now());
+        ctrl.sync_triggers(view, pcbcraft_clock::instant_now());
         assert!(ctrl.pending_offer().is_none());
         Ok(())
     }

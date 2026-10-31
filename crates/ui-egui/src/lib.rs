@@ -2000,9 +2000,18 @@ impl App {
         if self.tour.first_launch_handled() {
             self.preferences.tour_first_launch_done = true;
         }
-        let view = self.tour_shell_view();
+        let view = tour::state::ShellView {
+            offer_tours: self.preferences.offer_tours,
+            modal_open: self.tour_modal_open(),
+            file_busy: self.pending_source.is_some(),
+            tab: self.tab,
+            workspace: tour::WorkspaceId::from_tab(self.tab),
+            progress: &self.preferences.tour_progress,
+            first_launch_done: self.preferences.tour_first_launch_done,
+            tab_changed_at: self.tour.tab_changed_at(),
+        };
         self.tour
-            .sync_triggers(view, std::time::Instant::now());
+            .sync_triggers(view, pcbcraft_clock::instant_now());
     }
     fn tour_panel_hints(&mut self, ui: &mut egui::Ui) {
         let ids: Vec<String> = self.tour.hint_tours().map(|m| m.id.clone()).collect();
@@ -2326,7 +2335,7 @@ impl App {
             self.needs_fit = true;
         }
         self.tour
-            .note_tab_change(std::time::Instant::now());
+            .note_tab_change(pcbcraft_clock::instant_now());
         self.tab = tab;
         self.tool = Tool::Select;
         self.drag = None;
