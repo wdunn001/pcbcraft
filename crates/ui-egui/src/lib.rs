@@ -108,6 +108,7 @@ mod minimap;
 mod modifier_ui;
 mod motion;
 mod number_entry;
+mod outline_arcs;
 mod pages;
 mod palette;
 mod plot_viewer;
@@ -1290,6 +1291,7 @@ pub struct App {
     plot_viewer: plot_viewer::State,
     drag: Option<(Id, Point)>,
     route_drag: route_drag::State,
+    outline_ui: outline_arcs::OutlineUi,
     drag_offset: Point,
     cursor: Option<Point>,
     canvas_rect: Rect,
@@ -2067,6 +2069,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             },
             drag: None,
             route_drag: route_drag::State::default(),
+            outline_ui: outline_arcs::OutlineUi::default(),
             drag_offset: Point::default(),
             cursor: None,
             canvas_rect: Rect::NOTHING,
@@ -2384,6 +2387,9 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         self.selected = id;
         self.edit.extra.clear();
         self.selected_unit = 1;
+        if id.is_some() {
+            self.outline_ui.clear_pick();
+        }
         self.load_properties();
     }
     fn load_properties(&mut self) {
@@ -4982,11 +4988,6 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .size(10.0)
                 .color(self.muted()),
         );
-        ui.checkbox(
-            &mut self.preferences.chamfer_corners,
-            t!("settings.settings_tab.chamfer_corners"),
-        )
-        .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
         route_drag::shove_checkbox(self, ui);
         modifier_ui::keys_section(self, ui);
         ui.add_space(16.0);
@@ -6943,6 +6944,18 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                         self.page_properties(ui, page, true);
                     } else if self.selected.is_none() && self.tree.selected_key.is_some() {
                         self.tree_row_properties(ui);
+                    } else if self.selected.is_none()
+                        && self.project.board.outline.is_some()
+                        && (self.outline_ui.segment.is_some()
+                            || self
+                                .tree
+                                .selected_key
+                                .as_deref()
+                                .is_some_and(|k| k == "edge" || k.ends_with("/edge")))
+                    {
+                        egui::Frame::NONE
+                            .inner_margin(egui::Margin::ZERO)
+                            .show(ui, |ui| self.outline_inspector(ui));
                     } else if let Some(id) = self
                         .selected
                         .filter(|id| datums::is_datum(&self.project, *id))

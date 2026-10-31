@@ -2225,6 +2225,30 @@ fn fab_findings(project: &Project, board: &Board) -> Vec<Finding> {
             }
         }
     }
+    if let Some(min) = rules.min_track {
+        for zone in &board.zones {
+            if !zone.filled || zone.is_generated() {
+                continue;
+            }
+            let settings = zone.pour_settings();
+            let keeps = settings
+                .min_width
+                .unwrap_or_else(|| pcbcraft_doc::fill::default_pour_min_width(project));
+            if keeps + 1e-6 < min {
+                result.push(Finding {
+                    code: "copper_sliver",
+                    severity: project.rule_severity("copper_sliver", "error"),
+                    message: format!(
+                        "Pour on {} keeps copper as narrow as {:.3} mm; fabrication needs at least {:.3} mm",
+                        project.net_name(zone.net),
+                        keeps,
+                        min
+                    ),
+                    objects: vec![zone.id],
+                });
+            }
+        }
+    }
     for layer in &board.user_layers {
         if layer.kind != ArtKind::Silk {
             continue;
@@ -3626,6 +3650,57 @@ mod tests {
         assert!(
             slot_only.is_empty(),
             "copper clear of the slot's side has room: {slot_only:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn copper_sliver_reports_a_pour_narrower_than_the_fab_minimum() -> Result<(), String> {
+        let mut p = Project::default();
+        p.nets.push(Net {
+            id: 1,
+            name: "GND".into(),
+            ..Default::default()
+        });
+        p.board.rules = Some(FabRules {
+            min_track: Some(0.2),
+            ..FabRules::default()
+        });
+        p.board.zones.push(pcbcraft_doc::CopperZone {
+            id: 4,
+            net: 1,
+            layer: Layer::Front,
+            outline: vec![
+                Point::new(0.0, 0.0),
+                Point::new(50.0, 0.0),
+                Point::new(50.0, 30.0),
+                Point::new(0.0, 30.0),
+                Point::new(0.0, 0.0),
+            ],
+            cutouts: vec![],
+            filled: true,
+            kind: None,
+            pour: Some(pcbcraft_doc::ZonePour {
+                min_width: Some(0.1),
+                ..Default::default()
+            }),
+        });
+        let findings = drc(&p);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.code == "copper_sliver" && f.objects.contains(&4)),
+            "narrow pour neck: {findings:?}"
+        );
+        if let Some(zone) = p.board.zones.first_mut() {
+            zone.pour = Some(pcbcraft_doc::ZonePour {
+                min_width: Some(0.25),
+                ..Default::default()
+            });
+        }
+        assert!(
+            !drc(&p).iter().any(|f| f.code == "copper_sliver"),
+            "wide enough pour stays quiet"
         );
         Ok(())
     }

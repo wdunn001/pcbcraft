@@ -2597,7 +2597,7 @@ impl Session {
             .cloned()
             .unwrap_or_default();
         drc.extend(custom_findings(&self.project));
-        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks.. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. No comprehensive pin-type, annular-ring manufacturing rules, zones or hierarchy checks."})
+        json!({"revision":self.revision,"erc":pcbcraft_rules::erc(&self.project),"drc":drc,"airwires":pcbcraft_rules::airwires(&self.project),"scope":"Initial checks: pin assignment (suppressed for pins flagged no-connect), net population, pin-type connection matrix conflicts and undriven inputs on each net, capsule tracks sampled along their curve when curved, board outline edge (traced polygon or rectangle) and circular cutout clearance. Copper clearance uses the strictest of the board default and the clearance of the net classes on either side. A clearance rule set between two named nets can demand a stricter gap. Tracks on classified nets are checked against the class minimum and maximum width when set, and against the class maximum stub length on each copper layer when set. Noncircular pads use sampled convex outlines with conservative chord-error clearance and inscribed connectivity bounds. Plated pads bridge the same physical pad between F.Cu/B.Cu; traces wholly inside circular/oval drills do not contact copper. Part courtyards that overlap on the same side, and board text or drawn silk that covers or sits close to a pad opening, are reported with text sizes estimated. Drills that touch or overlap each other are an error. When fabrication rules are recorded on the board, track width, drill size, annular ring, copper-to-routed-edge spacing, unlike-net spacing, aspect ratio, and drawn silk text height are compared to those limits, and copper pour neck widths thinner than the minimum track are reported. Conservative false findings remain possible. Drawn cut and perforation figures are checked against via copper and pad outlines, mask figures against exposed pad openings, and cut, perforation and mask figures against the board edge. Each check code can be re-levelled to warning or silenced entirely through project severity overrides. Pin-type rules, hole-to-hole spacing against a fab table, mask dams, and hierarchy are not fully checked."})
     }
     pub fn sample() -> Result<Self, Error> {
         let mut s = Self::default();
@@ -15745,6 +15745,13 @@ fn run_command(
             let a: LayerLineParams = parse(params)?;
             art_range(a.x1, a.y1)?;
             art_range(a.x2, a.y2)?;
+            let start = Point { x: a.x1, y: a.y1 };
+            let end = Point { x: a.x2, y: a.y2 };
+            if start.distance(end) < pcbcraft_doc::ART_STROKE_MIN_MM {
+                return Err(Error::Invalid(
+                    "a layer line needs two endpoints at least 0.001 mm apart".into(),
+                ));
+            }
             let Some(layer) = p.board.user_layers.iter_mut().find(|l| l.id == a.layer) else {
                 return Err(Error::Invalid("unknown drawn layer".into()));
             };
@@ -15753,10 +15760,9 @@ fn run_command(
                     "a drawn layer carries at most 512 figures".into(),
                 ));
             }
-            layer.shapes.push(pcbcraft_doc::ArtShape::Line {
-                start: Point { x: a.x1, y: a.y1 },
-                end: Point { x: a.x2, y: a.y2 },
-            });
+            layer
+                .shapes
+                .push(pcbcraft_doc::ArtShape::Line { start, end });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
         "board.layer_rect_add" => {
@@ -15817,6 +15823,16 @@ fn run_command(
             for pt in &a.points {
                 art_range(pt[0], pt[1])?;
             }
+            let points: Vec<Point> = a
+                .points
+                .iter()
+                .map(|pt| Point { x: pt[0], y: pt[1] })
+                .collect();
+            if !pcbcraft_doc::art_vertices_distinct(&points) {
+                return Err(Error::Invalid(
+                    "layer outline corners must be distinct".into(),
+                ));
+            }
             let Some(layer) = p.board.user_layers.iter_mut().find(|l| l.id == a.layer) else {
                 return Err(Error::Invalid("unknown drawn layer".into()));
             };
@@ -15825,13 +15841,7 @@ fn run_command(
                     "a drawn layer carries at most 512 figures".into(),
                 ));
             }
-            layer.shapes.push(pcbcraft_doc::ArtShape::Poly {
-                points: a
-                    .points
-                    .iter()
-                    .map(|pt| Point { x: pt[0], y: pt[1] })
-                    .collect(),
-            });
+            layer.shapes.push(pcbcraft_doc::ArtShape::Poly { points });
             Ok(json!({"index": layer.shapes.len() - 1}))
         }
         "board.layer_text_add" => {
@@ -23366,6 +23376,24 @@ mod tests {
         assert!(
             s.execute(
                 "board.layer_line_add",
+                json!({"layer":cut, "x1":1.0, "y1":1.0, "x2":1.0, "y2":1.0}),
+                None
+            )
+            .is_err(),
+            "a zero-length line is refused"
+        );
+        assert!(
+            s.execute(
+                "board.layer_poly_add",
+                json!({"layer":cut, "points":[[0.0,0.0],[0.0,0.0],[1.0,0.0]]}),
+                None
+            )
+            .is_err(),
+            "duplicate outline corners are refused"
+        );
+        assert!(
+            s.execute(
+                "board.layer_line_add",
                 json!({"layer":9999, "x1":0.0, "y1":0.0, "x2":1.0, "y2":1.0}),
                 None
             )
@@ -25927,6 +25955,7 @@ mod tests {
             .to_string();
         assert!(scope.contains("courtyards that overlap"));
         assert!(scope.contains("drawn silk"));
+        assert!(scope.contains("copper pour neck widths"));
     }
     #[test]
     fn net_classes_absorb_every_net_matching_a_wildcard_pattern() -> Result<(), Error> {
