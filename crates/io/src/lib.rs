@@ -23,8 +23,36 @@ mod laser;
 mod layers;
 mod library_render;
 mod machine_profile;
+mod diff;
+mod drawn;
+mod fab_drawing;
+mod fab_export;
+mod generate;
+mod gerber;
+mod gerber_job;
+mod idf;
+mod laser;
+mod layers;
+mod library_render;
+mod machine_profile;
+mod import_cache;
+mod model_cache;
+mod model_compact;
 mod model_align;
 mod model_load;
+mod model_resolve;
+mod neoden_yy1;
+mod package;
+mod panel_export;
+mod schematic_sim;
+mod si_export;
+mod part_bodies;
+mod plot_read;
+mod step_merge;
+mod raster;
+mod step_read;
+mod model_load;
+mod model_resolve;
 mod neoden_yy1;
 mod package;
 mod panel_export;
@@ -59,8 +87,8 @@ pub use model_align::{
 };
 pub use board_mesh::{
     BoardMesh, COPPER_THICKNESS, MASK_THICKNESS, MAX_TRIANGLES, MeshLayers, MeshPart, ModelLookup,
-    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh, model_matrix,
-    with_models,
+    ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh,
+    board_mesh_with_dir, model_matrix, with_models,
 };
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
@@ -129,10 +157,13 @@ pub use machine_profile::{
     builtin_machine_profile, builtin_machine_profile_ids, machine_profile_from_toml,
     machine_profile_to_toml,
 };
+pub use import_cache::{default_import_cache_dir, ImportCache};
+pub use model_cache::ModelCache;
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
     ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
 };
+pub use model_resolve::{resolve_library_path, resolve_model_path};
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
 /// # Dependencies

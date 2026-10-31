@@ -4474,21 +4474,8 @@ struct TeardropParams {
     #[serde(default = "teardrop_depth")]
     depth: f64,
 }
-/// Rewrite a library path whose first segment names a project library table
-/// entry onto the folder that entry points at, so designs opened on another
-/// machine find their libraries without retyping absolute folders.
 fn resolve_library_path(p: &Project, path: &str) -> String {
-    if let Some((head, rest)) = path.split_once(['/', '\\'])
-        && let Some(link) = p.library_table.iter().find(|l| l.name == head)
-    {
-        let sep = if link.path.ends_with('/') || link.path.ends_with('\\') {
-            ""
-        } else {
-            "/"
-        };
-        return format!("{}{sep}{rest}", link.path);
-    }
-    path.to_string()
+    pcbcraft_io::resolve_library_path(p, path)
 }
 
 fn teardrop_depth() -> f64 {
