@@ -97,8 +97,51 @@ pub fn tool_list() -> Value {
             .to_string();
         tool["title"] = json!(title_for(&name));
         tool["annotations"] = annotations_for(&name);
+        if let Some(schema) = output_schema_for(&name) {
+            tool["outputSchema"] = schema;
+        }
     }
     json!({"tools":tools})
+}
+
+/// The `outputSchema` of the tools whose result shape is stable.
+///
+/// # Rules
+/// Only `inspect_design` and `checks`. Both stay loose (`additionalProperties` true) because
+/// their reports grow. `checks` with `copper_only` has no `revision`, so it is not required.
+///
+/// # Dependencies
+/// `crates/engine/src/lib.rs` (`Session::inspect`, `Session::checks`) define the shapes.
+///
+/// # Do not
+/// Do not add a tool here whose result is not always `structuredContent`.
+fn output_schema_for(name: &str) -> Option<Value> {
+    match name {
+        "inspect_design" => Some(json!({
+            "type":"object",
+            "properties":{
+                "revision":{"type":"integer","minimum":0},
+                "project":{"type":"object"},
+                "history":{"type":"object","properties":{"undo":{"type":"integer"},"redo":{"type":"integer"}},"required":["undo","redo"]},
+                "capabilities":{"type":"object"}
+            },
+            "required":["revision","project","history","capabilities"],
+            "additionalProperties":true
+        })),
+        "checks" => Some(json!({
+            "type":"object",
+            "properties":{
+                "revision":{"type":"integer","minimum":0},
+                "erc":{"type":"array"},
+                "drc":{"type":"array"},
+                "airwires":{"type":"array"},
+                "scope":{"type":"string"}
+            },
+            "required":["erc","drc","airwires","scope"],
+            "additionalProperties":true
+        })),
+        _ => None,
+    }
 }
 
 /// Which family a tool belongs to, for its client-facing hints.
@@ -113,6 +156,7 @@ enum ToolKind {
 fn tool_kind(name: &str) -> ToolKind {
     const READ_ONLY: [&str; 16] = [
         "inspect_design",
+        "design.summary",
         "list_commands",
         "checks",
         "board_mesh",
@@ -439,9 +483,12 @@ pub(crate) fn invoke_session(
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(&base.join("board.step"), export.text.as_bytes())?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -676,7 +723,7 @@ pub(crate) fn invoke_session(
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
                 "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
-                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
@@ -1018,6 +1065,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1081,6 +1130,15 @@ mod tests {
             .as_array()
             .cloned()
             .ok_or_else(|| "tools is an array".to_string())
+    }
+    #[test]
+    fn every_tool_name_is_listed_once() -> Result<(), String> {
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in listed_tools()? {
+            let name = tool["name"].as_str().unwrap_or("?").to_string();
+            assert!(seen.insert(name.clone()), "tool {name} is listed twice");
+        }
+        Ok(())
     }
     #[test]
     fn every_listed_tool_has_a_title_and_the_four_annotation_hints() -> Result<(), String> {
@@ -1669,7 +1727,7 @@ mod tests {
             "front copper carries its file function attribute"
         );
         assert!(
-            front.contains("X10.000000Y10.000000D02*\n"),
+            front.contains("X10000000Y10000000D02*\n"),
             "the exported copper should contain the drawn track"
         );
         assert_eq!(
