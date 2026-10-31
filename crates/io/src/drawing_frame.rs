@@ -56,7 +56,7 @@ pub fn drawing_frame_layout(
                 .map(|s| s.trim().to_ascii_uppercase())
                 .filter(|s| !s.is_empty())
         });
-    let picked = match paper
+    let picked = paper
         .as_deref()
         .and_then(|name| PAGE_SIZES.iter().find(|s| s.0.eq_ignore_ascii_case(name)))
         .or_else(|| {
@@ -67,10 +67,7 @@ pub fn drawing_frame_layout(
             })
         })
         .copied()
-    {
-        Some(size) => size,
-        None => PAGE_SIZES[PAGE_SIZES.len() - 1],
-    };
+        .unwrap_or(PAGE_SIZES[PAGE_SIZES.len() - 1]);
     let (size_name, w, h) = (picked.0.to_string(), picked.1, picked.2);
     let band = (w * 0.02).clamp(3.0, 8.0);
     let tb_w = title_block_width(w);
@@ -294,10 +291,9 @@ pub fn draw_drawing_frame(
                 0.1,
                 false,
             )?;
-            let letter = match char::from_u32(65 + j as u32) {
-                Some(c) => c.to_string(),
-                None => "?".into(),
-            };
+            let letter = char::from_u32(65 + j as u32)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "?".into());
             page.text(
                 Point::new(layout.band_mm * 0.35, y - 0.5),
                 1.4,
@@ -451,7 +447,7 @@ mod tests {
         p.meta.insert("title".into(), "Widget".into());
         p.drawing_frame.enabled = true;
         p.drawing_frame.page_size = "A4".into();
-        let text = resolve_meta_template(&p, 0, "Rev ${revision}, ${title} p${page}/${pages}");
+        let text = resolve_meta_template(&p, 0, "Rev ${revision} · ${title} p${page}/${pages}");
         assert!(text.contains('B'), "{text}");
         assert!(text.contains("Widget"), "{text}");
         assert!(text.contains("p1/1"), "{text}");
