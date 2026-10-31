@@ -106,8 +106,9 @@ pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placem
 /// # Dependencies
 /// - crates/io/src/package.rs
 pub use package::{
-    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
-    package_zip,
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, REVISION_NOTES_NAME,
+    attach_revision_notes_entry, package_manifest, package_revision_notes,
+    package_stored_zip_entries, package_zip, previous_bom_from_package,
 };
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
@@ -2827,6 +2828,29 @@ pub fn bom_csv(p: &Project, fields: &[String], variant: Option<&str>) -> Result<
     }
     Ok(out)
 }
+
+/// Designator references that appear on the bill of materials for one variant.
+pub fn bom_references(p: &Project, variant: Option<&str>) -> Result<BTreeSet<String>, String> {
+    p.validate()?;
+    let variant = match variant.map(str::trim) {
+        None | Some("") => None,
+        Some(name) => Some(
+            p.variants
+                .iter()
+                .find(|v| v.name == name)
+                .ok_or_else(|| format!("no variant named {name}"))?,
+        ),
+    };
+    let mut refs = BTreeSet::new();
+    for c in &p.components {
+        if !c.in_bom() || variant.is_some_and(|v| v.dnp.contains(&c.id)) {
+            continue;
+        }
+        refs.insert(c.reference.clone());
+    }
+    Ok(refs)
+}
+
 /// Quote a CSV cell only when it needs it: commas, quotes or newlines.
 fn csv_cell(text: &str) -> String {
     if text.contains([',', '"', '\n']) {
@@ -8738,10 +8762,7 @@ mod tests {
                 && front.contains("%FSLAX46Y46*%")
         );
         assert!(front.contains("%ADD10C,0.001*%\n"), "zone fill aperture");
-        assert!(
-            front.contains("%ADD12C,0.6*%\n"),
-            "via copper aperture"
-        );
+        assert!(front.contains("%ADD12C,0.6*%\n"), "via copper aperture");
         assert!(
             front.contains("%ADD11C,1.6*%\n"),
             "through-hole pad aperture"
