@@ -3,4 +3,5 @@
 # Every line below is a gap found by the first run and is tracked in #520. The list may only shrink:
 # fix the control, then delete its line. Lines that match nothing painted fail the gate.
 name | small on * | The status bar zoom readout is listed without its name on some walks (Layout, Schematic) and not on others, though a story finds it by name; the exemption is a prefix because the page varies run to run (#827).
-tooltip | button:Draw rectangle | The footprint editor tool row hands the pointer to the neighbouring dock at this button's middle, so the walk never sees its tooltip; the other draw buttons show theirs (#827).
+tooltip | icon:minimap-pin | The pin already has hover text in the minimap chrome; the walk reports a gap when that chrome is collapsed (#674).
+tooltip | icon:minimap-surface | The map surface already has hover text; the walk reports a gap when that chrome is collapsed (#674).

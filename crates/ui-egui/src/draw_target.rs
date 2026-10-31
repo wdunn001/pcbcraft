@@ -1,9 +1,9 @@
 //! The active drawing target: the one layer or sublayer the drawing tools
-//! draw on, shared by the Layers tree, the toolbar Layer field and the status bar.
+//! draw on, chosen in the Layers tree and read by the status bar.
 //!
 //! Context: `layers_tree.rs` rows carry a [`Target`]; clicking one sends
-//! `Action::SetTarget`. `lib.rs` holds `App::target` and calls [`App::layer_field`]
-//! from the tool strip and [`App::target_label`] from the status bar. The canvas
+//! `Action::SetTarget`. `lib.rs` holds `App::target` and calls
+//! [`App::target_label`] from the status bar. The canvas
 //! hands every drawing click on the Draw tools to [`App::draw_click`].
 //! Local rules: a drawing becomes an engine command (`track.add`, `zone.place`,
 //! `graphic.add`, `text.place`, `board.set_outline`, `board.layer_*_add`); this
@@ -13,7 +13,6 @@
 
 use crate::canvas::snap;
 use crate::{App, DrawShape};
-use egui::Ui;
 use pcbcraft_doc::{Id, Layer};
 use pcbcraft_geom::Point;
 use pcbcraft_text::t;
@@ -155,78 +154,6 @@ impl App {
                     || t!("board.draw_tool_options.no_layer_yet"),
                     |l| l.name.clone(),
                 ),
-        }
-    }
-
-    /// Every target the Layer field offers, top of the board first.
-    fn target_choices(&self) -> Vec<Target> {
-        let mut out: Vec<Target> = self
-            .project
-            .board
-            .layer_records
-            .iter()
-            .filter(|r| r.kind == "copper")
-            .enumerate()
-            .filter_map(|(i, _)| Layer::from_index(i as u8).ok().map(Target::Copper))
-            .collect();
-        if out.is_empty() {
-            out = vec![Target::Copper(Layer::Front), Target::Copper(Layer::Back)];
-        }
-        for side in [Side::Top, Side::Bottom] {
-            out.push(Target::Silk(side));
-            out.push(Target::Mask(side));
-        }
-        out.push(Target::Edge);
-        out.extend(
-            self.project
-                .board
-                .user_layers
-                .iter()
-                .map(|l| Target::User(l.id)),
-        );
-        out
-    }
-
-    /// The toolbar Layer field: shows the drawing target and changes it.
-    ///
-    /// # Dependencies
-    /// - `crates/ui-egui/src/layers_tree.rs` shows the same target as the Active tag.
-    ///
-    /// # Do not
-    /// - Keep a second copy of the target here; read and write `App::target`.
-    pub(crate) fn layer_field(&mut self, ui: &mut Ui) {
-        let t = crate::theme::tokens(ui.ctx());
-        let choices = self.target_choices();
-        let labels: Vec<String> = choices
-            .iter()
-            .map(|choice| {
-                let saved = self.target;
-                self.target = *choice;
-                let label = self.target_label();
-                self.target = saved;
-                label
-            })
-            .collect();
-        let current = self.current_target();
-        let mut idx = choices.iter().position(|c| *c == current).unwrap_or(0);
-        let before = idx;
-        let options: Vec<&str> = labels.iter().map(String::as_str).collect();
-        // Drawn right to left by the tool bar: the select first, its label to the left.
-        crate::ui_kit::select::select(
-            ui,
-            "draw-target",
-            &mut idx,
-            &options,
-            &t!("target.field"),
-            &t!("target.field.tip"),
-            170.0,
-        );
-        ui.label(crate::fonts::caption(t!("target.field")).color(t.muted))
-            .on_hover_text(t!("target.field.tip"));
-        if idx != before
-            && let Some(choice) = choices.get(idx)
-        {
-            self.set_target(*choice);
         }
     }
 

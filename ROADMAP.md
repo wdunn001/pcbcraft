@@ -43,7 +43,7 @@ CONTRIBUTING.md: M1 to M4 are `milestone:m1` to `milestone:m4`, M5 is
 - [ ] General import of boards and schematics with unknown-field preservation and round-trip fixtures (#309, #310, #311) (#309 subset on fork main; #310, #311, #458, #463 remain open)
 - [ ] Complete pin-type electrical rules (#312) and project/net-class rules with fabrication presets (#313) (#312 subset on fork main; #381, #382, #384, #466, #467 remain open)
 - [ ] Browser download/upload and project recovery (#314) (#314 subset on fork main; #438, #440 remain open)
-- [ ] Configurable shortcut profiles and a complete default keymap (#315)
+- [x] Configurable shortcut profiles and a complete default keymap (#315)
 - [ ] Schematic and board stay in sync automatically (#332)
 
 ## M2: Serious board layout
@@ -127,6 +127,7 @@ User-interface work that cuts across milestones. These lines carry
 - [x] Right-click context menu on the canvas (#279)
 - [ ] Library browser with filters in the left dock (#280)
 - [x] Online part sources: search distributor catalogs from the library (#333)
+- [x] Find and place open-library footprints by name (#76)
 - [x] Generate IPC-style land patterns from package parameters and read-only footprint checks (#344 subset on fork main)
 - [ ] Parts table: edit every part's fields in one grid (#345) (#345 subset on fork main; #435, #436 remain open)
 - [ ] Schematic tool strip: wiring, labels, shapes, text and tables drawn on the sheet (#346) (#346 subset on fork main; #443, #444, #445, #475 remain open)

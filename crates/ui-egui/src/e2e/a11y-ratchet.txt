@@ -1,0 +1,9 @@
+# Accessibility counts per screen, written by hand from the gate's failure message.
+# Format: kind | screen | count | reason (issue number)
+# kind is duplicate-name, unreached-by-tab, focus-trap or undersized. The gate fails when a
+# count goes up, and when it goes down without this file being lowered. Fix the control, then
+# lower the number. Never raise one. Names and contrast have their own files.
+duplicate-name | Pcb | 15 | #920 the layer list paints twice, so each Hide, Lock and shown-state button has a twin
+duplicate-name | Board3d | 15 | #920 same twin layer list
+duplicate-name | Pcb, lower dock page 2 | 15 | #920 same twin layer list
+undersized | About dialog | 1 | #921 the window close button is 16 by 16

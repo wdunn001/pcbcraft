@@ -49,6 +49,11 @@ fn a_newcomer_flips_a_part_to_the_bottom() -> Result<(), String> {
         "the part is on the bottom: {}",
         app.message
     );
+    // The bottom copper must be the active layer, or it is drawn dimmed.
+    app.set_target(crate::draw_target::Target::Copper(
+        pcbcraft_doc::Layer::Back,
+    ));
+    app.preferences.reduced_motion = true;
     assert!(
         painted_in(&ctx, &mut app, back),
         "the flipped part draws its pads in the bottom colour"
@@ -85,9 +90,9 @@ fn a_newcomer_looks_at_the_board_from_below() -> Result<(), String> {
         left_before < right_before,
         "the top view runs left to right"
     );
-    authoring::tests::tap(&ctx, &mut app, "From below")?;
+    authoring::tests::tap(&ctx, &mut app, "Bottom")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(app.preferences.view_from_below, "the toggle is on");
+    assert!(app.pcb.mirror, "the Bottom choice is on");
     let rect = app.canvas_rect;
     let left = app.pcb.screen(pcbcraft_geom::Point::new(0.0, 0.0), rect).x;
     let right = app
@@ -115,9 +120,9 @@ fn a_newcomer_looks_at_the_board_from_below() -> Result<(), String> {
         upright,
         "the reference text {reference} stays upright and readable"
     );
-    authoring::tests::tap(&ctx, &mut app, "From below")?;
+    authoring::tests::tap(&ctx, &mut app, "Top")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    assert!(!app.preferences.view_from_below, "pressing again returns");
+    assert!(!app.pcb.mirror, "Top returns");
     let back = app
         .pcb
         .screen(pcbcraft_geom::Point::new(0.0, 0.0), app.canvas_rect)
