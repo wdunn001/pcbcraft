@@ -444,9 +444,15 @@ pub(crate) fn invoke_session(
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(
+                &base.join("board.step"),
+                export.text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;

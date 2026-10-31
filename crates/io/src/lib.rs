@@ -32,6 +32,7 @@ mod schematic_sim;
 mod si_export;
 mod part_bodies;
 mod plot_read;
+mod step_merge;
 mod raster;
 mod schematic_import;
 mod step_read;
@@ -1538,6 +1539,37 @@ struct StepDoc {
     next: u32,
 }
 
+impl step_merge::StepWriter for StepDoc {
+    fn next_id(&self) -> u32 {
+        self.next
+    }
+    fn add(&mut self, body: &str) -> Result<u32, String> {
+        StepDoc::add(self, body)
+    }
+    fn push_entity(&mut self, id: u32, body: &str) -> Result<(), String> {
+        if id > STEP_MAX_ENTITIES {
+            return Err("the board is too complex for one STEP file".to_string());
+        }
+        let line = format!("#{id} = {body};");
+        if id < self.next {
+            self.lines[id as usize - 1] = line;
+            return Ok(());
+        }
+        if id != self.next {
+            return Err("the merged model has an unexpected entity id".into());
+        }
+        self.lines.push(line);
+        self.next = id + 1;
+        Ok(())
+    }
+    fn point(&mut self, c: (f64, f64, f64)) -> Result<u32, String> {
+        StepDoc::point(self, c)
+    }
+    fn direction(&mut self, d: (f64, f64, f64)) -> Result<u32, String> {
+        StepDoc::direction(self, d)
+    }
+}
+
 impl StepDoc {
     fn new() -> Self {
         StepDoc {
@@ -1698,9 +1730,74 @@ fn thin_ring(points: &[Point]) -> Vec<Point> {
     ring
 }
 
+/// Result of a STEP export that may include vendor model bodies.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StepExport {
+    pub text: String,
+    pub notes: Vec<String>,
+}
+
+/// Resolve model paths from embedded project files and, on native builds, a
+/// project folder passed by the export caller.
+pub fn project_step_loader<'a>(
+    project: &'a Project,
+    base: Option<&Path>,
+) -> impl Fn(&str) -> Option<Vec<u8>> + 'a {
+    move |path| {
+        if path.is_empty() {
+            return None;
+        }
+        let name = Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(path);
+        for file in &project.files {
+            if file.name == path
+                || file.name == name
+                || file.name.ends_with(&format!("/{name}"))
+                || file.name.ends_with(&format!("\\{name}"))
+            {
+                return Some(file.data.as_bytes().to_vec());
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(base) = base {
+            let direct = base.join(path);
+            if direct.is_file() {
+                return std::fs::read(direct).ok();
+            }
+            let leaf = base.join(name);
+            if leaf.is_file() {
+                return std::fs::read(leaf).ok();
+            }
+        }
+        None
+    }
+}
+
+fn step_path_is_exchange(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("step") | Some("stp")
+    )
+}
+
 /// Export the board as an AP214 STEP file: the outline and every placed pad
 /// as a solid prism, plus one box solid per placed part, in millimetres.
 pub fn step_board(p: &Project) -> Result<String, String> {
+    Ok(step_board_with_models(p, &|_| None)?.text)
+}
+
+/// Like [`step_board`], but replaces each part box with a vendor STEP body
+/// when `loader` returns readable exchange text for the footprint model path.
+pub fn step_board_with_models(
+    p: &Project,
+    loader: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> Result<StepExport, String> {
     p.validate()?;
     let depth = p.board.thickness;
     let outline: Vec<Point> = match &p.board.outline {
@@ -1716,7 +1813,8 @@ pub fn step_board(p: &Project) -> Result<String, String> {
     doc.add("PRODUCT('BOARD','pcbcraft board','',('Mechanical Design'))")?;
     doc.add("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE('','',#1,.NOT_KNOWN.)")?;
     doc.add("PRODUCT_CONTEXT('',#1,'mechanical')")?;
-    doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
+    let board_product_definition =
+        doc.add("PRODUCT_DEFINITION('design','',#2,#3)")?;
     doc.add("PRODUCT_DEFINITION_SHAPE('','',#4)")?;
     let shape = doc.add("SHAPE_REPRESENTATION('board',(#14,#15),#7)")?;
     doc.add("(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#16))GLOBAL_UNIT_ASSIGNED_CONTEXT((#8,#9,#10))REPRESENTATION_CONTEXT('','',''))")?;
@@ -1743,7 +1841,82 @@ pub fn step_board(p: &Project) -> Result<String, String> {
             items.extend(doc.prism(&ring, depth)?);
         }
     }
+    let mut notes = Vec::new();
+    let refs: BTreeMap<u64, &pcbcraft_doc::Component> =
+        p.components.iter().map(|c| (c.id, c)).collect();
     for body in part_bodies::part_boxes(p) {
+        let mut placed_vendor = false;
+        if let Some(fp) = p
+            .board
+            .footprints
+            .iter()
+            .find(|f| refs.get(&f.component).is_some_and(|c| c.reference == body.name))
+        {
+            if let Some(model) = refs
+                .get(&fp.component)
+                .and_then(|c| c.library_footprint.as_ref())
+                .and_then(|l| l.definition.model.as_ref())
+                .filter(|m| step_path_is_exchange(&m.path))
+            {
+                if let Some(bytes) = loader(&model.path) {
+                    if bytes.len() > step_merge::MAX_EXCHANGE_BYTES {
+                        notes.push(format!(
+                            "{}: the model file is over the size limit for a board export",
+                            body.name
+                        ));
+                    } else {
+                        let text = String::from_utf8_lossy(&bytes).into_owned();
+                        match step_merge::parse_exchange(&text) {
+                            Ok(exchange) => {
+                                let mut model = model.clone();
+                                model.offset = [0.0; 3];
+                                let matrix = model_matrix(
+                                    &model,
+                                    fp.position,
+                                    fp.rotation,
+                                    part_bodies::is_bottom_side(fp),
+                                    depth,
+                                );
+                                match step_merge::append_body(&mut doc, exchange, &body.name) {
+                                    Ok(links) => {
+                                        if step_merge::write_occurrence(
+                                            &mut doc,
+                                            board_product_definition,
+                                            &links,
+                                            &matrix,
+                                            &body.name,
+                                            axis,
+                                            reference,
+                                        )
+                                        .is_ok()
+                                        {
+                                            placed_vendor = true;
+                                        } else {
+                                            notes.push(format!(
+                                                "{}: the model could not be placed on the board",
+                                                body.name
+                                            ));
+                                        }
+                                    }
+                                    Err(reason) => {
+                                        notes.push(format!("{}: {reason}", body.name));
+                                    }
+                                }
+                            }
+                            Err(reason) => notes.push(format!("{}: {reason}", body.name)),
+                        }
+                    }
+                } else {
+                    notes.push(format!(
+                        "{}: no model file was found at {}",
+                        body.name, model.path
+                    ));
+                }
+            }
+        }
+        if placed_vendor {
+            continue;
+        }
         let faces = doc.prism_between(&body.ring, body.z0, body.z1)?;
         if faces.is_empty() {
             continue;
@@ -1780,7 +1953,7 @@ pub fn step_board(p: &Project) -> Result<String, String> {
         out.push('\n');
     }
     out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
-    Ok(out)
+    Ok(StepExport { text: out, notes })
 }
 /// Board as a VRML 2.0 scene for mechanical viewers: one solid prism for the
 /// board outline (the rectangle when no free-form outline is recorded) and one
@@ -8008,6 +8181,72 @@ mod tests {
             hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
         }
         (lo, hi)
+    }
+
+    fn fixture_bytes(name: &str) -> Vec<u8> {
+        std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+        )
+        .unwrap_or_else(|_| panic!("fixture {name}"))
+    }
+
+    #[test]
+    fn step_board_without_models_is_byte_identical_to_before() -> Result<(), String> {
+        let project = real_library_project()?;
+        let plain = step_board(&project)?;
+        let with_loader = step_board_with_models(&project, &|_| None)?.text;
+        assert_eq!(plain, with_loader);
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_falls_back_to_the_box_when_the_model_is_missing() -> Result<(), String> {
+        let project = two_part_project(false, 0.0)?;
+        let export = step_board_with_models(&project, &|_| None)?;
+        assert_eq!(
+            export.text.matches("MANIFOLD_SOLID_BREP(").count(),
+            2,
+            "both parts stay boxes when no file loads"
+        );
+        assert!(
+            export.notes.iter().any(|n| n.starts_with("R2:")),
+            "the missing model is reported: {:?}",
+            export.notes
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn step_board_places_a_model_with_the_footprint_matrix() -> Result<(), String> {
+        let mut project = two_part_project(false, 90.0)?;
+        if let Some(lib) = project.components[1].library_footprint.as_mut() {
+            if let Some(model) = lib.definition.model.as_mut() {
+                model.path = "offset_box.step".into();
+            }
+        }
+        let bytes = fixture_bytes("offset_box.step");
+        let export = step_board_with_models(&project, &|path| {
+            if path.ends_with("offset_box.step") {
+                Some(bytes.clone())
+            } else {
+                None
+            }
+        })?;
+        assert!(
+            export.text.contains("NEXT_ASSEMBLY_USAGE_OCCURRENCE('R2'"),
+            "R2 is placed as an assembly occurrence"
+        );
+        assert!(
+            export.text.contains("PRODUCT('R2'"),
+            "the vendor body keeps a product entry for R2"
+        );
+        assert!(
+            export.text.matches("MANIFOLD_SOLID_BREP(").count() >= 2,
+            "R1 stays a box while R2 uses the vendor solid"
+        );
+        Ok(())
     }
 
     #[test]
