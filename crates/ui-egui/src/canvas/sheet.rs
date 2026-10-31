@@ -160,6 +160,8 @@ pub(super) struct Sheet {
     pub rows: usize,
     pub size: String,
     pub title: String,
+    /// The revision typed in Project settings, empty when none.
+    pub revision: String,
     pub date: String,
     pub revision: String,
     pub company: String,
@@ -298,11 +300,15 @@ pub(super) fn sheet_for(p: &Project, page: pcbcraft_doc::Id) -> Sheet {
         rows: ((h / 50.0).round() as usize).clamp(3, 16),
         size: size.to_string(),
         title,
+revision: p
+            .meta
+            .get("revision")
+            .map(|r| r.trim().to_owned())
+            .unwrap_or_else(|| settings.revision.clone()),
         date: Some(settings.date.clone())
             .filter(|d| !d.is_empty())
             .or_else(|| p.meta.get("date").cloned())
             .unwrap_or_else(today),
-        revision: settings.revision.clone(),
         company: settings.company.clone(),
         drawn_by: settings.drawn_by.clone(),
         title_shown: !settings.title_hidden,
@@ -510,6 +516,15 @@ fn paint_title_block(
         &sheet.title,
         &FontId::monospace((height * 0.22).clamp(9.0, 19.0)),
     );
+    if !sheet.revision.is_empty() {
+        painter.text(
+            block.right_top() + Vec2::new(-pad, pad * 0.6),
+            Align2::RIGHT_TOP,
+            format!("{} {}", t!("schematic.sheet.revision"), sheet.revision),
+            caption.clone(),
+            sc.muted,
+        );
+    }
     place(
         Pos2::new(cells[0], split),
         t!("schematic.sheet.sheet").to_uppercase(),
