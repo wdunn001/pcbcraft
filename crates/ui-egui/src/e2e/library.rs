@@ -253,6 +253,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
                 geometry: Some(g),
             })
             .collect(),
+        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     p.board.tracks.push(Track {
         preserved: pcbcraft_doc::PreservedSource::default(),
@@ -263,6 +264,7 @@ fn peg_connector_project() -> Result<pcbcraft_doc::Project, String> {
         width: 0.2,
         layer: Layer::Front,
         arc: None,
+        preserved: pcbcraft_doc::PreservedSource::default(),
     });
     p.validate()?;
     Ok(p)

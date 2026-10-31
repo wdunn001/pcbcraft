@@ -3650,6 +3650,7 @@ fn sync_board_from_schematic(p: &mut Project, next: &mut Id) -> Result<Value, Er
                 locked: None,
                 pads: component_pads(c),
                 side: None,
+                preserved: pcbcraft_doc::PreservedSource::default(),
             });
         }
     }
