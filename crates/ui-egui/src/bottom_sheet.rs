@@ -154,9 +154,22 @@ impl App {
             40.0
         };
         let bar_w = (ui.available_width() - right_w).max(120.0);
+        let ws = self.workspace().id();
+        let region_ids: Vec<String> = tabs
+            .iter()
+            .map(|t| tour::anchor::region_tab_id(ws, t.id))
+            .collect();
+        let region_refs: Vec<&str> = region_ids.iter().map(String::as_str).collect();
         let response = ui
             .allocate_ui(egui::vec2(bar_w, TabSize::Sheet.height()), |ui| {
-                tab_bar(ui, "bottom-sheet-tabs", &mut index, &items, TabSize::Sheet)
+                tab_bar(
+                    ui,
+                    "bottom-sheet-tabs",
+                    &mut index,
+                    &items,
+                    TabSize::Sheet,
+                    Some(&region_refs),
+                )
             })
             .inner;
         if response.changed()
