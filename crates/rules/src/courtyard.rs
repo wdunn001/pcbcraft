@@ -270,6 +270,7 @@ pub(crate) fn courtyard_findings(project: &Project) -> Vec<Finding> {
                 severity: project.rule_severity("courtyard_overlap", "error"),
                 message,
                 objects: vec![key.0, key.1],
+                hint: None,
             });
         }
     }
@@ -314,12 +315,14 @@ mod tests {
                         rules: None,
                         raw_source: String::new(),
                         unsupported: vec![],
+                        retained: vec![],
                     },
                 });
             }
             p.components.push(c);
         }
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: id + 10,
             component: id,
             position: at,
@@ -334,7 +337,9 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
     }
     fn found(p: &Project) -> Vec<Finding> {
         drc(p)

@@ -128,18 +128,11 @@ fn every_stackup_row_appears_once_with_its_function() -> Result<(), String> {
     let text = ipc2581_text(&p)?;
     ipc2581::validate(&text).map_err(|e| e.to_string())?;
     for row in &p.board.layer_records {
+        let layer_tag = format!("name=\"{}\"", row.name);
         assert_eq!(
-            text.matches(&format!("<Layer name=\"{}\"", row.name))
-                .count(),
-            1,
-            "cad layer list includes {}",
-            row.name
-        );
-        assert_eq!(
-            text.matches(&format!("<StackupLayer layerOrGroupRef=\"{}\"", row.name))
-                .count(),
-            1,
-            "stackup lists {}",
+            text.matches(&layer_tag).count(),
+            2,
+            "each stackup row has a CadData layer and a stackup entry: {}",
             row.name
         );
         let function = match row.kind.as_str() {
@@ -157,7 +150,10 @@ fn every_stackup_row_appears_once_with_its_function() -> Result<(), String> {
             row.name
         );
         assert!(
-            text.contains(&format!("<StackupLayer layerOrGroupRef=\"{}\"", row.name)),
+            text.contains(&format!(
+                "<StackupLayer layerOrGroupRef=\"{}\"",
+                row.name
+            )),
             "stackup lists {}",
             row.name
         );

@@ -1,0 +1,162 @@
+id = "ssw"
+prefix = "SSW"
+manufacturer = "Samtec"
+description = "0.100 inch through-hole socket strip with PCB tails"
+
+[limits]
+max_input_len = 64
+min_positions_per_row = 1
+max_positions_per_row = 50
+
+[[fields]]
+id = "series"
+label = "Series"
+kind = "literal"
+text = "SSW"
+
+[[fields]]
+id = "pitch_positions"
+label = "Pitch and positions per row"
+kind = "pitch_positions"
+
+[[fields]]
+id = "lead"
+label = "Lead style"
+kind = "enum"
+
+[[fields.values]]
+code = "01"
+label = "Standard insertion force tail 01"
+[fields.values.meaning]
+tail_length_mm = 2.64
+
+[[fields.values]]
+code = "02"
+label = "Standard insertion force tail 02"
+[fields.values.meaning]
+tail_length_mm = 3.05
+
+[[fields.values]]
+code = "03"
+label = "Standard insertion force tail 03"
+[fields.values.meaning]
+tail_length_mm = 3.56
+
+[[fields.values]]
+code = "04"
+label = "Standard insertion force tail 04"
+[fields.values.meaning]
+tail_length_mm = 4.06
+
+[[fields.values]]
+code = "05"
+label = "Standard insertion force tail 05"
+[fields.values.meaning]
+tail_length_mm = 4.57
+
+[[fields.values]]
+code = "06"
+label = "Standard insertion force tail 06"
+[fields.values.meaning]
+tail_length_mm = 5.08
+
+[[fields.values]]
+code = "21"
+label = "Low insertion force tail 21"
+[fields.values.meaning]
+tail_length_mm = 2.64
+
+[[fields.values]]
+code = "22"
+label = "Low insertion force tail 22"
+[fields.values.meaning]
+tail_length_mm = 3.05
+
+[[fields.values]]
+code = "23"
+label = "Low insertion force tail 23"
+[fields.values.meaning]
+tail_length_mm = 3.56
+
+[[fields.values]]
+code = "24"
+label = "Low insertion force tail 24"
+[fields.values.meaning]
+tail_length_mm = 4.06
+
+[[fields]]
+id = "plating"
+label = "Plating"
+kind = "enum"
+
+[[fields.values]]
+code = "F"
+label = "Gold flash on contact, matte tin on tail"
+
+[[fields.values]]
+code = "L"
+label = "10 microinch gold on contact, matte tin on tail"
+
+[[fields.values]]
+code = "G"
+label = "20 microinch gold on contact, gold flash on tail"
+
+[[fields.values]]
+code = "S"
+label = "30 microinch selective gold on contact, matte tin on tail"
+
+[[fields.values]]
+code = "T"
+label = "Matte tin on contact and tail"
+
+[[fields.values]]
+code = "SM"
+label = "30 microinch selective gold (SM code)"
+
+[[fields.values]]
+code = "FM"
+label = "3 microinch flash gold on contact, matte tin on tail"
+
+[[fields.values]]
+code = "TM"
+label = "Matte tin (TM code)"
+
+[[fields]]
+id = "row"
+label = "Row option"
+kind = "enum"
+
+[[fields.values]]
+code = "S"
+label = "Single row"
+[fields.values.meaning]
+rows = 1
+
+[[fields.values]]
+code = "D"
+label = "Double row"
+[fields.values.meaning]
+rows = 2
+
+[[fields.values]]
+code = "T"
+label = "Triple row"
+[fields.values.meaning]
+rows = 3
+
+[[fields.values]]
+code = "P"
+label = "Single row (P code)"
+[fields.values.meaning]
+rows = 1
+
+[[fields.values]]
+code = "Q"
+label = "Triple row with outer two rows filled"
+[fields.values.meaning]
+rows = 3
+
+[[constraints]]
+kind = "even_total_positions"
+row_field = "row"
+positions_field = "pitch_positions"
