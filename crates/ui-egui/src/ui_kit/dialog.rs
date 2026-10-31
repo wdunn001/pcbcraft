@@ -161,6 +161,7 @@ pub fn show(
                     tab,
                     dialog.tabs,
                     TabSize::Aside,
+                    None,
                 );
                 ui.painter().hline(
                     row.x_range(),

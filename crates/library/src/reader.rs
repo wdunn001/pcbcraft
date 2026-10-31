@@ -459,6 +459,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
         graphics: Vec::new(),
         model: None,
         rules: None,
+        box_body: None,
         raw_source: source[node.span.clone()].to_owned(),
         unsupported: Vec::new(),
         retained: Vec::new(),

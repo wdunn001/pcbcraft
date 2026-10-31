@@ -462,6 +462,7 @@ fn footprint(
         graphics,
         model: None,
         rules: None,
+        box_body: None,
         raw_source: String::new(),
         unsupported: vec![],
         retained: vec![],
