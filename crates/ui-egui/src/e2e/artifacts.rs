@@ -387,7 +387,7 @@ fn outputs_in(tag: &str) -> Result<std::collections::BTreeMap<String, Vec<u8>>, 
     let shared = pcbcraft_mcp::shared(pcbcraft_engine::Session::default());
     let mut app = App::create(shared, Preferences::default(), None, None);
     app.refresh();
-    app.set_language(tag);
+    app.set_language(&egui::Context::default(), tag);
     app.tool_call("sample_design", json!({}));
     static RUN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let run = RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
