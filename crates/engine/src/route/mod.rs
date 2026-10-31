@@ -9,7 +9,7 @@ mod walk;
 
 use super::{PadRef, pad};
 use crate::Error;
-use pcbcraft_doc::{Id, Layer, Project};
+use pcbcraft_doc::{Id, Layer, Project, outline_extent};
 use pcbcraft_geom::Point;
 use pcbcraft_geom::hull::octagon;
 use pcbcraft_rules::{Obstacle, drc, obstacles};
@@ -103,14 +103,11 @@ pub(crate) fn required(p: &Project, layer: Layer, net: Id, o: &Obstacle) -> f64 
 
 /// Bounding box of the board: its outline when one is traced, else the rectangle.
 pub(crate) fn bounds(p: &Project) -> (Point, Point) {
-    match &p.board.outline {
-        Some(poly) if !poly.is_empty() => {
-            let min_x = poly.iter().map(|q| q.x).fold(f64::INFINITY, f64::min);
-            let min_y = poly.iter().map(|q| q.y).fold(f64::INFINITY, f64::min);
-            let max_x = poly.iter().map(|q| q.x).fold(f64::NEG_INFINITY, f64::max);
-            let max_y = poly.iter().map(|q| q.y).fold(f64::NEG_INFINITY, f64::max);
-            (Point::new(min_x, min_y), Point::new(max_x, max_y))
-        }
+    match p.board.outline.as_deref() {
+        Some(poly) if poly.len() >= 3 => outline_extent(poly, &p.board.outline_arcs).unwrap_or((
+            Point::new(0.0, 0.0),
+            Point::new(p.board.width, p.board.height),
+        )),
         _ => (
             Point::new(0.0, 0.0),
             Point::new(p.board.width, p.board.height),

@@ -663,6 +663,7 @@ mod tests {
             fields: vec![],
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 9401,
             component: 9402,
             position: Point::default(),
@@ -720,6 +721,7 @@ mod tests {
             polygon: Vec::new(),
         };
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 9201,
             component: 9202,
             position: Point::new(15.0, 15.0),
@@ -883,6 +885,7 @@ mod tests {
             fields: vec![],
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 9301,
             component: 9302,
             position: Point::new(5.0, 5.0),
