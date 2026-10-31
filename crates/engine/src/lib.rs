@@ -7,6 +7,8 @@
 //! # Dependencies
 //! - crates/doc/src/lib.rs
 //! - crates/io/src/lib.rs
+//! - crates/engine/src/artifacts.rs
+//! - crates/engine/src/profiles.rs
 //! - crates/geom/src/lib.rs
 mod artifacts;
 mod authoring;
@@ -3923,12 +3925,30 @@ struct NetSwapParams {
 struct ComponentRef {
     component: Id,
 }
+/// Parameters of `output_job.add`: name a reusable fabrication export recipe.
+///
+/// # Rules
+/// - `name` is trimmed to 1 to 64 bytes and must be unique among output jobs.
+/// - Every entry in `kinds` must be a known export kind; duplicates are sorted and deduped.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobAddParams {
     name: String,
     kinds: Vec<String>,
 }
+/// Parameters of `output_job.run`: write files for a saved output job into a directory.
+///
+/// # Rules
+/// - Refused when the session is read-only; the named job must exist.
+/// - `directory` is 1 to 4096 bytes; linked artifact records export instead of raw kinds when present.
+/// - `uv_print` settings apply only when the job lists the uv_print kind and no artifacts are linked.
+///
+/// # Dependencies
+/// - crates/engine/src/artifacts.rs
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobRunParams {
@@ -4025,6 +4045,13 @@ fn default_yy1_side() -> String {
 fn default_yy1_layout() -> String {
     "native".into()
 }
+/// Parameters of `output_job.remove`: identify a saved output job by name.
+///
+/// # Rules
+/// - `name` must match an existing output job or the command is refused.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobRef {
@@ -4081,6 +4108,15 @@ struct ArtifactStaleParams {
     #[serde(default)]
     ids: Vec<Id>,
 }
+/// Parameters of `output_job.package`: build a ZIP fabrication bundle on disk.
+///
+/// # Rules
+/// - `path` names a file (1 to 4096 bytes), not a directory.
+/// - Pass either `job` or `kinds`, not both; empty `kinds` selects the default fabrication bundle.
+/// - Optional `variant` must name an existing project variant.
+///
+/// # Dependencies
+/// - crates/io/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OutputJobPackageParams {
@@ -4656,6 +4692,14 @@ struct NetClassAssignParams {
     #[serde(default)]
     class: Option<Id>,
 }
+/// Parameters of `bom.export`: choose columns, variant, parts, and grouping for BOM rows.
+///
+/// # Rules
+/// - At most 16 property keys, each 1 to 64 bytes; empty `fields` uses `Project::bom_fields`.
+/// - Optional `variant` must exist; `ids` caps at 4096 components when filtering.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BomParams {
@@ -4709,6 +4753,14 @@ struct RuleRegionParams {
     width: f64,
     height: f64,
 }
+/// Parameters of `rules.include_region`: remove spatial exclusions for a check code.
+///
+/// # Rules
+/// - `code` is 1 to 32 bytes and must already have excluded regions.
+/// - Omit `index` to drop every rectangle; pass `index` to remove one slot (0-based).
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RuleRegionLiftParams {
@@ -4754,12 +4806,27 @@ struct PanelExportParams {
 fn default_rail() -> f64 {
     3.0
 }
+/// Parameters of `rules.area_set_height`: set or clear a rule area height limit.
+///
+/// # Rules
+/// - `id` must match a board rule area; `height` when set must be 0.1 to 100 millimetres.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AreaHeightParams {
     id: Id,
     height: Option<f64>,
 }
+/// Parameters of `board.layer_add`: create a user-drawn board art layer.
+///
+/// # Rules
+/// - `name` is 1 to 64 bytes and unique; at most 32 user layers on the board.
+/// - Optional `kind` maps through `art_kind`; dot pitch and size bounds apply when set.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerAddParams {
@@ -4773,29 +4840,64 @@ struct LayerAddParams {
     #[serde(default)]
     dot_size: Option<f64>,
 }
+/// Parameters of `board.layer_delete`: remove a user-drawn layer by id.
+///
+/// # Rules
+/// - `layer` must match a `Board::user_layers` entry.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerRefParams {
     layer: Id,
 }
+/// Parameters of `board.layer_rename`: change a user layer display name.
+///
+/// # Rules
+/// - New `name` is 1 to 64 bytes and must not collide with another user layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerNameParams {
     layer: Id,
     name: String,
 }
+/// Parameters of `board.layer_kind_set`: set the art kind of a user layer.
+///
+/// # Rules
+/// - `kind` must be cut, perforation, silk, mask, or other.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerKindParams {
     layer: Id,
     kind: String,
 }
+/// Parameters of `board.layer_dotted_set` and `board.layer_visible_set`: toggle layer flags.
+///
+/// # Rules
+/// - `layer` must exist on `Board::user_layers`; `on` sets dotted or visible.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerFlagParams {
     layer: Id,
     on: bool,
 }
+/// Parameters of `board.layer_line_add`: append a line figure to a user layer.
+///
+/// # Rules
+/// - Endpoints pass `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerLineParams {
@@ -4805,6 +4907,13 @@ struct LayerLineParams {
     x2: f64,
     y2: f64,
 }
+/// Parameters of `board.layer_rect_add`: append an axis-aligned rectangle to a user layer.
+///
+/// # Rules
+/// - Width and height are 0.001 to 1000 mm; corners pass `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerRectParams {
@@ -4814,6 +4923,13 @@ struct LayerRectParams {
     width: f64,
     height: f64,
 }
+/// Parameters of `board.layer_circle_add`: append a circle figure to a user layer.
+///
+/// # Rules
+/// - Radius is 0.001 to 500 mm; centre passes `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerCircleParams {
@@ -4822,12 +4938,26 @@ struct LayerCircleParams {
     y: f64,
     radius: f64,
 }
+/// Parameters of `board.layer_poly_add`: append a polyline outline to a user layer.
+///
+/// # Rules
+/// - `points` holds 2 to 64 vertices, each passing `art_range`; at most 512 figures per layer.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerPolyParams {
     layer: Id,
     points: Vec<[f64; 2]>,
 }
+/// Parameters of `board.layer_text_add`: append text to a user layer.
+///
+/// # Rules
+/// - `text` is 1 to 128 bytes; optional `size` defaults to 1.0 and must be 0.2 to 50 mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerTextParams {
@@ -4838,6 +4968,13 @@ struct LayerTextParams {
     #[serde(default)]
     size: Option<f64>,
 }
+/// Parameters of `board.layer_shape_delete`: remove one figure from a user layer.
+///
+/// # Rules
+/// - `index` must be in range for the layer shape list.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LayerShapeParams {
@@ -4867,6 +5004,14 @@ fn art_range(x: f64, y: f64) -> Result<(), Error> {
         Err(Error::Invalid("layer figure is out of range".into()))
     }
 }
+/// Parameters of `rules.area_add`: add a rectangular clearance or keepout region.
+///
+/// # Rules
+/// - Rectangle and clearance bounds match the handler; optional net and layer must resolve.
+/// - At most 64 rule areas; optional `max_height` is 0.1 to 100 mm when set.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(dead_code)]
@@ -5053,6 +5198,13 @@ struct StackupRenameParams {
     name: String,
     new_name: String,
 }
+/// Parameters of `board.set_machining`: merge fabrication machining notes onto the board.
+///
+/// # Rules
+/// - At least one of edge plating or tolerances must be sent; tolerances are finite within 1 mm.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MachiningParams {
@@ -5063,6 +5215,14 @@ struct MachiningParams {
     #[serde(default)]
     edge_tolerance: Option<f64>,
 }
+/// Parameters of `board.set_diffpair`: create or update a differential pair record.
+///
+/// # Rules
+/// - Distinct non-zero nets; gap 0.02 to 10 mm; length tolerance 0 to 100 mm when set.
+/// - Name collision rules differ for create versus update by optional `id`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DiffPairParams {
@@ -5075,12 +5235,27 @@ struct DiffPairParams {
     #[serde(default)]
     id: Option<Id>,
 }
+/// Parameters of `board.rename_diffpair`: change a differential pair display name.
+///
+/// # Rules
+/// - `id` must exist; trimmed `name` must be non-empty and unique among pairs.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DiffPairRenameParams {
     id: Id,
     name: String,
 }
+/// Parameters of `board.set_pair_rule` and `board.remove_pair_rule`: net-pair clearance.
+///
+/// # Rules
+/// - For set, `clearance` is required, 0 to 100 mm, between two different non-zero nets.
+/// - For remove, `clearance` must be omitted; at most 64 pair rules on the board.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PairRuleParams {
@@ -5089,11 +5264,26 @@ struct PairRuleParams {
     #[serde(default)]
     clearance: Option<f64>,
 }
+/// Parameters of `bom.set_fields`: define BOM column keys and labels stored on the project.
+///
+/// # Rules
+/// - 1 to 16 fields; each key and label 1 to 64 bytes with unique keys.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BomFieldsParams {
     fields: Vec<pcbcraft_doc::BomField>,
 }
+/// Parameters of `file.attach` and `file.remove`: name embedded project files.
+///
+/// # Rules
+/// - `name` trimmed to 1 to 128 bytes; attach data at most 256 KiB, at most 32 files.
+/// - Remove refuses while a reference image still points at the file.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FileParams {
@@ -5101,6 +5291,13 @@ struct FileParams {
     #[serde(default)]
     data: String,
 }
+/// Parameters of `variant.create`: add a build variant with optional DNP list.
+///
+/// # Rules
+/// - Name 1 to 64 bytes, unique; at most 16 variants; each DNP id must be a component.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantCreateParams {
@@ -5110,6 +5307,13 @@ struct VariantCreateParams {
     #[serde(default)]
     dnp: Vec<Id>,
 }
+/// Parameters of `variant.set_note`: set or clear a variant note string.
+///
+/// # Rules
+/// - Variant must exist; note at most 256 bytes when present.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantNoteParams {
@@ -5117,6 +5321,13 @@ struct VariantNoteParams {
     #[serde(default)]
     note: Option<String>,
 }
+/// Parameters of `variant.set_dnp`: add or remove do-not-populate component ids.
+///
+/// # Rules
+/// - At most 512 ids; each must be a component; `dnp` false removes listed ids.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantDnpParams {
@@ -5125,6 +5336,14 @@ struct VariantDnpParams {
     #[serde(default)]
     dnp: Option<bool>,
 }
+/// Parameters of `variant.set_footprint` and `variant.clear_footprint`: per-variant swaps.
+///
+/// # Rules
+/// - Set requires a 1 to 128 byte footprint name; clear must omit `footprint`.
+/// - At most 512 footprint overrides per variant.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantFootprintParams {
@@ -5133,6 +5352,13 @@ struct VariantFootprintParams {
     #[serde(default)]
     footprint: Option<String>,
 }
+/// Parameters of `variant.remove`: delete a build variant by name.
+///
+/// # Rules
+/// - Trimmed `name` must match an existing variant.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct VariantNameParams {
@@ -6225,6 +6451,13 @@ fn align_center(item: (Id, bool, f64, f64, f64, f64), axis_x: bool) -> f64 {
 fn default_stitch_spacing() -> f64 {
     1.0
 }
+/// Parameters of `board.resize`: set the board rectangle width and height in millimetres.
+///
+/// # Rules
+/// - Values are stored as given; the handler does not re-validate geometry here.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Resize {
@@ -6247,6 +6480,14 @@ fn merge_fab_mm(dst: &mut Option<f64>, src: Option<f64>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Parameters of `board.rules.set`: update default clearance and fabrication minimums.
+///
+/// # Rules
+/// - Requires a clearance and/or at least one fabrication field; mm fields use `fab_mm_ok`.
+/// - Aspect ratio 1 to 50; plating allowance 0 to 0.5 mm; merged rules must pass `FabRules::valid`.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BoardRulesSetParams {
@@ -6345,6 +6586,13 @@ struct ClassPairRemoveParams {
 struct PresetApplyParams {
     name: String,
 }
+/// Parameters of `board.cutout.add`: place a circular board cutout.
+///
+/// # Rules
+/// - Centre and radius are stored on a new cutout id; bounds checks happen on later move or resize commands.
+///
+/// # Dependencies
+/// - crates/doc/src/lib.rs
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Cut {
@@ -15041,6 +15289,15 @@ fn run_command(
             }
         }
         "checks.custom_add" => {
+            /// Parameters of `checks.custom_add`: add a designer-defined numeric check.
+            ///
+            /// # Rules
+            /// - `name` is trimmed to 1 to 80 bytes; at most 32 custom checks on the project.
+            /// - `measure` must be one of the five listed plain-text measures.
+            /// - `limit` is finite, above zero, and at most 100000; default severity is warning.
+            ///
+            /// # Dependencies
+            /// - crates/doc/src/lib.rs
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct CustomAdd {
@@ -15096,6 +15353,13 @@ fn run_command(
             Ok(json!({"id": id}))
         }
         "checks.custom_remove" => {
+            /// Parameters of `checks.custom_remove`: delete one custom check by id.
+            ///
+            /// # Rules
+            /// - `id` must match a row in `Project::custom_checks`.
+            ///
+            /// # Dependencies
+            /// - crates/doc/src/lib.rs
             #[derive(Deserialize)]
             #[serde(deny_unknown_fields)]
             struct CustomRemove {
@@ -15197,7 +15461,9 @@ fn run_command(
             }
             Ok(json!({"id": a.id}))
         }
+        // `rules.profile_list`: returns the built-in rule profile catalogue without editing the project.
         "rules.profile_list" => Ok(profiles::profile_list()),
+        // `rules.profile_apply`: copies a named profile onto board rules and related fields.
         "rules.profile_apply" => profiles::profile_apply(p, next, params).map_err(Error::Invalid),
         "board.layer_add" => {
             let a: LayerAddParams = parse(params)?;
@@ -15455,6 +15721,7 @@ fn run_command(
             p.board.machining = Some(notes.clone());
             Ok(json!({"machining": notes}))
         }
+        // `board.clear_machining`: drops stored machining notes when params is an empty object.
         "board.clear_machining" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid(
@@ -15658,6 +15925,7 @@ fn run_command(
             p.bom_fields = a.fields;
             Ok(json!({"count": p.bom_fields.len()}))
         }
+        // `bom.clear_fields`: clears every BOM column definition when params is an empty object.
         "bom.clear_fields" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid(
@@ -16548,6 +16816,7 @@ fn run_command(
             Ok(json!({"name": name, "count": p.variants.len()}))
         }
         "bom.export" => bom_export(p, params),
+        // `board.sync`: rebuilds board footprints from schematic parts when params is an empty object.
         "board.sync" => {
             if params.as_object().is_none_or(|m| !m.is_empty()) {
                 return Err(Error::Invalid("board.sync takes an empty object".into()));
