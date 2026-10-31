@@ -21,12 +21,12 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, testpoints_csv, vrml_board, impedance_table_csv, fab_drawing_pdf,
-    si_net_results_csv, spice_netlist, touchstone_text, bundled_placement_flavours, placement_flavoured,
-    PlacementOptions
+PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, compliance_report_markdown, drill_chart_csv, dxf_board,
+    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
+    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
+    vrml_board, impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
+    bundled_placement_flavours, placement_flavoured, ComplianceReportOptions
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -217,6 +217,21 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
+"board.step" => text_output(step_board(p)?),
+        "pcb.dsn" => text_output(specctra_dsn(p)?),
+        "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
+        "board.gencad" => text_output(gencad_text(p)?),
+        "netlist.csv" => text_output(hyperlynx_csv(p)?),
+        "plot-report.csv" => text_output(plot_csv(p)?),
+        "board-report.txt" => text_output(report_text(p)?),
+        "pcb.ps" => text_output(postscript(p, "pcb")?),
+        "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
+        "board-stackup.txt" => text_output(stackup_text(p)?),
+        "board-stats.csv" => text_output(stats_text(p)?),
+        "compliance-report.md" => {
+            text_output(compliance_report_markdown(p, &ComplianceReportOptions::default())?)
+        }
         "schematic.cir" => text_output(spice_netlist(p)?),
         "si-net-results.csv" => text_output(si_net_results_csv(p)?),
         "impedance-table.csv" => text_output(impedance_table_csv(p)?),

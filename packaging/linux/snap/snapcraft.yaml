@@ -18,10 +18,10 @@ description: |
   The command-line tool is `pcbcraft.cli` (for example `pcbcraft.cli help`).
 adopt-info: pcbcraft
 license: GPL-3.0-or-later
-contact: https://github.com/tangency-labs/pcbcraft/issues
-website: https://github.com/tangency-labs/pcbcraft
-source-code: https://github.com/tangency-labs/pcbcraft
-issues: https://github.com/tangency-labs/pcbcraft/issues
+contact: https://github.com/wdunn001/pcbcraft/issues
+website: https://github.com/wdunn001/pcbcraft
+source-code: https://github.com/wdunn001/pcbcraft
+issues: https://github.com/wdunn001/pcbcraft/issues
 icon: stage/share/icons/hicolor/512x512/apps/io.github.tangency_labs.pcbcraft.png
 base: core24
 grade: stable
