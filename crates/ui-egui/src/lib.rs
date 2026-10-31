@@ -4988,11 +4988,6 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 .size(10.0)
                 .color(self.muted()),
         );
-        ui.checkbox(
-            &mut self.preferences.chamfer_corners,
-            t!("settings.settings_tab.chamfer_corners"),
-        )
-        .on_hover_text(t!("settings.settings_tab.chamfer_corners.tip"));
         route_drag::shove_checkbox(self, ui);
         modifier_ui::keys_section(self, ui);
         ui.add_space(16.0);
