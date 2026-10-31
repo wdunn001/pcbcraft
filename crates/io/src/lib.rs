@@ -12,6 +12,7 @@ mod bitmap_trace;
 mod board_mesh;
 mod diff;
 mod drawn;
+mod export_validate;
 mod fab_drawing;
 mod fab_export;
 mod generate;
@@ -77,6 +78,18 @@ pub use datasheet::HttpDatasheetTransport;
 /// # Dependencies
 /// - crates/io/src/drawn.rs
 pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use cam_shapes::{LayerShape, layer_shapes as cam_layer_shapes};
+pub use diff::{DesignChange, DesignDiff, project_diff};
+#[cfg(not(target_arch = "wasm32"))]
+pub use datasheet::HttpDatasheetTransport;
+/// Functions for generating layer plots from drawn graphics.
+/// # Dependencies
+/// - crates/io/src/drawn.rs
+pub use drawn::{DrawnLayerPlots, drawn_layer_plots};
+pub use export_validate::{
+    stored_zip_entry, stored_zip_entry_names, validate_fabrication_package_file,
+    validate_ipc2581_document, validate_odb_package,
+};
 pub use fab_drawing::fab_drawing_pdf;
 pub use generate::{
     GeneratedOutput, generate, migrate_loaded_project, output_hash, write_generated,

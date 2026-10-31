@@ -183,10 +183,14 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         return Ok(GeneratedOutput::Text(text));
     }
     if path.ends_with(".odb.zip") {
-        return Ok(GeneratedOutput::Bytes(odb_package(p)?));
+        let bytes = odb_package(p)?;
+        crate::validate_odb_package(&bytes)?;
+        return Ok(GeneratedOutput::Bytes(bytes));
     }
     if path.ends_with(".xml") {
-        return Ok(GeneratedOutput::Text(ipc2581_text(p)?));
+        let text = ipc2581_text(p)?;
+        crate::validate_ipc2581_document(&text)?;
+        return Ok(GeneratedOutput::Text(text));
     }
     let text_output = |text: String| Ok(GeneratedOutput::Text(text));
     match path {
