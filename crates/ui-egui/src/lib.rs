@@ -24,6 +24,7 @@ pub mod brand;
 mod browser;
 mod canvas;
 mod contrast;
+mod datasheet;
 mod datums;
 mod draw_target;
 mod drill_table;
@@ -8132,6 +8133,7 @@ impl App {
         if self.compare_open {
             self.compare_window(&ctx);
         }
+        self.datasheet_pane.ui(&ctx);
         self.edit_events(&ctx);
         self.header(ui);
         self.footer(ui);
