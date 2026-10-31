@@ -1855,6 +1855,7 @@ mod tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
         let slab = part(&mesh, PartKind::Board)?;

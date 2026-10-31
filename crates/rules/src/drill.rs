@@ -256,6 +256,7 @@ mod tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         }
     }
     fn overlaps(p: &Project) -> Vec<Finding> {

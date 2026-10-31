@@ -3664,6 +3664,7 @@ Component, CopperZone, FabRules, Footprint, Label, LibraryFootprint, LibrarySymb
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         p.validate()?;
         let items = copper(&p);
@@ -3871,6 +3872,7 @@ covering_scope: None,
                 covering: None,
 covering_scope: None,
                 covering_bottom: None,
+                backdrill: None,
             });
         }
         p.validate()?;
@@ -5061,6 +5063,7 @@ covering_scope: None,
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         let fp_id = p.board.footprints[0].id;
         if let Some(pad) = p.board.footprints[0].pads.first_mut() {
@@ -5137,6 +5140,7 @@ covering_scope: None,
 covering: None,
             covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
     }
     /// A project holding one surface pad at (20, 20) that names `layers` and
@@ -5574,6 +5578,7 @@ covering: None,
 covering: None,
             covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
     }
     fn span_track(p: &mut Project, id: Id, layer: u8) {
@@ -5987,6 +5992,7 @@ mod pour_tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         p.validate()?;
         let findings = drc(&p);

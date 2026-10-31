@@ -1314,6 +1314,7 @@ mod tests {
             covering: None,
 covering_scope: None,
             covering_bottom: None,
+            backdrill: None,
         });
         project.board.texts.push(pcbcraft_doc::BoardText {
             id: 6,
