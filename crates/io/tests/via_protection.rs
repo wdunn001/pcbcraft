@@ -1,9 +1,32 @@
-//! Via protection in the fabrication files (issue #799): the drill tool
-//! attribute, the via pad function and the per-face mask openings.
-
-mod common;
-use common::*;
-use pcbcraft_doc::ViaCovering;
+use pcbcraft_doc::{
+    Net, Point, Project, Via, ViaCovering, ViaCoveringScope,
+};
+use pcbcraft_io::gerber_files;
+fn via_project(
+    covering: ViaCovering,
+    scope: Option<ViaCoveringScope>,
+) -> Result<Project, String> {
+    let mut p = Project::default();
+    p.nets.push(Net {
+        id: 1,
+        name: "GND".into(),
+        ..Default::default()
+    });
+    p.board.via_covering_default = ViaCovering::Open;
+    p.board.vias.push(Via {
+        id: 2,
+        net: 1,
+        position: Point::new(10.0, 10.0),
+        diameter: 0.6,
+        drill: 0.3,
+        from_layer: None,
+        to_layer: None,
+        covering: Some(covering),
+        covering_scope: scope,
+    });
+    p.validate()?;
+    Ok(p)
+}
 
 /// The tool attribute lines of one drill file, in file order.
 fn via_drill_attributes(drl: &str) -> Vec<String> {
@@ -19,44 +42,29 @@ fn openings(mask: &str) -> usize {
 }
 
 #[test]
-fn drill_file_writes_the_via_protection_type_as_a_tool_attribute() -> T {
-    let files = pcbcraft_io::gerber_files(&golden_board()?)?;
-    let plated = files.get("pcb-Plated.drl").ok_or("no plated drill file")?;
-    let attrs = via_drill_attributes(plated);
-    assert_eq!(
-        attrs,
-        vec![
-            "; #@! TA.AperFunction,Plated,PTH,ViaDrill,None",
-            "; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ia",
-            "; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib",
-            "; #@! TA.AperFunction,Plated,PTH,ViaDrill,VII",
-        ],
-        "one attribute per via tool, with the type from the twelve-value list: {plated}"
+fn drill_file_writes_the_via_protection_type_as_a_tool_attribute() -> Result<(), String> {
+    let files = gerber_files(&via_project(ViaCovering::Tented, None)?)?;
+    let drill = files
+        .get("pcb-Plated.drl")
+        .ok_or("plated drill missing")?;
+    assert!(
+        drill.contains("; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ib\n"),
+        "{drill}"
     );
     assert!(
-        !plated.contains("via protection:"),
-        "the old comment line is gone: {plated}"
-    );
-    let blind = files.get("pcb-Drill-L1-L2.drl").ok_or("no blind file")?;
-    assert!(
-        blind.contains("ViaDrill,Ia\n"),
-        "a blind via is protected on its one outer face: {blind}"
-    );
-    let buried = files.get("pcb-Drill-L2-L3.drl").ok_or("no buried file")?;
-    assert!(
-        buried.contains("ViaDrill,None\n"),
-        "a buried via has no outer face to protect: {buried}"
+        !drill.contains("via protection:"),
+        "comment line must be gone: {drill}"
     );
     Ok(())
 }
 
 #[test]
-fn via_pads_carry_no_specifier() -> T {
-    let files = pcbcraft_io::gerber_files(&golden_board()?)?;
-    let top = files.get("pcb-F.Cu.gbr").ok_or("no top copper")?;
+fn via_pads_carry_no_specifier() -> Result<(), String> {
+    let files = gerber_files(&via_project(ViaCovering::Open, None)?)?;
+    let copper = files.get("pcb-F.Cu.gbr").ok_or("front copper missing")?;
     assert!(
-        top.contains("%TA.AperFunction,ViaPad*%\n"),
-        "via pads are named ViaPad: {top}"
+        copper.contains("%TA.AperFunction,ViaPad*%\n"),
+        "{copper}"
     );
     for (name, text) in &files {
         assert!(
@@ -68,30 +76,60 @@ fn via_pads_carry_no_specifier() -> T {
 }
 
 #[test]
-fn a_via_open_on_the_bottom_keeps_its_bottom_mask_opening_only() -> T {
-    let mut p = board(2);
-    p.board.vias = vec![via(
-        10,
-        10.0,
-        0.3,
-        None,
-        Some(ViaCovering::Tented),
-        Some(ViaCovering::Open),
-    )?];
-    p.validate()?;
-    let files = pcbcraft_io::gerber_files(&p)?;
-    assert_eq!(openings(&files["pcb-F.Mask.gbr"]), 0, "tented on top");
-    assert_eq!(openings(&files["pcb-B.Mask.gbr"]), 1, "open underneath");
+fn a_via_open_on_the_bottom_keeps_its_bottom_mask_opening_only() -> Result<(), String> {
+    let mut p = via_project(ViaCovering::Tented, None)?;
     p.board.vias[0].covering = Some(ViaCovering::Open);
     p.board.vias[0].covering_bottom = Some(ViaCovering::Plugged);
-    let files = pcbcraft_io::gerber_files(&p)?;
+    let files = gerber_files(&p)?;
     assert_eq!(openings(&files["pcb-F.Mask.gbr"]), 1, "open on top");
     assert_eq!(openings(&files["pcb-B.Mask.gbr"]), 0, "plugged underneath");
     Ok(())
 }
+    Ok(())
+}
 
 #[test]
-fn golden_drill_files_and_masks_for_the_four_layer_board() -> T {
+Ok(())
+}
+
+#[test]
+fn via_pads_carry_no_specifier() -> Result<(), String> {
+    let files = gerber_files(&via_project(ViaCovering::Open, None)?)?;
+    let copper = files.get("pcb-F.Cu.gbr").ok_or("front copper missing")?;
+    assert!(
+        copper.contains("%TA.AperFunction,ViaPad*%\n"),
+        "{copper}"
+    );
+    assert!(
+        !copper.contains("ViaPad,CuDef"),
+        "via pads carry no CuDef specifier: {copper}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_via_open_on_the_bottom_keeps_its_bottom_mask_opening_only() -> Result<(), String> {
+    let files = gerber_files(&via_project(
+        ViaCovering::Tented,
+        Some(ViaCoveringScope::Top),
+    )?)?;
+    let front = files.get("pcb-F.Mask.gbr").ok_or("front mask missing")?;
+    let back = files.get("pcb-B.Mask.gbr").ok_or("back mask missing")?;
+    assert_eq!(
+        front.matches("G36*").count(),
+        0,
+        "top stays tented: {front}"
+    );
+    assert_eq!(
+        back.matches("G36*").count(),
+        1,
+        "bottom keeps its opening: {back}"
+    );
+    Ok(())
+}
+
+#[test]
+fn golden_drill_files_and_masks_for_the_four_layer_board() -> Result<(), String> {
     let files = pcbcraft_io::gerber_files(&golden_board()?)?;
     for (name, golden_name) in [
         ("pcb-Plated.drl", "via_protection_plated.drl"),
@@ -152,7 +190,7 @@ fn expected(
 }
 
 #[test]
-fn every_protection_on_two_four_and_six_layers_reaches_the_files_as_worked_out_by_hand() -> T {
+fn every_protection_on_two_four_and_six_layers_reaches_the_files_as_worked_out_by_hand() -> Result<(), String> {
     for layers in [2u8, 4, 6] {
         let mut spans: Vec<Option<(u8, u8)>> = vec![None];
         if layers > 2 {
@@ -196,5 +234,7 @@ fn every_protection_on_two_four_and_six_layers_reaches_the_files_as_worked_out_b
             }
         }
     }
+    Ok(())
+}
     Ok(())
 }

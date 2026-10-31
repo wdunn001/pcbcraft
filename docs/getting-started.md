@@ -1,7 +1,9 @@
 # Getting started
 
-Code of record is [wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft)
-branch `main` until the maintainer opens an upstream pull request.
+[wdunn001/pcbcraft](https://github.com/wdunn001/pcbcraft) is the project's home:
+code, issues, pull requests and CI all live there. The old tracker on
+tangency-labs/pcbcraft is frozen history. Start with
+[issue #1](https://github.com/wdunn001/pcbcraft/issues/1).
 
 ## Install and run
 
