@@ -95,7 +95,10 @@ fn catalog(p: &Project) -> Result<BTreeMap<FootprintKey, FootprintOutline>, Stri
                     existing.height_mm = height;
                 }
             })
-            .or_insert(FootprintOutline { height_mm: height, ring });
+            .or_insert(FootprintOutline {
+                height_mm: height,
+                ring,
+            });
     }
     if entries.is_empty() {
         return Err("board has no placed footprints to export".into());
@@ -112,9 +115,7 @@ pub fn idf_library(p: &Project) -> Result<String, String> {
     if entries.len() > MAX_DISTINCT {
         return Err("mechanical library exceeds the footprint limit".into());
     }
-    let mut out = format!(
-        ".HEADER\nLIBRARY_FILE 3.0 \"{IDF_SOURCE}\" {IDF_DATE} 1\n.END_HEADER\n"
-    );
+    let mut out = format!(".HEADER\nLIBRARY_FILE 3.0 \"{IDF_SOURCE}\" {IDF_DATE} 1\n.END_HEADER\n");
     for (key, outline) in entries {
         out.push_str(".ELECTRICAL\n");
         out.push_str(&format!(
