@@ -17,8 +17,7 @@
 //!
 //! # Do not
 //! - Add a CI step that has no `cargo xtask` command behind it.
-mod a11y;
-mod coverage;
+mod compliance_lists;
 mod doc_check;
 mod e2e;
 mod i18n;
@@ -39,8 +38,8 @@ const USAGE: &str = "usage: cargo xtask <command>
   fmt          rustfmt check
   clippy       clippy on all targets with warnings denied
   test         workspace tests (cargo-nextest when installed) and doctests
-  bench        timed large-board bench (release, ignored tests)
-  wasm         WebAssembly check of the shared UI and browser entry point
+bench        timed large-board bench (release, ignored tests)
+  wasm         WebAssembly check of the shared UI and browser entry point, wasm clippy, trunk build and browser smoke
   tooltips     [--strict] check tooltip text against docs/tooltips.md
   docs         rustdoc with warnings denied
   docs check   documentation standard: paths, trait implementation lists, AGENTS.md, missing-docs ratchet
@@ -288,13 +287,88 @@ fn e2e() -> Result<(), String> {
     ))
 }
 
-/// Checks the wasm packages for the wasm32 target.
+/// True when a program is on PATH.
+fn has_program(name: &str) -> bool {
+    Command::new(name)
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
+/// Runs a program in a working directory with extra environment variables.
+fn run_env_in(
+    dir: &Path,
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<(), String> {
+    println!("+ (cd {}) {program} {}", dir.display(), args.join(" "));
+    let mut command = Command::new(program);
+    command.current_dir(dir).args(args);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    if command
+        .status()
+        .map_err(|e| format!("{program} {}: {e}", args.join(" ")))?
+        .success()
+    {
+        Ok(())
+    } else {
+        Err(format!("{program} {} failed", args.join(" ")))
+    }
+}
+
+/// Checks the wasm packages for the wasm32 target, lints them, builds trunk, and smoke-tests the page.
 fn wasm() -> Result<(), String> {
     let mut args = vec!["check", "--locked", "--target", "wasm32-unknown-unknown"];
     for package in WASM_PACKAGES {
         args.extend(["-p", package]);
     }
-    cargo(&args)
+    cargo(&args)?;
+
+    let conf = root()?.join("clippy-wasm");
+    let mut clippy_args = vec![
+        "clippy",
+        "--locked",
+        "--target",
+        "wasm32-unknown-unknown",
+    ];
+    for package in WASM_PACKAGES {
+        clippy_args.extend(["-p", package, "--lib"]);
+    }
+    clippy_args.extend(["--", "-D", "warnings"]);
+    run_env(
+        "cargo",
+        &clippy_args,
+        &[("CLIPPY_CONF_DIR", conf.to_str().ok_or("clippy-wasm path")?)],
+    )?;
+
+    if !has_program("trunk") {
+        return Err("trunk is not installed: see apps/pcbcraft-web and docs/ci.md".into());
+    }
+    let web = root()?.join("apps/pcbcraft-web");
+    run_env_in(
+        &web,
+        "trunk",
+        &["build", "--release", "--public-url", "./"],
+        &[],
+    )?;
+
+    if !has_program("node") {
+        return Err("node is not installed".into());
+    }
+    if !web.join("node_modules/playwright").is_dir() {
+        run_env_in(&web, "npm", &["ci", "--no-audit", "--no-fund"], &[])?;
+        run_env_in(
+            &web,
+            "npx",
+            &["playwright", "install", "chromium"],
+            &[],
+        )?;
+    }
+    run_env_in(&web, "node", &["scripts/smoke-first-frame.mjs"], &[])?;
+    Ok(())
 }
 
 /// Builds rustdoc with warnings denied. The documentation standard check is `doc_check::run`.
@@ -443,6 +517,7 @@ fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
 /// clippy; this check makes sure nothing quietly opts out of it.
 fn lint_policy() -> Result<(), String> {
     let root = root()?;
+    compliance_lists::run(&root)?;
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).map_err(|e| e.to_string())?;
     if !manifest.contains("unsafe_code = \"forbid\"") {
         return Err("workspace lints must keep unsafe_code = \"forbid\"".into());
@@ -451,6 +526,16 @@ fn lint_policy() -> Result<(), String> {
         if !manifest.contains(&format!("{lint} = \"deny\"")) {
             return Err(format!(
                 "workspace clippy lints must keep {lint} = \"deny\""
+            ));
+        }
+    }
+    // The browser has no standard-library clock (issue 750): clippy.toml must
+    // keep banning the two calls that panic there, and only crates/clock may opt out.
+    let clippy_config = std::fs::read_to_string(root.join("clippy.toml")).unwrap_or_default();
+    for banned in ["std::time::SystemTime::now", "std::time::Instant::now"] {
+        if !clippy_config.contains(banned) {
+            return Err(format!(
+                "clippy.toml must keep banning {banned} in disallowed-methods (it panics in the browser)"
             ));
         }
     }
@@ -488,7 +573,11 @@ fn lint_policy() -> Result<(), String> {
                     || REQUIRED_DENY
                         .iter()
                         .any(|lint| compact.contains(&format!("clippy::{lint}"))));
-            if opts_out {
+            let clock_opt_out = attribute
+                && compact.contains("allow(")
+                && compact.contains("clippy::disallowed_methods")
+                && !file.ends_with("crates/clock/src/lib.rs");
+            if opts_out || clock_opt_out {
                 problems.push(format!(
                     "{}:{}: lint opt-out is not allowed: {}",
                     file.strip_prefix(&root).unwrap_or(&file).display(),
@@ -617,25 +706,25 @@ fn run() -> Result<(), String> {
         "showcase" => showcase::run(&root()?)?,
         "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
         "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
-"wasm" => wasm()?,
-        "docs" if args.get(1).map(String::as_str) == Some("check") => {
-            doc_check::run(args.get(2..).unwrap_or(&[]))?;
+"bless-parity" => {
+            run_env(
+                "cargo",
+                &["test", "-p", "pcbcraft-engine", "--test", "parity"],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
+            run_env(
+                "cargo",
+                &[
+                    "test",
+                    "-p",
+                    "pcbcraft-engine",
+                    "--test",
+                    "m6_artifact_goldens",
+                ],
+                &[("PCBCRAFT_BLESS", "1")],
+            )?;
         }
-        "docs" => docs()?,
-        "tooltips" => tooltips::run(args.get(1..).unwrap_or(&[]))?,
-        "deny" => deny()?,
-        "msrv" => msrv()?,
-        "strings" => strings(args.get(1).map(String::as_str))?,
-        "showcase" => showcase::run(&root()?)?,
-        "status-data" => status_data::run(args.get(1..).unwrap_or(&[]), &root()?)?,
-        "screenshots" => screenshots(args.get(1..).unwrap_or(&[]))?,
-        "visual-gate" => visual_gate(args.get(1..).unwrap_or(&[]))?,
         "board3d-bench" => board3d_bench()?,
-        "bless-parity" => run_env(
-            "cargo",
-            &["test", "-p", "pcbcraft-engine", "--test", "parity"],
-            &[("PCBCRAFT_BLESS", "1")],
-        )?,
         "help" | "--help" | "-h" => println!("{USAGE}"),
         _ => return Err(USAGE.into()),
     }

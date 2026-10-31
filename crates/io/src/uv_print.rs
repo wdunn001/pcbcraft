@@ -511,8 +511,10 @@ mod tests {
             graphics,
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 
@@ -633,6 +635,8 @@ mod tests {
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9402,
             reference: "R1".into(),
             value: "1k".into(),
@@ -647,6 +651,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -680,7 +685,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(small_pad()),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.validate()?;
         let profile = eufymake_e1_profile();
         let loose = base_options(UvPrintSide::Top);
@@ -738,10 +745,14 @@ mod tests {
                 castellated: None,
                 geometry: Some(pad.clone()),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9202,
             reference: "U1".into(),
             value: "test".into(),
@@ -756,6 +767,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -860,6 +872,8 @@ mod tests {
         p.components.push(pcbcraft_doc::Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9302,
             reference: "R1".into(),
             value: "1k".into(),
@@ -874,6 +888,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -906,7 +921,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(small_pad()),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.validate()?;
         let profile = eufymake_e1_profile();
         let mut opts = base_options(UvPrintSide::Bottom);

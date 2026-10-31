@@ -7,15 +7,17 @@
 //! the CAD cache (crates/library/src/open_import.rs).
 //!
 //! Formats: glTF and GLB, a bounded VRML subset
-//! (`vrml_read.rs`) and STEP solids (`step_read.rs`, millimetres).
+//! (`vrml_read.rs`), STEP solids (`step_read.rs`, millimetres) and SolidCraft
+//! projects (`solidcraft_model.rs`, millimetres, Z up).
 //! Units: glTF is metres and Y up, so it is scaled by 1000 and turned to Z up.
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.
-pub const LOADER_VERSION: u32 = 1;
+pub const LOADER_VERSION: u32 = 2;
 /// Largest model file read, in bytes.
 pub const MAX_MODEL_BYTES: usize = 32 * 1024 * 1024;
 /// Most vertices one model may produce.
@@ -26,7 +28,7 @@ const MAX_NODE_DEPTH: usize = 64;
 const MAX_NODES_VISITED: usize = 20_000;
 
 /// One model as triangles in millimetres, Z up, in the model's own frame.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadedModel {
     /// Vertex positions in millimetres.
     pub positions: Vec<[f64; 3]>,
@@ -34,6 +36,8 @@ pub struct LoadedModel {
     pub indices: Vec<u32>,
     /// Diffuse colour 0..1 of the first material, when the file has one.
     pub color: Option<[f32; 3]>,
+    /// When several bodies were merged, one diffuse colour per body in merge order.
+    pub body_colors: Option<Vec<[f32; 3]>>,
 }
 impl LoadedModel {
     /// Axis-aligned bounds, or `None` for an empty model.
@@ -66,7 +70,7 @@ fn err<T>(s: impl Into<String>) -> Result<T, ModelError> {
 
 /// Identity of a model file for caching: changes when the file, its size,
 /// its modification time or the reader changes.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelCacheKey {
     /// The model path as the footprint names it.
     pub path: String,
@@ -76,6 +80,8 @@ pub struct ModelCacheKey {
     pub mtime_nanos: Option<u128>,
     /// [`LOADER_VERSION`] when the key was made.
     pub loader_version: u32,
+    /// Content digest for companion project files; ignores mtime when set.
+    pub content_digest: Option<String>,
 }
 /// The cache key for a file with this size and modification time.
 pub fn model_cache_key(
@@ -90,6 +96,24 @@ pub fn model_cache_key(
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos()),
         loader_version: LOADER_VERSION,
+        content_digest: None,
+    }
+}
+
+/// Cache key for a companion CAD project from its bytes and optional part name.
+pub fn companion_model_cache_key(
+    path: &str,
+    project_bytes: &[u8],
+    cad_part: Option<&str>,
+) -> ModelCacheKey {
+    let hash = crate::companion_cad::content_sha256_hex(project_bytes);
+    let digest = crate::companion_cad::companion_cache_token(&hash, cad_part);
+    ModelCacheKey {
+        path: path.to_string(),
+        len: project_bytes.len() as u64,
+        mtime_nanos: None,
+        loader_version: LOADER_VERSION,
+        content_digest: Some(digest),
     }
 }
 
@@ -97,7 +121,7 @@ pub fn model_cache_key(
 pub fn model_extension_supported(path: &str) -> bool {
     matches!(
         extension(path).as_str(),
-        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp"
+        "gltf" | "glb" | "wrl" | "vrml" | "step" | "stp" | "solidcraft"
     )
 }
 fn extension(path: &str) -> String {
@@ -119,6 +143,15 @@ fn extension(path: &str) -> String {
 /// # Do not
 /// Do not place the model on the board here; that is `board_mesh::with_models`.
 pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
+    load_model_with_part(path, bytes, None)
+}
+
+/// Read a model file, optionally selecting one component inside a SolidCraft project.
+pub fn load_model_with_part(
+    path: &str,
+    bytes: &[u8],
+    cad_part: Option<&str>,
+) -> Result<LoadedModel, ModelError> {
     if bytes.len() > MAX_MODEL_BYTES {
         return err(format!(
             "The model file is {} MB, over the {} MB limit.",
@@ -130,8 +163,20 @@ pub fn load_model(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
         "gltf" | "glb" => load_gltf(path, bytes),
         "wrl" | "vrml" => crate::vrml_read::read_vrml(bytes),
         "step" | "stp" => crate::step_read::read_step(bytes),
+        "solidcraft" => crate::solidcraft_model::load_solidcraft_model(bytes, cad_part),
         "" => err("The model file has no extension, so its format is unknown."),
         other => err(format!("The model format .{other} is not supported.")),
+    }
+}
+
+/// Cache key for SolidCraft models from file content, not modification time.
+pub fn model_cache_key_solidcraft(path: &str, bytes: &[u8], cad_part: Option<&str>) -> ModelCacheKey {
+    let token = crate::solidcraft_model::solidcraft_cache_token(bytes, cad_part);
+    ModelCacheKey {
+        path: format!("{path}#{token}"),
+        len: bytes.len() as u64,
+        mtime_nanos: None,
+        loader_version: LOADER_VERSION,
     }
 }
 
@@ -294,6 +339,7 @@ fn load_gltf(path: &str, bytes: &[u8]) -> Result<LoadedModel, ModelError> {
             positions: vec![],
             indices: vec![],
             color: None,
+            body_colors: None,
         },
         visited: 0,
     };
@@ -373,6 +419,7 @@ mod tests {
             offset: [10.0, 0.0, 0.0],
             scale: [2.0, 1.0, 1.0],
             rotate: [0.0, 0.0, 90.0],
+            cad_part: None,
             raw_source: String::new(),
         };
         let mat = model_matrix(&model, pcbcraft_geom::Point::new(0.0, 0.0), 0.0, false, 0.0);
@@ -434,6 +481,16 @@ mod tests {
     }
 
     #[test]
+    fn solidcraft_cache_key_follows_content_hash() {
+        let a = b"{\"format\":\"solidcraft/22\"}";
+        let b = b"{\"format\":\"solidcraft/22\",\"x\":1}";
+        let ka = model_cache_key_solidcraft("p.solidcraft", a, None);
+        let kb = model_cache_key_solidcraft("p.solidcraft", b, None);
+        assert_ne!(ka, kb);
+        assert_eq!(ka, model_cache_key_solidcraft("p.solidcraft", a, None));
+    }
+
+    #[test]
     fn cache_key_changes_with_mtime() {
         let t0 = std::time::UNIX_EPOCH + std::time::Duration::from_secs(100);
         let t1 = t0 + std::time::Duration::from_secs(1);
@@ -441,5 +498,18 @@ mod tests {
         assert_eq!(a, model_cache_key("a.glb", 10, Some(t0)));
         assert_ne!(a, model_cache_key("a.glb", 10, Some(t1)));
         assert_ne!(a, model_cache_key("a.glb", 11, Some(t0)));
+    }
+
+    #[test]
+    fn companion_cache_key_uses_content_not_mtime() {
+        let bytes_a = br#"{"format":22}"#;
+        let bytes_b = br#"{"format":23}"#;
+        let a = companion_model_cache_key("p.solidcraft", bytes_a, None);
+        let same = companion_model_cache_key("p.solidcraft", bytes_a, None);
+        let other = companion_model_cache_key("p.solidcraft", bytes_b, None);
+        assert_eq!(a, same);
+        assert_ne!(a, other);
+        assert!(a.content_digest.is_some());
+        assert!(a.mtime_nanos.is_none());
     }
 }

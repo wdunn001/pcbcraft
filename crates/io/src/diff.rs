@@ -719,11 +719,14 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
 sourcing: Default::default(),
         compliance: Default::default(),
@@ -744,7 +747,9 @@ sourcing: Default::default(),
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
 
@@ -781,14 +786,12 @@ sourcing: Default::default(),
         old.nets.push(Net {
             id: 1,
             name: "GND".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         new.nets.push(Net {
             id: 1,
             name: "VSS".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         let diff = project_diff(&old, &new);
         assert_eq!(diff.changes.len(), 1);
@@ -803,14 +806,12 @@ sourcing: Default::default(),
             old.nets.push(Net {
                 id: net.0,
                 name: net.1.into(),
-                target_length: None,
-                length_tolerance: None,
+                ..Default::default()
             });
             new.nets.push(Net {
                 id: net.0,
                 name: net.1.into(),
-                target_length: None,
-                length_tolerance: None,
+                ..Default::default()
             });
         }
         new.components[0].pins[0].net = Some(2);

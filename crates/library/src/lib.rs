@@ -1,46 +1,32 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
-pub mod datasheet;
-pub mod datasheet_annotations;
-pub mod connector_catalog;
+mod connector_parametric;
+mod connector_series_data;
+mod connector_series_generate;
 mod footprint_check;
 mod footprint_generate;
+pub mod model_transform;
 mod footprint_pad_outline;
 pub mod listing;
 pub mod listing_adapters;
+pub mod part_search;
 pub mod online_import;
 pub mod open_library;
 mod paths;
 mod reader;
-pub mod samtec;
 mod sexpr;
-pub mod credentials;
-pub mod http_client;
-pub mod rate_limit;
-pub mod source_log;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod digikey;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod mouser;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod element14;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod lcsc;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod jlcpcb;
-pub mod source_errors;
-pub mod source_hosts;
-#[cfg(not(target_arch = "wasm32"))]
-mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
-pub use datasheet::{
-    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
-    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
-    MAX_REDIRECTS, MAX_URL_BYTES,
+pub use connector_parametric::{
+    ConnectorParametricSpec, PARAMETRIC_MODEL_PATH, body_fits_courtyard, housing_length_mm,
+};
+pub use connector_series_data::{ConnectorSeriesSpec, series_spec};
+pub use connector_series_generate::{
+    ConnectorFieldError, ConnectorSeriesOptions, GeneratedConnectorPart, generate_connector_part,
+    pin1_position,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
 use pcbcraft_geom::Point;
@@ -48,6 +34,10 @@ pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
 pub use symbol_check::check_symbol;
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 pub use validation::custom_polygon_error;
 
 /// A schematic symbol definition parsed from the interchange format.
@@ -480,6 +470,12 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a companion CAD project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
+    /// Stable body id for re-import alignment across CAD edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_id: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {

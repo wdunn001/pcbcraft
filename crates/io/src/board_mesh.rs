@@ -42,6 +42,8 @@ const MAX_RING: usize = 256;
 const MAX_MERGED_VERTICES: usize = 12_000;
 const MAX_HOLES_PER_POLYGON: usize = 2_000;
 const EPS: f64 = 1e-9;
+const DECAL_MIN_AREA: f64 = 14.0;
+const DECAL_RAISE: f64 = 0.06;
 
 /// What a part of the mesh is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +98,8 @@ impl Default for MeshLayers {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelPlacement {
     pub path: String,
+    /// Part name inside a companion CAD project, when the file holds more than one.
+    pub cad_part: Option<String>,
     pub matrix: [f64; 16],
     /// True once [`with_models`] replaced the default box by the file's triangles.
     pub loaded: bool,
@@ -119,7 +123,7 @@ pub struct MeshPart {
     pub component: Option<Id>,
     /// Package family of a parametric body, such as `chip` or `soic`.
     pub family: Option<String>,
-    /// Where a body height came from: `default` or `field`.
+    /// Where a body height came from: `default`, `field`, or `footprint`.
     pub height_source: Option<&'static str>,
     /// The placement a loaded model would take, when the footprint names one.
     pub model: Option<ModelPlacement>,
@@ -936,7 +940,7 @@ pub enum ModelStatus {
 /// Do not read files here; the caller owns loading and caching.
 pub fn with_models(
     mesh: &mut BoardMesh,
-    mut lookup: impl FnMut(&str) -> ModelLookup,
+    mut lookup: impl FnMut(&ModelPlacement) -> ModelLookup,
 ) -> Vec<(Id, ModelStatus)> {
     let mut notes = vec![];
     let mut file_prototypes: HashMap<String, Arc<BodyPrototype>> = HashMap::new();
@@ -947,7 +951,7 @@ pub fn with_models(
         if part.kind != PartKind::Body {
             continue;
         }
-        match lookup(&model.path) {
+        match lookup(model) {
             ModelLookup::Loading => notes.push((id, ModelStatus::Loading)),
             ModelLookup::Failed(reason) => notes.push((id, ModelStatus::Failed(reason))),
             ModelLookup::Ready(m) => {
@@ -985,35 +989,35 @@ pub fn apply_matrix(m: &[f64; 16], p: [f64; 3]) -> [f64; 3] {
         m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
     ]
 }
-fn diag(x: f64, y: f64, z: f64) -> [f64; 16] {
+pub(crate) fn diag(x: f64, y: f64, z: f64) -> [f64; 16] {
     [
         x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn translate(x: f64, y: f64, z: f64) -> [f64; 16] {
+pub(crate) fn translate(x: f64, y: f64, z: f64) -> [f64; 16] {
     [
         1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, y, 0.0, 0.0, 1.0, z, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_x(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_x(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         1.0, 0.0, 0.0, 0.0, 0.0, c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_y(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_y(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         c, 0.0, s, 0.0, 0.0, 1.0, 0.0, 0.0, -s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_z(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_z(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
+pub(crate) fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
     let mut out = [0.0; 16];
     for row in 0..4 {
         for col in 0..4 {
@@ -1042,10 +1046,94 @@ fn parse_height(text: &str) -> Option<f64> {
     (v.is_finite() && (0.05..=100.0).contains(&v)).then_some(v)
 }
 
+fn glyph_rows(ch: char) -> [u8; 3] {
+    match ch {
+        '0' => [0b111, 0b101, 0b111],
+        '1' => [0b010, 0b010, 0b010],
+        '2' => [0b111, 0b110, 0b011],
+        '3' => [0b111, 0b110, 0b111],
+        '4' => [0b101, 0b111, 0b001],
+        '5' => [0b111, 0b011, 0b111],
+        '6' => [0b111, 0b011, 0b111],
+        '7' => [0b111, 0b001, 0b001],
+        '8' => [0b111, 0b111, 0b111],
+        '9' => [0b111, 0b111, 0b001],
+        'A' | 'a' => [0b010, 0b111, 0b101],
+        'B' | 'b' => [0b111, 0b101, 0b111],
+        'C' | 'c' => [0b111, 0b100, 0b111],
+        'D' | 'd' => [0b110, 0b101, 0b110],
+        'E' | 'e' => [0b111, 0b100, 0b111],
+        'F' | 'f' => [0b111, 0b100, 0b100],
+        'G' | 'g' => [0b111, 0b101, 0b111],
+        'H' | 'h' => [0b101, 0b111, 0b101],
+        'I' | 'i' => [0b111, 0b010, 0b111],
+        'K' | 'k' => [0b101, 0b110, 0b101],
+        'L' | 'l' => [0b100, 0b100, 0b111],
+        'M' | 'm' => [0b101, 0b111, 0b101],
+        'N' | 'n' => [0b101, 0b111, 0b101],
+        'O' | 'o' => [0b111, 0b101, 0b111],
+        'P' | 'p' => [0b111, 0b110, 0b100],
+        'R' | 'r' => [0b111, 0b110, 0b101],
+        'S' | 's' => [0b111, 0b011, 0b111],
+        'T' | 't' => [0b111, 0b010, 0b010],
+        'U' | 'u' => [0b101, 0b101, 0b111],
+        'V' | 'v' => [0b101, 0b101, 0b010],
+        'X' | 'x' => [0b101, 0b010, 0b101],
+        'Y' | 'y' => [0b101, 0b111, 0b010],
+        'Z' | 'z' => [0b111, 0b010, 0b111],
+        '.' => [0b000, 0b000, 0b010],
+        '-' => [0b000, 0b111, 0b000],
+        ' ' => [0b000, 0b000, 0b000],
+        _ => [0b010, 0b010, 0b010],
+    }
+}
+
+fn decal_rings(text: &str, cx: f64, cy: f64, span_w: f64, span_h: f64) -> Vec<Vec<Point>> {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return vec![];
+    }
+    let char_w = span_w / (chars.len() as f64 * 1.35).max(1.0);
+    let char_h = span_h * 0.35;
+    let dot = char_w * 0.22;
+    let gap = char_w * 0.35;
+    let mut rings = Vec::new();
+    let total_w = chars.len() as f64 * (char_w + gap) - gap;
+    let mut x0 = cx - total_w / 2.0 + char_w / 2.0;
+    for ch in chars {
+        let upper = if ch.is_ascii_lowercase() {
+            ch.to_ascii_uppercase()
+        } else {
+            ch
+        };
+        let rows = glyph_rows(upper);
+        for (row, bits) in rows.iter().enumerate() {
+            for col in 0..3 {
+                if bits & (1 << (2 - col)) != 0 {
+                    let px = x0 + (col as f64 - 1.0) * char_w * 0.32;
+                    let py = cy + (1.0 - row as f64) * char_h * 0.32;
+                    rings.push(rect_ring(px, py, dot, dot));
+                }
+            }
+        }
+        x0 += char_w + gap;
+    }
+    rings
+}
+
 // -------------------------------------------------------------------- build
 
 /// Build the whole mesh for a validated project.
 pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> {
+    board_mesh_with_dir(p, layers, None)
+}
+
+/// Like [`board_mesh`], with `design_dir` used to resolve relative model paths.
+pub fn board_mesh_with_dir(
+    p: &Project,
+    layers: MeshLayers,
+    design_dir: Option<&std::path::Path>,
+) -> Result<BoardMesh, String> {
     p.validate()?;
     let thickness = p.board.thickness;
     let mut budget = Budget { triangles: 0 };
@@ -1320,7 +1408,13 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 continue;
             };
             let mut height_source = "default";
-            if let Some(text) = component.and_then(|c| c.field("height")) {
+            if let Some(explicit) = component
+                .and_then(|c| c.library_footprint.as_ref())
+                .and_then(|l| l.definition.box_body)
+            {
+                body = Body::plain("box", explicit.outline(), explicit.height);
+                height_source = "footprint";
+            } else if let Some(text) = component.and_then(|c| c.field("height")) {
                 match parse_height(text) {
                     Some(h) => {
                         body.height = h;
@@ -1357,8 +1451,24 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
-                part.model = Some(ModelPlacement {
-                    path: model.path.clone(),
+part.model = Some(ModelPlacement {
+                    path: crate::model_resolve::resolve_model_path(
+                        p,
+                        &model.path,
+                        component
+                            .and_then(|c| c.library_footprint.as_ref())
+                            .map(|l| l.library.as_str()),
+                        design_dir,
+                    ),
+                    matrix: model_matrix(
+                        model,
+                        fp.position,
+                        fp.rotation,
+                        bottom,
+                        thickness,
+                    ),
+                    loaded: false,
+                });
                     matrix: model_matrix(
                         model,
                         fp.position,
@@ -1390,10 +1500,27 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
             for pin in &body.pins {
                 extrude(&pin.ring, pin.z0, pin.z1)?;
             }
+            for extra in &body.extras {
+                extrude(&extra.ring, extra.z0, extra.z1)?;
+            }
+            if let Some(text) = &body.decal {
+                let (lo, hi) = ring_bounds(&body.ring);
+                let (cx, cy) = ((lo.x + hi.x) / 2.0, (lo.y + hi.y) / 2.0);
+                let (w, h) = (hi.x - lo.x, hi.y - lo.y);
+                if w * h >= DECAL_MIN_AREA {
+                    for ring in decal_rings(text, cx, cy, w * 0.85, h * 0.85) {
+                        extrude(&ring, body.height, body.height + DECAL_RAISE)?;
+                    }
+                }
+            }
             if !b.part.indices.is_empty() {
                 parts.push(b.part);
             }
         }
+    }
+
+    if let Some(ref enc) = p.board.enclosure {
+        crate::solidcraft_enclosure::append_enclosure_parts(&mut parts, p, enc)?;
     }
 
     Ok(BoardMesh {
@@ -1600,6 +1727,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+covering_scope: None,
             covering_bottom: None,
         });
         let mesh = board_mesh(&p, slab_only())?;
@@ -1696,8 +1824,10 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         p.components.push(Component {
             sourcing: Default::default(),
@@ -1717,6 +1847,7 @@ mod tests {
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 })
                 .collect(),
             units: vec![],
@@ -1726,9 +1857,13 @@ mod tests {
                 definition,
             }),
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
-        sourcing: Default::default(),
-        compliance: Default::default(),
+instance: None,
+            prototype: None,
+            sourcing: Default::default(),
+            compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
@@ -1767,6 +1902,7 @@ mod tests {
             offset,
             scale: [scale; 3],
             rotate,
+            cad_part: None,
             raw_source: String::new(),
         }
     }
@@ -1845,6 +1981,31 @@ mod tests {
         let b = board_mesh(&p, MeshLayers::default())?;
         assert_eq!(a, b);
         assert_eq!(a.to_json(true).to_string(), b.to_json(true).to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn a_footprint_box_body_overrides_pad_defaults() -> Check {
+        let mut p = resistor_project();
+        if let Some(c) = p.components.first_mut() {
+            c.library_footprint.as_mut().map(|l| {
+                l.definition.box_body = Some(pcbcraft_library::FootprintBoxBody {
+                    width: 3.0,
+                    depth: 2.0,
+                    height: 4.0,
+                });
+            });
+        }
+        let mesh = board_mesh(&p, MeshLayers::default())?;
+        let body = part(&mesh, PartKind::Body)?;
+        assert_eq!(body.height_source, Some("footprint"));
+        assert_eq!(body.family.as_deref(), Some("box"));
+        let (blo, bhi) = body.bounds().ok_or("no bounds")?;
+        assert!(close(bhi[2] - blo[2], 4.0));
+        let span_x = bhi[0] - blo[0];
+        let span_y = bhi[1] - blo[1];
+        assert!(span_x > 2.5 && span_x < 3.5);
+        assert!(span_y > 1.5 && span_y < 2.5);
         Ok(())
     }
 
@@ -2032,6 +2193,26 @@ mod tests {
         assert!(full["parts"][0].get("positions").is_some());
         assert!(summary["parts"][0].get("positions").is_none());
         assert_eq!(full["bounds"]["min"][0], 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn vertex_count_of_a_box_mesh_is_eight() -> Check {
+        let mesh = BoardMesh {
+            parts: vec![MeshPart {
+                kind: PartKind::Board,
+                name: "box".into(),
+                component: None,
+                family: None,
+                height_source: None,
+                model: None,
+                color: None,
+                positions: (0..8).map(|i| [i as f64, 0.0, 0.0]).collect(),
+                indices: vec![0, 1, 2, 0, 2, 3],
+            }],
+            warnings: vec![],
+        };
+        assert_eq!(mesh.vertex_count(), 8);
         Ok(())
     }
 }

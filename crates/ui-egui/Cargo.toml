@@ -9,6 +9,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+pcbcraft-clock.workspace = true
 pcbcraft-geom.workspace = true
 pcbcraft-library.workspace = true
 pcbcraft-doc.workspace = true
@@ -18,6 +19,7 @@ pcbcraft-rules.workspace = true
 pcbcraft-mcp.workspace = true
 pcbcraft-text.workspace = true
 pcbcraft-assistant.workspace = true
+pcbcraft-datasheet.workspace = true
 egui.workspace = true
 egui_extras.workspace = true
 eframe.workspace = true
@@ -25,6 +27,7 @@ craft-ui.workspace = true
 serde_json.workspace = true
 image.workspace = true
 serde.workspace = true
+web-time.workspace = true
 toml.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

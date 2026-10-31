@@ -19,6 +19,18 @@
 //! # Do not
 //! - Add a File menu item for one format; add a row here instead.
 //! - Put a path, host name or user name in a row.
+use serde::Deserialize;
+
+/// What a format is of: the whole design, something made from it, or pieces brought in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// The whole design. Save and Save as write it; Open reads it.
+    Project,
+    /// Something made from the design: a bill of materials, fabrication files, a drawing.
+    Output,
+    /// Pieces brought into the open design (a drawing, a library part, a machine profile).
+    Parts,
+}
 
 /// What a format is of: the whole design, something made from it, or pieces brought in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,7 +116,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-    /// The vendor flavours of a bill of materials ([`BOM_FLAVOURS`]).
+/// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 
@@ -212,11 +224,85 @@ const BOM_OPTIONS: &[OptionSpec] = &[
     },
 ];
 
+const GERBER_OPTIONS: &[OptionSpec] = &[
+    OptionSpec {
+        param: Some("naming"),
+        label: "File names",
+        tip: "How the files are named. Project names start with pcb-. Plain .gbr puts the layer in the name. Three-letter extensions are the classic .GTL and .GBL style that online prototype fabs read.",
+        kind: OptionKind::Choice {
+            choices: &[
+                ("project", "Project names"),
+                ("plain", "Plain .gbr"),
+                ("protel", "Three-letter extensions"),
+            ],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_files"),
+        label: "Drill files",
+        tip: "Plated and non-plated holes in two files, or in one file. Some fabs merge them for you, others want them apart.",
+        kind: OptionKind::Choice {
+            choices: &[("split", "Two files"), ("merged", "One file")],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_units"),
+        label: "Drill units",
+        tip: "Millimetres or inches in the drill files. Project uses the unit of this design.",
+        kind: OptionKind::Choice {
+            choices: &[("project", "Project"), ("mm", "mm"), ("inch", "Inch")],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("zero_suppression"),
+        label: "Drill numbers",
+        tip: "Decimal points write every number in full. Leading or trailing zero suppression writes shorter numbers for older machines (2.4 for inch, 3.3 for mm).",
+        kind: OptionKind::Choice {
+            choices: &[
+                ("decimal", "Decimal"),
+                ("leading", "Drop leading zeros"),
+                ("trailing", "Drop trailing zeros"),
+            ],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_map"),
+        label: "Drill map",
+        tip: "Add a drawing that marks every hole size with a symbol.",
+        kind: OptionKind::Bool { default: true },
+    },
+    OptionSpec {
+        param: Some("job_file"),
+        label: "Job file",
+        tip: "Add the .gbrjob file that lists every layer, its function and the board stackup.",
+        kind: OptionKind::Bool { default: true },
+    },
+];
+
 const USE_OUTLINE: &[OptionSpec] = &[OptionSpec {
     param: Some("use_outline"),
     label: "Use as board outline",
     tip: "Trace a closed shape in the file as the board outline.",
     kind: OptionKind::Bool { default: false },
+}];
+
+const COMPLIANCE_REPORT_OPTIONS: &[OptionSpec] = &[OptionSpec {
+    param: Some("format"),
+    label: "Format",
+    tip: "File type for the report body.",
+    kind: OptionKind::Choice {
+        choices: &[
+            ("markdown", "Markdown"),
+            ("csv", "CSV"),
+            ("html", "HTML"),
+            ("pdf", "PDF"),
+        ],
+        default: 0,
+    },
 }];
 
 const VIEW: &[OptionSpec] = &[OptionSpec {
@@ -346,14 +432,17 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Assembly,
         Run::Kind("ipc2581"),
     ),
-    common(output(
-        "gerbers",
-        "Copper and drill files",
-        "Gerber copper layers, the board outline and drill files that a board maker needs.",
-        &["gbr", "drl"],
-        Group::Fabrication,
-        Run::Kind("gerbers"),
-    )),
+    common(FormatSpec {
+        options: GERBER_OPTIONS,
+        ..output(
+            "gerbers",
+            "Copper and drill files",
+            "Gerber copper layers, the board outline and drill files that a board maker needs.",
+            &["gbr", "drl"],
+            Group::Fabrication,
+            Run::Engine("gerber.files"),
+        )
+    }),
     output(
         "drill_chart",
         "Drill chart",
@@ -377,6 +466,14 @@ pub static FORMATS: &[FormatSpec] = &[
         &["ipc"],
         Group::Fabrication,
         Run::Kind("ipc356"),
+    ),
+    output(
+        "bring_up",
+        "Bring-up test plan",
+        "Markdown and CSV checklist of rails, headers, continuity and nets missing a probe pad.",
+        &["md", "csv"],
+        Group::Documentation,
+        Run::Kind("bring_up"),
     ),
     common(output(
         "pdf",
@@ -418,6 +515,19 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Documentation,
         Run::Kind("stats"),
     ),
+    FormatSpec {
+        id: "compliance_report",
+        label: "Compliance data report",
+        tip: "Part declarations, list snapshots and supplier questions as a data-quality aid, not a certification.",
+        extensions: &["md", "csv", "html", "pdf"],
+        scope: Scope::Output,
+        group: Group::Documentation,
+        open: None,
+        import: None,
+        export: Some(Run::Engine("compliance.report")),
+        options: COMPLIANCE_REPORT_OPTIONS,
+        common: false,
+    },
     FormatSpec {
         id: "picture",
         label: "Picture (PNG)",
@@ -576,6 +686,17 @@ output(
     ),
 ];
 
+&[],
+    )),
+    part(
+        "machine",
+        "Machine profile",
+        "A shop machine's settings, added to the design.",
+        &["toml"],
+        "machine.import",
+        &[],
+    ),
+];
 /// One vendor flavour of the bill of materials, as pure data: which columns, what the
 /// headers say, whether identical parts share a row, how references are joined and which
 /// file type it is.
@@ -614,12 +735,6 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
         ("mpn", "MPN"),
         ("manufacturer", "Manufacturer"),
         ("quantity", "Quantity"),
-("reference", "Reference"),
-        ("value", "Value"),
-        ("footprint", "Footprint"),
-        ("mpn", "MPN"),
-        ("manufacturer", "Manufacturer"),
-        ("quantity", "Quantity"),
         ("description", "Description"),
         ("suppliers", "Supplier part numbers"),
     ],
@@ -630,6 +745,18 @@ pub static BOM_FLAVOURS: &[BomFlavour] = &[BomFlavour {
 /// A bill of materials flavour by id.
 pub fn bom_flavour(id: &str) -> Option<&'static BomFlavour> {
     BOM_FLAVOURS.iter().find(|f| f.id == id)
+}
+
+/// The first format that can go `direction` and whose extension matches `path`.
+pub fn for_path(path: &str, direction: Direction) -> Option<&'static FormatSpec> {
+    FORMATS
+        .iter()
+        .find(|f| f.directions().contains(&direction) && f.matches(path))
+}
+
+/// The formats that can go `direction` in `scope`, in table order.
+pub fn listed(direction: Direction, scope: Scope) -> Vec<&'static FormatSpec> {
+    FORMATS
 }
 
 /// The first format that can go `direction` and whose extension matches `path`.
@@ -776,5 +903,64 @@ mod tests {
                 "Group identical parts"
             ]
         );
+    }
+let labels: Vec<&str> = bom.unwrap_or(&[]).iter().map(|o| o.label).collect();
+        assert_eq!(
+            labels,
+            [
+                "Flavour",
+                "File type",
+                "Build",
+                "Columns",
+                "Group identical parts"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_bundled_flavour_file_parses_and_leads_with_the_plain_list() -> Result<(), String> {
+        let all = parse_bom_flavours(BOM_FLAVOURS_JSON)?;
+        assert_eq!(all[0].id, "generic_csv", "the first is the default");
+        assert!(all.len() >= 14, "every flavour with enough detail ships");
+        assert_eq!(bom_flavours().len(), all.len(), "the table is the file");
+        let mut ids: Vec<&str> = all.iter().map(|f| f.id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), all.len(), "ids are unique");
+        Ok(())
+    }
+
+    #[test]
+    fn every_required_field_of_every_flavour_exists_in_the_part_field_model() {
+        let known = |key: &String| PART_FIELDS.iter().any(|f| f.key == key);
+        for f in bom_flavours() {
+            for key in f.requires.iter().chain(&f.requires_any) {
+                assert!(known(key), "{} requires {key}, not a part field", f.id);
+            }
+            for c in &f.columns {
+                assert!(
+                    DERIVED_TOKENS.contains(&c.token.as_str())
+                        || PART_FIELDS.iter().any(|p| p.token == c.token),
+                    "{} has an unknown column token {}",
+                    f.id,
+                    c.token
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_flavour_is_well_formed_and_unverified_ones_say_so() {
+        for f in bom_flavours() {
+            assert!(f.file_types.contains(&f.file_type), "{}: start type", f.id);
+            assert!(!f.columns.is_empty(), "{}: columns", f.id);
+            assert!(!f.tip.is_empty() && !f.label.is_empty(), "{}: words", f.id);
+            assert_eq!(
+                !f.verified,
+                f.tip.starts_with("Unverified:") || f.tip.contains("Unverified:"),
+                "{}: an unverified flavour says so in its tip",
+                f.id
+            );
+        }
     }
 }

@@ -22,6 +22,3 @@ equal_vias = true
 
 [[length_group]]
 name = "lg"
-
-[[companion]]
-kind = "decoupling"
