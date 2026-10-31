@@ -747,13 +747,14 @@ pub fn isolation_gcode(
         )?;
         rub_writer.spindle_off();
         rub_writer.lines.push("M2".into());
-        estimate += rub_writer.estimate_s();
+        let rub_estimate_s = rub_writer.estimate_s();
+        estimate += rub_estimate_s;
         if let Some(first) = rub_writer
             .lines
             .iter_mut()
             .find(|l| l.starts_with("; estimate_s="))
         {
-            *first = format!("; estimate_s={:.1}", rub_writer.estimate_s());
+            *first = format!("; estimate_s={:.1}", rub_estimate_s);
         }
         files.push((
             rubout_file_name(opts.side, rub.tool.diameter_mm),
