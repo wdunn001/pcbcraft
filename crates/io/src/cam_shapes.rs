@@ -68,12 +68,13 @@ fn stroke_ring(a: Point, b: Point, width: f64) -> Option<Ring> {
 fn track_ring(t: &pcbcraft_doc::Track) -> Option<Ring> {
     let half = t.width / 2.0;
     if let Some(arc) = t.curve() {
-        let steps =
-            ((arc.sweep.abs() / (std::f64::consts::PI / 18.0)).ceil() as usize).clamp(1, 64);
+        let centerline = pcbcraft_doc::arc_polyline(&arc, crate::DEFAULT_MAX_DEVIATION_MM);
+        let steps = centerline.len().saturating_sub(1).max(1);
         let inner = (arc.radius - half).max(0.001);
         let outer = arc.radius + half;
         let at = |i: usize, r: f64| {
-            let a = arc.start_angle + arc.sweep * (i as f64) / (steps as f64);
+            let f = i as f64 / steps as f64;
+            let a = arc.start_angle + arc.sweep * f;
             Point::new(arc.center.x + r * a.cos(), arc.center.y + r * a.sin())
         };
         let mut ring: Vec<Point> = (0..=steps).map(|i| at(i, outer)).collect();
