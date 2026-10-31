@@ -22,6 +22,7 @@ pub(crate) struct PromptError(pub String);
 pub(crate) fn list() -> Value {
     json!({"prompts":[
         {"name":"review_board","title":"Review the board","description":"Read the design and its checks, then review it without editing","arguments":[{"name":"focus","description":"placement, power or signal","required":false}]},
+        {"name":"fix_findings","title":"Fix the findings","description":"Work through the findings the checks report, one object at a time, and check again","arguments":[]},
         {"name":"fix_unrouted_nets","title":"Fix unrouted nets","description":"Route the nets the checks report as unrouted, then check again","arguments":[]},
         {"name":"prepare_fabrication","title":"Prepare fabrication files","description":"Run the checks and, if they pass, write the fabrication outputs","arguments":[{"name":"fab","description":"short note on the board house or process","required":false}]}
     ]})
@@ -67,6 +68,10 @@ pub(crate) fn get(name: &str, arguments: &Value) -> Result<Value, PromptError> {
                 format!("Call inspect_design, then call checks. Review {scope}. Report findings by object id, most serious first. Do not edit the design."),
             )
         }
+        "fix_findings" => (
+            "Fix the checks findings",
+            "Call checks and list the findings by object id, most serious first. Fix them with execute or batch, using expected_revision from inspect_design, and use dry_run first for anything that moves copper. Then call checks again and report what is left. Do not silence a finding without saying so.".to_string(),
+        ),
         "fix_unrouted_nets" => (
             "Route the unrouted nets",
             "Call checks and list the unrouted nets. Route them with execute or batch, using expected_revision from inspect_design. Then call checks again and report what is left.".to_string(),
@@ -110,17 +115,23 @@ mod tests {
     }
 
     #[test]
-    fn prompts_list_names_three_prompts_with_their_arguments() -> Result<(), String> {
+    fn prompts_list_names_four_prompts_with_their_arguments() -> Result<(), String> {
         let reply = rpc("prompts/list", json!({}))?;
         let prompts = reply["result"]["prompts"].as_array().ok_or("prompts")?;
         let names: Vec<&str> = prompts.iter().filter_map(|p| p["name"].as_str()).collect();
         assert_eq!(
             names,
-            ["review_board", "fix_unrouted_nets", "prepare_fabrication"]
+            [
+                "review_board",
+                "fix_findings",
+                "fix_unrouted_nets",
+                "prepare_fabrication"
+            ]
         );
         assert_eq!(prompts[0]["arguments"][0]["name"], "focus");
         assert_eq!(prompts[1]["arguments"], json!([]));
-        assert_eq!(prompts[2]["arguments"][0]["name"], "fab");
+        assert_eq!(prompts[2]["arguments"], json!([]));
+        assert_eq!(prompts[3]["arguments"][0]["name"], "fab");
         Ok(())
     }
 
@@ -166,7 +177,12 @@ mod tests {
             .filter_map(|t| t["name"].as_str())
             .collect();
         let mut named = 0;
-        for prompt in ["review_board", "fix_unrouted_nets", "prepare_fabrication"] {
+        for prompt in [
+            "review_board",
+            "fix_findings",
+            "fix_unrouted_nets",
+            "prepare_fabrication",
+        ] {
             let text = text_of(&rpc("prompts/get", json!({"name":prompt}))?);
             for word in text
                 .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
@@ -187,7 +203,7 @@ mod tests {
                 }
             }
         }
-        assert!(named >= 8, "the prompts name several tools");
+        assert!(named >= 10, "the prompts name several tools");
         Ok(())
     }
 
