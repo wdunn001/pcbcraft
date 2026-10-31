@@ -107,6 +107,10 @@ pub use board_mesh::{
     ModelPlacement, ModelStatus, PartKind, SILK_THICKNESS, apply_matrix, board_mesh,
     board_mesh_with_dir, model_matrix, with_models,
 };
+pub use companion_cad::{
+    COMPANION_METADATA_KEY, COMPANION_SCHEMA, companion_cache_token, content_sha256_hex,
+    is_companion_project_path, model_reference, resolve_step_bytes, write_footprint_body,
+};
 pub use cam::{
     CncProfile, Dialect, GcodeWriter, IsolationGcodeResult, IsolationOptions,
     MirrorAxis as CamMirrorAxis, RubRegion, Side, Spindle, Tool, isolation_gcode, isolation_paths,
@@ -190,7 +194,8 @@ pub use import_cache::{default_import_cache_dir, ImportCache};
 pub use model_cache::ModelCache;
 pub use model_load::{
     LOADER_VERSION, LoadedModel, MAX_MODEL_BYTES, MAX_MODEL_FACES, MAX_MODEL_VERTICES,
-    ModelCacheKey, ModelError, SharedModel, load_model, model_cache_key, model_extension_supported,
+    ModelCacheKey, ModelError, SharedModel, companion_model_cache_key, load_model,
+    load_model_with_part, model_cache_key, model_extension_supported,
 };
 pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placement_neoden_yy1};
 /// Package file constants, types, and functions for creating package archives.
@@ -8887,6 +8892,8 @@ mod tests {
                 offset: [0.0; 3],
                 scale: [1.0; 3],
                 rotate: [0.0; 3],
+                cad_part: None,
+                body_id: None,
                 raw_source: String::new(),
             });
         }
