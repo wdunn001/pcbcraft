@@ -445,6 +445,35 @@ let start = pcbcraft_clock::instant_now();
                         warning: Color32::RED,
                         reduced_motion: false,
                     },
+                    1,
+                );
+                took = start.elapsed();
+            });
+            worst = worst.max(took);
+            total += took;
+            painted.push(out);
+        }
+        let avg = total / frames as u32;
+        assert!(worst < std::time::Duration::from_millis(1));
+        assert!(avg < std::time::Duration::from_millis(1));
+        let mut total = std::time::Duration::ZERO;
+        let frames = 60u32;
+        let mut painted = Vec::new();
+        for _ in 0..frames {
+            let mut took = std::time::Duration::ZERO;
+            let out = run(&ctx, |ui| {
+                let painter = ui.painter().clone();
+                let start = std::time::Instant::now();
+paint(
+                    &painter,
+                    &Affordance {
+                        shape: &shape,
+                        style: Style::Outline,
+                        net: &net,
+                        accent: Color32::GREEN,
+                        warning: Color32::RED,
+                        reduced_motion: false,
+                    },
                     7,
                 );
                 let took = start.elapsed();
