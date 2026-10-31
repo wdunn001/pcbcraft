@@ -725,9 +725,14 @@ mod tests {
             library_symbol: None,
             library_footprint: None,
             fields: vec![],
+            include_in_bom: true,
+            include_in_placement: true,
             sheet: 0,
+sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 20,
             component: 10,
             position: Point::new(15.0, 15.0),
@@ -742,7 +747,9 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p
     }
 
@@ -779,14 +786,12 @@ mod tests {
         old.nets.push(Net {
             id: 1,
             name: "GND".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         new.nets.push(Net {
             id: 1,
             name: "VSS".into(),
-            target_length: None,
-            length_tolerance: None,
+            ..Default::default()
         });
         let diff = project_diff(&old, &new);
         assert_eq!(diff.changes.len(), 1);
@@ -801,14 +806,12 @@ mod tests {
             old.nets.push(Net {
                 id: net.0,
                 name: net.1.into(),
-                target_length: None,
-                length_tolerance: None,
+                ..Default::default()
             });
             new.nets.push(Net {
                 id: net.0,
                 name: net.1.into(),
-                target_length: None,
-                length_tolerance: None,
+                ..Default::default()
             });
         }
         new.components[0].pins[0].net = Some(2);

@@ -7,6 +7,8 @@
 //! - The symbol is picked by name from the fetched file; nothing is guessed.
 //! - A footprint keeps its 3D model reference only when a model file was fetched:
 //!   the path becomes the cached file and the transform stays. Otherwise it is dropped.
+//! - Callers that import from the open library gate model fetch with
+//!   [`crate::open_import::import_open`] and its `fetch_3d` flag (default off at the UI layer).
 //! - Every definition is validated here, so a bad file fails before the engine sees it.
 //! - A footprint found on its own is placed with a generic symbol made from its pads
 //!   ([`generic_symbol_for`]): the engine places parts as symbol plus footprint, so this
@@ -201,6 +203,7 @@ pub fn generic_symbol_for(
         extends: None,
         raw_source: String::new(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     symbol
         .validate()

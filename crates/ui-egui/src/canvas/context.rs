@@ -282,6 +282,7 @@ impl App {
         else {
             return Vec::new();
         };
+        let bottom = self.project.bottom_layer();
         let faces: Vec<Entry<CanvasAct>> = [
             (
                 Layer::Front,
@@ -289,7 +290,7 @@ impl App {
                 "Move this wire to the front copper layer.",
             ),
             (
-                Layer::Back,
+                bottom,
                 "Back",
                 "Move this wire to the back copper layer.",
             ),
@@ -417,11 +418,7 @@ impl App {
             }
             (CanvasAct::AssignLayer(layer), _) => {
                 if let Some(id) = id {
-                    let name = if layer == Layer::Front {
-                        "F.Cu"
-                    } else {
-                        "B.Cu"
-                    };
+                    let name = self.project.layer_name(layer);
                     self.run("track.set_layer", json!({"id": id, "layer": name}));
                 }
             }

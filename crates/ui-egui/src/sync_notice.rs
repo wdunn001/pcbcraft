@@ -21,7 +21,7 @@ impl App {
     /// - Always false while automatic sync is on.
     /// - Cached per revision.
     pub(crate) fn board_behind(&mut self) -> bool {
-        if self.project.auto_sync {
+        if self.project.auto_sync || self.project.board_only {
             return false;
         }
         if let Some((rev, behind)) = self.sync_behind
