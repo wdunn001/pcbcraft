@@ -210,8 +210,10 @@ fn commit_field(
     let (low, high) = kind.range();
     let unit = kind.unit();
     let unset = current.is_none();
+    let field_w = ui.available_width().clamp(40.0, 160.0);
     let response = ui
-        .add(
+        .add_sized(
+            egui::vec2(field_w, ui.spacing().interact_size.y),
             egui::DragValue::new(&mut v)
                 .speed(0.01)
                 .range(0.0..=high)
@@ -254,16 +256,12 @@ impl App {
     /// - Write limits into the project directly; use the engine commands.
     pub(crate) fn fab_rules_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        ui.label(egui::RichText::new(t!("rules.fab.heading")).strong());
-        ui.label(
-            egui::RichText::new(t!("rules.fab.intro"))
-                .small()
-                .color(self.muted()),
-        );
+        ui.label(crate::fonts::strong(t!("rules.fab.heading")));
+        ui.label(crate::fonts::caption(t!("rules.fab.intro")).color(self.muted()));
         ui.add_space(4.0);
         let rules = self.project.board.rules.clone().unwrap_or_default();
         let chosen = rules.preset.clone();
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label(t!("rules.fab.preset"));
             let combo = egui::ComboBox::from_id_salt("fab-preset")
                 .selected_text(
@@ -295,13 +293,12 @@ impl App {
         });
         if let (Some(name), Some(date)) = (&rules.preset, &rules.retrieved) {
             ui.label(
-                egui::RichText::new(t!(
+                crate::fonts::caption(t!(
                     "rules.fab.source",
                     name = name,
                     date = date,
                     url = rules.source_url.clone().unwrap_or_default()
                 ))
-                .small()
                 .color(self.muted()),
             );
         }
@@ -310,7 +307,8 @@ impl App {
             let current = rule_value(&rules, field.key);
             let name = pcbcraft_text::lookup(field.label, &[]);
             let mut write = None;
-            ui.horizontal(|ui| {
+            let narrow = ui.available_width() < 400.0;
+            if narrow {
                 ui.label(&name);
                 write = commit_field(
                     ui,
@@ -324,8 +322,25 @@ impl App {
                     Some(v) => fab_origin(&rules, field.key, v),
                     None => t!("rules.fab.origin.default"),
                 };
-                ui.label(egui::RichText::new(origin).small().color(self.muted()));
-            });
+                ui.label(crate::fonts::caption(origin).color(self.muted()));
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(&name);
+                    write = commit_field(
+                        ui,
+                        field.key,
+                        &name,
+                        &pcbcraft_text::lookup(field.tip, &[]),
+                        current,
+                        field.kind,
+                    );
+                    let origin = match current {
+                        Some(v) => fab_origin(&rules, field.key, v),
+                        None => t!("rules.fab.origin.default"),
+                    };
+                    ui.label(crate::fonts::caption(origin).color(self.muted()));
+                });
+            }
             if let Some(v) = write {
                 self.run("board.rules.set", json!({ field.key: v }));
             }
@@ -377,7 +392,7 @@ impl App {
         ui.collapsing(t!("rules.fab.class_numbers"), |ui| {
             for (key, label, tip, current, kind) in rows {
                 let name = pcbcraft_text::lookup(label, &[]);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label(&name);
                     if let Some(v) = commit_field(
                         ui,
@@ -394,7 +409,7 @@ impl App {
                     } else {
                         t!("rules.fab.origin.default")
                     };
-                    ui.label(egui::RichText::new(origin).small().color(muted));
+                    ui.label(crate::fonts::caption(origin).color(muted));
                 });
             }
         });
@@ -413,12 +428,8 @@ impl App {
     /// - Offer a pair of one class with itself; the engine refuses it.
     pub(crate) fn class_pair_section(&mut self, ui: &mut egui::Ui) {
         ui.add_space(8.0);
-        ui.label(egui::RichText::new(t!("rules.fab.pairs_heading")).strong());
-        ui.label(
-            egui::RichText::new(t!("rules.fab.pairs_intro"))
-                .small()
-                .color(self.muted()),
-        );
+        ui.label(crate::fonts::strong(t!("rules.fab.pairs_heading")));
+        ui.label(crate::fonts::caption(t!("rules.fab.pairs_intro")).color(self.muted()));
         let classes: Vec<(Id, String)> = self
             .project
             .net_classes
@@ -439,7 +450,7 @@ impl App {
             );
             let mut write = None;
             let mut remove = false;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(&label);
                 write = commit_field(
                     ui,
@@ -450,9 +461,7 @@ impl App {
                     Kind::Mm,
                 );
                 ui.label(
-                    egui::RichText::new(t!("rules.fab.origin.class_pair"))
-                        .small()
-                        .color(self.muted()),
+                    crate::fonts::caption(t!("rules.fab.origin.class_pair")).color(self.muted()),
                 );
                 if ui
                     .tap_button(t!("rules.fab.remove_pair"))
@@ -476,18 +485,10 @@ impl App {
             }
         }
         if self.project.class_pairs.is_empty() {
-            ui.label(
-                egui::RichText::new(t!("rules.fab.no_pairs"))
-                    .small()
-                    .color(self.muted()),
-            );
+            ui.label(crate::fonts::caption(t!("rules.fab.no_pairs")).color(self.muted()));
         }
         if classes.len() < 2 {
-            ui.label(
-                egui::RichText::new(t!("rules.fab.need_two_classes"))
-                    .small()
-                    .color(self.muted()),
-            );
+            ui.label(crate::fonts::caption(t!("rules.fab.need_two_classes")).color(self.muted()));
             return;
         }
         let pick_a = ui.id().with("pair-pick-a");
@@ -502,7 +503,7 @@ impl App {
             .filter(|id| classes.iter().any(|(c, _)| c == id))
             .unwrap_or(classes[1].0);
         let mut gap: f64 = ui.data(|d| d.get_temp(gap_id)).unwrap_or(0.5);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for (salt, pick, tip) in [
                 ("pair-a", &mut a, "rules.fab.pair_first.tip"),
                 ("pair-b", &mut b, "rules.fab.pair_second.tip"),

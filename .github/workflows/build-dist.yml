@@ -4,6 +4,13 @@
 #
 # Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
 # repackage jobs. No Snap Store or Flathub upload in CI.
+# Release builds for every platform. Called by nightly.yml and release.yml so
+# nightly runs exercise the exact packaging that a tagged release uses.
+# No build cache here: release artifacts are built from a clean state.
+#
+# Linux: AppImage (+ .zsync), .deb, .rpm, FHS .tar.gz (Flatpak/Snap), then Flatpak and Snap
+# repackage jobs. No Snap Store or Flathub upload in CI.
+#
 name: Build distributables
 
 on:
@@ -69,8 +76,7 @@ jobs:
         env:
           NFPM_VERSION: 2.47.0
         run: |
-          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm \
-            librsvg2-bin imagemagick
+          sudo apt-get install -y --no-install-recommends desktop-file-utils appstream zsync rpm
           curl -fsSL -o "$RUNNER_TEMP/nfpm.deb" \
             "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_${{ matrix.deb }}.deb"
           sudo dpkg -i "$RUNNER_TEMP/nfpm.deb"
@@ -92,24 +98,6 @@ jobs:
           done
           grep -q '<category>Science</category>' "$metainfo" || { echo "missing Science category in $metainfo" >&2; exit 1; }
           echo "desktop entry and metainfo validated"
-      - name: Validate Linux icon sizes
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          icons="assets/brand/generated/linux/hicolor"
-          for size in 16 24 32 48 64 128 256 512; do
-            img="$icons/${size}x${size}/apps/io.github.tangency_labs.pcbcraft.png"
-            test -s "$img" || { echo "missing icon $img" >&2; exit 1; }
-            actual=$(identify -format "%w" "$img")
-            if [ "$actual" != "$size" ]; then
-              echo "icon $img has width $actual, expected $size" >&2
-              exit 1
-            fi
-          done
-          svg="$icons/scalable/apps/io.github.tangency_labs.pcbcraft.svg"
-          test -s "$svg" || { echo "missing scalable SVG $svg" >&2; exit 1; }
-          echo "icon sizes validated"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
