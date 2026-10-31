@@ -31,6 +31,9 @@ gltf.workspace = true
 truck-stepio.workspace = true
 truck-meshalgo.workspace = true
 
+[dev-dependencies]
+gerber_parser.workspace = true
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tempfile.workspace = true
 ipc2581.workspace = true
