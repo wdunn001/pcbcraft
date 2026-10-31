@@ -1,6 +1,6 @@
 # ADR 0001: Circuit simulation
 
-Status: Proposed. The owner confirms or changes it in the #352 register (line "#292: simulation approach"). Epic: #292.
+Status: Proposed. The owner confirms or changes it in the #95 register (old #352) (line "#292: simulation approach"). Epic: #292.
 
 ## 1. Decision
 
@@ -46,7 +46,7 @@ The proof is a resistor divider: 10 V, 1k over 1k, middle node 5 V within 1e-9. 
 
 ## 8. Licence notes
 
-Checked 2026-10-29. The broadest active Rust simulator is source-available under a personal-use licence that forbids commercial use, redistribution and derivative works. It is incompatible with GPL-3.0-or-later: do not use it and do not read it for adaptation. A small Unlicense project (operating point and transient for R, C, D, E, G, I, V) may be adapted freely. A GPL-3.0 learning project may be adapted with attribution. A third project is Apache-2.0 on its repository page and MIT or Apache-2.0 in its manifest, so its terms are unclear; do not adapt it. Anything adapted is recorded in ATTRIBUTION.md with source, revision and licence. Writing a netlist for another engine to read has no licence interaction.
+Checked 2026-10-29. The broadest active Rust simulator is source-available under a personal-use licence that forbids commercial use, redistribution and derivative works. It is incompatible with MIT OR Apache-2.0: do not use it and do not read it for adaptation. A small Unlicense project (operating point and transient for R, C, D, E, G, I, V) may be adapted freely. A GPL-3.0 learning project may be read for ideas only: its code cannot be adapted into a MIT OR Apache-2.0 project. A third project is Apache-2.0 on its repository page and MIT or Apache-2.0 in its manifest, so its terms are unclear; do not adapt it. Anything adapted is recorded in ATTRIBUTION.md with source, revision and licence. Writing a netlist for another engine to read has no licence interaction.
 
 ## 9. Plan
 

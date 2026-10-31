@@ -18,10 +18,14 @@ use std::collections::BTreeMap;
 pub enum ListingSource {
     /// Recorded sample data.
     Fixture,
+    /// Built from an embedded series table; configure before place.
+    Generated,
     /// A part in the open project.
     Project,
     /// A part from an installed library.
     Installed,
+    /// A symbol or footprint from the open online library.
+    OpenLibrary,
     /// A part from an online distributor.
     Distributor,
 }
@@ -671,7 +675,15 @@ fn attr<'a>(attrs: &'a BTreeMap<String, String>, names: &[&str]) -> Option<&'a s
     })
 }
 
-fn temp_range(text: &str) -> Option<(f32, f32)> {
+/// Read an operating temperature span such as `-55°C ~ 125°C`.
+///
+/// # Rules
+/// Two signed numbers in order; returns `(low, high)` in degrees Celsius.
+/// # Dependencies
+/// None.
+/// # Do not
+/// Guess when fewer or more than two numbers appear.
+pub fn parse_temperature_range(text: &str) -> Option<(f32, f32)> {
     let chars: Vec<char> = text.chars().collect();
     let mut found = Vec::new();
     let mut i = 0;
@@ -783,7 +795,7 @@ pub fn listing_from_result(
     } else {
         result.lifecycle.trim().to_string()
     };
-    let temp = attr(attributes, &["Operating Temperature"]).and_then(temp_range);
+    let temp = attr(attributes, &["Operating Temperature"]).and_then(parse_temperature_range);
     PartListing {
         source: ListingSource::Fixture,
         source_id: result.source.clone(),

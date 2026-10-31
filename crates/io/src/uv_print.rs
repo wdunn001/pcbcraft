@@ -511,8 +511,10 @@ mod tests {
             graphics,
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         }
     }
 
@@ -631,7 +633,10 @@ mod tests {
     fn white_choke_shrinks_the_white_mask() -> Result<(), String> {
         let mut p = small_board(30.0, 30.0)?;
         p.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9402,
             reference: "R1".into(),
             value: "1k".into(),
@@ -646,6 +651,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -660,8 +666,11 @@ mod tests {
                 }]),
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 9401,
             component: 9402,
             position: Point::default(),
@@ -676,7 +685,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(small_pad()),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.validate()?;
         let profile = eufymake_e1_profile();
         let loose = base_options(UvPrintSide::Top);
@@ -719,6 +730,7 @@ mod tests {
             polygon: Vec::new(),
         };
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 9201,
             component: 9202,
             position: Point::new(15.0, 15.0),
@@ -733,9 +745,14 @@ mod tests {
                 castellated: None,
                 geometry: Some(pad.clone()),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9202,
             reference: "U1".into(),
             value: "test".into(),
@@ -750,6 +767,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -767,6 +785,8 @@ mod tests {
                 },
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.validate()?;
         let profile = eufymake_e1_profile();
@@ -850,7 +870,10 @@ mod tests {
     fn mirror_stays_off_on_bottom_side() -> Result<(), String> {
         let mut p = small_board(25.0, 25.0)?;
         p.components.push(pcbcraft_doc::Component {
+            sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id: 9302,
             reference: "R1".into(),
             value: "1k".into(),
@@ -865,6 +888,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: None,
                 unit: 1,
+                appearances: vec![],
             }],
             units: vec![],
             library_symbol: None,
@@ -878,8 +902,11 @@ mod tests {
                 }]),
             }),
             fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         });
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: 9301,
             component: 9302,
             position: Point::new(5.0, 5.0),
@@ -894,7 +921,9 @@ mod tests {
                 castellated: None,
                 geometry: Some(small_pad()),
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
         p.validate()?;
         let profile = eufymake_e1_profile();
         let mut opts = base_options(UvPrintSide::Bottom);
