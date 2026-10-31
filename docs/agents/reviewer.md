@@ -6,4 +6,4 @@ Getting started: [../getting-started.md](../getting-started.md).
 - **Open** `### Review` with `Base: fork/main at <sha>`.
 - **Check:** acceptance list, enrichment tests, section 5 rules, conflict lane respected, tooltips, no forbidden product names.
 - **Verdict:** approved for integration or changes requested. Read and run; never edit the worker branch.
-- **UI:** open screenshot sheet for `track:ui-design`.
+- **UI:** screenshots are local only (`cargo xtask screenshots`); CI does not capture them.
