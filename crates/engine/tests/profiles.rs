@@ -191,12 +191,94 @@ fn manifest_source_slugs_exist() {
 }
 
 #[test]
+fn profile_list_includes_component_kinds() -> Result<(), Error> {
+    let mut s = Session::default();
+    let out = s.execute("rules.profile_list", json!({}), None)?;
+    let ids: Vec<&str> = out["result"]["profiles"]
+        .as_array()
+        .ok_or_else(missing)?
+        .iter()
+        .filter_map(|p| p["id"].as_str())
+        .collect();
+    assert!(ids.contains(&"component-kinds"));
+    Ok(())
+}
+
+#[test]
 fn profile_list_includes_usb2() -> Result<(), Error> {
     let mut s = Session::default();
     let out = s.execute("rules.profile_list", json!({}), None)?;
     let profiles = out["result"]["profiles"].as_array().ok_or_else(missing)?;
     assert!(profiles.iter().any(|p| p["id"] == "usb2"));
     Ok(())
+}
+
+#[test]
+fn manifest_slugs_match_built_ins_and_manifest_jsonl() {
+    let slugs = pcbcraft_engine::profiles::manifest_slugs();
+    assert_eq!(slugs.len(), pcbcraft_engine::profiles::BUILT_INS.len());
+    for (slug, builtin) in slugs
+        .iter()
+        .zip(pcbcraft_engine::profiles::BUILT_INS.iter())
+    {
+        assert_eq!(*slug, builtin.id);
+    }
+    let manifest = include_str!("../profiles/manifest.jsonl");
+    let manifest_slugs: std::collections::BTreeSet<&str> = manifest
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|v| {
+                    (v["topic"].as_str() == Some("netrules"))
+                        .then_some(v["slug"].as_str())
+                        .flatten()
+                })
+        })
+        .collect();
+    for slug in slugs {
+        assert!(
+            manifest_slugs.contains(slug),
+            "manifest.jsonl missing {slug}"
+        );
+    }
+}
+
+#[test]
+fn class_pattern_matches_glob_oracle() {
+    use pcbcraft_engine::profiles::class_pattern_matches;
+    let cases: &[(&str, &str, bool)] = &[
+        ("USB_*", "USB_D+", true),
+        ("USB_*", "I2C_SDA", false),
+        ("?", "A", true),
+        ("?", "AB", false),
+        ("N??", "N12", true),
+        ("N??", "N123", false),
+        ("*GND*", "VCC_GND", true),
+        ("*", "", true),
+        ("", "", true),
+        ("exact", "exact", true),
+        ("exact", "exactx", false),
+    ];
+    for (pattern, name, want) in cases {
+        assert_eq!(
+            class_pattern_matches(pattern, name),
+            *want,
+            "pattern {pattern:?} name {name:?}"
+        );
+    }
+}
+
+#[test]
+fn parse_builtin_returns_embedded_toml_or_unknown_error() {
+    use pcbcraft_engine::profiles::parse_builtin;
+    let usb = parse_builtin("usb2").expect("usb2 is built in");
+    let doc: toml::Value = toml::from_str(usb).expect("embedded TOML parses");
+    assert_eq!(doc["schema"].as_integer(), Some(1));
+    assert_eq!(doc["profile"]["id"].as_str(), Some("usb2"));
+    let err = parse_builtin("not-a-profile").unwrap_err();
+    assert!(err.contains("unknown profile"));
 }
 
 #[test]
