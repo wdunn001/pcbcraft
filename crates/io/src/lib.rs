@@ -38,6 +38,7 @@ pub use export_package::{
 mod fab_export;
 mod generate;
 mod gerber;
+mod ipc2581_export;
 mod gerber_job;
 mod idf;
 mod laser;
@@ -3552,11 +3553,10 @@ fn xml_escape(value: &str) -> String {
     out
 }
 
-/// Write a single-file IPC-2581 style assembly exchange document: board outline,
-/// nets with their pins, placed components, drill holes and copper by layer,
-/// all as XML. Values are millimetres.
+/// Write a single-file IPC-2581C assembly exchange document with stackup,
+/// layers, drill spans, padstacks, profile, logical nets and copper.
 pub fn ipc2581_text(p: &Project) -> Result<String, String> {
-    p.validate()?;
+p.validate()?;
     const MAX_ELEMENTS: usize = 50_000;
     let mut elements = 0usize;
     let mut count = |n: usize| -> Result<(), String> {
@@ -9781,6 +9781,7 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
@@ -10022,6 +10023,7 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
+                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -10127,6 +10129,7 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
+                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -10349,6 +10352,7 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
+                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -10437,6 +10441,18 @@ mod tests {
         Ok(())
     }
     #[test]
+assert!(
+            text.ends_with("$NETS\n") || text.contains("$NETS"),
+            "sections close"
+        );
+        assert_eq!(
+            cmp_text(&Project::default()).err(),
+            Some("board has no placed pads or connected nets to export".into()),
+            "an empty board is rejected"
+        );
+        Ok(())
+    }
+    #[test]
     fn ipc2581_text_carries_nets_placement_and_copper_as_xml() -> Result<(), String> {
         let mut project = Project::default();
         let geometry = |number: &str, x: f64, back: bool| pcbcraft_library::FootprintPad {
@@ -10511,6 +10527,7 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
+                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -10640,6 +10657,18 @@ mod tests {
             rotation: 0.0,
             size: Point::new(1.0, 1.0),
             layers: vec!["F.Cu".into()],
+    fn idf_board_carries_size_and_placed_footprints_for_mechanical_tools() -> Result<(), String> {
+        let mut project = Project::default();
+        project.board.width = 60.0;
+        project.board.height = 40.0;
+        let geometry = |number: &str, x: f64| pcbcraft_library::FootprintPad {
+            number: number.into(),
+            pad_type: "smd".into(),
+            shape: "rect".into(),
+            position: Point::new(x, 0.0),
+            rotation: 0.0,
+            size: Point::new(1.0, 1.0),
+            layers: vec!["F.Cu".into()],
             drill: None,
             roundrect_ratio: None,
             raw_source: String::new(),
@@ -10679,6 +10708,7 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
@@ -10720,6 +10750,7 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
@@ -12343,6 +12374,7 @@ mod tests {
             graphics: Vec::new(),
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: Vec::new(),
         };
@@ -12619,6 +12651,7 @@ mod tests {
                         graphics: vec![],
                         model: None,
                         rules: None,
+                        box_body: None,
                         raw_source: String::new(),
                         unsupported: vec![],
                     },
@@ -12769,6 +12802,7 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
@@ -14069,6 +14103,7 @@ mod tests {
             graphics: vec![],
             model: None,
             rules: None,
+            box_body: None,
             raw_source: String::new(),
             unsupported: vec![],
         };
@@ -15200,6 +15235,7 @@ mod tests {
                     graphics: vec![],
                     model: None,
                     rules: None,
+                    box_body: None,
                     raw_source: String::new(),
                     unsupported: vec![],
                 },
