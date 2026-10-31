@@ -1,0 +1,17 @@
+README-fabrication.txt	-
+Showcase_sensor_node-Copper_L1_Top.gbr	Copper,L1,Top
+Showcase_sensor_node-Copper_L2_Inr.gbr	Copper,L2,Bot
+Showcase_sensor_node-Copper_L3_Inr.gbr	Copper,L3,Inr
+Showcase_sensor_node-Copper_L4_Bot.gbr	Copper,L4,Bot
+Showcase_sensor_node-Drillmap.gbr	Drillmap
+Showcase_sensor_node-Legend_Bot.gbr	Legend,Bot
+Showcase_sensor_node-Legend_Top.gbr	Legend,Top
+Showcase_sensor_node-NPTH.drl	-
+Showcase_sensor_node-PTH.drl	-
+Showcase_sensor_node-Paste_Bot.gbr	Paste,Bot
+Showcase_sensor_node-Paste_Top.gbr	Paste,Top
+Showcase_sensor_node-Profile.gbr	Profile,NP
+Showcase_sensor_node-Soldermask_Bot.gbr	Soldermask,Bot
+Showcase_sensor_node-Soldermask_Top.gbr	Soldermask,Top
+Showcase_sensor_node.gbrjob	-
+logo.gbr	Legend,Top

@@ -1,0 +1,77 @@
+[[gap]]
+id = "tsw-103-07-g-s"
+manufacturer = "Samtec"
+mpn = "TSW-103-07-G-S"
+reason = "Manufacturer PDF host did not resolve on automated fetch"
+
+[[gap]]
+id = "ssw-103-01-f-s"
+manufacturer = "Samtec"
+mpn = "SSW-103-01-F-S"
+reason = "Manufacturer PDF host did not resolve on automated fetch"
+
+[[gap]]
+id = "irlb8721"
+manufacturer = "Infineon"
+mpn = "IRLB8721"
+reason = "Manufacturer download returned empty body on automated fetch"
+[[gap]]
+id = "stm32g0b1"
+manufacturer = "STMicroelectronics"
+mpn = "STM32G0B1"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "usblc6-2"
+manufacturer = "STMicroelectronics"
+mpn = "USBLC6-2"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "mcp1700"
+manufacturer = "Microchip"
+mpn = "MCP1700"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "mcp2515"
+manufacturer = "Microchip"
+mpn = "MCP2515"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "ncp1117"
+manufacturer = "onsemi"
+mpn = "NCP1117"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "esd9b3.3"
+manufacturer = "onsemi"
+mpn = "ESD9B3.3"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "lt3080"
+manufacturer = "Analog Devices"
+mpn = "LT3080"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "ft232r"
+manufacturer = "FTDI"
+mpn = "FT232R"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "ch340g"
+manufacturer = "WCH"
+mpn = "CH340G"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "b2b-ph-sm4-tb"
+manufacturer = "JST"
+mpn = "B2B-PH-SM4-TB"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "53048-0210"
+manufacturer = "Molex"
+mpn = "53048-0210"
+reason = "Manufacturer site returned 403 or timeout on automated fetch"
+[[gap]]
+id = "rt9013-33gb"
+manufacturer = "Richtek"
+mpn = "RT9013-33GB"
+reason = "Published URL guesses returned 404"
