@@ -2723,7 +2723,9 @@ pub(super) fn run(
                     locked: None,
                     side: None,
                     pads,
-                });
+                
+                    preserved: pcbcraft_doc::PreservedSource::default(),
+});
                 out["footprint"] = json!(footprint_id);
             }
             Ok(out)

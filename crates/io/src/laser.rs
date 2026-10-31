@@ -896,7 +896,9 @@ pub mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            },
+            
+                preserved: pcbcraft_doc::PreservedSource::default(),
+},
             Footprint {
                 preserved: pcbcraft_doc::PreservedSource::default(),
                 id: FP_B,
@@ -913,7 +915,9 @@ pub mod tests {
                     castellated: None,
                     geometry: None,
                 }],
-            },
+            
+                preserved: pcbcraft_doc::PreservedSource::default(),
+},
         ];
         project.board.tracks = vec![Track {
             preserved: pcbcraft_doc::PreservedSource::default(),
@@ -924,7 +928,9 @@ pub mod tests {
             width: 0.2,
             layer: Layer::Front,
             arc: None,
-        }];
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+}];
         project.components = vec![
             sample_component(COMP_A, "P1"),
             sample_component(COMP_B, "P2"),

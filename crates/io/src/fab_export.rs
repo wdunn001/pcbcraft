@@ -1202,3 +1202,87 @@ let open_top = reaches_top && via_mask_opening_on(v, &p.board, false);
     files.insert("README-fabrication.txt".into(), fab_readme_text(p, &names)?);
     Ok(files)
 }
+
+#[cfg(test)]
+mod fab_export_tests {
+    use super::*;
+    use pcbcraft_doc::{Hole, Project, Via, ViaCovering};
+
+    #[test]
+    fn tented_via_has_no_mask_opening() -> Result<(), String> {
+        let board = pcbcraft_doc::Board::default();
+        let open = Via {
+            id: 1,
+            net: 1,
+            position: Point::new(1.0, 2.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: Some(ViaCovering::Open),
+        };
+        let tented = Via {
+            covering: Some(ViaCovering::Tented),
+            ..open.clone()
+        };
+        assert!(via_mask_opening(&open, &board));
+        assert!(!via_mask_opening(&tented, &board));
+        let no_drill = Via { drill: 0.0, ..open };
+        assert!(!via_mask_opening(&no_drill, &board));
+        Ok(())
+    }
+
+    #[test]
+    fn drill_tool_counts_groups_by_diameter_and_plating() -> Result<(), String> {
+        let mut p = Project::default();
+        p.board.vias.push(Via {
+            id: 10,
+            net: 1,
+            position: Point::new(5.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        p.board.vias.push(Via {
+            id: 11,
+            net: 1,
+            position: Point::new(8.0, 5.0),
+            diameter: 0.6,
+            drill: 0.3,
+            from_layer: None,
+            to_layer: None,
+            covering: None,
+        });
+        p.board.holes.push(Hole {
+            id: 12,
+            position: Point::new(12.0, 5.0),
+            diameter: 1.0,
+            end: None,
+        });
+        p.validate()?;
+        let counts = drill_tool_counts(&p)?;
+        assert_eq!(counts.get(&(300, 0, true)), Some(&2));
+        assert_eq!(counts.get(&(1000, 0, false)), Some(&1));
+        Ok(())
+    }
+
+    #[test]
+    fn fab_readme_lists_every_file_name_given() -> Result<(), String> {
+        let mut p = Project::default();
+        p.name = "oracle board".into();
+        p.validate()?;
+        let names = vec![
+            "pcb-F.Cu.gbr".into(),
+            "pcb-B.Cu.gbr".into(),
+            "pcb-PTH.drl".into(),
+        ];
+        let text = fab_readme_text(&p, &names)?;
+        for name in &names {
+            assert_eq!(text.matches(name.as_str()).count(), 1, "{name}");
+        }
+        assert!(text.contains("oracle board"));
+        Ok(())
+    }
+}

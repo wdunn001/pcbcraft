@@ -890,6 +890,8 @@ mod tests {
         Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
@@ -911,6 +913,7 @@ mod tests {
                     rules,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],
