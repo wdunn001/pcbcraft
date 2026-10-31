@@ -253,7 +253,9 @@ fn csv_row_fields(line: &str) -> Vec<String> {
 /// Designator references listed in a bill of materials CSV this crate writes.
 pub fn bom_references_from_csv(csv: &str) -> Result<BTreeSet<String>, String> {
     let mut lines = csv.lines();
-    let header = lines.next().ok_or("a bill of materials needs a header row")?;
+    let header = lines
+        .next()
+        .ok_or("a bill of materials needs a header row")?;
     let columns = csv_row_fields(header);
     let references_at = columns
         .iter()
@@ -285,11 +287,7 @@ fn copper_layer_count(p: &Project) -> usize {
         .iter()
         .filter(|l| l.kind == "copper")
         .count();
-    if recorded > 0 {
-        recorded
-    } else {
-        2
-    }
+    if recorded > 0 { recorded } else { 2 }
 }
 
 fn meta_or_not_recorded(p: &Project, key: &str) -> String {
@@ -314,9 +312,7 @@ pub fn package_revision_notes(
     } else {
         p.name.trim().to_string()
     };
-    let variant_label = variant
-        .filter(|v| !v.is_empty())
-        .unwrap_or("(default)");
+    let variant_label = variant.filter(|v| !v.is_empty()).unwrap_or("(default)");
     let mut out = format!(
         "Project: {title}\nRevision: {}\nDate: {}\nVariant: {variant_label}\nJob: {job}\nLayer count: {}\nBoard thickness: {:.3} mm\nSurface finish: {}\n\nFiles:\n",
         meta_or_not_recorded(p, "revision"),
@@ -373,7 +369,9 @@ pub fn attach_revision_notes_entry(
     previous_bom_csv: Option<Option<&str>>,
 ) -> Result<(), String> {
     if entries.iter().any(|e| e.name == REVISION_NOTES_NAME) {
-        return Err(format!("{REVISION_NOTES_NAME} is written by the package itself"));
+        return Err(format!(
+            "{REVISION_NOTES_NAME} is written by the package itself"
+        ));
     }
     let mut names: Vec<String> = entries.iter().map(|e| e.name.clone()).collect();
     names.push(REVISION_NOTES_NAME.into());
@@ -520,7 +518,11 @@ mod tests {
             position: pcbcraft_geom::Point::new(1.0, 1.0),
             rotation: 0.0,
             pins: Vec::new(),
-            ..Default::default()
+            units: Vec::new(),
+            library_symbol: None,
+            library_footprint: None,
+            fields: Vec::new(),
+            sourcing: Default::default(),
         };
         project.components.push(part(1, "R1", "10k", "resistor"));
         project.components.push(part(2, "C1", "100n", "capacitor"));
@@ -530,7 +532,8 @@ mod tests {
         project.components.retain(|c| c.reference != "C1");
         project.validate()?;
         let names = vec!["bom.csv".into(), REVISION_NOTES_NAME.into()];
-        let once = package_revision_notes(&project, "fab", None, &names, Some(Some(&previous_bom)))?;
+        let once =
+            package_revision_notes(&project, "fab", None, &names, Some(Some(&previous_bom)))?;
         let again =
             package_revision_notes(&project, "fab", None, &names, Some(Some(&previous_bom)))?;
         assert_eq!(once, again, "identical input gives identical notes");
@@ -538,8 +541,7 @@ mod tests {
         assert!(once.contains("Date: 2026-03-01"));
         assert!(once.contains("Added parts: R2"));
         assert!(once.contains("Removed parts: C1"));
-        let no_previous =
-            package_revision_notes(&project, "fab", None, &names, None)?;
+        let no_previous = package_revision_notes(&project, "fab", None, &names, None)?;
         assert!(no_previous.contains("(no previous export was supplied)"));
         Ok(())
     }

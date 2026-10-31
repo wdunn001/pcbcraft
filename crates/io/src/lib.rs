@@ -106,9 +106,9 @@ pub use neoden_yy1::{NeodenYy1Options, NeodenYy1Output, YyLayout, YySide, placem
 /// # Dependencies
 /// - crates/io/src/package.rs
 pub use package::{
-    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, package_manifest,
-    attach_revision_notes_entry, package_revision_notes, package_stored_zip_entries, package_zip,
-    previous_bom_from_package, REVISION_NOTES_NAME,
+    MANIFEST_NAME, MAX_PACKAGE_FILES, PACKAGE_CREATION_DATE, PackageEntry, REVISION_NOTES_NAME,
+    attach_revision_notes_entry, package_manifest, package_revision_notes,
+    package_stored_zip_entries, package_zip, previous_bom_from_package,
 };
 /// Panel fabrication file and placement text generation.
 /// # Dependencies
@@ -8762,10 +8762,7 @@ mod tests {
                 && front.contains("%FSLAX46Y46*%")
         );
         assert!(front.contains("%ADD10C,0.001*%\n"), "zone fill aperture");
-        assert!(
-            front.contains("%ADD12C,0.6*%\n"),
-            "via copper aperture"
-        );
+        assert!(front.contains("%ADD12C,0.6*%\n"), "via copper aperture");
         assert!(
             front.contains("%ADD11C,1.6*%\n"),
             "through-hole pad aperture"

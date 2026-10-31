@@ -16143,12 +16143,10 @@ fn run_command(
                     let zip = std::fs::read(previous).map_err(|e| {
                         Error::Invalid(format!("could not read the previous package: {e}"))
                     })?;
-                    Some(
-                        pcbcraft_io::previous_bom_from_package(&zip).map_err(Error::Invalid)?,
-                    )
+                    Some(pcbcraft_io::previous_bom_from_package(&zip).map_err(Error::Invalid)?)
                 }
             };
-            let previous_bom_csv = previous_bom.map(|csv| csv.as_deref());
+            let previous_bom_csv = previous_bom.as_ref().map(|csv| csv.as_deref());
             pcbcraft_io::attach_revision_notes_entry(
                 p,
                 &job,
@@ -19633,7 +19631,8 @@ mod tests {
             .ok_or_else(missing)?;
         let mirrored_x = -centre.x;
         assert!(
-            gerber["pcb-B.Cu.gbr"].contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
+            gerber["pcb-B.Cu.gbr"]
+                .contains(&format!("X{}Y", (mirrored_x * 1_000_000.0).round() as i64)),
             "bottom copper carries the mirrored pad flash"
         );
         assert!(
@@ -31965,10 +31964,8 @@ mod tests {
     #[test]
     fn package_revision_notes_list_part_changes_from_a_previous_export() -> Result<(), Error> {
         let mut s = Session::sample()?;
-        let first =
-            std::env::temp_dir().join(format!("pcbcraft-prev-{}.zip", std::process::id()));
-        let second =
-            std::env::temp_dir().join(format!("pcbcraft-next-{}.zip", std::process::id()));
+        let first = std::env::temp_dir().join(format!("pcbcraft-prev-{}.zip", std::process::id()));
+        let second = std::env::temp_dir().join(format!("pcbcraft-next-{}.zip", std::process::id()));
         s.execute(
             "output_job.package",
             json!({"path": first.to_string_lossy()}),
