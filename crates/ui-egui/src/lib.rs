@@ -38,34 +38,10 @@ mod plot_viewer;
 mod pour_panel;
 mod properties;
 mod reference_panel;
-mod library_online;
-mod library_quality;
-mod minimap;
-mod modifier_ui;
-mod motion;
-mod number_entry;
-mod pages;
-mod palette;
-mod plot_viewer;
-mod pour_panel;
-mod properties;
-mod reference_panel;
-mod rules_fab;
 mod route_drag;
+mod rules_fab;
 mod sheet_rows;
 mod showcase;
-mod sources;
-mod sourcing_panel;
-mod stack_view;
-mod sync_notice;
-#[cfg(test)]
-mod target_size;
-mod targets;
-pub mod theme;
-mod tool_modifiers;
-mod toolbar;
-pub mod ui_kit;
-mod via_covering;
 mod sources;
 mod sourcing_panel;
 mod stack_view;
@@ -3046,7 +3022,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             .exact_size(Self::APP_BAR_HEIGHT)
             .frame(Self::dock_frame(ui.style()))
             .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let label = egui::RichText::new(t!("app.name"))
                         .size(15.0)
                         .strong()
@@ -3164,9 +3140,10 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                                 .color(self.muted()),
                             );
                             ui.add_space(24.0);
+                            let home_btn = [300.0, 64.0];
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!("dialogs.start_home.new_design"))
                                             .size(16.0)
@@ -3188,7 +3165,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.worked_example"
@@ -3213,7 +3190,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.showcase_board"
@@ -3238,7 +3215,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                             ui.add_space(6.0);
                             if ui
                                 .add_sized(
-                                    [300.0, 64.0],
+                                    home_btn,
                                     egui::Button::new((
                                         egui::RichText::new(t!(
                                             "dialogs.start_home.open_a_design_file"
@@ -3258,12 +3235,12 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                                 self.home_path_focus = true;
                             }
                             ui.add_space(6.0);
-                            ui.horizontal(|ui| {
+                            ui.horizontal_wrapped(|ui| {
                                 let path_box = ui
                                     .add(
                                         crate::targets::text_field(&mut self.path)
                                             .hint_text(t!("dialogs.start_home.design_file_path"))
-                                            .desired_width(240.0),
+                                            .desired_width(ui.available_width().min(240.0)),
                                     )
                                     .named("design file path")
                                     .on_hover_text(t!("dialogs.start_home.design_file_path.tip"));
@@ -6801,7 +6778,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             )
             .show(ui, |ui| {
                 use ui_kit::{icons as kit_icons, status_item::status_item};
-                ui.horizontal_centered(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let status =
                         status_item(ui, None, &self.message, &t!("status.message.tip"), false);

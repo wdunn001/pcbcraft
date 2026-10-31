@@ -3430,10 +3430,7 @@ pub fn stackup_text(p: &Project) -> Result<String, String> {
     let mut total = 0.0;
     for l in &p.board.layer_records {
         let on_copper = if pcbcraft_doc::layer_kind_names_copper(&l.kind) {
-            match p.linked_copper(&l.name) {
-                Some(name) => name,
-                None => String::new(),
-            }
+            p.linked_copper(&l.name).unwrap_or_default()
         } else {
             String::new()
         };

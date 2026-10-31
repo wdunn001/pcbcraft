@@ -19970,108 +19970,11 @@
     "revision": "A",
     "title": "Showcase sensor node"
   },
-"decoupling": {
+  "decoupling": {
     "max_distance_mm": 15.0,
     "suggested_value": "100 nF"
   },
-  "wires": [
-    {
-      "id": 158,
-      "net": 119,
-      "from": {
-        "component": 19,
-        "pin": "2"
-      },
-      "to": {
-        "component": 21,
-        "pin": "1"
-      }
-    },
-    {
-      "id": 159,
-      "net": 124,
-      "from": {
-        "component": 97,
-        "pin": "2"
-      },
-      "to": {
-        "component": 85,
-        "pin": "1"
-      }
-    },
-    {
-      "id": 160,
-      "net": 126,
-      "from": {
-        "component": 99,
-        "pin": "2"
-      },
-      "to": {
-        "component": 87,
-        "pin": "1"
-      }
-    },
-    {
-      "id": 161,
-      "net": 128,
-      "from": {
-        "component": 101,
-        "pin": "2"
-      },
-      "to": {
-        "component": 89,
-        "pin": "1"
-      }
-    },
-    {
-      "id": 162,
-      "net": 130,
-      "from": {
-        "component": 103,
-        "pin": "2"
-      },
-      "to": {
-        "component": 91,
-        "pin": "1"
-      }
-    },
-    {
-      "id": 163,
-      "net": 132,
-      "from": {
-        "component": 105,
-        "pin": "2"
-      },
-      "to": {
-        "component": 93,
-        "pin": "1"
-      }
-    },
-    {
-      "id": 164,
-      "net": 134,
-      "from": {
-        "component": 107,
-        "pin": "2"
-      },
-      "to": {
-        "component": 95,
-        "pin": "1"
-      }
-    }
-  ],
-  "drawn_wires": [
-    {
-      "id": 158,
-      "net": 120,
-      "points": [
-        {
-          "x": 17.78,
-          "y": 45.72
-        },
-        {
-          "x": 12.7,
-          "y": 45.72
+  "wires": [],
   "drawn_wires": [
     {
       "id": 158,
