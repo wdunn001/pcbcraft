@@ -8,11 +8,15 @@ use pcbcraft_geom::{Point, hull, point_segment, polygon_is_simple, segment_dista
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod acute;
+mod compliance;
 mod courtyard;
 mod decoupling;
 mod drill;
 mod silk;
 mod stub;
+
+pub use compliance::{compliance_check, ComplianceFinding};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
@@ -2213,6 +2217,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(stub::stub_length_findings(project, &items));
+    result.extend(acute::acute_angle_findings(project));
     result.retain(|f| {
         !project.rule_disabled(f.code)
             && !project.rule_excluded(f.code, &f.objects)

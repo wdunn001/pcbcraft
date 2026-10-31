@@ -13,6 +13,7 @@
 | SolidCraft agent chat connections and presets | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted into `crates/assistant/src/connections.rs` |
 | SolidCraft agent chat settings page | https://github.com/bherbruck/solidcraft | 32558d0a; MIT OR Apache-2.0 | Adapted in shape into `crates/ui-egui/src/assistant/settings.rs` |
 | SolidCraft Linux packaging | https://github.com/bherbruck/solidcraft | packaging/linux and packaging/env.sh at 2026-03; MIT OR Apache-2.0 | Adapted AppImage, deb, and rpm scripts, nfpm config, AppRun, and postinst for PCBCraft |
+| SolidCraft Windows packaging | https://github.com/bherbruck/solidcraft | packaging/windows and assets/platforms/windows at 2026-03; MIT OR Apache-2.0 | Adapted WiX sources, icon scripts, and package.ps1 for PCBCraft MSI and portable zip |
 | IBM Plex Sans (SemiBold) | https://github.com/IBM/plex | Copyright IBM Corp., Reserved Font Name "Plex"; SIL Open Font License 1.1, text in `assets/brand/fonts/OFL.txt` | Outlined to paths in the wordmark masters under `assets/brand/`; the font file is kept there only so `assets/brand/build.sh` can regenerate them |
 | KiCad board format | https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/ | Public format documentation | Original limited board writer |
 | KiCad library formats | https://dev-docs.kicad.org/en/file-formats/ | Public format documentation | Original Rust symbol/footprint readers |

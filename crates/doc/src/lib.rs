@@ -26,7 +26,40 @@ pub const MAX_ITEMS: usize = 2048;
 mod material;
 pub use material::{MATERIALS, Material, material};
 mod net_members;
+use pcbcraft_library::PadShape;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+pub type Id = u64;
+pub const MAX_ITEMS: usize = 2048;
+
+mod material;
+pub use material::{MATERIALS, Material, material};
+mod net_members;
+mod sourcing;
+mod compliance;
+mod compliance_list;
+mod via_protection;
+mod sourcing;
 pub use net_members::{LayerMembers, NetMembers, PadMember, PinMember, ViaMember};
+pub use sourcing::{
+    MAX_SOURCING_TEXT, MAX_SUPPLIER_URL, MAX_SUPPLIERS, SUPPLIER_KEY_PREFIX, Sourcing,
+    SupplierPart, lifecycle_text,
+};
+pub use compliance::{
+    Compliance, ComplianceFindingMute, ComplianceOrgRole, ComplianceProjectSettings,
+    CountryOfOrigin, DeclaredSubstance, Declaration, DeclarationSource, DeclarationSourceKind,
+    DeclarationStatus, ManufacturerRecord, PartRole, MAX_COMPLIANCE_LINK, MAX_COMPLIANCE_MUTES,
+    MAX_COMPLIANCE_RULE_SETS, MAX_COMPLIANCE_TEXT, MAX_DECLARATIONS, MAX_MANUFACTURERS,
+    MAX_SUBSTANCES, apply_listing_declarations, date_le, normalize_manufacturer_name,
+    part_role_text, valid_date,
+};
+pub use compliance_list::{
+    ComplianceListEntityEntry, ComplianceListSnapshot, ComplianceListSubstanceEntry,
+    COMPLIANCE_LIST_SCHEMA, MAX_COMPLIANCE_LIST_BYTES, MAX_COMPLIANCE_LIST_ENTRIES,
+};
 pub mod fill;
 pub use fill::{
     KeepoutHit, KeepoutKind, ZoneFill, keepout_hits, layer_obstacles, zone_fill, zone_fills,
@@ -170,6 +203,13 @@ pub struct Component {
     /// or an orderable part number. Keys are unique per component.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<ComponentField>,
+/// Typed sourcing facts: manufacturer, part number, description, supplier numbers
+/// and quick compliance flags. Empty records are not saved. See `sourcing.rs`.
+    #[serde(default, skip_serializing_if = "Sourcing::is_empty")]
+    pub sourcing: Sourcing,
+    /// Typed compliance: country of origin, product role, dated declarations and substances.
+    #[serde(default, skip_serializing_if = "Compliance::is_empty")]
+    pub compliance: Compliance,
     /// The schematic sheet this component belongs to. Sheet 0 is the implicit
     /// root page that every design starts with.
     #[serde(default, skip_serializing_if = "is_root_sheet")]
@@ -1859,7 +1899,7 @@ impl LaserJobSettings {
 /// Every export kind a saved output job may name, in the order the UI lists
 /// them. This is the one list; validation, the engine schema and the job
 /// runner all read it.
-pub const OUTPUT_KINDS: [&str; 29] = [
+pub const OUTPUT_KINDS: [&str; 33] = [
     "gerbers",
     "netlist",
     "bom",
@@ -1889,10 +1929,14 @@ pub const OUTPUT_KINDS: [&str; 29] = [
     "raster",
     "laser_job",
     "uv_print",
+    "spice",
+    "si_net_results",
+    "impedance_table",
+    "touchstone",
 ];
 /// How many export kinds one output job may hold. It is larger than the kind
 /// list so a single job can still ask for every file a board needs.
-pub const MAX_OUTPUT_KINDS: usize = 32;
+pub const MAX_OUTPUT_KINDS: usize = 36;
 /// A named fabrication output recipe: the export kinds a job writes when it
 /// runs.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -2088,6 +2132,10 @@ pub fn legacy_output_kind_to_artifact(job_kind: &str) -> Option<(&'static str, &
         "hpgl" => ("package", "board.hpgl"),
         "stackup" => ("package", "board-stackup.txt"),
         "stats" => ("package", "board-stats.csv"),
+        "spice" => ("package", "schematic.cir"),
+        "si_net_results" => ("package", "si-net-results.csv"),
+        "impedance_table" => ("package", "impedance-table.csv"),
+        "touchstone" => ("package", "touchstone.s2p"),
         _ => return None,
     })
 }
@@ -3235,6 +3283,15 @@ pub struct Project {
     /// Extra bill-of-materials columns, in print order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bom_fields: Vec<BomField>,
+    /// Manufacturer names and aliases for compliance matching.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub manufacturers: Vec<ManufacturerRecord>,
+    /// Compliance rule sets, role and target markets for this design.
+    #[serde(default, skip_serializing_if = "ComplianceProjectSettings::is_empty")]
+    pub compliance_settings: ComplianceProjectSettings,
+    /// Compliance findings the designer muted with a stored reason.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub compliance_mutes: Vec<ComplianceFindingMute>,
     /// Text files attached to the project, ordered by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<EmbeddedFile>,
@@ -3434,6 +3491,9 @@ impl Default for Project {
             page_settings: vec![],
             ports: vec![],
             bom_fields: vec![],
+            manufacturers: vec![],
+            compliance_settings: Default::default(),
+            compliance_mutes: vec![],
             output_jobs: vec![],
             artifacts: vec![],
             panel: PanelSettings::default(),
@@ -3550,6 +3610,8 @@ pub fn component_template(
         library_symbol: None,
         library_footprint: None,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
         pins: names
             .iter()
@@ -4510,6 +4572,10 @@ impl Project {
     pub fn validate(&self) -> Result<(), String> {
         self.library.validate()?;
         self.validate_parameters()?;
+self.validate_manufacturers()?;
+        self.compliance_settings.validate()?;
+        self.validate_compliance_mutes()?;
+        self.decoupling.validate()?;
         if self
             .components
             .iter()
@@ -5109,6 +5175,9 @@ impl Project {
             if c.fields.len() > 32 {
                 return Err("a component carries at most 32 fields".into());
             }
+c.sourcing.validate()?;
+c.compliance.validate()?;
+            let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             let mut field_keys: BTreeSet<&str> = BTreeSet::new();
             for f in &c.fields {
                 if f.key.is_empty()
@@ -5720,6 +5789,8 @@ pub fn library_component(
         pins,
         units,
         fields: vec![],
+        sourcing: Default::default(),
+        compliance: Default::default(),
         sheet: 0,
         library_symbol: Some(LibrarySymbol {
             library,

@@ -21,10 +21,11 @@ use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use crate::{
-    bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
-    hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
-    fab_drawing_pdf, pdf_document, placement_text, plot_csv, postscript, report_text,
-    specctra_dsn, stackup_text, stats_text, step_board, svg, vrml_board, PlacementOptions,
+    PlacementOptions, bom_csv, bundled_placement_flavours, cmp_text, drill_chart_csv, dxf_board,
+    gencad_text, gerber_files, hpgl_plot, hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text,
+    netlist_text, odb_package, pdf_document, placement_flavoured, placement_text, plot_csv,
+    postscript, report_text, specctra_dsn, stackup_text, stats_text, step_board, svg, testpoints_csv,
+    vrml_board,impedance_table_csv, fab_drawing_pdf, si_net_results_csv, spice_netlist, touchstone_text,
     bundled_placement_flavours, placement_flavoured
 };
 
@@ -198,6 +199,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "pcb.dxf" => text_output(dxf_board(p)?),
         "pcb.cmp" => text_output(cmp_text(p)?),
         "board.idf" => text_output(idf_board(p)?),
+        "library.idf" => text_output(idf_library(p)?),
         "board.wrl" => text_output(vrml_board(p)?),
         "board.step" => text_output(step_board(p)?),
         "pcb.dsn" => text_output(specctra_dsn(p)?),
@@ -211,6 +213,10 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.hpgl" => text_output(hpgl_plot(p, "pcb")?),
         "board-stackup.txt" => text_output(stackup_text(p)?),
         "board-stats.csv" => text_output(stats_text(p)?),
+        "schematic.cir" => text_output(spice_netlist(p)?),
+        "si-net-results.csv" => text_output(si_net_results_csv(p)?),
+        "impedance-table.csv" => text_output(impedance_table_csv(p)?),
+        "touchstone.s2p" => text_output(touchstone_text(p)?),
         other => Err(format!(
             "package output for {other} is not available yet; see issue #322"
         )),
