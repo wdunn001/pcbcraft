@@ -128,6 +128,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
+        json!({"name":"parts.search","description":"Rank parts for a stated need using tags, keywords and optional vectors over project, installed and caller-supplied listings. Each hit includes score and match reasons; read-only","inputSchema":object(json!({"need":{"type":"string"},"tags":{"type":"array","items":{"type":"string"},"maxItems":32},"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}},"query_vector":{"type":"array","items":{"type":"number"},"maxItems":384},"vectors":{"type":"object","additionalProperties":{"type":"array","items":{"type":"number"},"maxItems":384}}}),&[])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
         json!({"name":"library.inspect_footprint","description":"Read footprint graphics/pads/drills; include_source preserves up to 512KiB of original nodes","inputSchema":object(json!({"path":{"type":"string"},"include_source":{"type":"boolean"}}),&["path"])}),
         json!({"name":"design.recents","description":"List the design files this computer opened or saved most recently, newest first, for one-click reopening","inputSchema":object(json!({}),&[])}),
@@ -199,6 +200,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "library.catalog",
         "library.search",
         "library.list",
+        "parts.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
@@ -368,6 +370,12 @@ pub(crate) fn invoke_session(
             Some(&s.project),
         )
         .map(text_result);
+    }
+    if name == "parts.search" {
+        let s = session
+            .lock()
+            .map_err(|_| "session unavailable after internal failure".to_string())?;
+        return pcbcraft_engine::library::search_parts(args, Some(&s.project)).map(text_result);
     }
     if [
         "design.recents",
