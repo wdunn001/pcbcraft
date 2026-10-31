@@ -14,6 +14,7 @@ mod courtyard;
 mod diffpair_impedance;
 mod decoupling;
 mod drill;
+mod finding_set;
 mod silk;
 mod stub;
 pub mod compliance;
@@ -22,6 +23,8 @@ pub use compliance::{
     check as compliance_check, load_list_snapshot, ComplianceFinding, EU_MARKET_RULE_SET,
     RESPONSIBLE_SOURCING_RULE_SET,
 };
+
+pub use finding_set::{Counts, FindingSet, Loudness, Row, SeverityFilter};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Finding {
