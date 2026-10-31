@@ -3078,7 +3078,12 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+<<<<<<< HEAD
  "toml 0.8.23",
+=======
+ "toml",
+ "web-time",
+>>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
 ]
 
 [[package]]
@@ -3113,7 +3118,11 @@ dependencies = [
  "toml 0.8.23",
  "truck-meshalgo",
  "truck-stepio",
+<<<<<<< HEAD
  "ipc2581",
+=======
+ "web-time",
+>>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
 ]
 
 [[package]]
@@ -3127,6 +3136,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml",
+ "web-time",
 ]
 
 [[package]]

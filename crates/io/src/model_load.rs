@@ -14,6 +14,10 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(target_arch = "wasm32")]
+use web_time::{SystemTime, UNIX_EPOCH, Duration};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 
 /// Bumped whenever the reader changes what a file produces, so a cache of
 /// older results is never served.

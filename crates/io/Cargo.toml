@@ -30,6 +30,7 @@ toml.workspace = true
 gltf.workspace = true
 truck-stepio.workspace = true
 truck-meshalgo.workspace = true
+web-time.workspace = true
 
 [dev-dependencies]
 gerber_parser.workspace = true

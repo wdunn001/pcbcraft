@@ -19,7 +19,13 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+<<<<<<< HEAD
 use std::sync::Mutex;
+=======
+#[cfg(target_arch = "wasm32")]
+use web_time::{SystemTime, UNIX_EPOCH};
+#[cfg(not(target_arch = "wasm32"))]
+>>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Largest single file the cache stores: 8 MiB.
@@ -65,6 +71,34 @@ pub struct StoredListing {
     pub stored_at: u64,
     /// The stored text.
     pub body: String,
+}
+
+/// Convert SystemTime to seconds since Unix epoch.
+#[cfg(target_arch = "wasm32")]
+fn system_time_to_secs(t: web_time::SystemTime) -> u64 {
+    t.duration_since(web_time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn system_time_to_secs(t: std::time::SystemTime) -> u64 {
+    t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Get file modification time as seconds since Unix epoch.
+#[cfg(target_arch = "wasm32")]
+fn file_mtime_secs(path: &std::path::Path) -> Option<u64> {
+    // wasm32-unknown-unknown doesn't support file mtime
+    None
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn file_mtime_secs(path: &std::path::Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(system_time_to_secs)
 }
 
 /// Cheap content hash used as the key when a source gives no revision.
@@ -534,7 +568,7 @@ fn listing_stamp(path: &Path) -> Option<u64> {
 struct StoredFile {
     path: PathBuf,
     size: u64,
-    used: SystemTime,
+    used: u64,
 }
 
 /// Every hash-named file under `dir`, skipping checksums and pointers.
@@ -563,10 +597,11 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
             if name == LATEST || name.ends_with(".sum") || name.starts_with(".tmp-") {
                 continue;
             }
+            let used = file_mtime_secs(&path).unwrap_or(0);
             out.push(StoredFile {
                 path,
                 size: meta.len(),
-                used: meta.modified().unwrap_or(UNIX_EPOCH),
+                used,
             });
         }
     }
@@ -574,9 +609,17 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 }
 
 fn touch(path: &Path) {
+<<<<<<< HEAD
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
 let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
         let _ = f.set_modified(now);
+=======
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
+            let _ = f.set_modified(SystemTime::now());
+        }
+>>>>>>> df904ce8 (fix wasm32-unknown-unknown build with web-time dependency)
     }
 }
 

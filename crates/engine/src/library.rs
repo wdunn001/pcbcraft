@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+#[cfg(target_arch = "wasm32")]
+use web_time::{SystemTime, UNIX_EPOCH};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_LIBRARY_BYTES: u64 = 32 * 1024 * 1024;
 fn regular_metadata(path: &Path) -> Result<std::fs::Metadata, String> {

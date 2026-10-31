@@ -1,150 +1,38 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
-pub mod connector_partnumber;
-pub mod credentials;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod digikey;
-pub mod datasheet;
-//! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
-pub mod cad;
-pub mod cad_cache;
-pub mod datasheet;
-pub mod datasheet_annotations;
-pub mod connector_catalog;
-pub use connector_partnumber::{
-    BuildOptions, Constraint, FieldError, FieldKind, FieldSpec, FieldValue, ParsedPart,
-    PartNumber, SeriesLimits, SeriesSpec, build, first_slice_specs, load_embedded_series,
-    parse, parse_partial,
-};
-mod footprint_check;
-mod footprint_generate;
-pub mod model_transform;
-mod footprint_pad_outline;
-pub mod firmware_design;
-pub mod listing;
-pub mod mcu;
-pub mod listing_adapters;
-pub mod listing_search;
-pub mod online_import;
-pub mod open_library;
-pub mod part_validation;
-pub mod pin_pad_map;
-mod paths;
-mod reader;
-pub mod samtec;
-mod sexpr;
-pub mod credentials;
+mod connector_parametric;
+mod connector_series_data;
+mod connector_series_generate;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
-pub mod http_client;
 pub mod listing;
 pub mod listing_adapters;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod mouser;
-pub mod part_fields;
-pub mod online_import;
-pub mod open_library;
-pub mod credentials;
-mod footprint_check;
-mod footprint_generate;
-mod footprint_pad_outline;
-pub mod http_client;
-pub mod listing;
-pub mod listing_adapters;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod mouser;
-pub mod part_fields;
-pub mod part_params;
-pub mod part_sidecar;
 pub mod online_import;
 pub mod open_library;
 mod paths;
-pub mod rate_limit;
 mod reader;
-pub mod samtec;
 mod sexpr;
-pub mod source_log;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod digikey;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod mouser;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod element14;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod lcsc;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod jlcpcb;
-pub mod source_errors;
-pub mod source_hosts;
-#[cfg(not(target_arch = "wasm32"))]
-mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
-pub mod element14;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod lcsc;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod jlcpcb;
-pub mod source_errors;
-pub mod source_hosts;
-#[cfg(not(target_arch = "wasm32"))]
-mod source_sign;
-pub mod sources;
-mod symbol_check;
-mod validation;
-mod wall_clock;
-pub use footprint_check::{
-    FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
-};
-pub use part_validation::{
-    PartCatalogFields, PartValidationFinding, PartValidationResult, ReplacementCheckResult,
-    replacement_check, validate_catalog_fields, validate_part,
-};
-pub use pin_pad_map::{
-    PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
-    validate_pin_pad_map,
-};
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
-pub use datasheet::{
-    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
-    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
-    MAX_REDIRECTS, MAX_URL_BYTES,
+pub use connector_parametric::{
+    ConnectorParametricSpec, PARAMETRIC_MODEL_PATH, body_fits_courtyard, housing_length_mm,
+};
+pub use connector_series_data::{ConnectorSeriesSpec, series_spec};
+pub use connector_series_generate::{
+    ConnectorFieldError, ConnectorSeriesOptions, GeneratedConnectorPart, generate_connector_part,
+    pin1_position,
 };
 pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
-pub use part_sidecar::{
-    PART_SIDECAR_EXTENSION, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate,
-    PartProvenance, PartSidecar, PartSidecarField, read_part_sidecar, sidecar_path_in_folder,
-    write_part_sidecar,
-};
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
 pub use sexpr::{Error, Limits};
 pub use symbol_check::check_symbol;
-pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
-pub use datasheet::{
-    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
-    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
-    MAX_REDIRECTS, MAX_URL_BYTES,
-};
-pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
-use pcbcraft_geom::Point;
-pub use reader::{read_footprint, read_specctra_session, read_symbols};
-use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
-pub use symbol_check::check_symbol;
-pub use model_transform::{
-    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
-    refresh_model_raw_source,
-};
 pub use validation::custom_polygon_error;
-pub use part_fields::{
-    DESCRIPTION, MANUFACTURER, MPN, PARTS_TABLE_SUGGESTED_KEYS, STANDARD_SOURCING_KEYS,
-    SUPPLIER_KEY_PREFIX, SUPPLIERS, is_standard_sourcing_key,
-};
 
 /// A schematic symbol definition parsed from the interchange format.
 ///
@@ -177,9 +65,6 @@ pub struct SymbolDefinition {
     pub extends: Option<String>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
-    /// Unknown S-expression snippets from the source file, re-emitted on export.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub retained: Vec<String>,
 }
 /// A single pin of a schematic symbol.
 ///
@@ -529,48 +414,8 @@ pub struct FootprintDefinition {
     /// clearance tightens checks; the margins are recorded and exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rules: Option<FootprintRules>,
-    /// Explicit 3D box body size in footprint-local millimetres, centred on the
-    /// footprint origin. When set, the 3D view and mechanical exports use this
-    /// width, depth and height instead of pad-derived defaults.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub box_body: Option<FootprintBoxBody>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
-    /// Unknown S-expression snippets from the source file, re-emitted on export.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub retained: Vec<String>,
-}
-/// Width, depth and height of a simple box body for 3D preview and export.
-///
-/// # Rules
-/// - All sizes are in millimetres and must be between 0.05 and 100.
-/// - The outline is centred on the footprint origin in the board plane.
-///
-/// # Dependencies
-/// - `library.footprint.set_box_body` stores this on a project-library footprint.
-/// - `crates/io` reads it when building meshes and STEP bodies.
-///
-/// # Do not
-/// - Use this for 2D courtyard or fab outlines; those stay in footprint graphics.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FootprintBoxBody {
-    pub width: f64,
-    pub depth: f64,
-    pub height: f64,
-}
-impl FootprintBoxBody {
-    /// Counter-clockwise rectangle centred on the footprint origin.
-    pub fn outline(&self) -> Vec<Point> {
-        let hx = self.width / 2.0;
-        let hy = self.depth / 2.0;
-        vec![
-            Point::new(-hx, -hy),
-            Point::new(hx, -hy),
-            Point::new(hx, hy),
-            Point::new(-hx, hy),
-        ]
-    }
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.
@@ -619,9 +464,6 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
-    /// Component name inside a SolidCraft project, when the file holds more than one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cad_part: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {
