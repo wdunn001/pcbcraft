@@ -1,0 +1,9 @@
+{
+  "feed": {
+    "format": "pcbcraft-portal-static-feed",
+    "schema_version": 1,
+    "instance_id": "example-instance",
+    "title": "Example sharing portal",
+    "catalogue_path": "/catalogue.json"
+  }
+}
