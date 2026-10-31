@@ -72,6 +72,20 @@ pub(crate) struct View3d {
     pub(crate) notes_open: bool,
     /// Where the viewport was painted last frame, so tests and picking agree.
     pub rect: Rect,
+pub dist: f64,
+    pub target: V,
+    mesh: Option<(u64, BoardMesh)>,
+    /// Model files read off the UI thread; see `board3d/model_cache.rs`.
+    models: ModelCache,
+    /// How many finished loads the current mesh already includes.
+    model_gen: u64,
+    /// Per part: did its model file load, or why did the box stay.
+    notes: std::collections::BTreeMap<Id, ModelStatus>,
+    error: Option<String>,
+    /// Where the viewport was painted last frame, so tests and picking agree.
+    pub rect: Rect,
+    /// Keep the camera when the mesh is rebuilt after an edit, instead of fitting it again.
+    pub keep_camera: bool,
     /// The last rendered picture and what it was made from.
     frame: Option<Held>,
     /// An angle a capture asked for; applied once the first fit has run.
@@ -98,6 +112,7 @@ struct FrameKey {
     selected: Option<Id>,
     gold: bool,
 }
+}
 impl Default for View3d {
     fn default() -> Self {
         Self {
@@ -112,6 +127,7 @@ impl Default for View3d {
             error: None,
             notes_open: false,
             rect: Rect::NOTHING,
+keep_camera: false,
             frame: None,
             start_angle: None,
         }
@@ -268,7 +284,6 @@ impl View3d {
         best
     }
     /// Why the mesh could not be built, if it could not.
-    #[cfg(test)]
     pub(crate) fn build_error(&self) -> Option<String> {
         self.error.clone()
     }
@@ -278,7 +293,6 @@ impl View3d {
         self.notes.insert(id, ModelStatus::Failed(why.into()));
     }
     /// How the model file of this part loaded, when it names one.
-    #[cfg(test)]
     pub(crate) fn model_status(&self, id: Id) -> Option<ModelStatus> {
         self.notes.get(&id).cloned()
     }
@@ -296,7 +310,7 @@ impl View3d {
                     .unwrap_or_else(|| p.triangle_count())
             })
     }
-    #[cfg(test)]
+    /// The box around this part's body in board millimetres.
     pub(crate) fn body_bounds(&self, id: Id) -> Option<(V, V)> {
         let (_, mesh) = self.mesh.as_ref()?;
         mesh.parts
@@ -334,6 +348,7 @@ impl View3d {
         if same_design && self.model_gen == generation {
             return;
         }
+        let had_mesh = self.mesh.is_some();
         match pcbcraft_io::board_mesh(project, MeshLayers::default()) {
             Ok(mut mesh) => {
                 self.error = None;
@@ -343,7 +358,7 @@ impl View3d {
                     .into_iter()
                     .collect();
                 self.mesh = Some((revision, mesh));
-                if !same_design {
+                if !same_design && !(self.keep_camera && had_mesh) {
                     self.fit();
                     if let Some((yaw, pitch)) = self.start_angle.take() {
                         self.yaw = yaw;
@@ -653,6 +668,52 @@ pub(crate) fn show(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>) -> Optio
         }
     }
     picked
+}
+
+/// Draw only the 3D viewport, sized `size`: the same mesh, camera and painter as the 3D
+/// tab, without its parts list. The Library tab uses it to show one part on a small board.
+///
+/// # Rules
+/// - Drag turns, shift or right drag pans, the wheel zooms, as in the tab.
+/// - Model files load on the shared worker; the viewport never waits for them.
+///
+/// # Dependencies
+/// - crates/ui-egui/src/board3d.rs (`show` shares `refresh`, `paint_mesh` and the camera with it)
+///
+/// # Do not
+/// - Pick or select here; a one-part view has nothing to pick.
+pub(crate) fn viewport(view: &mut View3d, ui: &mut egui::Ui, env: &Env<'_>, size: egui::Vec2) {
+    view.refresh(env.project, env.revision);
+    if view.models.pending() > 0 {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
+    }
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
+    view.rect = rect;
+    let response = response.on_hover_text(t!("board.board3d.3d_board_drag_to_turn.tip"));
+    let (shift, secondary, scroll) = ui.input(|i| {
+        (
+            crate::tool_modifiers::Held::new(i.modifiers, crate::tool_modifiers::Platform::host())
+                .shift,
+            i.pointer.button_down(egui::PointerButton::Secondary)
+                || i.pointer.button_down(egui::PointerButton::Middle),
+            i.smooth_scroll_delta.y,
+        )
+    });
+    if response.dragged() {
+        let d = response.drag_delta();
+        if shift || secondary {
+            view.pan(f64::from(d.x), f64::from(d.y), rect);
+        } else {
+            view.orbit(f64::from(d.x), f64::from(d.y));
+        }
+    }
+    if response.hovered() && scroll != 0.0 {
+        view.zoom(f64::from(scroll));
+    }
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 0.0, env.bg);
+    paint_mesh(view, &painter, rect, env);
 }
 
 #[cfg(test)]

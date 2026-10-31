@@ -3652,7 +3652,6 @@ impl crate::App {
                 target: self.current_target(),
                 revision: self.revision,
                 parts_selected: self.selected_part_components().len(),
-show_empty: self.tree.show_empty,
                 show_empty: self.tree.show_empty,
             };
             show(ui, &env, &mut self.tree)

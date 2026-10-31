@@ -78,6 +78,7 @@ mod library_builtin;
 mod library_dock;
 mod library_online;
 mod library_quality;
+mod library_workspace;
 mod minimap;
 mod modifier_ui;
 mod motion;
@@ -85,6 +86,18 @@ mod number_entry;
 mod pages;
 mod palette;
 mod placement_machine_ui;
+mod plot_viewer;
+mod pour_panel;
+mod properties;
+mod reference_panel;
+mod route_drag;
+mod rules_fab;
+mod sheet_rows;
+mod showcase;
+mod sources;
+mod sourcing_panel;
+mod pages;
+mod palette;
 mod plot_viewer;
 mod pour_panel;
 mod properties;
@@ -671,6 +684,7 @@ use serde_json::{Value, json};
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
     Files,
+    Library,
     Schematic,
     Pcb,
     Board3d,
@@ -1289,6 +1303,8 @@ pub struct App {
     pub(crate) compare_diff: Option<pcbcraft_io::DesignDiff>,
     pub(crate) compare_tint: std::collections::BTreeMap<Id, CompareKind>,
     dock: library_dock::Dock,
+    /// The Library tab: open parts, the showing page, recorded supplier answers.
+    libws: library_workspace::State,
     #[cfg(test)]
     icon_rects: BTreeMap<String, Rect>,
     /// This design's autosave slot, while the desktop has a recovery folder.
@@ -1837,6 +1853,7 @@ impl App {
             tab: match tab {
                 Some("pcb" | "layout" | "checks") => Tab::Pcb,
                 Some("files") => Tab::Files,
+                Some("library") => Tab::Library,
                 Some("rules") => Tab::Rules,
                 Some("settings") => Tab::Settings,
                 Some("plots") => Tab::PlotFiles,
@@ -1947,6 +1964,7 @@ impl App {
             svg_path: String::new(),
             part_search_focus: false,
             dock: library_dock::Dock::default(),
+            libws: library_workspace::State::default(),
             sheet: bottom_sheet::SheetState::default(),
             needs_fit: true,
             stack: stack_view::StackView::plain(2, false),
@@ -3241,12 +3259,13 @@ impl App {
                 });
             });
     }
-    /// The tab row: Files, Schematic, Layout, 3D and Manufacture, left-aligned
+    /// The tab row: Files, Library, Schematic, Layout and Manufacture, left-aligned
     /// with the active tab underlined. Rules, Checks and Settings are reached
     /// from the File, Edit and View menus and the status bar.
     fn workbench_tabs(&mut self, ui: &mut egui::Ui) {
-        let shown: [(Tab, String); 4] = [
+        let shown: [(Tab, String); 5] = [
             (Tab::Files, t!("docks.workbench_tabs.files")),
+            (Tab::Library, t!("docks.workbench_tabs.library")),
             (Tab::Schematic, t!("docks.workbench_tabs.schematic")),
             (Tab::Pcb, t!("docks.workbench_tabs.layout")),
             (Tab::PlotFiles, t!("docks.workbench_tabs.manufacture")),
@@ -3522,6 +3541,14 @@ impl App {
                 .clicked()
             {
                 self.save_or_ask();
+                ui.close();
+            }
+            if ui
+.button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
+                .clicked()
+            {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
                 ui.close();
             }
             if ui
@@ -3866,8 +3893,14 @@ impl App {
         if Self::narrow_window(ui.ctx()) {
             return;
         }
-        egui::Panel::left("left-aside")
-            .default_size(320.0)
+        // The Library tab gives its browser more room; the saved width is kept per panel id.
+        let (id, width) = if self.tab == Tab::Library {
+            ("left-aside-library", 380.0)
+        } else {
+            ("left-aside", 320.0)
+        };
+        egui::Panel::left(id)
+            .default_size(width)
             .min_size(240.0)
             .frame(egui::Frame::NONE.fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| {
@@ -6787,6 +6820,12 @@ impl App {
                 .begin(ui);
             assistant::pane::show(self, &mut padded.content_ui);
             padded.end(ui);
+            return;
+        }
+        if self.tab == Tab::Library {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| self.library_properties(ui));
             return;
         }
         egui::ScrollArea::vertical()

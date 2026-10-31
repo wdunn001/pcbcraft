@@ -136,7 +136,7 @@ fn rectangle(layer: &str) -> Graphic {
         layer: layer.into(),
     }
 }
-fn new_symbol() -> SymbolDefinition {
+pub(super) fn new_symbol() -> SymbolDefinition {
     SymbolDefinition {
         name: "NewSymbol".into(),
         reference: "U".into(),
@@ -192,7 +192,7 @@ pub(crate) fn new_pad(number: &str, x: f64) -> FootprintPad {
         raw_source: String::new(),
     }
 }
-fn new_footprint() -> FootprintDefinition {
+pub(super) fn new_footprint() -> FootprintDefinition {
     FootprintDefinition {
         name: "NewFootprint".into(),
         description: "Custom through-hole package".into(),
@@ -1509,7 +1509,7 @@ impl App {
             });
         }
     }
-    fn library_editor(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn library_editor(&mut self, ui: &mut egui::Ui) {
         self.footprint_wizard(ui);
         let Some(mut draft) = self.library.editor.draft.take() else {
             ui.heading(t!("library.library_editor.library_editor"));
