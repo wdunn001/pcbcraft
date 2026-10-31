@@ -1960,6 +1960,48 @@ pub fn drc(project: &Project) -> Vec<Finding> {
             objects: vec![],
         }),
     }
+    for (i, role) in board.copper_layer_roles.iter().enumerate() {
+        let Some(role) = role.as_deref() else {
+            continue;
+        };
+        if role != "ground" && role != "power" {
+            continue;
+        }
+        let Ok(layer) = Layer::from_index(i as u8) else {
+            continue;
+        };
+        let layer_name = project.layer_name(layer);
+        for zone in &board.zones {
+            if zone.layer == layer && !zone.filled {
+                result.push(Finding {
+                    code: "plane_layer_pour",
+                    severity: project.rule_severity("plane_layer_pour", "warning"),
+                    message: format!(
+                        "{layer_name} is a {role} plane but zone {} is still an outline",
+                        zone.id
+                    ),
+                    objects: vec![zone.id],
+                });
+            }
+        }
+    }
+    for zone in &board.zones {
+        if !zone.filled || project.copper_layer_is_plane(zone.layer) {
+            continue;
+        }
+        if !project.is_inner_copper_layer(zone.layer) {
+            continue;
+        }
+        result.push(Finding {
+            code: "inner_pour_role",
+            severity: project.rule_severity("inner_pour_role", "info"),
+            message: format!(
+                "filled pour on {} has no ground or power role; record one with board.set_copper_layer_role",
+                project.layer_name(zone.layer)
+            ),
+            objects: vec![zone.id],
+        });
+    }
     result.extend(stub::stub_length_findings(project, &items));
     result.retain(|f| {
         !project.rule_disabled(f.code)
