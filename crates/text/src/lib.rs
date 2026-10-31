@@ -1383,7 +1383,6 @@ mod area_tests {
             ("lib.rs", "library"),
             ("lib.rs", "files_tab"),
             ("library_quality.rs", "quality_badge"),
-            ("library_quality.rs", "library_checks_section"),
             ("library_quality.rs", "refresh_footprint_quality"),
         ])
     }

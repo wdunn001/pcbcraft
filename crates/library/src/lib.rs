@@ -2,6 +2,7 @@
 pub mod cad;
 pub mod cad_cache;
 pub mod datasheet_annotations;
+pub mod connector_catalog;
 mod footprint_check;
 mod footprint_generate;
 mod footprint_pad_outline;
@@ -11,6 +12,7 @@ pub mod online_import;
 pub mod open_library;
 mod paths;
 mod reader;
+pub mod samtec;
 mod sexpr;
 pub mod sources;
 mod symbol_check;
