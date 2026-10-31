@@ -102,7 +102,7 @@ pub fn zone_fill(project: &Project, zone: &CopperZone) -> Result<ZoneFill, Strin
         pieces: Vec::new(),
         min_width: settings
             .min_width
-            .unwrap_or_else(|| default_min_width(project)),
+            .unwrap_or_else(|| default_pour_min_width(project)),
         islands: 0,
         removed: 0,
         unconnected: false,
@@ -341,7 +341,7 @@ fn open(region: &[Piece], width: f64) -> Region {
 
 /// Narrowest copper the board already uses: the thinnest track or class
 /// minimum, never below a fab-friendly 0.05 mm, never above 1 mm.
-fn default_min_width(project: &Project) -> f64 {
+pub fn default_pour_min_width(project: &Project) -> f64 {
     let tracks = project
         .board
         .tracks

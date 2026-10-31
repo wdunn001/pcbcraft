@@ -1,7 +1,9 @@
 //! Commands that bring an online library part into the project: import it
 //! into the project library with its licence notice, or import and place it
 //! in one undo step. The engine never touches the network; the caller fetches
-//! the files (crates/library/src/online_import.rs) and passes parsed definitions.
+//! the files (crates/library/src/online_import.rs and, for open-library skus,
+//! crates/library/src/open_import.rs) and passes parsed definitions. Whether a
+//! 3D model file is fetched is decided before these commands run.
 //!
 //! # Rules
 //! - Both commands run inside one `Session::batch` step, so one undo reverts everything.
@@ -236,6 +238,7 @@ fn place_command(p: &mut Project, next: &mut Id, params: &Value) -> Result<Value
             .ok_or_else(missing)?;
         let pads = component_pads(component);
         p.board.footprints.push(Footprint {
+            preserved: pcbcraft_doc::PreservedSource::default(),
             id: fid,
             component: id,
             position: a.position,
