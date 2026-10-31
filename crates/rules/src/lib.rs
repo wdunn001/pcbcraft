@@ -1185,6 +1185,38 @@ fn rings_overlap(a: &[Point], b: &[Point]) -> bool {
             .any(|edge| polygon_segment(a, edge[0], edge[1]) <= 1e-9)
 }
 
+/// Findings for every pick and place machine saved in the design: a part with no
+/// suitable nozzle, a feeder bank that is too small, more nozzle types than the
+/// machine runs unattended.
+///
+/// # Rules
+/// - One finding per problem from `plan_placement`; the machine name starts the sentence.
+/// - A design with no pick and place profile gives no findings.
+///
+/// # Dependencies
+/// - crates/doc/src/placement_machine.rs
+///
+/// # Do not
+/// - Plan again here; the writer in crates/io/src/neoden_yy1.rs uses the same plan.
+fn placement_machine_findings(project: &Project) -> Vec<Finding> {
+    let mut out = vec![];
+    for machine in project
+        .machine_profiles
+        .iter()
+        .filter(|m| m.kind == "pick_place")
+    {
+        let plan = pcbcraft_doc::plan_placement(project, &machine.pick_place, None);
+        for problem in plan.problems {
+            out.push(Finding {
+                code: problem.code,
+                severity: project.rule_severity(problem.code, "warning"),
+                message: format!("{}: {}", machine.name, problem.message),
+                objects: problem.components,
+            });
+        }
+    }
+    out
+}
 fn panel_findings(project: &Project) -> Vec<Finding> {
     if !project.panel.enabled {
         return Vec::new();
@@ -1632,6 +1664,7 @@ pub fn drc(project: &Project) -> Vec<Finding> {
         });
     }
     result.extend(panel_findings(project));
+    result.extend(placement_machine_findings(project));
     result.extend(via_findings(project));
     result.extend(fab_findings(project, board));
     result.extend(courtyard::courtyard_findings(project));

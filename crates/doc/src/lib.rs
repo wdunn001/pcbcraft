@@ -2,6 +2,8 @@
 mod layer_names;
 pub use layer_names::LayerNaming;
 mod machine_profile;
+mod placement_machine;
+pub use placement_machine::*;
 mod package_def;
 pub use package_def::{
     MAX_PACKAGE_CONTENTS, MAX_PROJECT_PACKAGES, PACKAGE_CONTAINERS, PACKAGE_TOKENS, PackageContent,
