@@ -3005,6 +3005,7 @@ dependencies = [
  "pcbcraft-io",
  "pcbcraft-library",
  "pcbcraft-rules",
+ "pcbcraft-testkit",
  "serde",
  "serde_json",
  "tempfile",
@@ -3034,6 +3035,7 @@ dependencies = [
  "pcbcraft-geom",
  "pcbcraft-library",
  "pcbcraft-rules",
+ "pcbcraft-testkit",
  "png 0.18.1",
  "serde",
  "serde_json",
@@ -3088,6 +3090,10 @@ name = "pcbcraft-sim"
 version = "0.1.0"
 
 [[package]]
+name = "pcbcraft-testkit"
+version = "0.1.0"
+
+[[package]]
 name = "pcbcraft-text"
 version = "0.1.0"
 
@@ -3114,6 +3120,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "web-time",
 ]
 
 [[package]]

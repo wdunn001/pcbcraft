@@ -104,7 +104,7 @@ pub enum OptionKind {
     Variant,
     /// The columns of a bill of materials.
     Columns,
-    /// The vendor flavours of a bill of materials ([`BOM_FLAVOURS`]).
+    /// The vendor flavours of a bill of materials ([`crate::bom_profiles()`]).
     Flavour,
 }
 
@@ -208,6 +208,65 @@ const BOM_OPTIONS: &[OptionSpec] = &[
         param: Some("group"),
         label: "Group identical parts",
         tip: "One row per kind of part with its references listed. Off gives one row per part.",
+        kind: OptionKind::Bool { default: true },
+    },
+];
+
+const GERBER_OPTIONS: &[OptionSpec] = &[
+    OptionSpec {
+        param: Some("naming"),
+        label: "File names",
+        tip: "How the files are named. Project names start with pcb-. Plain .gbr puts the layer in the name. Three-letter extensions are the classic .GTL and .GBL style that online prototype fabs read.",
+        kind: OptionKind::Choice {
+            choices: &[
+                ("project", "Project names"),
+                ("plain", "Plain .gbr"),
+                ("protel", "Three-letter extensions"),
+            ],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_files"),
+        label: "Drill files",
+        tip: "Plated and non-plated holes in two files, or in one file. Some fabs merge them for you, others want them apart.",
+        kind: OptionKind::Choice {
+            choices: &[("split", "Two files"), ("merged", "One file")],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_units"),
+        label: "Drill units",
+        tip: "Millimetres or inches in the drill files. Project uses the unit of this design.",
+        kind: OptionKind::Choice {
+            choices: &[("project", "Project"), ("mm", "mm"), ("inch", "Inch")],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("zero_suppression"),
+        label: "Drill numbers",
+        tip: "Decimal points write every number in full. Leading or trailing zero suppression writes shorter numbers for older machines (2.4 for inch, 3.3 for mm).",
+        kind: OptionKind::Choice {
+            choices: &[
+                ("decimal", "Decimal"),
+                ("leading", "Drop leading zeros"),
+                ("trailing", "Drop trailing zeros"),
+            ],
+            default: 0,
+        },
+    },
+    OptionSpec {
+        param: Some("drill_map"),
+        label: "Drill map",
+        tip: "Add a drawing that marks every hole size with a symbol.",
+        kind: OptionKind::Bool { default: true },
+    },
+    OptionSpec {
+        param: Some("job_file"),
+        label: "Job file",
+        tip: "Add the .gbrjob file that lists every layer, its function and the board stackup.",
         kind: OptionKind::Bool { default: true },
     },
 ];
@@ -361,14 +420,17 @@ pub static FORMATS: &[FormatSpec] = &[
         Group::Assembly,
         Run::Kind("ipc2581"),
     ),
-    common(output(
-        "gerbers",
-        "Copper and drill files",
-        "Gerber copper layers, the board outline and drill files that a board maker needs.",
-        &["gbr", "drl"],
-        Group::Fabrication,
-        Run::Kind("gerbers"),
-    )),
+    common(FormatSpec {
+        options: GERBER_OPTIONS,
+        ..output(
+            "gerbers",
+            "Copper and drill files",
+            "Gerber copper layers, the board outline and drill files that a board maker needs.",
+            &["gbr", "drl"],
+            Group::Fabrication,
+            Run::Engine("gerber.files"),
+        )
+    }),
     output(
         "drill_chart",
         "Drill chart",
@@ -392,6 +454,14 @@ pub static FORMATS: &[FormatSpec] = &[
         &["ipc"],
         Group::Fabrication,
         Run::Kind("ipc356"),
+    ),
+    output(
+        "bring_up",
+        "Bring-up test plan",
+        "Markdown and CSV checklist of rails, headers, continuity and nets missing a probe pad.",
+        &["md", "csv"],
+        Group::Documentation,
+        Run::Kind("bring_up"),
     ),
     common(output(
         "pdf",

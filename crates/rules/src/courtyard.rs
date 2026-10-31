@@ -315,6 +315,7 @@ mod tests {
                         rules: None,
                         raw_source: String::new(),
                         unsupported: vec![],
+                        retained: vec![],
                     },
                 });
             }
@@ -336,7 +337,9 @@ mod tests {
                 castellated: None,
                 geometry: None,
             }],
-        });
+        
+            preserved: pcbcraft_doc::PreservedSource::default(),
+});
     }
     fn found(p: &Project) -> Vec<Finding> {
         drc(p)

@@ -10,6 +10,7 @@ mod prompts;
 mod resources;
 use base64::Engine as _;
 pub use document_hub::DocumentHub;
+use pcbcraft_engine::user_config::UserConfig;
 use pcbcraft_engine::{Command, Session};
 use serde_json::{Value, json};
 #[cfg(any(not(target_arch = "wasm32"), test))]
@@ -18,15 +19,79 @@ use std::io::{BufRead, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-pub type SharedSession = Arc<Mutex<Session>>;
+/// One design session shared between the window, the tools and the server.
+///
+/// # Rules
+/// - Locks like the `Mutex<Session>` it wraps (it derefs to it).
+/// - Carries a copy of the session's [`UserConfig`] taken when it was made, so
+///   library and recents reads find the settings folder without taking the
+///   design lock.
+///
+/// # Do not
+/// - Read the configuration through `lock()`; a long edit would stall the read.
+#[derive(Clone)]
+pub struct SharedSession {
+    session: Arc<Mutex<Session>>,
+    config: Arc<UserConfig>,
+}
+impl std::ops::Deref for SharedSession {
+    type Target = Mutex<Session>;
+    fn deref(&self) -> &Self::Target {
+        &self.session
+    }
+}
+impl SharedSession {
+    /// The settings folder this session was made with.
+    pub fn config(&self) -> &UserConfig {
+        &self.config
+    }
+}
 pub const MAX_MESSAGE: u64 = 1024 * 1024;
 /// Protocol versions `initialize` accepts, newest first; the HTTP transport checks its header against it.
 pub(crate) const SUPPORTED_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2024-11-05"];
 pub fn shared(session: Session) -> SharedSession {
-    Arc::new(Mutex::new(session))
+    SharedSession {
+        config: Arc::new(session.config.clone()),
+        session: Arc::new(Mutex::new(session)),
+    }
 }
 pub fn tool_list() -> Value {
     let object = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":false});
+    let loose = |properties: Value, required: &[&str]| json!({"type":"object","properties":properties,"required":required,"additionalProperties":true});
+    let point = loose(
+        json!({"x":{"type":"number"},"y":{"type":"number"}}),
+        &["x", "y"],
+    );
+    let finding = loose(
+        json!({"code":{"type":"string"},"severity":{"type":"string"},"message":{"type":"string"},"objects":{"type":"array","items":{"type":"integer"}}}),
+        &["code", "severity", "message", "objects"],
+    );
+    let airwire = loose(
+        json!({"net":{"type":"integer"},"from":point.clone(),"to":point,"from_object":{"type":"integer"},"to_object":{"type":"integer"}}),
+        &["net", "from", "to", "from_object", "to_object"],
+    );
+    let inspect_output = loose(
+        json!({
+            "revision":{"type":"integer","minimum":0},
+            "project":loose(json!({}),&[]),
+            "history":loose(json!({"undo":{"type":"integer","minimum":0},"redo":{"type":"integer","minimum":0}}),&["undo","redo"]),
+            "capabilities":loose(json!({}),&[]),
+            "active_index":{"type":"integer","minimum":0},
+            "path":{"type":"string"},
+            "name":{"type":"string"}
+        }),
+        &["revision", "project", "history", "capabilities"],
+    );
+    let checks_output = loose(
+        json!({
+            "revision":{"type":"integer","minimum":0},
+            "erc":{"type":"array","items":finding.clone()},
+            "drc":{"type":"array","items":finding},
+            "airwires":{"type":"array","items":airwire},
+            "scope":{"type":"string"}
+        }),
+        &["revision", "erc", "drc", "airwires", "scope"],
+    );
     let command = json!({"type":"object","properties":{"command":{"type":"string"},"params":{"type":"object"}},"required":["command","params"],"additionalProperties":false});
     let mut tools = vec![
         json!({"name":"library.save","description":"Atomically save the editable project library to a .pcbcraft-lib collection","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -51,6 +116,7 @@ pub fn tool_list() -> Value {
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"idf.write","description":"Write IDF version 3 board and library files (board outline and placements plus one outline and height per distinct footprint) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"solidcraft.write","description":"Write the board as a SolidCraft project (board.solidcraft) into a directory: the board body with its real outline, holes and thickness, and each placed part as its own named, placed component with a generated package body; metadata links every body to its reference designator. Optional layers add copper, mask and silk as bodies. Does not edit the project","inputSchema":object(json!({"path":{"type":"string"},"layers":{"type":"array","items":{"type":"string","enum":["copper","mask","silk"]},"maxItems":3,"description":"thin layers to include as bodies, default none"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
@@ -73,9 +139,9 @@ pub fn tool_list() -> Value {
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
         json!({"name":"library.samtec.manufacturer_page","description":"Build the public Samtec product page URL for a part number so the user can download official CAD files in the browser","inputSchema":object(json!({"mpn":{"type":"string","minLength":1,"maxLength":64}}),&["mpn"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
-        json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
+        json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[]),"outputSchema":inspect_output}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
-        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[])}),
+        json!({"name":"checks","description":"Run initial ERC/DRC and inspect unrouted airwires; returns scope and affected object IDs. copper_only narrows the findings to the copper subset (clearance, width, stub length, unrouted, differential-pair checks) for a quick mid-layout pass","inputSchema":object(json!({"copper_only":{"type":"boolean","description":"report only copper-related findings, default false"}}),&[]),"outputSchema":checks_output}),
         json!({"name":"execute","description":"Execute one engine command atomically, optionally rejecting a stale revision","inputSchema":object(json!({"command":{"type":"string"},"params":{"type":"object"},"expected_revision":{"type":"integer","minimum":0}}),&["command","params"])}),
         json!({"name":"batch","description":"Execute 1–128 commands as one transaction and undo step; any failure rolls back everything","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
         json!({"name":"dry_run","description":"Preview 1–128 commands on a copy: returns each result and a summary of what would be added, removed, moved or changed. Nothing is applied and the revision does not change","inputSchema":object(json!({"commands":{"type":"array","items":command,"minItems":1,"maxItems":128},"expected_revision":{"type":"integer","minimum":0}}),&["commands"])}),
@@ -88,7 +154,16 @@ pub fn tool_list() -> Value {
         json!({"name":"export","description":"Export the supported PCB subset to a board interchange text file, or export a schematic/PCB preview as an SVG vector file or a PNG raster file","inputSchema":object(json!({"path":{"type":"string"},"format":{"type":"string","enum":["kicad_pcb","svg","png"]},"view":{"type":"string","enum":["schematic","pcb"]}}),&["path","format"])}),
         json!({"name":"screenshot","description":"Return a PNG design preview from current session state (not a desktop UI screenshot)","inputSchema":object(json!({"view":{"type":"string","enum":["schematic","pcb"]}}),&["view"])}),
     ];
+    let mut engine_names = std::collections::HashSet::new();
+    for tool in &tools {
+        if let Some(name) = tool.get("name").and_then(Value::as_str) {
+            engine_names.insert(name.to_string());
+        }
+    }
     for spec in pcbcraft_engine::commands() {
+        if !engine_names.insert(spec.id.to_string()) {
+            continue;
+        }
         tools.push(
             json!({"name":spec.id,"description":spec.description,"inputSchema":spec.input_schema}),
         );
@@ -287,8 +362,12 @@ pub(crate) fn invoke_session(
         let s = session
             .lock()
             .map_err(|_| "session unavailable after internal failure".to_string())?;
-        return pcbcraft_engine::library::list_with_project(args, Some(&s.project))
-            .map(text_result);
+        return pcbcraft_engine::library::list_with_project(
+            session.config(),
+            args,
+            Some(&s.project),
+        )
+        .map(text_result);
     }
     if [
         "design.recents",
@@ -304,7 +383,7 @@ pub(crate) fn invoke_session(
     ]
     .contains(&name)
     {
-        return pcbcraft_engine::library::read_tool(name, args).map(text_result);
+        return pcbcraft_engine::library::read_tool(session.config(), name, args).map(text_result);
     }
     let mut s = session
         .lock()
@@ -323,20 +402,33 @@ pub(crate) fn invoke_session(
             pcbcraft_io::atomic_write(Path::new(path), &bytes)?;
             json!({"path":path})
         }
-        "library.export_footprint"
-        | "library.export_symbol"
-        | "library.export_footprint_svg"
-        | "library.export_symbol_svg" => {
+        "library.export_footprint" | "library.export_symbol" => {
             s.project.library.validate()?;
             let path = string(args, "path")?;
             let definition = string(args, "name")?;
-            let footprint =
-                name == "library.export_footprint" || name == "library.export_footprint_svg";
-            let suffix = match name {
-                "library.export_footprint" => "kicad_mod",
-                "library.export_symbol" => "kicad_sym",
-                _ => "svg",
+            let kind = if name == "library.export_footprint" {
+                "footprint"
+            } else {
+                "symbol"
             };
+            let written = pcbcraft_io::export_library_definitions(
+                &s.project.library,
+                kind,
+                Path::new(path),
+                &[definition.to_string()],
+            )?;
+            json!({
+                "path": written["path"],
+                "name": definition,
+                "files": written["files"],
+            })
+        }
+        "library.export_footprint_svg" | "library.export_symbol_svg" => {
+            s.project.library.validate()?;
+            let path = string(args, "path")?;
+            let definition = string(args, "name")?;
+            let footprint = name == "library.export_footprint_svg";
+            let suffix = "svg";
             if Path::new(path).extension().and_then(|e| e.to_str()) != Some(suffix) {
                 return Err(format!("path must end in .{suffix}"));
             }
@@ -348,11 +440,7 @@ pub(crate) fn invoke_session(
                     .iter()
                     .find(|f| f.name == definition)
                     .ok_or("unknown project-library footprint")?;
-                if suffix == "svg" {
-                    pcbcraft_io::footprint_svg(item)?
-                } else {
-                    pcbcraft_io::footprint_library_text(item)?
-                }
+                pcbcraft_io::footprint_svg(item)?
             } else {
                 let item = s
                     .project
@@ -361,34 +449,42 @@ pub(crate) fn invoke_session(
                     .iter()
                     .find(|f| f.name == definition)
                     .ok_or("unknown project-library symbol")?;
-                if suffix == "svg" {
-                    pcbcraft_io::symbol_svg(item)?
-                } else {
-                    pcbcraft_io::symbol_library_text(item)?
-                }
+                pcbcraft_io::symbol_svg(item)?
             };
             pcbcraft_io::atomic_write(Path::new(path), text.as_bytes())?;
             json!({"path":path,"name":definition,"bytes":text.len()})
         }
         "library.export_footprints" => {
+            s.project.library.validate()?;
             let directory = string(args, "path")?;
-            let mut files = Vec::new();
-            for item in &s.project.library.footprints {
-                let text = pcbcraft_io::footprint_library_text(item)?;
-                let name = format!("{}.kicad_mod", item.name);
-                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
-                files.push(name);
-            }
-            json!({"directory":directory,"files":files})
+            let names: Vec<String> = s
+                .project
+                .library
+                .footprints
+                .iter()
+                .map(|item| item.name.clone())
+                .collect();
+            let written = pcbcraft_io::export_library_definitions(
+                &s.project.library,
+                "footprint",
+                Path::new(directory),
+                &names,
+            )?;
+            json!({"directory": written["path"], "files": written["files"]})
         }
         "library.export_symbols" => {
+            s.project.library.validate()?;
             let directory = string(args, "path")?;
             let mut files = Vec::new();
             for item in &s.project.library.symbols {
-                let text = pcbcraft_io::symbol_library_text(item)?;
-                let name = format!("{}.kicad_sym", item.name);
-                pcbcraft_io::atomic_write(&Path::new(&directory).join(&name), text.as_bytes())?;
-                files.push(name);
+                let file = format!("{}.kicad_sym", item.name);
+                pcbcraft_io::export_library_definitions(
+                    &s.project.library,
+                    "symbol",
+                    &Path::new(directory).join(&file),
+                    &[item.name.clone()],
+                )?;
+                files.push(file);
             }
             json!({"directory":directory,"files":files})
         }
@@ -457,6 +553,30 @@ pub(crate) fn invoke_session(
                 export.text.as_bytes(),
             )?;
             json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
+        }
+        "solidcraft.write" => {
+            let directory = string(args, "path")?;
+            let mut layers = pcbcraft_io::SolidcraftLayers::default();
+            for layer in args
+                .get("layers")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+            {
+                match layer.as_str() {
+                    Some("copper") => layers.copper = true,
+                    Some("mask") => layers.mask = true,
+                    Some("silk") => layers.silk = true,
+                    _ => return Err("layers must be copper, mask or silk".into()),
+                }
+            }
+            let mesh = pcbcraft_io::board_mesh(&s.project, pcbcraft_io::MeshLayers::default())?;
+            let text = pcbcraft_io::solidcraft_board(&s.project, &mesh, layers)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("board.solidcraft"),
+                text.as_bytes(),
+            )?;
+            json!({"directory":directory,"file":"board.solidcraft","bytes":text.len()})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -1926,7 +2046,8 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             "the exchange document opens as XML"
         );
         assert!(
-            text.contains("<NET name=\"SIG\">") && text.contains("<PIN id=\"R1.1\"/>"),
+            text.contains("<LogicalNet name=\"SIG\">")
+                && text.contains("<PinRef componentRef=\"R1\" pin=\"1\"/>"),
             "the net lists the pins that share it"
         );
         assert_eq!(
@@ -2185,6 +2306,52 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             session.lock().map_err(|_| "session unavailable")?.inspect(),
             before,
             "writing a simulation netlist must not change the project"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn solidcraft_write_exports_a_project_without_editing_history() -> Result<(), String> {
+        let session = shared(Session::default());
+        for reference in ["R1", "R2"] {
+            call_tool(
+                &session,
+                "execute",
+                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
+            );
+        }
+        call_tool(
+            &session,
+            "execute",
+            &json!({"command":"board.sync","params":{}}),
+        );
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
+        let export = call_tool(
+            &session,
+            "solidcraft.write",
+            &json!({"path":directory.path(),"layers":["copper"]}),
+        );
+        assert_eq!(export.get("isError"), Some(&json!(false)));
+        let text = std::fs::read_to_string(directory.path().join("board.solidcraft"))
+            .map_err(|e| e.to_string())?;
+        let doc: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        assert_eq!(doc.get("format"), Some(&json!("solidcraft/22")));
+        assert!(text.contains("\"Board\"") && text.contains("\"R1\"") && text.contains("\"R2\""));
+        assert!(text.contains("Copper top"));
+        if let Ok(copy) = std::env::var("PCBCRAFT_SOLIDCRAFT_FIXTURE") {
+            std::fs::write(copy, &text).map_err(|e| e.to_string())?;
+        }
+        let bad = call_tool(
+            &session,
+            "solidcraft.write",
+            &json!({"path":directory.path(),"layers":["wings"]}),
+        );
+        assert_eq!(bad.get("isError"), Some(&json!(true)));
+        assert_eq!(
+            session.lock().map_err(|_| "session unavailable")?.inspect(),
+            before,
+            "an export never edits the project"
         );
         Ok(())
     }
@@ -2662,15 +2829,15 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             std::fs::read_to_string(directory.path().join("bom.csv")).map_err(|e| e.to_string())?;
         assert_eq!(
             text.lines().next(),
-            Some("quantity,references,value,kind,footprint,Tolerance"),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity,Tolerance"),
             "the requested property becomes a column"
         );
         assert!(
-            text.contains("1,R2,10k,resistor,starter pads,"),
+            text.contains("R2,10k,starter pads,,,1,"),
             "a part with no property value gets an empty column"
         );
         assert!(
-            text.contains("1,R1,10k,resistor,starter pads,1%"),
+            text.contains("R1,10k,starter pads,,,1,1%"),
             "the property column carries the set value"
         );
         let bare = call_tool(&session, "bom.write", &json!({"path":directory.path()}));
@@ -2679,7 +2846,7 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
             std::fs::read_to_string(directory.path().join("bom.csv")).map_err(|e| e.to_string())?;
         assert_eq!(
             plain.lines().next(),
-            Some("quantity,references,value,kind,footprint"),
+            Some("Reference,Value,Footprint,MPN,Manufacturer,Quantity"),
             "fields are optional"
         );
         assert_eq!(
@@ -2868,6 +3035,45 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
         assert!(locked.project.components.is_empty());
         Ok(())
     }
+    fn output_schema_for(name: &str) -> Result<Value, String> {
+        tool_list()["tools"]
+            .as_array()
+            .and_then(|list| {
+                list.iter()
+                    .find(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+            })
+            .and_then(|tool| tool.get("outputSchema").cloned())
+            .ok_or_else(|| format!("{name} has no outputSchema"))
+    }
+
+    #[test]
+    fn inspect_design_result_validates_against_its_output_schema() -> Result<(), String> {
+        let session = shared(Session::default());
+        let reply = call_tool(&session, "inspect_design", &json!({}));
+        assert_eq!(reply.get("isError"), Some(&json!(false)), "{reply}");
+        let content = reply
+            .get("structuredContent")
+            .ok_or("missing structuredContent")?;
+        validate_schema(
+            content,
+            &output_schema_for("inspect_design")?,
+            "structuredContent",
+        )?;
+        Ok(())
+    }
+
+    #[test]
+    fn checks_result_validates_against_its_output_schema() -> Result<(), String> {
+        let session = shared(Session::default());
+        let reply = call_tool(&session, "checks", &json!({}));
+        assert_eq!(reply.get("isError"), Some(&json!(false)), "{reply}");
+        let content = reply
+            .get("structuredContent")
+            .ok_or("missing structuredContent")?;
+        validate_schema(content, &output_schema_for("checks")?, "structuredContent")?;
+        Ok(())
+    }
+
     #[test]
     fn schemas_reject_bad_arguments_before_mutation() {
         let session = shared(Session::default());
@@ -3055,6 +3261,44 @@ fn every_listed_tool_name_is_unique() -> Result<(), String> {
                 .and_then(Value::as_str)
                 .is_some_and(|p| !p.is_empty())
         );
+        Ok(())
+    }
+
+    #[test]
+    fn hub_document_dirty_flag_clears_after_successful_save() -> Result<(), String> {
+        let hub = DocumentHub::new(Session::default(), None)?;
+        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = directory.path().join("dirty.pcbcraft");
+        pcbcraft_io::save(&Session::default().project, &path)?;
+        assert_eq!(
+            hub.call_tool("open", &json!({"path": path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let dirty = |listed: &Value| {
+            listed
+                .pointer("/structuredContent/documents/0/dirty")
+                .and_then(Value::as_bool)
+        };
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(false), "{listed}");
+        assert_eq!(
+            hub.call_tool(
+                "execute",
+                &json!({"command":"net.create","params":{"name":"DIRTY"}}),
+            )
+            .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(true), "{listed}");
+        assert_eq!(
+            hub.call_tool("save", &json!({"path": path.to_string_lossy()}))
+                .get("isError"),
+            Some(&json!(false))
+        );
+        let listed = hub.call_tool("design.list_open", &json!({}));
+        assert_eq!(dirty(&listed), Some(false), "{listed}");
         Ok(())
     }
 

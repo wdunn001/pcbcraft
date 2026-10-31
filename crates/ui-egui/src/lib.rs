@@ -90,6 +90,7 @@ mod pages;
 mod palette;
 mod plot_viewer;
 mod pour_panel;
+mod project_settings;
 mod properties;
 mod reference_panel;
 mod route_drag;
@@ -141,6 +142,7 @@ mod tour;
 pub mod ui_kit;
 mod via_covering;
 mod via_span;
+mod wall_clock;
 mod workspace;
 use crate::a11y::Named;
 use egui::{Align2, Color32, FontId, Rect, Stroke, Vec2};
@@ -1271,6 +1273,8 @@ pub struct App {
     stack_kind: String,
     stack_thickness: f64,
     stack_edit: Option<(String, String, f64)>,
+    /// The File > Project settings dialog.
+    project_settings: project_settings::State,
     /// Optional workspace tabs the user closed; the + menu reopens them.
     closed_tabs: Vec<Tab>,
     notes_thick: f64,
@@ -2045,6 +2049,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             stack_kind: "core".to_owned(),
             stack_thickness: 1.2,
             stack_edit: None,
+            project_settings: Default::default(),
             closed_tabs: Vec::new(),
             notes_thick: 1.6,
             notes_er: 4.4,
@@ -3721,7 +3726,14 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 ui.close();
             }
             if ui
-.button(t!("menu.file.save_as"))
+.button(t!("menu.file.compare"))
+                .on_hover_text(t!("menu.file.compare.tip"))
+                .clicked()
+            {
+                self.compare_open = true;
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
@@ -3729,13 +3741,11 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                 ui.close();
             }
             if ui
-.button(t!("menu.file.save_as"))
-                .on_hover_text(t!("menu.file.save_as.tip"))
+                .on_hover_text(t!("menu.file.compare.tip"))
                 .clicked()
             {
-                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
-                ui.close();
-            }
+                self.compare_open = true;
+}
             if ui
                 .button(t!("menu.file.compare"))
                 .on_hover_text(t!("menu.file.compare.tip"))
@@ -3743,16 +3753,33 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
             {
                 self.compare_open = true;
             }
-            }
-            ui.separator();
-            self.import_submenu(ui);
-            self.export_submenu(ui);
             if ui
                 .button(t!("menu.file.save_as"))
                 .on_hover_text(t!("menu.file.save_as.tip"))
                 .clicked()
             {
                 self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+            }
+            if ui
+                .button(t!("menu.file.save_as"))
+                .on_hover_text(t!("menu.file.save_as.tip"))
+                .clicked()
+            {
+                self.open_dialog(file_dialogs::Mode::SaveAs, None, None, vec![]);
+                ui.close();
+            }
+            if ui
+                .button(t!("menu.file.project_settings"))
+                .on_hover_text(t!("menu.file.project_settings.tip"))
+                .clicked()
+            {
+                self.open_project_settings(project_settings::TAB_BOARD);
+            }
                 ui.close();
             }
             ui.separator();
@@ -4486,6 +4513,7 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
                         let r = PinRef {
                             component: comp.id,
                             pin: pin.number.clone(),
+                            unit: None,
                         };
                         if pin.net == Some(net.id) {
                             members.push((label, r));
@@ -7529,6 +7557,10 @@ app.recovery_open = app.capture.is_none() && !app.recovery_offer.is_empty();
         brand::about_window(ui, &mut self.about_open, about_muted);
         self.array_window(ui.ctx());
         self.file_dialog_window(ui.ctx());
+self.project_settings_window(ui.ctx());
+        brand::about_window(ui, &mut self.about_open, about_muted);
+        self.array_window(ui.ctx());
+        self.file_dialog_window(ui.ctx());
         if self.shortcuts_open {
             let muted = self.muted();
             egui::Window::new(t!("board.footer.keyboard_shortcuts"))
@@ -9180,6 +9212,7 @@ mod tests {
                 Tool::Wire(Some(PinRef {
                     component: 1,
                     pin: "1".into(),
+                    unit: None,
                 })),
                 "second pin",
             ),

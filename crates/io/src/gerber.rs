@@ -407,7 +407,7 @@ fn footprint_margin(p: &Project, f: &Footprint, mask: bool) -> Option<f64> {
 }
 
 /// Whether a pad carries copper on the requested side.
-fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
+pub(crate) fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
     let (front, back, _) = pad_sides(fp, pad);
     match layer {
         Layer::Back => back,
@@ -419,7 +419,7 @@ fn pad_on_side(fp: &Footprint, pad: &Pad, layer: Layer) -> bool {
 
 /// Whether a pad is surface mounted, and so takes paste. Pads with a drill and
 /// legacy pads that carry only a diameter are through-hole and are skipped.
-fn pad_is_smd(pad: &Pad) -> bool {
+pub(crate) fn pad_is_smd(pad: &Pad) -> bool {
     match &pad.geometry {
         None => false,
         Some(g) => {
@@ -539,8 +539,23 @@ let top = layer == Layer::Front;
 /// `DEFAULT_PASTE_MARGIN` when unset. A negative margin shrinks the opening, as
 /// the library rule documents. Through-hole pads get no paste.
 pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
+    gerber_paste_layer(p, layer, true, false)
+}
+
+/// Paste layer for a laser-cut stencil order: board coordinates without mirroring
+/// the bottom side, and fiducials on that side as their own apertures.
+pub fn gerber_paste_stencil(p: &Project, layer: Layer) -> Result<String, String> {
+    gerber_paste_layer(p, layer, false, true)
+}
+
+fn gerber_paste_layer(
+    p: &Project,
+    layer: Layer,
+    mirror_bottom: bool,
+    include_fiducials: bool,
+) -> Result<String, String> {
     p.validate()?;
-    let mirror_x = layer == Layer::Back;
+    let mirror_x = mirror_bottom && layer == Layer::Back;
     let mut sheet = Sheet::new(file_scale(p));
     for f in &p.board.footprints {
         let margin = footprint_margin(p, f, false).unwrap_or(DEFAULT_PASTE_MARGIN);
@@ -553,7 +568,24 @@ pub fn gerber_paste(p: &Project, layer: Layer) -> Result<String, String> {
             };
             let opening = pad_opening(f, pad, margin, mirror_x)?;
             let code = sheet.define(opening, "SMDPad,CuDef")?;
-            sheet.flash(code, mirror(at, layer))?;
+            let at = if mirror_bottom {
+                mirror(at, layer)
+            } else {
+                at
+            };
+            sheet.flash(code, at)?;
+        }
+    }
+    if include_fiducials {
+        for fid in p.board.fiducials.iter().filter(|f| f.layer == layer) {
+            let diameter = fid.diameter.max(0.001);
+            let code = sheet.define(Opening::Circle(microns(diameter)), "FiducialMark")?;
+            let at = if mirror_bottom {
+                mirror(fid.position, layer)
+            } else {
+                fid.position
+            };
+            sheet.flash(code, at)?;
         }
     }
     let (function, comment) = match layer {
@@ -874,6 +906,7 @@ mod tests {
                 electrical_type: "passive".into(),
                 direction: Some(0.0),
                 unit: 1,
+                appearances: vec![],
             })
             .collect()
     }
@@ -890,6 +923,8 @@ mod tests {
         Component {
             sourcing: Default::default(),
             sheet: 0,
+            instance: None,
+            prototype: None,
             id,
             reference: reference.into(),
             value: "1k".into(),
@@ -911,6 +946,7 @@ mod tests {
                     rules,
                     raw_source: String::new(),
                     unsupported: vec![],
+                    retained: vec![],
                 },
             }),
             fields: vec![],

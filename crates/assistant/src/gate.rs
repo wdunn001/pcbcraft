@@ -89,6 +89,7 @@ const READS: &[&str] = &[
     "library.inspect_symbol",
     "library.inspect_footprint",
     "library.sources",
+    "library.read_part_sidecar",
     "library.compare",
     "library.samtec.manufacturer_page",
     "design.recents",
@@ -103,6 +104,7 @@ const SESSION_ACTIONS: &[&str] = &[
     "sample_design",
     "library.add_folder",
     "library.remove_folder",
+    "library.set_source_role",
     "library.save",
 ];
 /// Parameter names that always hold a file or folder.
@@ -162,6 +164,15 @@ fn params_touch_files(params: &Value) -> bool {
         (FILE_KEYS.contains(&k.as_str()) && v.is_string())
             || (AMBIGUOUS_KEYS.contains(&k.as_str()) && v.as_str().is_some_and(reads_like_a_file))
     })
+}
+
+/// True when an engine command writes symbol, footprint and sidecar files on disk.
+fn command_writes_folder_library(command: &str, params: &Value) -> bool {
+    command == "part.save"
+        && params
+            .get("target")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t == "personal" || t == "shared")
 }
 
 fn commands_of(tool: &str, args: &Value) -> Vec<Value> {
@@ -225,7 +236,10 @@ pub fn request(
     let files = is_file_tool(tool)
         || commands_of(tool, args).iter().any(|c| {
             let name = c.get("command").and_then(Value::as_str).unwrap_or("");
-            is_file_tool(name) || c.get("params").is_some_and(params_touch_files)
+            is_file_tool(name)
+                || c.get("params").is_some_and(|p| {
+                    params_touch_files(p) || command_writes_folder_library(name, p)
+                })
         })
         || (!matches!(tool, "execute" | "batch") && params_touch_files(args));
     if files {

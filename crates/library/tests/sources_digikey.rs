@@ -147,7 +147,8 @@ fn digikey_token_is_refreshed_before_it_expires() -> Result<(), SourceError> {
             },
         ),
     ]));
-    let source = DigiKeySource::with_clock(http.clone(), keys().map_err(source_err)?, clock.clone());
+    let source =
+        DigiKeySource::with_clock(http.clone(), keys().map_err(source_err)?, clock.clone());
     source.search("RC0603FR-0710KL")?;
     clock.advance(601);
     source.search("RC0603FR-0710KL")?;

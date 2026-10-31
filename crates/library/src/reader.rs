@@ -34,6 +34,42 @@ const MM_PER_INCH: f64 = 25.4;
 fn invalid(message: impl Into<String>) -> Error {
     Error::Invalid(message.into())
 }
+const MAX_RETAINED_NODES: usize = 256;
+const MAX_RETAINED_NODE_BYTES: usize = 256 * 1024;
+
+fn push_retained(retained: &mut Vec<String>, source: &str, node: &Node) {
+    if retained.len() >= MAX_RETAINED_NODES {
+        return;
+    }
+    let snippet = source[node.span.clone()].to_owned();
+    if snippet.len() <= MAX_RETAINED_NODE_BYTES && !snippet.is_empty() {
+        retained.push(snippet);
+    }
+}
+
+fn note_symbol_unknown(
+    symbol: &mut SymbolDefinition,
+    source: &str,
+    node: Option<&Node>,
+    message: String,
+) {
+    symbol.unsupported.push(message);
+    if let Some(node) = node {
+        push_retained(&mut symbol.retained, source, node);
+    }
+}
+
+fn note_footprint_unknown(
+    footprint: &mut FootprintDefinition,
+    source: &str,
+    node: Option<&Node>,
+    message: String,
+) {
+    footprint.unsupported.push(message);
+    if let Some(node) = node {
+        push_retained(&mut footprint.retained, source, node);
+    }
+}
 fn num(s: &str) -> Result<f64, Error> {
     let n = s
         .parse::<f64>()
@@ -247,6 +283,7 @@ fn resolve(
             extends: None,
             raw_source: String::new(),
             unsupported: Vec::new(),
+            retained: Vec::new(),
         }
     };
     s.name = name.to_owned();
@@ -311,8 +348,12 @@ fn resolve(
                         primitive,
                     });
                 } else if part.atom.is_none() {
-                    s.unsupported
-                        .push(format!("symbol unit expression {}", part.name()));
+                    note_symbol_unknown(
+                        &mut s,
+                        source,
+                        Some(part),
+                        format!("symbol unit expression {}", part.name()),
+                    );
                 }
             }
         } else if child.atom.is_none()
@@ -330,8 +371,12 @@ fn resolve(
                     | "embedded_fonts"
             )
         {
-            s.unsupported
-                .push(format!("symbol expression {}", child.name()));
+            note_symbol_unknown(
+                &mut s,
+                source,
+                Some(child),
+                format!("symbol expression {}", child.name()),
+            );
         }
     }
     if node.field("embedded_fonts") == "yes" {
@@ -416,6 +461,7 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
         rules: None,
         raw_source: source[node.span.clone()].to_owned(),
         unsupported: Vec::new(),
+        retained: Vec::new(),
     };
     for child in &node.children {
         if child.name() == "point" {
@@ -546,11 +592,16 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                 };
                 let scale = triple(child.child("scale"), [1.0; 3])?;
                 let rotate = triple(child.child("rotate"), [0.0; 3])?;
+                let cad_part = child
+                    .child("cad_part")
+                    .map(|n| n.value(1).to_owned())
+                    .filter(|s| !s.is_empty());
                 s.model = Some(Model3D {
                     path: child.value(1).to_owned(),
                     offset,
                     scale,
                     rotate,
+                    cad_part,
                     raw_source: source[child.span.clone()].to_owned(),
                 });
             }
@@ -587,8 +638,12 @@ pub fn read_footprint(source: &str) -> Result<FootprintDefinition, Error> {
                     | "embedded_fonts"
             )
         {
-            s.unsupported
-                .push(format!("footprint expression {}", child.name()));
+            note_footprint_unknown(
+                &mut s,
+                source,
+                Some(child),
+                format!("footprint expression {}", child.name()),
+            );
         }
     }
     s.validate()?;

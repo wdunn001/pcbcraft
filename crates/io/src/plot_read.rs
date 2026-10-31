@@ -705,6 +705,98 @@ pub fn parse_excellon_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotD
     Ok((tool_list, hits))
 }
 
+/// Parse an XNC drill file from the native export path (two-digit tools, rout slots).
+pub fn parse_xnc_drill(text: &str) -> Result<(Vec<PlotDrillTool>, Vec<PlotDrillHit>), String> {
+    let inch = text.lines().any(|l| l.trim() == "INCH");
+    let scale = if inch { 25.4 } else { 1.0 };
+    let mut tools: BTreeMap<u32, f64> = BTreeMap::new();
+    let mut hits: Vec<PlotDrillHit> = Vec::new();
+    let mut current_tool = 1u32;
+    let mut in_header = false;
+    let mut pending_slot_start: Option<(f64, f64)> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line == "M48" {
+            in_header = true;
+            continue;
+        }
+        if line == "%" {
+            in_header = false;
+            continue;
+        }
+        if in_header {
+            if let Some(rest) = line.strip_prefix('T')
+                && let Some((num, diam)) = rest.split_once('C')
+                && let Ok(n) = num.parse::<u32>()
+                && let Ok(d) = diam.parse::<f64>()
+            {
+                tools.insert(n, d * scale);
+            }
+            continue;
+        }
+        if line == "M15" || line == "M16" {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('T')
+            && let Ok(n) = rest.parse::<u32>()
+        {
+            current_tool = n;
+            continue;
+        }
+        if let Some(coords) = line.strip_prefix("G00") {
+            pending_slot_start = parse_coord_pair(coords).map(|(x, y)| inch_to_mm(inch, x, y));
+            continue;
+        }
+        if let Some(coords) = line.strip_prefix("G01") {
+            let Some((sx, sy)) = pending_slot_start.take() else {
+                return Err("rout slot missing a G00 start".into());
+            };
+            let Some((ex, ey)) = parse_coord_pair(coords) else {
+                return Err("rout slot end has no coordinates".into());
+            };
+            let (ex, ey) = inch_to_mm(inch, ex, ey);
+            if hits.len() >= MAX_HITS {
+                return Err("drill file exceeds the hit limit".into());
+            }
+            hits.push(PlotDrillHit {
+                tool: current_tool,
+                x_mm: sx,
+                y_mm: sy,
+                slot_end: Some((ex, ey)),
+            });
+            continue;
+        }
+        if line.starts_with('X') {
+            if hits.len() >= MAX_HITS {
+                return Err("drill file exceeds the hit limit".into());
+            }
+            if let Some((x, y)) = parse_coord_pair(line) {
+                let (x_mm, y_mm) = inch_to_mm(inch, x, y);
+                hits.push(PlotDrillHit {
+                    tool: current_tool,
+                    x_mm,
+                    y_mm,
+                    slot_end: None,
+                });
+            }
+        }
+    }
+    let mut tool_list: Vec<PlotDrillTool> = tools
+        .iter()
+        .map(|(n, d)| PlotDrillTool {
+            number: *n,
+            diameter_mm: *d,
+            plated: None,
+            hit_count: hits.iter().filter(|h| h.tool == *n).count(),
+        })
+        .collect();
+    tool_list.sort_by_key(|t| t.number);
+    Ok((tool_list, hits))
+}
+
 fn is_plot_name_ext(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     lower.ends_with(".gbr") || lower.ends_with(".drl")

@@ -895,9 +895,12 @@ impl App {
         let args = json!({"filter": filter, "limit": PAGE});
         let project = self.project.clone();
         let roots = self.dock.roots.clone();
+        let config = self.user_config();
         let reply = spawn_read(ctx, move || match roots {
-            Some(roots) => pcbcraft_engine::library::list_over(&args, Some(&project), roots),
-            None => pcbcraft_engine::library::list_with_project(&args, Some(&project)),
+            Some(roots) => {
+                pcbcraft_engine::library::list_over(&config, &args, Some(&project), roots)
+            }
+            None => pcbcraft_engine::library::list_with_project(&config, &args, Some(&project)),
         });
         self.dock.inflight.push((seq, reply));
         while self.dock.inflight.len() > MAX_INFLIGHT {
@@ -1126,8 +1129,10 @@ impl App {
                 let key = format!("installed/{}/{}", i.path, i.name);
                 if !self.dock.drawings.contains_key(&key) && self.dock.drawing_request.is_none() {
                     let (path, name) = (i.path.clone(), i.name.clone());
+                    let config = self.user_config();
                     let reply = spawn_read(ui.ctx(), move || {
                         pcbcraft_engine::library::read_tool(
+                            &config,
                             "library.inspect_symbol",
                             &json!({"path": path, "name": name}),
                         )
@@ -1251,12 +1256,13 @@ impl App {
                 } else {
                     if self.dock.footprint_request.is_none() {
                         let (want, roots) = (package.clone(), self.dock.roots.clone());
+                        let config = self.user_config();
                         let reply = spawn_read(ctx, move || {
                             match roots {
-                                Some(roots) => {
-                                    pcbcraft_engine::library::resolve_footprint_over(roots, &want)
-                                }
-                                None => pcbcraft_engine::library::resolve_footprint(&want),
+                                Some(roots) => pcbcraft_engine::library::resolve_footprint_over(
+                                    &config, roots, &want,
+                                ),
+                                None => pcbcraft_engine::library::resolve_footprint(&config, &want),
                             }
                             .and_then(|d| serde_json::to_value(d).map_err(|e| e.to_string()))
                         });
@@ -1862,8 +1868,10 @@ impl App {
             Card::Installed(i) => {
                 let (path, name) = (i.path.clone(), i.name.clone());
                 let (p, n) = (path.clone(), name.clone());
+                let config = self.user_config();
                 let reply = spawn_read(ui.ctx(), move || {
                     pcbcraft_engine::library::read_tool(
+                        &config,
                         "library.inspect_symbol",
                         &json!({"path": p, "name": n}),
                     )
@@ -2086,8 +2094,10 @@ impl App {
             name = name,
             library = library
         );
+        let config = self.user_config();
         let reply = spawn_read(ctx, move || {
             let read = pcbcraft_engine::library::read_tool(
+                &config,
                 "library.inspect_symbol",
                 &json!({"path": path, "name": name}),
             )?;
@@ -2099,10 +2109,12 @@ impl App {
                 Value::Null
             } else {
                 match roots {
-                    Some(roots) => {
-                        pcbcraft_engine::library::resolve_footprint_over(roots, package.trim())
-                    }
-                    None => pcbcraft_engine::library::resolve_footprint(package.trim()),
+                    Some(roots) => pcbcraft_engine::library::resolve_footprint_over(
+                        &config,
+                        roots,
+                        package.trim(),
+                    ),
+                    None => pcbcraft_engine::library::resolve_footprint(&config, package.trim()),
                 }
                 .ok()
                 .and_then(|d| serde_json::to_value(d).ok())

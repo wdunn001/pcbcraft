@@ -118,6 +118,19 @@ pub fn format_generate_payload(output: &GeneratedOutput) -> Value {
                 .collect();
             json!({ "files": files })
         }
+        GeneratedOutput::BinaryFiles(map) => {
+            let files: Vec<Value> = map
+                .iter()
+                .map(|(name, body)| {
+                    json!({
+                        "name": name,
+                        "encoding": "base64",
+                        "payload": base64::engine::general_purpose::STANDARD.encode(body),
+                    })
+                })
+                .collect();
+            json!({ "files": files })
+        }
     }
 }
 

@@ -1,9 +1,14 @@
 //! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
+pub mod connector_partnumber;
+pub mod credentials;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod digikey;
+pub mod datasheet;
+//! Bounded KiCad library readers. Geometry is millimetres in screen (y-down) coordinates.
 pub mod cad;
 pub mod cad_cache;
-pub mod connector_partnumber;
 pub mod datasheet;
 pub mod datasheet_annotations;
 pub mod connector_catalog;
@@ -14,8 +19,11 @@ pub use connector_partnumber::{
 };
 mod footprint_check;
 mod footprint_generate;
+pub mod model_transform;
 mod footprint_pad_outline;
+pub mod firmware_design;
 pub mod listing;
+pub mod mcu;
 pub mod listing_adapters;
 pub mod listing_search;
 pub mod online_import;
@@ -27,8 +35,23 @@ mod reader;
 pub mod samtec;
 mod sexpr;
 pub mod credentials;
+mod footprint_check;
+mod footprint_generate;
+mod footprint_pad_outline;
 pub mod http_client;
+pub mod listing;
+pub mod listing_adapters;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mouser;
+pub mod part_fields;
+pub mod online_import;
+pub mod open_library;
+pub mod part_sidecar;
+mod paths;
 pub mod rate_limit;
+mod reader;
+pub mod samtec;
+mod sexpr;
 pub mod source_log;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod digikey;
@@ -47,6 +70,19 @@ mod source_sign;
 pub mod sources;
 mod symbol_check;
 mod validation;
+pub mod element14;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod lcsc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod jlcpcb;
+pub mod source_errors;
+pub mod source_hosts;
+#[cfg(not(target_arch = "wasm32"))]
+mod source_sign;
+pub mod sources;
+mod symbol_check;
+mod validation;
+mod wall_clock;
 pub use footprint_check::{
     FindingSeverity, FootprintFinding, check_footprint, courtyard_half_extents,
 };
@@ -57,6 +93,24 @@ pub use part_validation::{
 pub use pin_pad_map::{
     PadRole, PinPadFinding, PinPadMap, PinPadRow, auto_fill, footprint_pad_labels, pad_label,
     validate_pin_pad_map,
+};
+pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
+pub use datasheet::{
+    DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
+    accept_datasheet_url, content_sha256, is_pdf, DEFAULT_CACHE_CAP_BYTES, MAX_PDF_BYTES,
+    MAX_REDIRECTS, MAX_URL_BYTES,
+};
+pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_footprint};
+pub use part_sidecar::{
+    PART_SIDECAR_EXTENSION, PART_SIDECAR_FORMAT, PART_SIDECAR_VERSION, PartAlternate,
+    PartProvenance, PartSidecar, PartSidecarField, read_part_sidecar, sidecar_path_in_folder,
+    write_part_sidecar,
+};
+use pcbcraft_geom::Point;
+pub use reader::{read_footprint, read_specctra_session, read_symbols};
+use serde::{Deserialize, Serialize};
+pub use sexpr::{Error, Limits};
+pub use symbol_check::check_symbol;
 pub use footprint_check::{FindingSeverity, FootprintFinding, check_footprint};
 pub use datasheet::{
     DatasheetCache, DatasheetError, DatasheetTransport, FetchAnswer, ProjectDatasheetRef,
@@ -67,9 +121,17 @@ pub use footprint_generate::{LandPatternDensity, LandPatternParams, generate_foo
 use pcbcraft_geom::Point;
 pub use reader::{read_footprint, read_specctra_session, read_symbols};
 use serde::{Deserialize, Serialize};
-pub use sexpr::{Error, Limits};
+pub use sexpr::{Error, Limits, Node, parse as parse_sexpr, parse_limits as parse_sexpr_limits};
 pub use symbol_check::check_symbol;
+pub use model_transform::{
+    model_mirror_y, model_pin1_cycle, model_rotate_z_90, normalize_degrees,
+    refresh_model_raw_source,
+};
 pub use validation::custom_polygon_error;
+pub use part_fields::{
+    DESCRIPTION, MANUFACTURER, MPN, PARTS_TABLE_SUGGESTED_KEYS, STANDARD_SOURCING_KEYS,
+    SUPPLIER_KEY_PREFIX, SUPPLIERS, is_standard_sourcing_key,
+};
 
 /// A schematic symbol definition parsed from the interchange format.
 ///
@@ -102,6 +164,9 @@ pub struct SymbolDefinition {
     pub extends: Option<String>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 /// A single pin of a schematic symbol.
 ///
@@ -453,6 +518,9 @@ pub struct FootprintDefinition {
     pub rules: Option<FootprintRules>,
     pub raw_source: String,
     pub unsupported: Vec<String>,
+    /// Unknown S-expression snippets from the source file, re-emitted on export.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<String>,
 }
 /// Per-footprint design rule overrides. Each value is a millimetre amount;
 /// a negative margin shrinks the paste or mask opening.
@@ -501,6 +569,9 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a SolidCraft project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {

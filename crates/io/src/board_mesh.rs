@@ -985,35 +985,35 @@ pub fn apply_matrix(m: &[f64; 16], p: [f64; 3]) -> [f64; 3] {
         m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
     ]
 }
-fn diag(x: f64, y: f64, z: f64) -> [f64; 16] {
+pub(crate) fn diag(x: f64, y: f64, z: f64) -> [f64; 16] {
     [
         x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, 0.0, 0.0, z, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn translate(x: f64, y: f64, z: f64) -> [f64; 16] {
+pub(crate) fn translate(x: f64, y: f64, z: f64) -> [f64; 16] {
     [
         1.0, 0.0, 0.0, x, 0.0, 1.0, 0.0, y, 0.0, 0.0, 1.0, z, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_x(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_x(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         1.0, 0.0, 0.0, 0.0, 0.0, c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_y(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_y(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         c, 0.0, s, 0.0, 0.0, 1.0, 0.0, 0.0, -s, 0.0, c, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn rot_z(degrees: f64) -> [f64; 16] {
+pub(crate) fn rot_z(degrees: f64) -> [f64; 16] {
     let (s, c) = degrees.to_radians().sin_cos();
     [
         c, -s, 0.0, 0.0, s, c, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
     ]
 }
-fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
+pub(crate) fn mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
     let mut out = [0.0; 16];
     for row in 0..4 {
         for col in 0..4 {
@@ -1046,6 +1046,15 @@ fn parse_height(text: &str) -> Option<f64> {
 
 /// Build the whole mesh for a validated project.
 pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> {
+    board_mesh_with_dir(p, layers, None)
+}
+
+/// Like [`board_mesh`], with `design_dir` used to resolve relative model paths.
+pub fn board_mesh_with_dir(
+    p: &Project,
+    layers: MeshLayers,
+    design_dir: Option<&std::path::Path>,
+) -> Result<BoardMesh, String> {
     p.validate()?;
     let thickness = p.board.thickness;
     let mut budget = Budget { triangles: 0 };
@@ -1357,8 +1366,24 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 .and_then(|c| c.library_footprint.as_ref())
                 .and_then(|l| l.definition.model.as_ref())
             {
-                part.model = Some(ModelPlacement {
-                    path: model.path.clone(),
+part.model = Some(ModelPlacement {
+                    path: crate::model_resolve::resolve_model_path(
+                        p,
+                        &model.path,
+                        component
+                            .and_then(|c| c.library_footprint.as_ref())
+                            .map(|l| l.library.as_str()),
+                        design_dir,
+                    ),
+                    matrix: model_matrix(
+                        model,
+                        fp.position,
+                        fp.rotation,
+                        bottom,
+                        thickness,
+                    ),
+                    loaded: false,
+                });
                     matrix: model_matrix(
                         model,
                         fp.position,
@@ -1394,6 +1419,10 @@ pub fn board_mesh(p: &Project, layers: MeshLayers) -> Result<BoardMesh, String> 
                 parts.push(b.part);
             }
         }
+    }
+
+    if let Some(ref enc) = p.board.enclosure {
+        crate::solidcraft_enclosure::append_enclosure_parts(&mut parts, p, enc)?;
     }
 
     Ok(BoardMesh {
@@ -1699,6 +1728,7 @@ covering_scope: None,
             rules: None,
             raw_source: String::new(),
             unsupported: vec![],
+            retained: vec![],
         };
         p.components.push(Component {
             sourcing: Default::default(),
@@ -1718,6 +1748,7 @@ covering_scope: None,
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 })
                 .collect(),
             units: vec![],
@@ -1730,8 +1761,10 @@ covering_scope: None,
             include_in_bom: true,
             include_in_placement: true,
             sheet: 0,
-        sourcing: Default::default(),
-        compliance: Default::default(),
+instance: None,
+            prototype: None,
+            sourcing: Default::default(),
+            compliance: Default::default(),
         });
         p.board.footprints.push(footprint(pads));
         p
@@ -1770,6 +1803,7 @@ covering_scope: None,
             offset,
             scale: [scale; 3],
             rotate,
+            cad_part: None,
             raw_source: String::new(),
         }
     }
@@ -2035,6 +2069,26 @@ covering_scope: None,
         assert!(full["parts"][0].get("positions").is_some());
         assert!(summary["parts"][0].get("positions").is_none());
         assert_eq!(full["bounds"]["min"][0], 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn vertex_count_of_a_box_mesh_is_eight() -> Check {
+        let mesh = BoardMesh {
+            parts: vec![MeshPart {
+                kind: PartKind::Board,
+                name: "box".into(),
+                component: None,
+                family: None,
+                height_source: None,
+                model: None,
+                color: None,
+                positions: (0..8).map(|i| [i as f64, 0.0, 0.0]).collect(),
+                indices: vec![0, 1, 2, 0, 2, 3],
+            }],
+            warnings: vec![],
+        };
+        assert_eq!(mesh.vertex_count(), 8);
         Ok(())
     }
 }
