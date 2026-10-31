@@ -1,6 +1,7 @@
 {
   "format": "pcbcraft",
   "version": 1,
+  "layer_naming": "stackup",
   "name": "Dual amplifier · editable libraries",
   "unit": "mm",
   "components": [
@@ -8,7 +9,7 @@
       "id": 45,
       "reference": "U1",
       "value": "LM358",
-      "kind": "library",
+      "kind": "opamp",
       "position": {
         "x": 30.0,
         "y": 18.0

@@ -1,0 +1,51 @@
+{
+  "schema": "pcbcraft-sources/1",
+  "updated": "2026-10-30",
+  "note": "Directory of known part and library sources. It only lists sources; each source keeps its own licence and terms. Add yours with a pull request (see README.md).",
+  "sources": [
+    {
+      "id": "builtin-parts",
+      "name": "Built-in parts",
+      "kind": "builtin",
+      "url": "",
+      "licence": "MIT OR Apache-2.0",
+      "maintainer": "PCBCraft contributors",
+      "categories": ["passives", "diodes", "connectors"],
+      "trust": "builtin",
+      "description": "The small set of generic parts that ships inside the app."
+    },
+    {
+      "id": "open-library-symbols",
+      "name": "Open library: symbols",
+      "kind": "git",
+      "url": "https://gitlab.com/kicad/libraries/kicad-symbols",
+      "licence": "CC-BY-SA-4.0 with the library design-output exception",
+      "maintainer": "Open library community",
+      "categories": ["symbols"],
+      "trust": "reviewed",
+      "description": "Community symbol libraries, searched online and fetched on request, never bundled."
+    },
+    {
+      "id": "open-library-footprints",
+      "name": "Open library: footprints",
+      "kind": "git",
+      "url": "https://gitlab.com/kicad/libraries/kicad-footprints",
+      "licence": "CC-BY-SA-4.0 with the library design-output exception",
+      "maintainer": "Open library community",
+      "categories": ["footprints"],
+      "trust": "reviewed",
+      "description": "Community footprint libraries, searched online and fetched on request, never bundled."
+    },
+    {
+      "id": "open-library-3d",
+      "name": "Open library: 3D models",
+      "kind": "git",
+      "url": "https://gitlab.com/kicad/libraries/kicad-packages3D",
+      "licence": "CC-BY-SA-4.0 with the library design-output exception",
+      "maintainer": "Open library community",
+      "categories": ["3d-models"],
+      "trust": "reviewed",
+      "description": "Community 3D models, fetched per part on request, never bundled."
+    }
+  ]
+}
