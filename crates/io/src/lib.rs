@@ -19,6 +19,7 @@ mod fab_export;
 mod generate;
 mod layer_file;
 mod gerber;
+mod gerber_arc;
 mod gerber_job;
 mod idf;
 mod laser;
@@ -139,6 +140,9 @@ pub use gerber::{gerber_copper, gerber_silk};
 /// Gerber job file generation and zipping.
 /// # Dependencies
 /// - crates/io/src/gerber_job.rs
+pub use gerber_arc::{
+    GerberArcOptions, GerberArcReport, DEFAULT_MAX_DEVIATION_MM, validate_gerber_arc,
+};
 pub use gerber_job::{gerber_job, gerber_zip};
 /// Re-export of the RGBA image type from the image crate for use by callers.
 pub use image::RgbaImage;
@@ -2648,7 +2652,18 @@ pub fn gerber_files(p: &Project) -> Result<BTreeMap<String, String>, String> {
 /// job file records given by the caller. Directory exports and packages pin
 /// that date so two runs over the same design produce the same bytes.
 pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, String>, String> {
+    let opts = GerberArcOptions::default_for(p, &serde_json::Value::Null);
+    gerber_files_with_options(p, creation, opts).map(|(files, _report)| files)
+}
+
+/// Gerber fabrication bundle with arc policy and a sidecar arc report.
+pub fn gerber_files_with_options(
+    p: &Project,
+    creation: &str,
+    opts: GerberArcOptions,
+) -> Result<(BTreeMap<String, String>, GerberArcReport), String> {
     p.validate()?;
+    let mut report = GerberArcReport::default();
     const MAX_OPS: usize = 100_000;
     const MAX_APERTURES: usize = 64;
     // An inch project gets imperial fabrication files; coordinates are still
@@ -2729,6 +2744,41 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
                     y * self.scale
                 ));
             }
+            Ok(())
+        }
+        fn arc_stroke(
+            &mut self,
+            code: u32,
+            sx: f64,
+            sy: f64,
+            ex: f64,
+            ey: f64,
+            cx: f64,
+            cy: f64,
+            clockwise: bool,
+        ) -> Result<(), String> {
+            validate_gerber_arc(
+                Point::new(sx, sy),
+                Point::new(ex, ey),
+                Point::new(cx, cy),
+                clockwise,
+            )?;
+            self.ops += 1;
+            if self.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
+            }
+            self.body.push_str(&format!("D{code}D02*\n"));
+            self.body.push_str("G75*\n");
+            self.body.push_str(&format!(
+                "X{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\nG01*\n",
+                sx * self.scale,
+                sy * self.scale,
+                ex * self.scale,
+                ey * self.scale,
+                (cx - sx) * self.scale,
+                (cy - sy) * self.scale,
+                if clockwise { 2 } else { 3 }
+            ));
             Ok(())
         }
         fn fill(&mut self, code: u32, points: &[(f64, f64)]) -> Result<(), String> {
@@ -2834,10 +2884,6 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         let w = (t.width * 1_000.0).round() as u64;
         let code = file.code(Ap::Track(w.max(1)))?;
         if let Some(arc) = t.curve() {
-            file.ops += 1;
-            if file.ops > MAX_OPS {
-                return Err("gerber export exceeds the object limit".into());
-            }
             let (sx, sy) = mirror(t.start.x, t.start.y, is_back);
             let (ex, ey) = mirror(t.end.x, t.end.y, is_back);
             let (cx, cy) = mirror(arc.center.x, arc.center.y, is_back);
@@ -2846,16 +2892,18 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
             } else {
                 arc.sweep < 0.0
             };
-            file.body.push_str(&format!(
-                "D{code}D02*\nX{:.6}Y{:.6}D02*\nX{:.6}Y{:.6}I{:.6}J{:.6}G0{}*\n",
-                sx,
-                sy,
-                ex,
-                ey,
-                cx - sx,
-                cy - sy,
-                if clockwise { 2 } else { 3 }
-            ));
+            if opts.arcs {
+                file.arc_stroke(code, sx, sy, ex, ey, cx, cy, clockwise)?;
+                report.record_written();
+            } else {
+                let worst = gerber_arc::flatten_arc_worst(&arc, opts.max_deviation);
+                report.record_flattened(worst);
+                let points: Vec<(f64, f64)> = pcbcraft_doc::arc_polyline(&arc, opts.max_deviation)
+                    .into_iter()
+                    .map(|pt| mirror(pt.x, pt.y, is_back))
+                    .collect();
+                file.stroke(code, &points, false)?;
+            }
         } else {
             file.stroke(
                 code,
@@ -2940,19 +2988,80 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     }
     let mut outline = LayerFile::new(scale);
     let edge_code = outline.code(Ap::Circle(100))?;
-    outline.stroke(edge_code, &board_edge_points(p), true)?;
-    for c in &p.board.cutouts {
-        outline.ops += 1;
-        if outline.ops > MAX_OPS {
-            return Err("gerber export exceeds the object limit".into());
+    if let Some(points) = &p.board.outline {
+        if opts.arcs {
+            for i in 0..points.len() {
+                let a = points[i];
+                let b = points[(i + 1) % points.len()];
+                if let Some(arc) =
+                    pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i)
+                {
+                    let clockwise = arc.sweep < 0.0;
+                    outline.arc_stroke(
+                        edge_code,
+                        a.x,
+                        a.y,
+                        b.x,
+                        b.y,
+                        arc.center.x,
+                        arc.center.y,
+                        clockwise,
+                    )?;
+                    report.record_written();
+                } else {
+                    outline.stroke(edge_code, &[(a.x, a.y), (b.x, b.y)], false)?;
+                }
+            }
+        } else {
+            for i in 0..points.len() {
+                if let Some(arc) =
+                    pcbcraft_doc::segment_arc(points, &p.board.outline_arcs, i)
+                {
+                    let worst = gerber_arc::flatten_arc_worst(&arc, opts.max_deviation);
+                    report.record_flattened(worst);
+                }
+            }
+            let flat: Vec<(f64, f64)> = pcbcraft_doc::flatten_outline(
+                points,
+                &p.board.outline_arcs,
+                opts.max_deviation,
+            )
+            .into_iter()
+            .map(|pt| (pt.x, pt.y))
+            .collect();
+            outline.stroke(edge_code, &flat, true)?;
         }
-        outline.arcs.push_str(&format!(
-            "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
-            (c.center.x - c.radius) * scale,
-            c.center.y * scale,
-            c.radius * scale,
-            0.0
-        ));
+    } else {
+        outline.stroke(edge_code, &board_edge_points(p), true)?;
+    }
+    for c in &p.board.cutouts {
+        if opts.arcs {
+            outline.ops += 1;
+            if outline.ops > MAX_OPS {
+                return Err("gerber export exceeds the object limit".into());
+            }
+            outline.arcs.push_str(&format!(
+                "X{:.6}Y{:.6}D02*\nI{:.6}J{:.6}G02*\n",
+                (c.center.x - c.radius) * scale,
+                c.center.y * scale,
+                c.radius * scale,
+                0.0
+            ));
+            report.record_written();
+        } else {
+            let n = 32;
+            let ring: Vec<(f64, f64)> = (0..=n)
+                .map(|i| {
+                    let a = std::f64::consts::TAU * i as f64 / n as f64;
+                    (
+                        c.center.x + c.radius * a.cos(),
+                        c.center.y + c.radius * a.sin(),
+                    )
+                })
+                .collect();
+            outline.stroke(edge_code, &ring, false)?;
+            report.record_flattened(c.radius * (1.0 - (std::f64::consts::PI / n as f64).cos()));
+        }
     }
     let hits = project_drill_hits(p)?;
     let origin = p.board.drill_origin;
@@ -3026,6 +3135,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
     // last and never drifts from the package it travels in.
     let job = gerber_job::gerber_job_at(p, &files, creation)?;
     files.insert("pcb-job.gbrjob".into(), job);
+    files.insert("gerber-arc-report.txt".into(), report.to_text());
     let mut names: Vec<String> = files.keys().cloned().collect();
     names.push("README-fabrication.txt".into());
     names.sort();
@@ -3033,7 +3143,7 @@ pub fn gerber_files_at(p: &Project, creation: &str) -> Result<BTreeMap<String, S
         "README-fabrication.txt".into(),
         fab_export::fab_readme_text(p, &names)?,
     );
-    Ok(files)
+    Ok((files, report))
 }
 
 /// Gerber drill-map layer with one marker per tool and a legend table.
@@ -5227,6 +5337,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 ));
             }
         }
+        let arc_opts = GerberArcOptions::default_for(p, &serde_json::Value::Null);
         for t in &p.board.tracks {
             let color = if t.layer == pcbcraft_doc::Layer::Front {
                 "#f58d79"
@@ -5234,7 +5345,7 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                 "#74a7ec"
             };
             let d = match t.curve() {
-                Some(arc) => format!(
+                Some(arc) if arc_opts.arcs => format!(
                     "M {} {} A {:.6} {:.6} 0 {} {} {} {}",
                     t.start.x,
                     t.start.y,
@@ -5245,6 +5356,13 @@ pub fn svg(p: &Project, view: &str) -> Result<String, String> {
                     t.end.x,
                     t.end.y
                 ),
+                Some(arc) => {
+                    let line: Vec<String> = pcbcraft_doc::arc_polyline(&arc, arc_opts.max_deviation)
+                        .into_iter()
+                        .map(|pt| format!("L {} {}", pt.x, pt.y))
+                        .collect();
+                    format!("M {} {} {}", t.start.x, t.start.y, line.join(" "))
+                }
                 None => format!("M {} {} L {} {}", t.start.x, t.start.y, t.end.x, t.end.y),
             };
             s.push_str(&format!("<path d=\"{d}\" fill=\"none\" stroke=\"{color}\" stroke-width=\"{}\" stroke-linecap=\"round\"/>",t.width));
@@ -10674,6 +10792,96 @@ mod tests {
         );
         Ok(())
     }
+    #[test]
+    fn gerber_arc_policy_flattens_curved_tracks_when_arcs_are_off() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let opts = GerberArcOptions {
+            arcs: false,
+            max_deviation: 0.01,
+        };
+        let (files, report) =
+            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let copper = &files["pcb-F.Cu.gbr"];
+        assert!(
+            !copper.contains("G02*") && !copper.contains("G03*"),
+            "flattened copper uses straight draws only"
+        );
+        assert_eq!(report.arcs_written, 0);
+        assert_eq!(report.arcs_flattened, 1);
+        assert!(report.worst_deviation_mm <= 0.01);
+        Ok(())
+    }
+
+    #[test]
+    fn gerber_arc_policy_report_counts_written_arcs() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let opts = GerberArcOptions::default_for(&project, &serde_json::Value::Null);
+        let (files, report) =
+            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        let copper = &files["pcb-F.Cu.gbr"];
+        assert!(copper.contains("G75*") && copper.contains("G02*"));
+        assert_eq!(report.arcs_written, 1);
+        assert_eq!(report.arcs_flattened, 0);
+        assert!(files["gerber-arc-report.txt"].contains("arcs written: 1"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_exports_a_curved_board_and_reads_a_report_of_arcs_written() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "A".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        });
+        project.validate()?;
+        let opts = GerberArcOptions::default_for(&project, &serde_json::Value::Null);
+        let (files, report) =
+            gerber_files_with_options(&project, PACKAGE_CREATION_DATE, opts)?;
+        assert!(files["gerber-arc-report.txt"].contains("arcs written: 1"));
+        assert_eq!(report.arcs_written, 1);
+        Ok(())
+    }
+
     #[test]
     fn curved_tracks_export_as_true_arcs_in_every_format() -> Result<(), String> {
         let mut project = Project::default();
