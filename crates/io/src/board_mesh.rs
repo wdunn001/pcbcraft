@@ -56,6 +56,8 @@ pub enum PartKind {
     SilkTop,
     SilkBottom,
     Body,
+    /// Metal terminals of a part body: chip end caps, gull-wing leads, header pins.
+    Lead,
 }
 impl PartKind {
     pub fn name(self) -> &'static str {
@@ -68,6 +70,7 @@ impl PartKind {
             Self::SilkTop => "silk_top",
             Self::SilkBottom => "silk_bottom",
             Self::Body => "body",
+            Self::Lead => "lead",
         }
     }
 }
@@ -1015,10 +1018,16 @@ pub fn with_models(
                 part.family = Some("model".into());
                 part.color = m.color;
                 model.loaded = true;
+                loaded_ids.push(id);
                 notes.push((id, ModelStatus::Loaded));
             }
         }
     }
+    // A loaded model brings its own terminals and marks; drop the default ones.
+    mesh.parts.retain(|p| {
+        let detail = p.kind == PartKind::Lead || p.family.as_deref() == Some("mark");
+        !(detail && p.component.is_some_and(|c| loaded_ids.contains(&c)))
+    });
     notes
 }
 
@@ -1567,9 +1576,54 @@ part.model = Some(ModelPlacement {
                         extrude(&ring, body.height, body.height + DECAL_RAISE)?;
                     }
                 }
-            }
-            if !b.part.indices.is_empty() {
-                parts.push(b.part);
+                if !leads.part.indices.is_empty() {
+                    extra.push(leads.part);
+                }
+                if !body.pins.is_empty() {
+                    let mut pins = Builder {
+                        part: MeshPart::new(PartKind::Lead, format!("{name} pins")),
+                        budget: &mut budget,
+                    };
+                    pins.part.component = Some(fp.component);
+                    pins.part.color = Some(PIN_GOLD);
+                    for pin in &body.pins {
+                        if let Some(ring) = clean_ring(&map_ring(fp, pin)) {
+                            pins.prism(
+                                &ring,
+                                vec![],
+                                thickness + body.height,
+                                thickness + body.height + POST_HEIGHT,
+                                &mut warnings,
+                            )?;
+                        }
+                    }
+                    if !pins.part.indices.is_empty() {
+                        extra.push(pins.part);
+                    }
+                }
+                if let Some((centre, radius)) = details.mark {
+                    let mut dot = Builder {
+                        part: MeshPart::new(PartKind::Body, format!("{name} mark")),
+                        budget: &mut budget,
+                    };
+                    dot.part.component = Some(fp.component);
+                    dot.part.family = Some("mark".into());
+                    dot.part.color = Some([0.62, 0.63, 0.65]);
+                    if let Some(ring) = clean_ring(&map_ring(fp, &circle_ring(centre, radius))) {
+                        dot.prism(
+                            &ring,
+                            vec![],
+                            thickness + body.height,
+                            thickness + body.height + MARK_THICKNESS,
+                            &mut warnings,
+                        )?;
+                    }
+                    if !dot.part.indices.is_empty() {
+                        extra.push(dot.part);
+                    }
+                }
+                parts.push(body_part);
+                parts.extend(extra);
             }
         }
     }
