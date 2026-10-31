@@ -14,6 +14,7 @@ mod artifacts;
 mod authoring;
 pub mod compliance_lists;
 mod dry_run;
+mod gerber_export;
 mod images;
 pub mod design_document;
 pub mod library;
@@ -2561,6 +2562,33 @@ json!({"path":{"type":"string","minLength":1,"maxLength":4096},"job":{"type":"st
             "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
             schema(
                 json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
+&[],
+            ),
+        ),
+        (
+            "bom.export",
+            "Export a bill of materials: components grouped by value, kind, footprint and requested properties; with a variant name, that build's unpopulated parts are skipped and its footprint swaps printed",
+            schema(
+                json!({"fields":{"type":"array","items":{"type":"string"},"maxItems":16},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"},"ids":{"type":"array","items":id_schema(),"maxItems":4096,"description":"only these components; omit for every part"},"group":{"type":"boolean","default":true,"description":"false prints one row per part"}}),
+                &[],
+            ),
+        ),
+        (
+            "gerber.files",
+            "Write the fabrication files under a naming style and drill options, or list their names when no directory is given. Naming: project (pcb-F.Cu.gbr), plain (.gbr with the layer in the name), protel (.GTL, .GBL, .G2L). Drill files are split (plated and non-plated) or merged, in project, mm or inch units, with decimal points or zeros omitted",
+            schema(
+                json!({"naming":{"type":"string","enum":["project","plain","protel"],"default":"project"},"drill_files":{"type":"string","enum":["split","merged"],"default":"split"},"drill_units":{"type":"string","enum":["project","mm","inch"],"default":"project"},"zero_suppression":{"type":"string","enum":["decimal","leading","trailing"],"default":"decimal"},"integer_digits":{"type":"integer","minimum":1,"maximum":6},"decimal_digits":{"type":"integer","minimum":1,"maximum":6},"drill_map":{"type":"boolean","default":true},"job_file":{"type":"boolean","default":true},"readme":{"type":"boolean","default":true},"directory":{"type":"string","minLength":1,"description":"folder to write the files into; omit to list names only"}}),
+                &[],
+            ),
+        ),
+        (
+            "align.distribute",
+            "Align or evenly distribute components or board footprints along an axis, named by id or selected by reference/value/kind filter",
+            schema(
+                json!({"ids":{"type":"array","maxItems":128,"items":id_schema()},"filter":schema(json!({"reference":{"type":"string","description":"case-sensitive reference pattern, must contain * or ?","maxLength":64},"value":{"type":"string","maxLength":256},"kind":{"type":"string","maxLength":64}}),&[]),"mode":{"type":"string","enum":["left","center_x","right","top","center_y","bottom","distribute_x","distribute_y"]}}),
+                &["mode"],
+            ),
+        ),
                 &[],
             ),
         ),

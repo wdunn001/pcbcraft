@@ -540,6 +540,27 @@ impl App {
             return false;
         }
         match f.export {
+Some(Run::Engine("gerber.files")) => {
+                let mut params = gerber_params(f, d);
+                params["directory"] = json!(&directory);
+                let ok = self.tool_call("gerber.files", params);
+                if ok {
+                    self.message = format!("{} saved in {directory}.", f.label);
+                }
+                ok
+            }
+            Some(Run::Kind(kind)) => {
+                let job = format!("export-{kind}");
+                let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": [kind]}));
+                let ok = self.tool_call(
+                    "output_job.run",
+                    json!({"name": &job, "directory": &directory}),
+                );
+                if ok {
+                    self.message = format!("{} saved in {directory}.", f.label);
+                }
+                ok
+            }
             Some(Run::Kind(kind)) => {
                 let job = format!("export-{kind}");
                 let _ = self.tool_call("output_job.add", json!({"name": &job, "kinds": [kind]}));
@@ -898,6 +919,20 @@ Ok(table) => {
             }
         }
     }
+if f.id == "bom" && d.mode == Mode::Export {
+        ui.add_space(8.0);
+        let o = bom_export::Options::from_values(project, &d.values, &d.only);
+        match bom_export::table(project, &o) {
+            Ok(table) => preview_grid_limited(ui, &table),
+            Err(e) => {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+        }
+    }
+    if f.id == "gerbers" && d.mode == Mode::Export {
+        ui.add_space(8.0);
+        gerber_preview(ui, d, f, project);
+    }
     ui.add_space(10.0);
     let (label, tip) = match d.mode {
         Mode::Export if f.id == "bom" && browser => (
@@ -1235,4 +1270,73 @@ Some("export-flavour") => {
             script.wait = 0;
         }
     }
+}
+1 if script.wait >= 6 => "Export",
+            _ => return,
+        };
+        if let Some(pos) = script.rects.get(target).copied() {
+            raw.events.push(egui::Event::PointerMoved(pos));
+            raw.events.push(button(pos, true));
+            script.release = Some(pos);
+            script.step += 1;
+            script.wait = 0;
+        }
+    }
+}
+
+/// Command parameters from the option values of a format whose options all name a parameter.
+///
+/// # Rules
+/// - A choice sends its value, a checkbox sends a boolean; an option the person never
+///   touched sends its default.
+///
+/// # Dependencies
+/// - crates/io/src/formats.rs `OptionSpec`.
+///
+/// # Do not
+/// - Add a directory here; the caller owns where files go.
+fn gerber_params(f: &FormatSpec, d: &DialogState) -> serde_json::Value {
+    let mut params = json!({});
+    for o in f.options {
+        let Some(param) = o.param else { continue };
+        match o.kind {
+            OptionKind::Bool { default } => {
+                let on = d.values.get(o.label).map_or(default, |v| v == "true");
+                params[param] = json!(on);
+            }
+            OptionKind::Choice { choices, default } => {
+                let value = d
+                    .values
+                    .get(o.label)
+                    .cloned()
+                    .or_else(|| choices.get(default).map(|(v, _)| (*v).to_owned()));
+                if let Some(value) = value {
+                    params[param] = json!(value);
+                }
+            }
+            _ => {}
+        }
+    }
+    params
+}
+
+/// The file names the Export button would write, so the naming choice is visible first.
+fn gerber_preview(ui: &mut egui::Ui, d: &DialogState, f: &FormatSpec, project: &Project) {
+    use pcbcraft_io::gerber_preset::{NamingPreset, preview_names};
+    let params = gerber_params(f, d);
+    let preset = params["naming"]
+        .as_str()
+        .and_then(NamingPreset::from_id)
+        .unwrap_or_default();
+    let stem = pcbcraft_io::gerber_preset::file_stem(project);
+    ui.label("Preview");
+    let merged = params["drill_files"].as_str() == Some("merged");
+    let names = preview_names(preset, &stem, project.copper_layer_count(), merged);
+    egui::Frame::new()
+        .inner_margin(egui::Margin::same(8))
+        .show(ui, |ui| {
+            for name in names {
+                ui.label(name);
+            }
+        });
 }
