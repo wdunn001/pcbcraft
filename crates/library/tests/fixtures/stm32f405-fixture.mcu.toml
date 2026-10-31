@@ -1,0 +1,112 @@
+[provenance]
+source = "test-fixture"
+revision = "1"
+license = "MIT"
+date = "2026-01-01"
+
+[chip]
+id = "STM32F405"
+package = "LQFP64"
+
+[[pins]]
+name = "PA4"
+functions = ["SPI1_NSS", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PA5"
+functions = ["SPI1_SCK", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PA6"
+functions = ["SPI1_MISO", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PA7"
+functions = ["SPI1_MOSI", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PA9"
+functions = ["USART1_TX", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PA10"
+functions = ["USART1_RX", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PA3"
+functions = ["GPIO", "ADC123_IN3"]
+ft_5v = false
+analog_only = true
+
+[[pins]]
+name = "PB12"
+functions = ["SPI2_NSS", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PB13"
+functions = ["SPI2_SCK", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PB14"
+functions = ["SPI2_MISO", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PB15"
+functions = ["SPI2_MOSI", "GPIO"]
+ft_5v = false
+
+[[pins]]
+name = "PB0"
+functions = ["GPIO"]
+ft_5v = true
+
+[[pins]]
+name = "PB2"
+functions = ["BOOT1", "GPIO"]
+boot_level = "low"
+
+[[pins]]
+name = "PA13"
+functions = ["SWDIO", "GPIO"]
+debug = true
+
+[[pins]]
+name = "PA14"
+functions = ["SWCLK", "GPIO"]
+debug = true
+
+[[instances]]
+kind = "spi"
+id = "SPI1"
+signals = ["SPI1_SCK", "SPI1_MISO", "SPI1_MOSI", "SPI1_NSS"]
+
+[[instances]]
+kind = "spi"
+id = "SPI2"
+signals = ["SPI2_SCK", "SPI2_MISO", "SPI2_MOSI", "SPI2_NSS"]
+
+[[instances]]
+kind = "uart"
+id = "USART1"
+signals = ["USART1_TX", "USART1_RX"]
+
+[[instances]]
+kind = "timer"
+id = "TIM2"
+signals = ["TIM2_CH1", "TIM2_CH2"]
+dma = ["TIM2_UP"]
+
+[[instances]]
+kind = "timer"
+id = "TIM3"
+signals = ["TIM3_CH1", "TIM3_CH2"]
+dma = ["TIM3_UP"]
