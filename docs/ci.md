@@ -60,6 +60,11 @@ run policy and docs standard.
 | Build | `cargo build --locked` | Windows on every change, macOS also on main |
 | CI result | none | The one check to mark as required in branch protection |
 | Licenses and advisories | `cargo xtask deny` | `deny.toml`: GPL-3.0 compatible license allow list, RustSec advisories, yanked crates, unknown registries and git sources |
+| E2E and control coverage | `cargo xtask e2e` | Runs every `a_newcomer_*` story, walks every page of the UI, and fails with one line per control that has no tooltip, no story or no id (message names the id). Uploads `e2e-coverage` (report and logs). Exemptions: `e2e-exemptions.txt` |
+| UI screenshots | `cargo xtask screenshots` | Launches the real app under Xvfb with Mesa software Vulkan and captures views |
+| Visual gate | `cargo xtask visual-gate` | Compares current screenshots against baselines in `target/baselines`; fails on mismatch |
+| Build | `cargo build --locked` | Windows on every change, macOS also on main |
+| CI result | none | The one check to mark as required in branch protection |
 | Build | `cargo build --locked` | Windows on every ready pull request, macOS also on main and the merge queue |
 
 Speed and friendliness to stacked pull requests:
