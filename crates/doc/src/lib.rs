@@ -1483,6 +1483,17 @@ impl Footprint {
         self.position.offset(pad.offset.rotate(-self.rotation))
     }
 }
+/// Assembly side for a placed footprint: back when every SMD pad sits on back copper only.
+pub fn footprint_assembly_side(f: &Footprint) -> &'static str {
+    let back = f.pads.iter().any(|pad| {
+        pad.geometry.as_ref().is_some_and(|g| {
+            g.pad_type == "smd"
+                && !g.layers.is_empty()
+                && !g.layers.iter().any(|l| l.starts_with("F."))
+        })
+    });
+    if back { "back" } else { "front" }
+}
 /// Index of a copper layer: 0 is top, the highest index is bottom.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Layer(u8);
