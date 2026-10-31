@@ -21,6 +21,8 @@ pub(super) struct EditState {
     pub extra: Vec<Id>,
     /// The Import, Save as and Export dialog (see file_dialogs.rs).
     pub dialog: crate::file_dialogs::DialogState,
+pub filter: SelectionFilter,
+    pub dialog: crate::file_dialogs::DialogState,
     pub box_from: Option<Point>,
     pub box_to: Option<Point>,
     pub box_extend: bool,
@@ -52,11 +54,13 @@ pub(super) struct EditState {
 }
 
 /// Distance, dx, dy and angle between two points, as one plain sentence.
-pub(super) fn measure_text(a: Point, b: Point) -> String {
+/// The angle counts anticlockwise on screen: `up` is the board view, where
+/// world +y points up; the schematic runs y down and turns the sign.
+pub(super) fn measure_text(a: Point, b: Point, up: bool) -> String {
     let dx = b.x - a.x;
     let dy = b.y - a.y;
     let distance = (dx * dx + dy * dy).sqrt();
-    let angle = (-dy).atan2(dx).to_degrees();
+    let angle = (if up { dy } else { -dy }).atan2(dx).to_degrees();
     format!("Distance {distance:.2} mm · dx {dx:.2} · dy {dy:.2} · angle {angle:.1}°")
 }
 
@@ -575,7 +579,7 @@ impl App {
         match self.edit.measure {
             Some((first, None)) => {
                 self.edit.measure = Some((first, Some(at)));
-                self.message = measure_text(first, at);
+                self.message = measure_text(first, at, self.tab == Tab::Pcb);
             }
             _ => {
                 self.edit.measure = Some((at, None));
@@ -587,7 +591,7 @@ impl App {
     /// The finished reading, for the status strip.
     pub(super) fn measure_readout(&self) -> Option<String> {
         match self.edit.measure {
-            Some((a, Some(b))) => Some(measure_text(a, b)),
+            Some((a, Some(b))) => Some(measure_text(a, b, self.tab == Tab::Pcb)),
             _ => None,
         }
     }
