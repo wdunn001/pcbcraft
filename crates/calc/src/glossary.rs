@@ -34,7 +34,7 @@ fn all_tokens_in(haystack: &str, toks: &[String]) -> bool {
     toks.iter().all(|t| h.contains(t.as_str()))
 }
 
-fn rank_term(query: &str, term: &Term) -> Option<GlossaryHit> {
+fn rank_term(query: &str, term: &'static Term) -> Option<GlossaryHit> {
     let q = query.trim();
     if q.is_empty() {
         return None;
