@@ -641,6 +641,7 @@ impl App {
             Tool::DrawLayer => t!("board.canvas.draw_shape_pick_the_layer"),
             Tool::Measure => t!("board.canvas.measure_click_two_points"),
             Tool::Via => t!("board.canvas.via"),
+            Tool::Port => t!("schematic.port.canvas_hint"),
         };
         if !matches!(self.tool, Tool::Select) {
             painter.text(
@@ -858,7 +859,7 @@ impl App {
         if response.double_clicked()
             && let Some(pos) = cursor
         {
-            self.double_click(pos, camera.zoom, held);
+            self.schematic_double_click(pos, camera.zoom, held);
         }
         self.rename_prompt(ui.ctx());
         if response.secondary_clicked()
@@ -1536,6 +1537,7 @@ impl App {
                     }
                 }
             }
+            Tool::Port => self.place_hierarchy_port(pos),
             Tool::Keepout => {}
             Tool::Hole => self.run(
                 "board.hole_place",
@@ -1808,6 +1810,7 @@ sheet::paint_power(painter, rect, camera, p, &kinds, &sc, shown("Wires"), page);
                 sc.wire,
             );
         }
+        self.paint_child_sheet_boxes(painter, rect, camera, p, page, &sc);
         for f in p.no_connects.iter().filter(|f| on_page(p, page, f.id)) {
             if let Some(anchor) = p.pin_position(&f.pin) {
                 let at = camera.screen(anchor, rect);

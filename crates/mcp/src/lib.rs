@@ -32,7 +32,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
-        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist and a test-point CSV for fixture builders into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"stats.write","description":"Write a CSV board statistics sheet counting parts, nets, pins, routing, vias and zones, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"drill_chart.write","description":"Write a CSV drill tool chart listing every distinct drill size with its plating and hole count, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -47,7 +47,6 @@ pub fn tool_list() -> Value {
         json!({"name":"ipc2581.write","description":"Write a single-file IPC-2581 style assembly exchange XML with the board outline, nets and their pins, placed components, drill holes and copper by layer, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"idf.write","description":"Write a board-level mechanical drawing (board size plus every placed part's position, side and rotation, with default component heights) into a directory for enclosure tools, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"wrl.write","description":"Write a VRML 2.0 scene extruding the board outline and every placed pad into solid prisms into a directory for mechanical viewers, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
-        json!({"name":"solidcraft.write","description":"Write the board as a SolidCraft project (board.solidcraft) into a directory: the board body with its real outline, holes and thickness, and each placed part as its own named, placed component with a generated package body; metadata links every body to its reference designator. Optional layers add copper, mask and silk as bodies. Does not edit the project","inputSchema":object(json!({"path":{"type":"string"},"layers":{"type":"array","items":{"type":"string","enum":["copper","mask","silk"]},"maxItems":3,"description":"thin layers to include as bodies, default none"}}),&["path"])}),
         json!({"name":"hyperlynx.write","description":"Write a simulation netlist CSV, one line per net naming the net and every reference.pin on it, into a directory for circuit simulators, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"gencad.write","description":"Write a legacy board interchange text listing components, pins in whole mils with shape and layer, and nets by component and pad index, into a directory for EDA bridges, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"bom.write","description":"Write a bill-of-materials CSV, identical parts collapsed into one row with a sorted reference list, into a directory without editing the project; with no fields given, the columns the project itself defines are printed, and a variant name prints that build with its unpopulated parts skipped and footprint swaps applied","inputSchema":object(json!({"path":{"type":"string"},"fields":{"type":"array","items":{"type":"string"},"maxItems":16,"description":"extra component property columns"},"variant":{"type":"string","minLength":1,"maxLength":64,"description":"assembly variant to print the bill for"}}),&["path"])}),
@@ -57,7 +56,6 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbols","description":"Write every project-library symbol to a directory as one library symbol text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
-        json!({"name":"library.starter_models.list","description":"List bundled starter 3D models shipped with the app, with licence titles and matching footprint names","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -69,7 +67,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.add_folder","description":"Register any folder on this computer as a library source so its symbol and footprint collections join the unified browser; returns discovered counts","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string","description":"optional friendly name, defaults to the folder name"}}),&["path"])}),
         json!({"name":"library.remove_folder","description":"Forget an added library folder; installed locations are never removed","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.compare","description":"Compare two symbols or two footprints and report pin/pad differences without altering the project","inputSchema":object(json!({"path_a":{"type":"string"},"path_b":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"name_a":{"type":"string"},"name_b":{"type":"string"}}),&["path_a","path_b","kind"])}),
-        json!({"name":"library.drop_in_check","description":"Decide whether a candidate part may replace an incumbent on the board: same footprint and pinout, ratings at least as good, lifecycle and height not worse; unknown electrical values fail","inputSchema":object(json!({"incumbent":{"type":"object","description":"part already on the board"},"candidate":{"type":"object","description":"part offered as a replacement"}}),&["incumbent","candidate"])}),
+        json!({"name":"library.samtec.manufacturer_page","description":"Build the public Samtec product page URL for a part number so the user can download official CAD files in the browser","inputSchema":object(json!({"mpn":{"type":"string","minLength":1,"maxLength":64}}),&["mpn"])}),
         json!({"name":"list_commands","description":"Discover every engine command, input schema and unit convention","inputSchema":object(json!({}),&[])}),
         json!({"name":"inspect_design","description":"Inspect the canonical project, stable IDs, revision, history and truthful capability limits","inputSchema":object(json!({}),&[])}),
         json!({"name":"board_mesh","description":"Read the board as a deterministic 3D triangle mesh in millimetres (z up, bottom face at 0): slab with outline, cutouts and holes, thin copper, mask and silk layers, and parametric default component bodies with the placement matrix of any referenced model; model files are not loaded. Does not edit the project","inputSchema":object(json!({"layers":{"type":"array","items":{"type":"string","enum":["board","copper","mask","silk","bodies"]},"maxItems":5,"description":"parts to build, default all"},"geometry":{"type":"boolean","description":"false returns counts and bounds only, default true"}}),&[])}),
@@ -99,51 +97,8 @@ pub fn tool_list() -> Value {
             .to_string();
         tool["title"] = json!(title_for(&name));
         tool["annotations"] = annotations_for(&name);
-        if let Some(schema) = output_schema_for(&name) {
-            tool["outputSchema"] = schema;
-        }
     }
     json!({"tools":tools})
-}
-
-/// The `outputSchema` of the tools whose result shape is stable.
-///
-/// # Rules
-/// Only `inspect_design` and `checks`. Both stay loose (`additionalProperties` true) because
-/// their reports grow. `checks` with `copper_only` has no `revision`, so it is not required.
-///
-/// # Dependencies
-/// `crates/engine/src/lib.rs` (`Session::inspect`, `Session::checks`) define the shapes.
-///
-/// # Do not
-/// Do not add a tool here whose result is not always `structuredContent`.
-fn output_schema_for(name: &str) -> Option<Value> {
-    match name {
-        "inspect_design" => Some(json!({
-            "type":"object",
-            "properties":{
-                "revision":{"type":"integer","minimum":0},
-                "project":{"type":"object"},
-                "history":{"type":"object","properties":{"undo":{"type":"integer"},"redo":{"type":"integer"}},"required":["undo","redo"]},
-                "capabilities":{"type":"object"}
-            },
-            "required":["revision","project","history","capabilities"],
-            "additionalProperties":true
-        })),
-        "checks" => Some(json!({
-            "type":"object",
-            "properties":{
-                "revision":{"type":"integer","minimum":0},
-                "erc":{"type":"array"},
-                "drc":{"type":"array"},
-                "airwires":{"type":"array"},
-                "scope":{"type":"string"}
-            },
-            "required":["erc","drc","airwires","scope"],
-            "additionalProperties":true
-        })),
-        _ => None,
-    }
 }
 
 /// Which family a tool belongs to, for its client-facing hints.
@@ -158,19 +113,17 @@ enum ToolKind {
 fn tool_kind(name: &str) -> ToolKind {
     const READ_ONLY: [&str; 16] = [
         "inspect_design",
-        "design.summary",
         "list_commands",
         "checks",
         "board_mesh",
         "screenshot",
         "library.catalog",
-        "library.starter_models.list",
         "library.search",
         "library.list",
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
-        "library.drop_in_check",
+        "library.samtec.manufacturer_page",
         "library.sources",
         "design.recents",
         "design.list_open",
@@ -336,15 +289,14 @@ pub(crate) fn invoke_session(
     if [
         "design.recents",
         "library.catalog",
-        "library.starter_models.list",
         "library.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
         "library.compare",
-        "library.drop_in_check",
         "library.sources",
         "library.add_folder",
         "library.remove_folder",
+        "library.samtec.manufacturer_page",
     ]
     .contains(&name)
     {
@@ -487,36 +439,9 @@ pub(crate) fn invoke_session(
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let base = Path::new(&directory);
-            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
-            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
-                .map_err(|e| e.to_string())?;
-            pcbcraft_io::atomic_write(&base.join("board.step"), export.text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
-        }
-        "solidcraft.write" => {
-            let directory = string(args, "path")?;
-            let mut layers = pcbcraft_io::SolidcraftLayers::default();
-            for layer in args
-                .get("layers")
-                .and_then(Value::as_array)
-                .map(Vec::as_slice)
-                .unwrap_or_default()
-            {
-                match layer.as_str() {
-                    Some("copper") => layers.copper = true,
-                    Some("mask") => layers.mask = true,
-                    Some("silk") => layers.silk = true,
-                    _ => return Err("layers must be copper, mask or silk".into()),
-                }
-            }
-            let mesh = pcbcraft_io::board_mesh(&s.project, pcbcraft_io::MeshLayers::default())?;
-            let text = pcbcraft_io::solidcraft_board(&s.project, &mesh, layers)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("board.solidcraft"),
-                text.as_bytes(),
-            )?;
-            json!({"directory":directory,"file":"board.solidcraft","bytes":text.len()})
+            let text = pcbcraft_io::step_board(&s.project)?;
+            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
+            json!({"directory":directory,"file":"board.step","bytes":text.len()})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -603,12 +528,7 @@ pub(crate) fn invoke_session(
             let directory = string(args, "path")?;
             let text = pcbcraft_io::ipc356_netlist(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("test.brd"), text.as_bytes())?;
-            let csv = pcbcraft_io::testpoints_csv(&s.project)?;
-            pcbcraft_io::atomic_write(
-                &Path::new(directory).join("testpoints.csv"),
-                csv.as_bytes(),
-            )?;
-            json!({"directory":directory,"files":["test.brd","testpoints.csv"]})
+            json!({"directory":directory,"file":"test.brd"})
         }
         "netlist.write" => {
             let directory = string(args, "path")?;
@@ -756,7 +676,7 @@ pub(crate) fn invoke_session(
             let text = match format {
                 "kicad_pcb" => pcbcraft_io::kicad_board(&s.project)?,
                 "gerber_f_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Front)?,
-                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, s.project.bottom_layer())?,
+                "gerber_b_cu" => pcbcraft_io::gerber_copper(&s.project, pcbcraft_io::Layer::Back)?,
                 "svg" => pcbcraft_io::svg(
                     &s.project,
                     args.get("view").and_then(Value::as_str).unwrap_or("pcb"),
@@ -1098,8 +1018,6 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1165,11 +1083,13 @@ mod tests {
             .ok_or_else(|| "tools is an array".to_string())
     }
     #[test]
-    fn every_tool_name_is_listed_once() -> Result<(), String> {
+    fn every_listed_tool_name_is_unique() -> Result<(), String> {
         let mut seen = std::collections::BTreeSet::new();
         for tool in listed_tools()? {
-            let name = tool["name"].as_str().unwrap_or("?").to_string();
-            assert!(seen.insert(name.clone()), "tool {name} is listed twice");
+            let name = tool["name"].as_str().unwrap_or("?");
+            if !seen.insert(name.to_string()) {
+                return Err(format!("tool {name} is listed twice"));
+            }
         }
         Ok(())
     }
@@ -1760,7 +1680,7 @@ mod tests {
             "front copper carries its file function attribute"
         );
         assert!(
-            front.contains("X10000000Y10000000D02*\n"),
+            front.contains("X10.000000Y10.000000D02*\n"),
             "the exported copper should contain the drawn track"
         );
         assert_eq!(
@@ -2209,52 +2129,6 @@ mod tests {
     }
 
     #[test]
-    fn solidcraft_write_exports_a_project_without_editing_history() -> Result<(), String> {
-        let session = shared(Session::default());
-        for reference in ["R1", "R2"] {
-            call_tool(
-                &session,
-                "execute",
-                &json!({"command":"component.add","params":{"kind":"resistor","reference":reference,"position":[10.0,10.0]}}),
-            );
-        }
-        call_tool(
-            &session,
-            "execute",
-            &json!({"command":"board.sync","params":{}}),
-        );
-        let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let before = session.lock().map_err(|_| "session unavailable")?.inspect();
-        let export = call_tool(
-            &session,
-            "solidcraft.write",
-            &json!({"path":directory.path(),"layers":["copper"]}),
-        );
-        assert_eq!(export.get("isError"), Some(&json!(false)));
-        let text = std::fs::read_to_string(directory.path().join("board.solidcraft"))
-            .map_err(|e| e.to_string())?;
-        let doc: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-        assert_eq!(doc.get("format"), Some(&json!("solidcraft/22")));
-        assert!(text.contains("\"Board\"") && text.contains("\"R1\"") && text.contains("\"R2\""));
-        assert!(text.contains("Copper top"));
-        if let Ok(copy) = std::env::var("PCBCRAFT_SOLIDCRAFT_FIXTURE") {
-            std::fs::write(copy, &text).map_err(|e| e.to_string())?;
-        }
-        let bad = call_tool(
-            &session,
-            "solidcraft.write",
-            &json!({"path":directory.path(),"layers":["wings"]}),
-        );
-        assert_eq!(bad.get("isError"), Some(&json!(true)));
-        assert_eq!(
-            session.lock().map_err(|_| "session unavailable")?.inspect(),
-            before,
-            "an export never edits the project"
-        );
-        Ok(())
-    }
-
-    #[test]
     fn wrl_write_exports_a_vrml_scene_without_editing_history() -> Result<(), String> {
         let session = shared(Session::default());
         for reference in ["R1", "R2"] {
@@ -2361,10 +2235,6 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "ipc356.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
-        assert!(
-            directory.path().join("testpoints.csv").exists(),
-            "test netlist export should include testpoints.csv"
-        );
         let text = std::fs::read_to_string(directory.path().join("test.brd"))
             .map_err(|e| e.to_string())?;
         let rows: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();
@@ -2925,41 +2795,6 @@ mod tests {
         let locked = session.lock().map_err(|_| "session unavailable")?;
         assert_eq!(locked.revision, 0);
         assert!(locked.project.components.is_empty());
-        Ok(())
-    }
-    #[test]
-    fn library_drop_in_check_leaves_the_session_unchanged() -> Result<(), String> {
-        let session = shared(Session::default());
-        let part = json!({
-            "package_key": "chip-0603",
-            "pads": ["1", "2"],
-            "pins": [
-                {"number": "1", "electrical_type": "passive"},
-                {"number": "2", "electrical_type": "passive"}
-            ],
-            "category": "resistor",
-            "lifecycle": "active",
-            "value": 10000.0,
-            "value_unit": "ohm",
-            "tolerance_pct": [1.0, 1.0],
-            "rated_voltage_v": 50.0,
-            "temp_min_c": -55.0,
-            "temp_max_c": 155.0,
-            "power_w": 0.1,
-            "height_mm": 0.55
-        });
-        let result = call_tool(
-            &session,
-            "library.drop_in_check",
-            &json!({"incumbent": part.clone(), "candidate": part}),
-        );
-        assert_eq!(result.get("isError"), Some(&json!(false)));
-        assert_eq!(
-            result.pointer("/structuredContent/drop_in"),
-            Some(&json!(true))
-        );
-        let locked = session.lock().map_err(|_| "session unavailable")?;
-        assert_eq!(locked.revision, 0);
         Ok(())
     }
     #[test]
