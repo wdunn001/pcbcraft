@@ -33,5 +33,5 @@ other EDA products in comments or docs.
 
 ## See also
 
-- [../ci.md](../ci.md) for job names and the screenshot sheet
+- [../ci.md](../ci.md) for job names
 - [../mcp.md](../mcp.md) if your issue touches automation

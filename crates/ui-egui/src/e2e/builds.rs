@@ -10,6 +10,7 @@ fn a_newcomer_describes_a_build_that_leaves_a_part_off() -> Result<(), String> {
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Builds")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
@@ -89,6 +90,7 @@ fn a_newcomer_fits_a_part_in_another_package_for_one_build() -> Result<(), Strin
     let ctx = egui::Context::default();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Files")?;
+    authoring::tests::tap(&ctx, &mut app, "Project settings…")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
     authoring::tests::tap(&ctx, &mut app, "Builds")?;
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
