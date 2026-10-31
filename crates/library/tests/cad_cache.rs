@@ -236,3 +236,23 @@ fn default_cache_dir_follows_platform_variables() {
     );
     assert_eq!(default_cache_dir_with(&env(&[]), "linux"), None);
 }
+
+#[test]
+fn stats_count_files_bytes_and_the_oldest_listing() -> Result<(), SourceError> {
+    let tmp = tempfile::tempdir().map_err(|e| SourceError::Unavailable(e.to_string()))?;
+    let cache = CadCache::open(tmp.path()).with_cap(1_000);
+    assert_eq!(cache.stats().files, 0);
+    assert_eq!(cache.stats().oldest_listing, None);
+    cache.put("s", PATH, Some(REV_A), b"12345")?;
+    cache.put_listing("s", "one", "[]", 500)?;
+    cache.put_listing("s", "two", "[]", 900)?;
+    let stats = cache.stats();
+    assert_eq!((stats.files, stats.bytes, stats.cap), (1, 5, 1_000));
+    assert_eq!(stats.listings, 2);
+    assert_eq!(stats.oldest_listing, Some(500));
+    assert_eq!(stats.oldest_age_secs(1_500), Some(1_000));
+    let memory = CadCache::in_memory();
+    memory.put_listing("s", "one", "[]", 700)?;
+    assert_eq!(memory.stats().oldest_listing, Some(700));
+    Ok(())
+}

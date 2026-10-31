@@ -90,7 +90,9 @@ const READS: &[&str] = &[
     "library.inspect_footprint",
     "library.sources",
     "library.compare",
+    "library.samtec.manufacturer_page",
     "design.recents",
+    "search_knowledge",
 ];
 /// Tools that touch files or replace the whole design.
 const SESSION_ACTIONS: &[&str] = &[
@@ -195,6 +197,9 @@ pub fn request(
     undo_left: usize,
     always: &[String],
 ) -> Verdict {
+    if tool == "search_knowledge" {
+        return Verdict::Run { change: false };
+    }
     if let Err(reason) = pcbcraft_mcp::check_args(tool, args) {
         return Verdict::Refuse(reason);
     }
@@ -352,6 +357,16 @@ mod tests {
         );
         assert_eq!(
             request("inspect_design", &json!({}), Mode::Ask, 0, &[]),
+            Verdict::Run { change: false }
+        );
+        assert_eq!(
+            request(
+                "search_knowledge",
+                &json!({"query": "clearance", "limit": 3}),
+                Mode::Ask,
+                0,
+                &[]
+            ),
             Verdict::Run { change: false }
         );
         assert!(matches!(

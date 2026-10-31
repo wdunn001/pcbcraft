@@ -38,6 +38,8 @@ use std::process::Command;
 pub const DEFAULT_REPO: &str = "wdunn001/pcbcraft";
 /// Cached API snapshot, not committed (CI caches it).
 const SNAPSHOT_PATH: &str = "site/src/data/status-snapshot.json";
+/// ETag cache for conditional requests, not committed.
+const CACHE_PATH: &str = "site/src/data/status-cache.json";
 /// Generated output, not committed.
 const OUT_PATH: &str = "site/src/data/status.json";
 /// The committed schema.
@@ -77,6 +79,55 @@ const STATUSES: [&str; 10] = [
     "ready",
 ];
 
+/// Cache of ETags and timestamps for conditional requests.
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+struct EtagCache {
+    /// ETag for the issues list (page 1).
+    issues_etag: Option<String>,
+    /// Per-issue updated_at timestamps for incremental updates.
+    #[serde(default)]
+    issue_timestamps: BTreeMap<u64, String>,
+    /// Timestamp of the last successful full refresh.
+    last_full: Option<String>,
+    /// Timestamp of the last successful incremental update.
+    last_incremental: Option<String>,
+}
+
+impl EtagCache {
+    /// Load the cache from disk, or return a fresh empty cache.
+    fn load(root: &Path) -> Result<Self, String> {
+        let path = root.join(CACHE_PATH);
+        if !path.is_file() {
+            return Ok(Self::default());
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Save the cache to disk.
+    fn save(&self, root: &Path) -> Result<(), String> {
+        let path = root.join(CACHE_PATH);
+        let text = render(&self.to_value())?;
+        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    fn to_value(&self) -> Value {
+        json!({
+            "issues_etag": self.issues_etag,
+            "issue_timestamps": self.issue_timestamps,
+            "last_full": self.last_full,
+            "last_incremental": self.last_incremental,
+        })
+    }
+
+    /// Return the since parameter for incremental updates, if any.
+    fn since(&self) -> Option<&str> {
+        if let Some(ts) = self.last_incremental.as_deref() {
+            return Some(ts);
+        }
+        self.last_full.as_deref()
+    }
+}
 /// Delivery state of an issue, least advanced first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum State {
@@ -951,17 +1002,30 @@ pub fn trim_run(item: &Value) -> Value {
 }
 
 /// One GET against the GitHub API through `curl`; counts into `requests`.
-fn api_get(path: &str, requests: &mut u64) -> Result<Value, String> {
+///
+/// When `etag` is provided, sends `If-None-Match`; on a 304 response
+/// returns `Ok(None)` (body unchanged) and does not count against the
+/// caller's request budget. On a 200 response returns `Ok(Some((body, etag)))`
+/// where `etag` is the new ETag for the response.
+fn api_get(
+    path: &str,
+    requests: &mut u64,
+    etag: Option<&str>,
+) -> Result<Option<(Value, String)>, String> {
     let mut cmd = Command::new("curl");
     cmd.args([
         "-sS",
-        "--fail",
         "-L",
+        "-w",
+        "\\nHTTP_CODE:%{http_code}\\nETAG:%{etag}",
         "-H",
         "Accept: application/vnd.github+json",
         "-H",
         "User-Agent: pcbcraft-xtask",
     ]);
+    if let Some(tag) = etag {
+        cmd.args(["-H", &format!("If-None-Match: {tag}")]);
+    }
     if let Ok(token) = std::env::var("GITHUB_TOKEN")
         && !token.is_empty()
     {
@@ -970,10 +1034,35 @@ fn api_get(path: &str, requests: &mut u64) -> Result<Value, String> {
     cmd.arg(format!("https://api.github.com/{path}"));
     *requests += 1;
     let out = cmd.output().map_err(|e| format!("curl: {e}"))?;
-    if !out.status.success() {
-        return Err(format!("GitHub API request for {path} failed"));
+    let text = String::from_utf8(out.stdout).map_err(|e| format!("curl output: {e}"))?;
+
+    // Parse curl's custom write-out appended at the end.
+    let body_end = text.rfind("\\nHTTP_CODE:").unwrap_or(text.len());
+    let body = &text[..body_end];
+    let meta = &text[body_end..];
+    let code = extract_meta(meta, "HTTP_CODE:");
+    let new_etag = extract_meta(meta, "ETAG:");
+
+    if code == "304" {
+        return Ok(None); // Not modified; caller keeps cached value.
     }
-    serde_json::from_slice(&out.stdout).map_err(|e| format!("GitHub API reply for {path}: {e}"))
+    if !out.status.success() && code != "200" {
+        return Err(format!("GitHub API request for {path} failed (HTTP {code})"));
+    }
+    if body.is_empty() {
+        return Ok(Some((json!(null), new_etag)));
+    }
+    serde_json::from_str(body)
+        .map(|v| Some((v, new_etag)))
+        .map_err(|e| format!("GitHub API reply for {path}: {e}"))
+}
+fn extract_meta(meta: &str, key: &str) -> String {
+    for line in meta.lines() {
+        if let Some(val) = line.strip_prefix(key) {
+            return val.to_string();
+        }
+    }
+    String::new()
 }
 
 /// Pages through a list endpoint, 100 items a page.
@@ -986,8 +1075,141 @@ fn api_pages(path: &str, requests: &mut u64) -> Result<Vec<Value>, String> {
                 if path.contains('?') { "&" } else { "?" }
             ),
             requests,
+            None,
         )?;
-        let items = got.as_array().cloned().unwrap_or_default();
+        let items = got
+            .as_ref()
+            .and_then(|(v, _)| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let done = items.len() < 100;
+        all.extend(items);
+        if done {
+            break;
+        }
+    }
+    Ok(all)
+}
+/// Fetches a fresh snapshot of the tracker. Needs the network; never called by tests.
+///
+/// # Rules
+/// - Reads only `repo`. About 10 requests for this repository.
+/// - Uses ETag cache for conditional requests on issues list page 1.
+/// - Supports incremental updates with `since` parameter.
+fn fetch_snapshot(repo: &str, fetched_at: &str, root: &Path) -> Result<Value, String> {
+    let mut requests = 0u64;
+    let cache = EtagCache::load(root)?;
+
+    // Use cached ETag for issues list page 1
+    let issues_result = api_get(
+        &format!("repos/{repo}/issues?state=all&per_page=100&page=1"),
+        &mut requests,
+        cache.issues_etag.as_deref(),
+    )?;
+
+    let issues = if let Some((body, new_etag)) = issues_result {
+        // Got new data or first request
+        let page1_items = body.as_array().cloned().unwrap_or_default();
+        let mut all_issues = page1_items.clone();
+
+        // If page 1 was full, fetch remaining pages starting from page 2
+        if page1_items.len() == 100 {
+            all_issues.extend(api_pages_from(&format!("repos/{repo}/issues?state=all"), 2, &mut requests)?);
+        }
+
+        // Update cache with new ETag
+        let mut updated_cache = cache;
+        updated_cache.issues_etag = Some(new_etag);
+        updated_cache.last_full = Some(fetched_at.to_string());
+        updated_cache.save(root)?;
+
+        all_issues
+    } else {
+        // 304 Not Modified - use cached snapshot
+        // Try incremental update with since parameter
+        if let Some(since_ts) = cache.since() {
+            let incremental = api_get(
+                &format!("repos/{repo}/issues?state=all&per_page=100&page=1&since={since_ts}"),
+                &mut requests,
+                None,
+            )?;
+            if let Some((body, _)) = incremental {
+                let items = body.as_array().cloned().unwrap_or_default();
+                if !items.is_empty() {
+                    // Got incremental updates - merge with cached snapshot
+                    let snapshot_path = root.join(SNAPSHOT_PATH);
+                    if snapshot_path.is_file() {
+                        let text = std::fs::read_to_string(&snapshot_path)
+                            .map_err(|e| format!("{}: {e}", snapshot_path.display()))?;
+                        let snap: Value = serde_json::from_str(&text)
+                            .map_err(|e| format!("snapshot: {e}"))?;
+                        let cached_issues = snap["issues"].as_array().cloned().unwrap_or_default();
+                        // Merge: replace updated issues, add new ones
+                        let merged = merge_issues(&cached_issues, &items)?;
+                        // Update cache
+                        let mut updated_cache = cache;
+                        updated_cache.last_incremental = Some(fetched_at.to_string());
+                        updated_cache.save(root)?;
+                        return Ok(json!({
+                            "repo": repo, "fetched_at": fetched_at, "api_requests": requests,
+                            "issues": merged,
+                            "pulls": snap["pulls"].clone(),
+                            "runs": snap["runs"].clone(),
+                            "releases": snap["releases"].clone(),
+                            "main_sha": snap["main_sha"].clone(),
+                        }));
+                    }
+                }
+            }
+        }
+        // No incremental updates or no cached snapshot - use full cached snapshot
+        let snapshot_path = root.join(SNAPSHOT_PATH);
+        let text = std::fs::read_to_string(&snapshot_path)
+            .map_err(|e| format!("{}: {e}", snapshot_path.display()))?;
+        let snap: Value = serde_json::from_str(&text)
+            .map_err(|e| format!("snapshot: {e}"))?;
+        snap["issues"].as_array().cloned().unwrap_or_default()
+    };
+
+    let pulls = api_pages(&format!("repos/{repo}/pulls?state=closed"), &mut requests)?;
+    let runs = api_get(
+        &format!(
+            "repos/{repo}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=100"
+        ),
+        &mut requests,
+        None,
+    )?;
+    let releases = api_get(&format!("repos/{repo}/releases?per_page=30"), &mut requests, None)?;
+    let branch = api_get(&format!("repos/{repo}/branches/main"), &mut requests, None)?;
+    Ok(json!({
+        "repo": repo, "fetched_at": fetched_at, "api_requests": requests,
+        "main_sha": branch.as_ref().and_then(|(v, _)| v["commit"]["sha"].as_str()).unwrap_or(""),
+        "issues": issues.iter().filter_map(trim_issue).collect::<Vec<_>>(),
+        "pulls": pulls.iter().map(trim_pull).collect::<Vec<_>>(),
+        "runs": runs.as_ref().and_then(|(v, _)| v["workflow_runs"].as_array()).cloned().unwrap_or_default().iter().map(trim_run).collect::<Vec<_>>(),
+        "releases": releases.as_ref().and_then(|(v, _)| v.as_array()).cloned().unwrap_or_default().iter()
+            .filter(|r| r["draft"].as_bool() != Some(true))
+            .map(|r| json!({"tag": s(r, "tag_name"), "published_at": s(r, "published_at")})).collect::<Vec<_>>(),
+    }))
+}
+
+/// Pages through a list endpoint starting from a given page, 100 items a page.
+fn api_pages_from(path: &str, start_page: u32, requests: &mut u64) -> Result<Vec<Value>, String> {
+    let mut all = Vec::new();
+    for page in start_page..=30 {
+        let got = api_get(
+            &format!(
+                "{path}{}per_page=100&page={page}",
+                if path.contains('?') { "&" } else { "?" }
+            ),
+            requests,
+            None,
+        )?;
+        let items = got
+            .as_ref()
+            .and_then(|(v, _)| v.as_array())
+            .cloned()
+            .unwrap_or_default();
         let done = items.len() < 100;
         all.extend(items);
         if done {
@@ -997,33 +1219,22 @@ fn api_pages(path: &str, requests: &mut u64) -> Result<Vec<Value>, String> {
     Ok(all)
 }
 
-/// Fetches a fresh snapshot of the tracker. Needs the network; never called by tests.
-///
-/// # Rules
-/// - Reads only `repo`. About 10 requests for this repository.
-fn fetch_snapshot(repo: &str, fetched_at: &str) -> Result<Value, String> {
-    let mut requests = 0u64;
-    let issues = api_pages(&format!("repos/{repo}/issues?state=all"), &mut requests)?;
-    let pulls = api_pages(&format!("repos/{repo}/pulls?state=closed"), &mut requests)?;
-    let runs = api_get(
-        &format!(
-            "repos/{repo}/actions/workflows/ci.yml/runs?branch=main&status=completed&per_page=100"
-        ),
-        &mut requests,
-    )?;
-    let releases = api_get(&format!("repos/{repo}/releases?per_page=30"), &mut requests)?;
-    let branch = api_get(&format!("repos/{repo}/branches/main"), &mut requests)?;
-    Ok(json!({
-        "repo": repo, "fetched_at": fetched_at, "api_requests": requests,
-        "main_sha": branch["commit"]["sha"],
-        "issues": issues.iter().filter_map(trim_issue).collect::<Vec<_>>(),
-        "pulls": pulls.iter().map(trim_pull).collect::<Vec<_>>(),
-        "runs": runs["workflow_runs"].as_array().cloned().unwrap_or_default().iter().map(trim_run).collect::<Vec<_>>(),
-        "releases": releases.as_array().cloned().unwrap_or_default().iter()
-            .filter(|r| r["draft"].as_bool() != Some(true))
-            .map(|r| json!({"tag": s(r, "tag_name"), "published_at": s(r, "published_at")})).collect::<Vec<_>>(),
-    }))
+/// Merge incremental issue updates into the cached issues list.
+fn merge_issues(cached: &[Value], updates: &[Value]) -> Result<Vec<Value>, String> {
+    let mut by_number = BTreeMap::new();
+    for issue in cached {
+        if let Some(num) = issue["number"].as_u64() {
+            by_number.insert(num, issue.clone());
+        }
+    }
+    for update in updates {
+        if let Some(num) = update["number"].as_u64() {
+            by_number.insert(num, update.clone());
+        }
+    }
+    Ok(by_number.into_values().collect())
 }
+
 
 /// Current UTC time as `YYYY-MM-DDTHH:MM:SSZ`, from `date`.
 fn utc_now() -> String {
@@ -1034,6 +1245,30 @@ fn utc_now() -> String {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|t| t.trim().to_string())
         .unwrap_or_default()
+}
+
+/// Returns the age of a snapshot in days, or None if unparseable.
+fn snapshot_age_days(fetched_at: &str) -> Option<u64> {
+    // Use date to parse the ISO timestamp and compute age in seconds
+    let now = Command::new("date")
+        .args(["-u", "+%s"])
+        .output()
+        .ok()?
+        .stdout;
+    let now_secs: i64 = String::from_utf8(now).ok()?.trim().parse().ok()?;
+
+    let then = Command::new("date")
+        .args(["-u", "-d", fetched_at, "+%s"])
+        .output()
+        .ok()?
+        .stdout;
+    let then_secs: i64 = String::from_utf8(then).ok()?.trim().parse().ok()?;
+
+    let age_secs = now_secs.saturating_sub(then_secs);
+    if age_secs < 0 {
+        return Some(0);
+    }
+    Some((age_secs / 86400) as u64)
 }
 
 /// Validates a document against the committed schema.
@@ -1092,12 +1327,27 @@ pub fn run(args: &[String], root: &Path) -> Result<(), String> {
     let snapshot_path = root.join(snapshot.unwrap_or_else(|| SNAPSHOT_PATH.to_string()));
     let mut stale = false;
     if refresh {
-        match fetch_snapshot(&repo, &utc_now()) {
+        match fetch_snapshot(&repo, &utc_now(), root) {
             Ok(fresh) => {
                 std::fs::write(&snapshot_path, render(&fresh)?)
                     .map_err(|e| format!("{}: {e}", snapshot_path.display()))?;
             }
             Err(e) if snapshot_path.is_file() => {
+                // Check if the cached snapshot is older than 7 days
+                let cached = std::fs::read_to_string(&snapshot_path)
+                    .map_err(|read_e| format!("{}: {read_e}", snapshot_path.display()))?;
+                let cached_snap: Value = serde_json::from_str(&cached)
+                    .map_err(|parse_e| format!("snapshot: {parse_e}"))?;
+                let fetched_at = cached_snap["fetched_at"]
+                    .as_str()
+                    .unwrap_or("");
+                if let Some(age_days) = snapshot_age_days(fetched_at) {
+                    if age_days >= 7 {
+                        return Err(format!(
+                            "refresh failed ({e}) and cached snapshot is {age_days} days old (>= 7 days)"
+                        ));
+                    }
+                }
                 eprintln!("refresh failed ({e}); using the cached snapshot");
                 stale = true;
             }

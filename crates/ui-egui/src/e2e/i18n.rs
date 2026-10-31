@@ -64,6 +64,64 @@ fn escaped_controls(ctx: &egui::Context, app: &mut App, width: f32) -> usize {
         .count()
 }
 
+/// Start-page escaped count at the real window width, on a fresh context.
+///
+/// Why: `escaped_controls` paints at the 1440 test window after a 320 pass, and
+/// the start page's centered 300px actions flake between 10 and 18. Measuring
+/// this screen at `width` on a new context is stable and still matches the
+/// already-on-main 1280 count.
+fn start_page_escaped(app: &mut App, width: f32) -> usize {
+    use egui::accesskit::Role;
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let paint = |ctx: &egui::Context, app: &mut App| {
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    Vec2::new(width, 900.0),
+                )),
+                ..Default::default()
+            },
+            |ui| app.show(ui),
+        );
+        out.textures_delta.clear();
+        out
+    };
+    let _ = paint(&ctx, app);
+    let _ = paint(&ctx, app);
+    let output = paint(&ctx, app);
+    let mut n = 0;
+    if let Some(update) = output.platform_output.accesskit_update {
+        for (_, node) in update.nodes {
+            let pressable = matches!(
+                node.role(),
+                Role::Button
+                    | Role::CheckBox
+                    | Role::RadioButton
+                    | Role::ComboBox
+                    | Role::TextInput
+                    | Role::MultilineTextInput
+                    | Role::Slider
+                    | Role::SpinButton
+                    | Role::Link
+                    | Role::Tab
+                    | Role::MenuItem
+                    | Role::Switch
+                    | Role::ColorWell
+            );
+            if let (true, Some(b)) = (pressable, node.bounds()) {
+                let max_x = b.x1 as f32;
+                let min_x = b.x0 as f32;
+                if max_x > width + 1.0 || min_x < -1.0 {
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}
+
 fn ratchet() -> Vec<(String, usize)> {
     include_str!("pseudo-ratchet.txt")
         .lines()
@@ -93,7 +151,11 @@ fn i18n_pseudo_locale_fits_every_screen_at_1280_and_320() -> Result<(), String> 
                 out
             };
             let clipped = clipped_text(&out);
-            let escaped = escaped_controls(ctx, app, width);
+            let escaped = if name == "Start page" {
+                start_page_escaped(app, width)
+            } else {
+                escaped_controls(ctx, app, width)
+            };
             now.push((format!("clipped | {name} | {width:.0}"), clipped));
             now.push((format!("escaped | {name} | {width:.0}"), escaped));
         }
@@ -134,7 +196,7 @@ fn i18n_every_character_of_every_locale_has_a_glyph() -> Result<(), String> {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../text/strings");
     let (ctx, mut app) = practice();
     frame(&ctx, &mut app, vec![], egui::Modifiers::NONE);
-    let font = egui::FontId::proportional(13.0);
+    let font = crate::fonts::Role::Body.font();
     let mut missing = Vec::new();
     let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
     for entry in entries.flatten() {

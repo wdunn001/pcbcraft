@@ -22,6 +22,10 @@ pub const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
 /// Longest piece of any one field shown inside a provenance notice.
 const NOTICE_FIELD_CLIP: usize = 96;
 
+/// [`Provenance::source_id`] for a file the user downloaded from a manufacturer
+/// and dropped into the project. PCBCraft never redistributes these bytes.
+pub const USER_MANUFACTURER_SOURCE_ID: &str = "user-manufacturer-download";
+
 /// Which kind of file a reference points at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -197,10 +201,64 @@ pub struct ParsedProvenanceNotice {
 }
 
 impl Provenance {
+    /// Provenance for one symbol, footprint or model file the user downloaded
+    /// from a manufacturer page and imported locally.
+    pub fn user_manufacturer_download(
+        manufacturer: &str,
+        mpn: &str,
+        kind: CadKind,
+        filename: &str,
+        page_url: &str,
+    ) -> Result<Self, SourceError> {
+        let manufacturer = manufacturer.trim();
+        let mpn = mpn.trim();
+        let filename = filename.trim();
+        if manufacturer.is_empty() || manufacturer.len() > MAX_NAME_BYTES {
+            return Err(SourceError::Invalid(
+                "the manufacturer name must be 1 to 128 bytes".into(),
+            ));
+        }
+        if mpn.is_empty() || mpn.len() > MAX_REVISION_BYTES {
+            return Err(SourceError::Invalid(
+                "the part number must be 1 to 64 bytes".into(),
+            ));
+        }
+        if filename.is_empty() || filename.len() > MAX_NAME_BYTES {
+            return Err(SourceError::Invalid(
+                "the file name must be 1 to 128 bytes".into(),
+            ));
+        }
+        if page_url.is_empty() || page_url.len() > 512 {
+            return Err(SourceError::Invalid(
+                "the manufacturer page link must be 1 to 512 bytes".into(),
+            ));
+        }
+        Ok(Self {
+            source_id: USER_MANUFACTURER_SOURCE_ID.into(),
+            source_name: manufacturer.to_owned(),
+            kind,
+            upstream_path: filename.to_owned(),
+            blob_id: String::new(),
+            commit_id: String::new(),
+            license_name: "User download (not redistributed)".into(),
+            license_url: page_url.to_owned(),
+            attribution: mpn.to_owned(),
+        })
+    }
+
     /// One plain sentence naming the source, the file, its upstream revision
     /// and the licence with its link. Stable for equal input, so the library's
     /// notice list de-duplicates it, and under one KiB for any input.
     pub fn notice(&self) -> String {
+        if self.source_id == USER_MANUFACTURER_SOURCE_ID {
+            return format!(
+                "Imported {} for part {} from a file downloaded by the user from {}; not redistributed. Source file: {}.",
+                self.kind.label(),
+                clip(&self.attribution),
+                clip(&self.source_name),
+                clip(&self.upstream_path)
+            );
+        }
         let mut text = format!(
             "Imported {} from {} ({}): {}",
             self.kind.label(),
