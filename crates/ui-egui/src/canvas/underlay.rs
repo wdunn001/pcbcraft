@@ -118,6 +118,7 @@ mod tests {
                     Camera {
                         mirror: false,
                         turns: 0,
+                        up: false,
                         center: Point::new(10.0, 10.0),
                         zoom: 20.0,
                     },

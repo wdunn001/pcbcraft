@@ -1,11 +1,11 @@
 use pcbcraft_doc::{ComplianceListSnapshot, MAX_COMPLIANCE_LIST_BYTES};
 
-const US_NDAA_SYNTHETIC: &str =
-    include_str!("../../../../compliance-lists/us-ndaa-synthetic-entities.toml");
+const SYNTHETIC_DEMO_ENTITIES: &str =
+    include_str!("../../../../compliance-lists/synthetic-demo-entities.toml");
 
 pub fn load_bundled_list(id: &str) -> Result<ComplianceListSnapshot, String> {
     let text = match id {
-        "us-ndaa-synthetic-entities" => US_NDAA_SYNTHETIC,
+        "synthetic-demo-entities" => SYNTHETIC_DEMO_ENTITIES,
         _ => return Err(format!("unknown bundled compliance list {id}")),
     };
     list_from_toml(text)
