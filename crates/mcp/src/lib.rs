@@ -32,7 +32,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbol","description":"Write one project-library symbol to a .kicad_sym symbol library text file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_footprint_svg","description":"Write one project-library footprint to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
         json!({"name":"library.export_symbol_svg","description":"Write one project-library symbol to an SVG vector preview file without editing the project","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"}}),&["path","name"])}),
-        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist (net, component, pin and coordinates in fixed columns) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
+        json!({"name":"ipc356.write","description":"Write an IPC-D-356A style in-circuit test netlist and a test-point CSV for fixture builders into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"ps.write","description":"Write a one-page PostScript drawing of either view with copper, pads, zones and text as real stroke and fill operators, without editing the project","inputSchema":object(json!({"path":{"type":"string"},"view":{"type":"string","enum":["pcb","schematic"]}}),&["path"])}),
         json!({"name":"stats.write","description":"Write a CSV board statistics sheet counting parts, nets, pins, routing, vias and zones, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"drill_chart.write","description":"Write a CSV drill tool chart listing every distinct drill size with its plating and hole count, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
@@ -56,6 +56,7 @@ pub fn tool_list() -> Value {
         json!({"name":"library.export_symbols","description":"Write every project-library symbol to a directory as one library symbol text file each, without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"plot_csv.write","description":"Write a fabrication plot report CSV (per copper layer: element counts and bounding box in millimetres, plus a totals row) into a directory without editing the project","inputSchema":object(json!({"path":{"type":"string"}}),&["path"])}),
         json!({"name":"library.catalog","description":"Discover installed symbol and footprint libraries on the host","inputSchema":object(json!({}),&[])}),
+        json!({"name":"library.starter_models.list","description":"List bundled starter 3D models shipped with the app, with licence titles and matching footprint names","inputSchema":object(json!({}),&[])}),
         json!({"name":"library.search","description":"Search a symbol file or footprint directory without altering the project","inputSchema":object(json!({"path":{"type":"string"},"kind":{"type":"string","enum":["symbol","footprint"]},"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":100}}),&["path","kind"])}),
         json!({"name":"library.list","description":"List parts as one common record across fixture, project, installed and listed distributor sources, filtered by category, package, value range, minimum voltage, temperature span, stock, lifecycle, source and RoHS. A listing with an empty number never matches a numeric filter. Results are grouped by source in each source's own order, not ranked across sources; read-only","inputSchema":object(json!({"filter":{"type":"object"},"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":"object"},"listings":{"type":"array","maxItems":5000,"items":{"type":"object"}}}),&[])}),
         json!({"name":"library.inspect_symbol","description":"Read resolved symbol pins, graphics, units; include_source preserves up to 512KiB of original nodes for editing","inputSchema":object(json!({"path":{"type":"string"},"name":{"type":"string"},"include_source":{"type":"boolean"}}),&["path","name"])}),
@@ -161,6 +162,7 @@ fn tool_kind(name: &str) -> ToolKind {
         "board_mesh",
         "screenshot",
         "library.catalog",
+        "library.starter_models.list",
         "library.search",
         "library.list",
         "library.inspect_symbol",
@@ -331,6 +333,7 @@ pub(crate) fn invoke_session(
     if [
         "design.recents",
         "library.catalog",
+        "library.starter_models.list",
         "library.search",
         "library.inspect_symbol",
         "library.inspect_footprint",
@@ -480,9 +483,12 @@ pub(crate) fn invoke_session(
         }
         "step.write" => {
             let directory = string(args, "path")?;
-            let text = pcbcraft_io::step_board(&s.project)?;
-            pcbcraft_io::atomic_write(&Path::new(directory).join("board.step"), text.as_bytes())?;
-            json!({"directory":directory,"file":"board.step","bytes":text.len()})
+            let base = Path::new(&directory);
+            let loader = pcbcraft_io::project_step_loader(&s.project, Some(base));
+            let export = pcbcraft_io::step_board_with_models(&s.project, &loader)
+                .map_err(|e| e.to_string())?;
+            pcbcraft_io::atomic_write(&base.join("board.step"), export.text.as_bytes())?;
+            json!({"directory":directory,"file":"board.step","bytes":export.text.len(),"notes":export.notes})
         }
         "wrl.write" => {
             let directory = string(args, "path")?;
@@ -569,7 +575,12 @@ pub(crate) fn invoke_session(
             let directory = string(args, "path")?;
             let text = pcbcraft_io::ipc356_netlist(&s.project)?;
             pcbcraft_io::atomic_write(&Path::new(directory).join("test.brd"), text.as_bytes())?;
-            json!({"directory":directory,"file":"test.brd"})
+            let csv = pcbcraft_io::testpoints_csv(&s.project)?;
+            pcbcraft_io::atomic_write(
+                &Path::new(directory).join("testpoints.csv"),
+                csv.as_bytes(),
+            )?;
+            json!({"directory":directory,"files":["test.brd","testpoints.csv"]})
         }
         "netlist.write" => {
             let directory = string(args, "path")?;
@@ -1059,6 +1070,8 @@ pub fn start_bridge(hub: DocumentHub, address: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bridge_tests;
 #[cfg(test)]
 mod format_registry_tests;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1719,7 +1732,7 @@ mod tests {
             "front copper carries its file function attribute"
         );
         assert!(
-            front.contains("X10.000000Y10.000000D02*\n"),
+            front.contains("X10000000Y10000000D02*\n"),
             "the exported copper should contain the drawn track"
         );
         assert_eq!(
@@ -2274,6 +2287,10 @@ mod tests {
         let before = session.lock().map_err(|_| "session unavailable")?.inspect();
         let export = call_tool(&session, "ipc356.write", &json!({"path":directory.path()}));
         assert_eq!(export.get("isError"), Some(&json!(false)));
+        assert!(
+            directory.path().join("testpoints.csv").exists(),
+            "test netlist export should include testpoints.csv"
+        );
         let text = std::fs::read_to_string(directory.path().join("test.brd"))
             .map_err(|e| e.to_string())?;
         let rows: Vec<&str> = text.lines().filter(|l| !l.starts_with('*')).collect();

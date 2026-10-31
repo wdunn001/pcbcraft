@@ -124,12 +124,8 @@ fn check_hash(hash: &str) -> Result<(), SourceError> {
     Ok(())
 }
 
-/// Seconds since the Unix epoch. Safe in the browser, where the standard clock is not.
-pub fn now_secs() -> u64 {
-    web_time::SystemTime::now()
-        .duration_since(web_time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+fn now_secs() -> u64 {
+    pcbcraft_clock::unix_secs()
 }
 
 /// Platform cache folder for online library files, or `None` when the
@@ -568,7 +564,8 @@ fn stored_files(dir: &Path) -> Vec<StoredFile> {
 
 fn touch(path: &Path) {
     if let Ok(f) = fs::OpenOptions::new().append(true).open(path) {
-        let _ = f.set_modified(SystemTime::now());
+        let now = UNIX_EPOCH + std::time::Duration::from_secs(pcbcraft_clock::unix_secs());
+        let _ = f.set_modified(now);
     }
 }
 

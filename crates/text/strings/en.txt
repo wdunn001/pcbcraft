@@ -106,7 +106,9 @@ menu.settings.language.system.tip = Follow the language of this computer.
 menu.settings.language.pick.tip = Show the app in this language.
 
 menu.help = Help
-menu.help.tip = Shortcuts, the command search and bug reports.
+menu.help.tip = Shortcuts, tours, the command search and bug reports.
+menu.help.tours = Tours
+menu.help.tours.tip = Walkthroughs that point at real controls; restart any of them here.
 menu.help.shortcuts = Shortcuts
 menu.help.shortcuts.tip = Show every keyboard shortcut and mouse gesture in one list.
 menu.help.commands = Commands
@@ -1100,6 +1102,7 @@ status.write_uv_print_files.label_saved_in_directory = {label} saved in {directo
 # lib.rs write_job_file
 status.write_job_file.that_folder_could_not_be = that folder could not be created
 status.write_job_file.label_saved_in_directory = {label} saved in {directory}
+status.panel_export_saved = Panel files saved in {directory}: {files}
 
 # lib.rs capture
 status.capture.capture_failed_e = capture failed: {e}
@@ -1175,6 +1178,20 @@ settings.settings_tab.mm_gap = mm gap
 settings.settings_tab.mm_gap.tip = Empty space between neighbouring copies, room for cutting them apart later.
 settings.settings_tab.mm_rail = mm rail
 settings.settings_tab.mm_rail.tip = Solid border left around the edge of the panel, where the factory grips it.
+settings.settings_tab.panel_enabled = Save panel settings on this design
+settings.settings_tab.panel_enabled.tip = When on, the grid and separation you apply here are stored in the project and used for panel export files.
+settings.settings_tab.panel_separation = Separation
+settings.settings_tab.panel_separation.tip = How the factory separates copies: small tabs with mouse bites, or a V-shaped score line.
+settings.settings_tab.panel_separation_tab = Tab routing
+settings.settings_tab.panel_separation_tab.tip = Leave thin tabs between copies so the assembler can snap boards out after routing.
+settings.settings_tab.panel_separation_vscore = V-score
+settings.settings_tab.panel_separation_vscore.tip = Score a V groove between copies so the panel can be broken apart by hand.
+settings.settings_tab.panel_tab_channel_suffix = mm tab channel
+settings.settings_tab.panel_tab_channel.tip = Width of the routed gap for tab separation, typically 1.6 to 2.0 mm.
+settings.settings_tab.apply_panel_settings = Apply panel settings
+settings.settings_tab.apply_panel_settings.tip = Store the grid, rail, and separation on the design for export and the next time you open it.
+settings.settings_tab.export_panel_files = Export panel files
+settings.settings_tab.export_panel_files.tip = Write panel gerbers, drill, and pick-and-place into the make folder. Panel settings must be enabled and applied first.
 settings.settings_tab.preview_panel = Preview panel
 settings.settings_tab.preview_panel.tip = Work out the panel size and where every copy lands, using the board's own measurements. The design itself is left alone.
 settings.settings_tab.copies_copies_panel_width_height = {copies} copies · panel {width} × {height} mm
