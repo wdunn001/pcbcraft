@@ -19,13 +19,14 @@ pub struct ComplianceDeclaration {
     pub as_of: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ComplianceStatus {
     DeclaredCompliant,
     DeclaredExempt,
     DeclaredNoncompliant,
     NotApplicable,
+    #[default]
     Unknown,
 }
 
@@ -68,6 +69,14 @@ pub struct Compliance {
     pub declarations: Vec<ComplianceDeclaration>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub substances: Vec<DeclaredSubstance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub radio_bands_mhz: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radio_max_power_dbm: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radio_grant: Option<RadioGrant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silicon_vendor_country: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

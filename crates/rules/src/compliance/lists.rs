@@ -1,7 +1,8 @@
+//! Parsed compliance list snapshots bundled with the rules crate.
 use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct ListSnapshot {
+pub struct ListMeta {
     pub schema: u32,
     pub id: String,
     pub title: String,
@@ -10,70 +11,87 @@ pub struct ListSnapshot {
     pub retrieved: String,
     pub licence: String,
     pub cadence_days: u32,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub substances: Vec<SubstanceEntry>,
-    #[serde(default)]
-    pub exemptions: Vec<ExemptionEntry>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct SubstanceEntry {
-    pub cas: String,
+pub struct CoveredCountriesList {
+    #[serde(flatten)]
+    pub meta: ListMeta,
     #[serde(default)]
-    pub ec: String,
-    pub name: String,
+    pub countries: Vec<CoveredCountry>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CoveredCountry {
+    pub code: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct FrameworkList {
+    #[serde(flatten)]
+    pub meta: ListMeta,
+    #[serde(default)]
+    pub part_numbers: Vec<FrameworkPart>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct FrameworkPart {
+    pub mpn: String,
+    #[serde(default)]
+    pub role: String,
     pub added: String,
     #[serde(default)]
     pub citation: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct ExemptionEntry {
-    pub number: String,
+pub struct RadioBandsList {
+    #[serde(flatten)]
+    pub meta: ListMeta,
     #[serde(default)]
-    pub description: String,
-    pub expires: String,
-    #[serde(default)]
-    pub citation: String,
+    pub market: Vec<RadioMarket>,
 }
 
-impl ListSnapshot {
-    pub fn exemption_active(&self, number: &str, today: &str) -> bool {
-        self.exemptions.iter().any(|e| {
-            e.number == number && pcbcraft_doc::valid_date(&e.expires) && e.expires >= today
-        })
-    }
-
-    pub fn stale_for_cadence(&self, today: &str) -> bool {
-        if !pcbcraft_doc::valid_date(&self.retrieved) || !pcbcraft_doc::valid_date(today) {
-            return false;
-        }
-        let days = self.cadence_days as i64;
-        let retrieved = parse_day(&self.retrieved);
-        let now = parse_day(today);
-        now - retrieved > days
-    }
+#[derive(Clone, Debug, Deserialize)]
+pub struct RadioMarket {
+    pub code: String,
+    pub bands_mhz: Vec<[f64; 2]>,
 }
 
-fn parse_day(text: &str) -> i64 {
-    let y: i64 = text[0..4].parse().unwrap_or(0);
-    let m: i64 = text[5..7].parse().unwrap_or(0);
-    let d: i64 = text[8..10].parse().unwrap_or(0);
-    y * 372 + m * 31 + d
+pub fn parse_covered_countries(text: &str) -> Result<CoveredCountriesList, String> {
+    toml::from_str(text).map_err(|e| e.to_string())
 }
 
-pub fn load_list_snapshot(toml_text: &str) -> Result<ListSnapshot, String> {
-    let snap: ListSnapshot = toml::from_str(toml_text).map_err(|e| e.to_string())?;
-    if snap.schema != 1 {
-        return Err(format!("unsupported list snapshot schema {}", snap.schema));
+pub fn parse_framework(text: &str) -> Result<FrameworkList, String> {
+    toml::from_str(text).map_err(|e| e.to_string())
+}
+
+pub fn parse_radio_bands(text: &str) -> Result<RadioBandsList, String> {
+    toml::from_str(text).map_err(|e| e.to_string())
+}
+
+pub fn country_covered(list: &CoveredCountriesList, code: &str) -> bool {
+    list.countries
+        .iter()
+        .any(|c| c.code.eq_ignore_ascii_case(code))
+}
+
+pub fn framework_entry(list: &FrameworkList, mpn: &str) -> Option<&FrameworkPart> {
+    list.part_numbers
+        .iter()
+        .find(|p| p.mpn.eq_ignore_ascii_case(mpn))
+}
+
+pub fn band_allowed(list: &RadioBandsList, markets: &[String], mhz: f64) -> bool {
+    if markets.is_empty() {
+        return true;
     }
-    if snap.id.is_empty() || snap.source_url.is_empty() || snap.licence.is_empty() {
-        return Err("list snapshot missing required metadata".into());
-    }
-    if !pcbcraft_doc::valid_date(&snap.retrieved) {
-        return Err("list snapshot retrieved date is invalid".into());
-    }
-    Ok(snap)
+    markets.iter().any(|market| {
+        list.market
+            .iter()
+            .find(|m| m.code.eq_ignore_ascii_case(market))
+            .is_some_and(|m| m.bands_mhz.iter().any(|b| mhz >= b[0] && mhz <= b[1]))
+    })
 }

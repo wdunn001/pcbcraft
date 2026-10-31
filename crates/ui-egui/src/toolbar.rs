@@ -28,6 +28,9 @@ enum Act {
     Move,
     PlacePart,
     Wire,
+    NetLabel,
+    PowerLabel,
+    Bus,
     NoConnect,
     Port,
     Route,
@@ -206,6 +209,39 @@ impl App {
                 false,
             );
             push(
+                "tool-label",
+                "label",
+                "Label",
+                "Place a local net label on a wire or pin.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local)
+                ),
+                Act::NetLabel,
+                false,
+            );
+            push(
+                "tool-power",
+                "power",
+                "Power",
+                "Place a power port label on a wire or pin.".to_string(),
+                matches!(
+                    self.tool,
+                    Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power)
+                ),
+                Act::PowerLabel,
+                false,
+            );
+            push(
+                "tool-bus",
+                "bus",
+                "Bus",
+                "Draw a named bus across two or more points.".to_string(),
+                matches!(self.tool, Tool::Bus),
+                Act::Bus,
+                false,
+            );
+            push(
                 "tool-noconnect",
                 "no-connect",
                 t!("board.tool_strip.no_connect"),
@@ -376,7 +412,20 @@ impl App {
             Act::Select => self.tool = Tool::Select,
             Act::Move => self.tool = Tool::Move,
             Act::PlacePart => self.open_part_search(),
-            Act::Wire => self.tool = Tool::Wire(None),
+            Act::Wire => self.arm_wire_tool(),
+            Act::NetLabel => {
+                self.clear_wire_draft();
+                self.tool = Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Local);
+            }
+            Act::PowerLabel => {
+                self.clear_wire_draft();
+                self.tool = Tool::SchematicLabel(wire_canvas::SchematicLabelKind::Power);
+            }
+            Act::Bus => {
+                self.clear_wire_draft();
+                self.bus_draft.clear();
+                self.tool = Tool::Bus;
+            }
             Act::NoConnect => self.tool = Tool::NoConnect,
             Act::Port => self.tool = Tool::Port,
             Act::Route => self.tool = Tool::Route(None),
