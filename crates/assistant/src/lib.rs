@@ -10,6 +10,7 @@ mod http;
 mod prompt;
 mod script;
 mod store;
+mod stream;
 mod text;
 mod tool_names;
 mod transcript;
@@ -21,8 +22,9 @@ pub use api::{
     key_safe_for, model_list, openai_tools, test_anthropic_endpoint, test_endpoint,
 };
 pub use backend::{
-    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, ModelInfo, PermissionOption,
-    PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
+    AuthKind, AuthMethod, ChatBackend, Event, HttpFn, HttpRequest, HttpStreamPart, ModelInfo,
+    PermissionOption, PromptPart, Secrets, StartContext, ToolStatus, base64, content_blocks,
+    deliver_streamed_body,
 };
 pub use connections::{Connection, PRESETS, Preset, config_for, key_id, new_id, normalize_url};
 pub use context::{Context, MAX_NOTE, MAX_PICTURE_BYTES, Selection, Sent, note, picture};

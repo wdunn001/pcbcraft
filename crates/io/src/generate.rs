@@ -24,7 +24,7 @@ use crate::{
     bom_csv, cmp_text, drill_chart_csv, dxf_board, gencad_text, gerber_files, hpgl_plot,
     hyperlynx_csv, idf_board, ipc356_netlist, ipc2581_text, netlist_text, odb_package,
     pdf_document, placement_text, plot_csv, postscript, report_text, specctra_dsn, stackup_text,
-    stats_text, step_board, svg, vrml_board,
+    stats_text, step_board, svg, testpoints_csv, vrml_board,
 };
 
 /// What one artifact produces: one text file, one binary file, or a named set
@@ -53,7 +53,9 @@ pub enum GeneratedOutput {
 /// output job entry, so old files keep exporting the same outputs.
 ///
 /// # Rules
-/// - Runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Artifacts: runs only when `artifacts` is empty and `output_jobs` is not.
+/// - Sourcing: copies free-form `MPN`, `Manufacturer`, `Description` and supplier number
+///   fields into the typed record (`Project::adopt_free_form_sourcing`); originals stay.
 /// - Ids start above the highest id in use.
 ///
 /// # Dependencies
@@ -66,6 +68,7 @@ pub fn migrate_loaded_project(project: &mut Project) -> Result<(), String> {
         let mut next = project.ids().max().unwrap_or(0).saturating_add(1);
         project.migrate_output_jobs_to_artifacts(&mut next)?;
     }
+    project.adopt_free_form_sourcing();
     Ok(())
 }
 
@@ -162,6 +165,7 @@ fn package_from_path(p: &Project, artifact: &Artifact) -> Result<GeneratedOutput
         "board.step" => text_output(step_board(p)?),
         "pcb.dsn" => text_output(specctra_dsn(p)?),
         "test.brd" => text_output(ipc356_netlist(p)?),
+        "testpoints.csv" => text_output(testpoints_csv(p)?),
         "board.gencad" => text_output(gencad_text(p)?),
         "netlist.csv" => text_output(hyperlynx_csv(p)?),
         "plot-report.csv" => text_output(plot_csv(p)?),

@@ -6,7 +6,7 @@
 //! replies are read up to [`MAX_REPLY`] bytes; error text never includes request headers.
 //! Do not: log a request, a header or a key.
 
-use pcbcraft_assistant::{HttpFn, HttpRequest, Secrets};
+use pcbcraft_assistant::{HttpFn, HttpRequest, Secrets, deliver_streamed_body};
 use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
@@ -46,6 +46,23 @@ fn send(agent: &ureq::Agent, request: &HttpRequest) -> Result<(u16, Vec<u8>), St
         Err(e) => return Err(transport_error(&e)),
     };
     let status = response.status();
+    if let Some(out) = &request.stream_out {
+        let mut reader = response.into_reader().take(MAX_REPLY);
+        let mut buf = [0u8; 8192];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    out.send(Ok(pcbcraft_assistant::HttpStreamPart::Chunk(
+                        buf[..n].to_vec(),
+                    )))
+                    .map_err(|_| "The stream ended early.".to_string())?;
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        return deliver_streamed_body(out, status, &[]);
+    }
     let mut body = Vec::new();
     response
         .into_reader()

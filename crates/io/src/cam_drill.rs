@@ -747,24 +747,13 @@ fn empty_drill(profile: &CamProfile) -> Result<String, String> {
 }
 
 fn board_outline_ring(p: &Project) -> Vec<Point> {
-    match &p.board.outline {
-        Some(o) if o.len() >= 3 => {
-            let mut ring = o.clone();
-            if ring.first() != ring.last()
-                && let Some(first) = ring.first().copied()
-            {
-                ring.push(first);
-            }
-            ring
-        }
-        _ => vec![
-            Point::new(0.0, 0.0),
-            Point::new(p.board.width, 0.0),
-            Point::new(p.board.width, p.board.height),
-            Point::new(0.0, p.board.height),
-            Point::new(0.0, 0.0),
-        ],
+    let mut ring = crate::board_edge::flat_ring(p, pcbcraft_doc::VALIDATION_CHORD_ERROR);
+    if ring.first() != ring.last()
+        && let Some(first) = ring.first().copied()
+    {
+        ring.push(first);
     }
+    ring
 }
 
 fn offset_ring(points: &[Point], distance: f64) -> Vec<Point> {
@@ -1050,6 +1039,7 @@ mod tests {
             from_layer: None,
             to_layer: None,
             covering: None,
+            covering_bottom: None,
         });
         p.board.holes.push(Hole {
             id: 2,
