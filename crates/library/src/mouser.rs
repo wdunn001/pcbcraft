@@ -2,10 +2,10 @@
 
 use crate::credentials::{self, KeyStore};
 use crate::http_client::{HttpClient, HttpError, HttpRequest};
-use crate::rate_limit::{SystemClock, TokenBucket, rate_limited, Clock};
+use crate::rate_limit::{Clock, SystemClock, TokenBucket, rate_limited};
 use crate::sources::{
-    Attribution, PartResult, PartSource, PriceBreak, SetupCard, SourceError, check_query,
-    DEFAULT_CACHE_SECS,
+    Attribution, DEFAULT_CACHE_SECS, PartResult, PartSource, PriceBreak, SetupCard, SourceError,
+    check_query,
 };
 use serde::Deserialize;
 use std::sync::{Arc, Mutex};
