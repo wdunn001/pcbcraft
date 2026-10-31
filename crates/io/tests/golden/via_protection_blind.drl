@@ -1,0 +1,14 @@
+M48
+Plated,1,2,Blind
+FMAT,2
+METRIC,TZ
+; #@! TA.DrillTolerance,0.050,0.050
+; #@! TA.AperFunction,Plated,PTH,ViaDrill,Ia
+T1C0.150
+; #@! TD
+%
+G90
+G05
+T1
+X18.000Y10.000
+M30
