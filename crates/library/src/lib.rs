@@ -15,7 +15,9 @@ mod footprint_check;
 mod footprint_generate;
 pub mod model_transform;
 mod footprint_pad_outline;
+pub mod firmware_design;
 pub mod listing;
+pub mod mcu;
 pub mod listing_adapters;
 pub mod listing_search;
 pub mod online_import;
@@ -561,6 +563,9 @@ pub struct Model3D {
     pub scale: [f64; 3],
     #[serde(default)]
     pub rotate: [f64; 3],
+    /// Component name inside a SolidCraft project, when the file holds more than one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cad_part: Option<String>,
     pub raw_source: String,
 }
 fn unit_scale() -> [f64; 3] {

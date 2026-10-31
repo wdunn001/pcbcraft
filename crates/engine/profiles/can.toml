@@ -1,16 +1,57 @@
-schema = 1
+schema = 2
+
+[record]
+kind = "interface_profile"
+license = "MIT"
+source = "PCBCraft built-in interface profiles"
 
 [profile]
 id = "can"
 name = "CAN bus"
 category = "interface"
-summary = "CAN bus rule starting points."
+summary = "Differential CAN_H and CAN_L with termination at bus ends."
+
+[bus]
+name = "CAN"
+schematic_type = "CAN"
+
+[bus.limits]
+edge_rate_band = "high_speed"
+impedance_ohm = 120.0
+impedance_tolerance_percent = 10.0
+reference_plane = "required"
+
+[[signal]]
+name = "CAN_H"
+pattern = "*CAN_H*"
+electrical_class = "differential"
+
+[[signal]]
+name = "CAN_L"
+pattern = "*CAN_L*"
+electrical_class = "differential"
 
 [[net_class]]
-name = "SIG"
+name = "CAN"
 clearance = 0.15
 width = 0.2
-patterns = ["*"]
+patterns = ["CAN_*", "*CAN_H*", "*CAN_L*"]
+
+[[companion]]
+role = "termination"
+value_min = 110.0
+value_max = 130.0
+unit = "ohm"
+source = "ISO 11898-2:2016 section 6.3 (120 ohm nominal bus termination)"
+nets = ["CAN_H", "CAN_L"]
+
+[[check]]
+name = "can_termination"
+params = { role = "termination" }
+
+[[value_source]]
+field = "bus.limits.impedance_ohm"
+source = "ISO 11898-2:2016 section 6.3 (120 ohm nominal characteristic impedance)"
 
 [[value_source]]
 field = "net_class.width"

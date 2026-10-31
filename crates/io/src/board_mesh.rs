@@ -1748,6 +1748,7 @@ covering_scope: None,
                     electrical_type: "passive".into(),
                     direction: None,
                     unit: 1,
+                    appearances: vec![],
                 })
                 .collect(),
             units: vec![],
@@ -1802,6 +1803,7 @@ instance: None,
             offset,
             scale: [scale; 3],
             rotate,
+            cad_part: None,
             raw_source: String::new(),
         }
     }
