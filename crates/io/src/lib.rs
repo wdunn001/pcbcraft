@@ -11024,6 +11024,138 @@ assert!(
         assert!(text.ends_with("</EDA3D>\n"), "the document closes cleanly");
         Ok(())
     }
+
+    fn ipc2581_attr(line: &str, name: &str) -> Result<f64, String> {
+        let needle = format!("{name}=\"");
+        let start = line
+            .find(&needle)
+            .ok_or_else(|| format!("missing {name}"))?;
+        let rest = &line[start + needle.len()..];
+        let end = rest.find('"').ok_or_else(|| format!("unclosed {name}"))?;
+        rest[..end].parse().map_err(|_| format!("invalid {name}"))
+    }
+
+    fn ipc2581_exported_track_length_mm(text: &str) -> Result<f64, String> {
+        if let Some(line) = text.lines().find(|l| l.starts_with("<TRACK ")) {
+            let sx = ipc2581_attr(line, "start_x")?;
+            let sy = ipc2581_attr(line, "start_y")?;
+            let ex = ipc2581_attr(line, "end_x")?;
+            let ey = ipc2581_attr(line, "end_y")?;
+            if line.contains("center_x=\"") {
+                let cx = ipc2581_attr(line, "center_x")?;
+                let cy = ipc2581_attr(line, "center_y")?;
+                let clockwise = line.contains("clockwise=\"true\"");
+                let start = Point::new(sx, sy);
+                let end = Point::new(ex, ey);
+                let center = Point::new(cx, cy);
+                let radius = start.distance(center);
+                if !pcbcraft_geom::positive(radius) {
+                    return Err("arc radius is missing".into());
+                }
+                let a0 = (start.y - center.y).atan2(start.x - center.x);
+                let a1 = (end.y - center.y).atan2(end.x - center.x);
+                let mut sweep = a1 - a0;
+                if clockwise {
+                    while sweep >= 0.0 {
+                        sweep -= std::f64::consts::TAU;
+                    }
+                } else {
+                    while sweep <= 0.0 {
+                        sweep += std::f64::consts::TAU;
+                    }
+                }
+                return Ok(radius * sweep.abs());
+            }
+            return Ok(Point::new(sx, sy).distance(Point::new(ex, ey)));
+        }
+        let start = text.find("<TRACK_POLYLINE ").ok_or("no track in export")?;
+        let end = text[start..]
+            .find("</TRACK_POLYLINE>")
+            .ok_or("polyline track is unclosed")?
+            + start;
+        let block = &text[start..end];
+        let mut vertices = Vec::new();
+        for line in block.lines() {
+            if line.starts_with("<VERTEX ") {
+                vertices.push(Point::new(
+                    ipc2581_attr(line, "x")?,
+                    ipc2581_attr(line, "y")?,
+                ));
+            }
+        }
+        if vertices.len() < 2 {
+            return Err("polyline track needs at least two vertices".into());
+        }
+        Ok(vertices.windows(2).map(|w| w[0].distance(w[1])).sum())
+    }
+
+    #[test]
+    fn ipc2581_text_keeps_arc_track_length_within_one_micrometre() -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "ARC".into(),
+            ..Default::default()
+        });
+        let track = pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(10.0, 10.0),
+            end: Point::new(20.0, 10.0),
+            width: 0.2,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(15.0, 12.0)),
+        };
+        project.board.tracks.push(track.clone());
+        project.validate()?;
+        let arc = track.curve().ok_or("track has no arc")?;
+        let text = ipc2581_text(&project)?;
+        assert!(
+            text.contains(&format!("center_x=\"{:.3}\"", arc.center.x))
+                && text.contains(&format!("center_y=\"{:.3}\"", arc.center.y))
+                && text.contains("clockwise=\"true\""),
+            "the exchange file keeps the arc centre and sweep direction"
+        );
+        let exported = ipc2581_exported_track_length_mm(&text)?;
+        let expected = track.length();
+        assert!(
+            (exported - expected).abs() <= 0.001,
+            "re-read length {exported} mm should match the arc {expected} mm"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_newcomer_exports_a_curved_board_and_finds_the_arc_in_the_assembly_file()
+    -> Result<(), String> {
+        let mut project = Project::default();
+        project.nets.push(pcbcraft_doc::Net {
+            id: 1,
+            name: "SIG".into(),
+            ..Default::default()
+        });
+        project.board.tracks.push(pcbcraft_doc::Track {
+            id: 2,
+            net: 1,
+            start: Point::new(5.0, 5.0),
+            end: Point::new(15.0, 5.0),
+            width: 0.25,
+            layer: pcbcraft_doc::Layer::Front,
+            arc: Some(Point::new(10.0, 8.0)),
+        });
+        project.validate()?;
+        let assembly = ipc2581_text(&project)?;
+        assert!(
+            assembly.contains("<TRACK ") && assembly.contains("center_x="),
+            "the assembly exchange lists the curved track as an arc"
+        );
+        assert!(
+            assembly.contains("<LAYER name=\"circuit0\" copper=\"F.Cu\">"),
+            "front copper stays in the assembly layer section"
+        );
+        Ok(())
+    }
+
     #[test]
     fn idf_board_carries_size_and_placed_footprints_for_mechanical_tools() -> Result<(), String> {
         let mut project = Project::default();
@@ -12060,6 +12192,13 @@ assert!(
         assert!(
             dxf.contains("0\nARC") && dxf.contains("40\n7.250"),
             "the DXF drawing carries an ARC entity"
+        );
+        let arc = project.board.tracks[0].curve().ok_or("track has no arc")?;
+        let ipc = ipc2581_text(&project)?;
+        assert!(
+            ipc.contains(&format!("center_x=\"{:.3}\"", arc.center.x))
+                && ipc.contains(&format!("center_y=\"{:.3}\"", arc.center.y)),
+            "the assembly exchange keeps the arc centre instead of flattening to a chord"
         );
         Ok(())
     }
