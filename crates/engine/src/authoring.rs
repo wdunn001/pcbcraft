@@ -846,13 +846,14 @@ pub(super) fn run(
                 Error::Invalid("footprint has no 3D model to transform".into())
             })?;
             apply_model_transform(model, &a)?;
-            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
-            Ok(json!({
+            let applied = json!({
                 "name": a.name,
                 "offset": model.offset,
                 "scale": model.scale,
                 "rotate": model.rotate,
-            }))
+            });
+            def.validate().map_err(|e| Error::Invalid(e.to_string()))?;
+            Ok(applied)
         }
         "library.footprint.clear_model" => {
             let a: Name = parse(params)?;

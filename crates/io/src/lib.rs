@@ -9980,6 +9980,7 @@ mod tests {
                     },
                 }),
                 fields: vec![],
+                sourcing: Default::default(),
             });
         }
         project.board.footprints.push(pcbcraft_doc::Footprint {
